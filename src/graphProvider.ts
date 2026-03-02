@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 
 const MAX_OUTPUT_BYTES = 100 * 1024 * 1024; // 100 MB guard
 const ANALYSIS_TIMEOUT_MS = 60_000;
@@ -47,7 +48,12 @@ export class GraphProvider {
       'cograph',
       'CoGraph',
       vscode.ViewColumn.Beside,
-      { enableScripts: true }
+      {
+        enableScripts: true,
+        localResourceRoots: [
+          vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview'),
+        ],
+      }
     );
 
     this.panel.onDidDispose(() => {
@@ -246,8 +252,45 @@ export class GraphProvider {
   }
 
   private getWebviewHtml(webview: vscode.Webview): string {
-    const webviewDir = path.join(this.context.extensionPath, 'src', 'webview');
-    const htmlPath = path.join(webviewDir, 'index.html');
-    return fs.readFileSync(htmlPath, 'utf8');
+    const webviewDir = vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview');
+    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
+    const nonce = crypto.randomUUID();
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none';
+             script-src 'nonce-${nonce}' https://cdnjs.cloudflare.com;
+             style-src 'unsafe-inline';
+             img-src ${webview.cspSource} data:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CoGraph</title>
+  <script nonce="${nonce}"
+    src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { display: flex; flex-direction: column; height: 100vh;
+           background: var(--vscode-editor-background);
+           color: var(--vscode-editor-foreground);
+           font-family: var(--vscode-font-family); }
+    #controls { padding: 8px; border-bottom: 1px solid var(--vscode-panel-border); }
+    #search { width: 100%; padding: 4px 8px;
+              background: var(--vscode-input-background);
+              color: var(--vscode-input-foreground);
+              border: 1px solid var(--vscode-input-border);
+              border-radius: 4px; font-size: 13px; }
+    #cy { flex: 1; width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <input id="search" type="text" placeholder="Filter functions..." />
+  </div>
+  <div id="cy"></div>
+  <script nonce="${nonce}" src="${scriptUri}"></script>
+</body>
+</html>`;
   }
 }

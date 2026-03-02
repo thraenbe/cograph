@@ -1,10 +1,5 @@
-declare function acquireVsCodeApi(): {
-  postMessage(message: unknown): void;
-};
-
 const vscode = acquireVsCodeApi();
-
-let cy: cytoscape.Core | undefined;
+let cy;
 
 window.addEventListener('message', (event) => {
   const message = event.data;
@@ -13,7 +8,7 @@ window.addEventListener('message', (event) => {
   }
 });
 
-function renderGraph(data: { nodes: GraphNode[]; edges: GraphEdge[] }) {
+function renderGraph(data) {
   cy = cytoscape({
     container: document.getElementById('cy'),
     elements: {
@@ -65,22 +60,10 @@ function renderGraph(data: { nodes: GraphNode[]; edges: GraphEdge[] }) {
 }
 
 document.getElementById('search')?.addEventListener('input', (e) => {
-  const query = (e.target as HTMLInputElement).value.toLowerCase();
+  const query = e.target.value.toLowerCase();
   if (!cy) return;
   cy.nodes().forEach((node) => {
     const visible = node.data('label').toLowerCase().includes(query);
     node.style('display', visible ? 'element' : 'none');
   });
 });
-
-interface GraphNode {
-  id: string;
-  name: string;
-  file: string;
-  line: number;
-}
-
-interface GraphEdge {
-  source: string;
-  target: string;
-}

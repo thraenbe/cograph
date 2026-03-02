@@ -1,0 +1,29 @@
+1. A VS CODE PLUGIN -> A graph based visualization of python projects where the Nodes represent functions and Edges the connections between the functions.
+1.1 As a Benchmark for testing the functionality the following Python Projects will be used: 
+NumPy
+Requests
+Pandas
+Matplotlib
+Scikit-learn
+TensorFlow
+PyTorch
+Django
+Flask
+Pillow
+SciPy
+SQLAlchemy
+Pytest
+Celery
+FastAPI
+Boto3
+Pydantic
+Beautiful Soup
+Scrapy
+OpenCV
+Keras
+Selenium
+Cryptography
+NLTK
+Airflow
+ 
+2. After Visualization an Interaktive View will follow, where clicking a node will bring you to the regarding function 

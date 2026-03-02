@@ -5,13 +5,125 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CoGraph</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="controls">
-    <input id="search" type="text" placeholder="Filter functions..." />
-  </div>
   <div id="cy"></div>
+  <button id="settings-btn" title="Settings">&#9881;</button>
+  <div id="settings-panel">
+
+    <div class="panel-section">
+      <h4>Filters</h4>
+      <input id="search" type="text" placeholder="Filter functions..." />
+      <div class="toggle-row">
+        <span>Existing files only</span>
+        <label class="switch">
+          <input type="checkbox" id="toggle-existing" />
+          <span class="pill"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span>Show Orphans</span>
+        <label class="switch">
+          <input type="checkbox" id="toggle-orphans" checked />
+          <span class="pill"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h4>Groups</h4>
+      <div class="toggle-row">
+        <span>Group by File Structure</span>
+        <label class="switch">
+          <input type="checkbox" id="toggle-group-file" />
+          <span class="pill"></span>
+        </label>
+      </div>
+      <div class="toggle-row stub" title="Coming soon">
+        <span>Group by Inheritance</span>
+        <label class="switch">
+          <input type="checkbox" id="toggle-group-inherit" disabled />
+          <span class="pill"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span>Group by Flow (L&#8594;R)</span>
+        <label class="switch">
+          <input type="checkbox" id="toggle-group-flow" />
+          <span class="pill"></span>
+        </label>
+      </div>
+      <button id="btn-new-group" disabled>+ Create new Group</button>
+    </div>
+
+    <div class="panel-section">
+      <h4>Display</h4>
+      <div class="toggle-row">
+        <span>Arrows</span>
+        <label class="switch">
+          <input type="checkbox" id="toggle-arrows" checked />
+          <span class="pill"></span>
+        </label>
+      </div>
+      <div class="slider-row">
+        <div class="slider-header">
+          <label for="slider-text-fade">Text Fade Threshold</label>
+          <span id="val-text-fade">0.5</span>
+        </div>
+        <input type="range" id="slider-text-fade" min="0" max="2" step="0.1" value="0.5" />
+      </div>
+      <div class="slider-row">
+        <div class="slider-header">
+          <label for="slider-node-size">Node Size</label>
+          <span id="val-node-size">1</span>
+        </div>
+        <input type="range" id="slider-node-size" min="0.5" max="3" step="0.1" value="1" />
+      </div>
+      <div class="slider-row">
+        <div class="slider-header">
+          <label for="slider-link-thickness">Link Thickness</label>
+          <span id="val-link-thickness">1</span>
+        </div>
+        <input type="range" id="slider-link-thickness" min="1" max="8" step="0.5" value="1" />
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h4>Forces</h4>
+      <div class="slider-row">
+        <div class="slider-header">
+          <label for="slider-center-force">Center Force</label>
+          <span id="val-center-force">0.1</span>
+        </div>
+        <input type="range" id="slider-center-force" min="0" max="1" step="0.01" value="0.1" />
+      </div>
+      <div class="slider-row">
+        <div class="slider-header">
+          <label for="slider-repel-force">Repel Force</label>
+          <span id="val-repel-force">2048</span>
+        </div>
+        <input type="range" id="slider-repel-force" min="256" max="8192" step="64" value="2048" />
+      </div>
+      <div class="slider-row">
+        <div class="slider-header">
+          <label for="slider-link-force">Link Force</label>
+          <span id="val-link-force">1</span>
+        </div>
+        <input type="range" id="slider-link-force" min="0.1" max="2" step="0.1" value="1" />
+      </div>
+      <div class="slider-row">
+        <div class="slider-header">
+          <label for="slider-link-distance">Link Distance</label>
+          <span id="val-link-distance">80</span>
+        </div>
+        <input type="range" id="slider-link-distance" min="20" max="300" step="10" value="80" />
+      </div>
+    </div>
+
+  </div>
   <script src="main.js"></script>
 </body>
 </html>

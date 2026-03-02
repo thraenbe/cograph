@@ -70,7 +70,7 @@ def collect_calls(root: str, definitions: dict) -> list[dict]:
                 for child in ast.walk(func_node):
                     if not isinstance(child, ast.Call):
                         continue
-                    callee_name = _extract_name(child.func)
+                    callee_name = _bare_name(child.func) or _method_name(child.func)
                     if callee_name and callee_name in name_to_ids:
                         for callee_id in name_to_ids[callee_name]:
                             key = (caller_id, callee_id)
@@ -80,12 +80,22 @@ def collect_calls(root: str, definitions: dict) -> list[dict]:
     return edges
 
 
-def _extract_name(node: ast.expr) -> str | None:
+def _bare_name(node: ast.expr) -> str | None:
+    """Direct calls only: foo()"""
     if isinstance(node, ast.Name):
         return node.id
-    if isinstance(node, ast.Attribute):
-        return node.attr
     return None
+
+
+def _method_name(node: ast.expr) -> str | None:
+    """self.foo() and cls.foo() only — not arbitrary obj.foo()"""
+    if not isinstance(node, ast.Attribute):
+        return None
+    if not isinstance(node.value, ast.Name):
+        return None
+    if node.value.id not in ('self', 'cls'):
+        return None
+    return node.attr
 
 
 def main():

@@ -3,6 +3,9 @@ import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 
+const MAX_OUTPUT_BYTES = 100 * 1024 * 1024; // 100 MB guard
+const ANALYSIS_TIMEOUT_MS = 60_000;
+
 interface GraphNode {
   id: string;
   name: string;
@@ -61,34 +64,109 @@ export class GraphProvider {
     this.runAnalyzer(workspaceRoot);
   }
 
-  private runAnalyzer(workspaceRoot: string) {
+  /** Try `python3` then `python`; return first working binary or null. */
+  resolvePythonBin(): string | null {
+    for (const bin of ['python3', 'python']) {
+      try {
+        cp.execFileSync(bin, ['--version'], { timeout: 3000 });
+        return bin;
+      } catch {
+        // try next
+      }
+    }
+    return null;
+  }
+
+  /** Show error in the panel (if alive) and as a VS Code notification. */
+  private showError(message: string): void {
+    if (this.panel) {
+      this.panel.webview.html = this.getErrorHtml(message);
+    }
+    vscode.window.showErrorMessage(message);
+  }
+
+  /** Parse stdout, guard empty graphs, and post the graph message. */
+  private handleAnalysisResult(stdout: string): void {
+    if (!this.panel) {
+      return;
+    }
+
+    let graph: GraphData;
+    try {
+      graph = JSON.parse(stdout);
+    } catch {
+      this.showError('CoGraph: Failed to parse graph data.');
+      return;
+    }
+
+    if (graph.nodes.length === 0) {
+      this.panel.webview.html = this.getEmptyStateHtml();
+      return;
+    }
+
+    const webviewHtml = this.getWebviewHtml(this.panel.webview);
+    this.panel.webview.html = webviewHtml;
+
+    // Delay postMessage so webview JS is fully initialised before the data arrives.
+    setTimeout(() => {
+      this.panel?.webview.postMessage({ type: 'graph', data: graph });
+    }, 150);
+  }
+
+  private runAnalyzer(workspaceRoot: string): void {
+    const pythonBin = this.resolvePythonBin();
+    if (!pythonBin) {
+      this.showError('CoGraph: Python not found. Install Python 3 and ensure it is on PATH.');
+      return;
+    }
+
     const scriptPath = path.join(this.context.extensionPath, 'scripts', 'analyze.py');
-    const proc = cp.spawn('python3', [scriptPath, workspaceRoot]);
+    const proc = cp.spawn(pythonBin, [scriptPath, workspaceRoot]);
 
     let stdout = '';
+    let stdoutBytes = 0;
     let stderr = '';
+    let timedOut = false;
 
-    proc.stdout.on('data', (chunk) => { stdout += chunk; });
-    proc.stderr.on('data', (chunk) => { stderr += chunk; });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      proc.kill();
+      this.showError(`CoGraph: Analysis timed out after ${ANALYSIS_TIMEOUT_MS / 1000}s.`);
+    }, ANALYSIS_TIMEOUT_MS);
 
-    proc.on('close', (code) => {
+    proc.stdout.on('data', (chunk: Buffer) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > MAX_OUTPUT_BYTES) {
+        proc.kill();
+        this.showError('CoGraph: Analysis output too large (> 100 MB). Try a smaller workspace.');
+        return;
+      }
+      stdout += chunk.toString();
+    });
+
+    proc.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    proc.on('error', (err: Error) => {
+      clearTimeout(timer);
+      this.showError(`CoGraph: Failed to start Python — ${err.message}`);
+    });
+
+    proc.on('close', (code: number | null) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        return; // already handled above
+      }
+      if (stdoutBytes > MAX_OUTPUT_BYTES) {
+        return; // already handled above
+      }
       if (code !== 0) {
-        vscode.window.showErrorMessage(`CoGraph: Analysis failed.\n${stderr}`);
+        const detail = stderr.slice(0, 500);
+        this.showError(`CoGraph: Analysis failed (exit ${code}).\n${detail}`);
         return;
       }
-
-      let graph: GraphData;
-      try {
-        graph = JSON.parse(stdout);
-      } catch {
-        vscode.window.showErrorMessage('CoGraph: Failed to parse graph data.');
-        return;
-      }
-
-      this.panel?.webview.postMessage({ type: 'graph', data: graph });
-      if (this.panel) {
-        this.panel.webview.html = this.getWebviewHtml(this.panel.webview);
-      }
+      this.handleAnalysisResult(stdout);
     });
   }
 
@@ -101,7 +179,70 @@ export class GraphProvider {
   }
 
   private getLoadingHtml(): string {
-    return `<!DOCTYPE html><html><body><p>Analyzing project...</p></body></html>`;
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { display:flex; align-items:center; justify-content:center; height:100vh; margin:0;
+         background:var(--vscode-editor-background); color:var(--vscode-editor-foreground); font-family:sans-serif; }
+  .spinner { width:40px; height:40px; border:4px solid transparent;
+             border-top-color:var(--vscode-focusBorder); border-radius:50%; animation:spin 0.8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  p { margin-top:16px; }
+</style>
+</head>
+<body>
+  <div style="text-align:center">
+    <div class="spinner"></div>
+    <p>Analyzing project…</p>
+  </div>
+</body>
+</html>`;
+  }
+
+  private getEmptyStateHtml(): string {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { display:flex; align-items:center; justify-content:center; height:100vh; margin:0;
+         background:var(--vscode-editor-background); color:var(--vscode-editor-foreground); font-family:sans-serif; }
+</style>
+</head>
+<body>
+  <div style="text-align:center">
+    <div style="font-size:48px">&#x2205;</div>
+    <p>No Python functions found in this workspace.</p>
+  </div>
+</body>
+</html>`;
+  }
+
+  private getErrorHtml(message: string): string {
+    const escaped = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { display:flex; align-items:center; justify-content:center; height:100vh; margin:0;
+         background:var(--vscode-editor-background); font-family:sans-serif; }
+  .box { max-width:600px; padding:24px; border-radius:6px;
+         background:var(--vscode-inputValidation-errorBackground,#5a1d1d);
+         color:var(--vscode-errorForeground,#f48771); }
+  .icon { font-size:32px; }
+  pre { white-space:pre-wrap; word-break:break-word; margin:8px 0 0; font-size:13px; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="icon">&#x26A0;</div>
+    <pre>${escaped}</pre>
+  </div>
+</body>
+</html>`;
   }
 
   private getWebviewHtml(webview: vscode.Webview): string {

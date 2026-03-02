@@ -4,6 +4,8 @@ declare function acquireVsCodeApi(): {
 
 const vscode = acquireVsCodeApi();
 
+const NODE_RENDER_LIMIT = 500;
+
 let cy: cytoscape.Core | undefined;
 
 window.addEventListener('message', (event) => {
@@ -14,6 +16,39 @@ window.addEventListener('message', (event) => {
 });
 
 function renderGraph(data: { nodes: GraphNode[]; edges: GraphEdge[] }) {
+  if (data.nodes.length > NODE_RENDER_LIMIT) {
+    showLargeGraphWarning(data.nodes.length, data.edges.length, data);
+    return;
+  }
+  renderCytoscape(data);
+}
+
+function showLargeGraphWarning(
+  nodeCount: number,
+  edgeCount: number,
+  data: { nodes: GraphNode[]; edges: GraphEdge[] }
+) {
+  const cyEl = document.getElementById('cy');
+  if (!cyEl) {
+    return;
+  }
+  cyEl.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;font-family:sans-serif;padding:24px;box-sizing:border-box">
+      <div style="font-size:48px">&#x26A0;</div>
+      <p style="margin:0;font-size:15px;text-align:center">
+        This graph has <strong>${nodeCount}</strong> nodes and <strong>${edgeCount}</strong> edges —
+        rendering may freeze VS Code.
+      </p>
+      <button id="render-anyway" style="padding:8px 20px;cursor:pointer;font-size:14px">
+        Render anyway
+      </button>
+    </div>`;
+  document.getElementById('render-anyway')?.addEventListener('click', () => {
+    renderCytoscape(data);
+  });
+}
+
+function renderCytoscape(data: { nodes: GraphNode[]; edges: GraphEdge[] }) {
   cy = cytoscape({
     container: document.getElementById('cy'),
     elements: {
@@ -64,13 +99,22 @@ function renderGraph(data: { nodes: GraphNode[]; edges: GraphEdge[] }) {
   });
 }
 
+let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+
 document.getElementById('search')?.addEventListener('input', (e) => {
-  const query = (e.target as HTMLInputElement).value.toLowerCase();
-  if (!cy) return;
-  cy.nodes().forEach((node) => {
-    const visible = node.data('label').toLowerCase().includes(query);
-    node.style('display', visible ? 'element' : 'none');
-  });
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => {
+    if (!cy) {
+      return;
+    }
+    const query = (e.target as HTMLInputElement).value.toLowerCase();
+    cy.batch(() => {
+      cy!.nodes().forEach((node) => {
+        const visible = node.data('label').toLowerCase().includes(query);
+        node.style('display', visible ? 'element' : 'none');
+      });
+    });
+  }, 150);
 });
 
 interface GraphNode {

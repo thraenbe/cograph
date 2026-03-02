@@ -98,6 +98,63 @@ def _method_name(node: ast.expr) -> str | None:
     return node.attr
 
 
+MAIN_NODE_ID = '::MAIN::0'
+
+
+def collect_entry_points(root: str, definitions: dict) -> list[str]:
+    """Return IDs of functions called at module top-level or in if __name__=='__main__' blocks."""
+    name_to_ids: dict[str, list[str]] = {}
+    for qid, defn in definitions.items():
+        name_to_ids.setdefault(defn['name'], []).append(qid)
+
+    found: set[str] = set()
+
+    for dirpath, _, filenames in os.walk(root):
+        for filename in filenames:
+            if not filename.endswith('.py'):
+                continue
+            filepath = os.path.join(dirpath, filename)
+            try:
+                source = open(filepath, encoding='utf-8', errors='ignore').read()
+                tree = ast.parse(source, filename=filepath)
+            except SyntaxError:
+                continue
+
+            for node in tree.body:
+                if _is_main_guard(node):
+                    for stmt in node.body:
+                        _collect_calls_in_stmt(stmt, name_to_ids, found)
+                elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                    _collect_calls_in_stmt(node, name_to_ids, found)
+
+    return list(found)
+
+
+def _is_main_guard(node: ast.stmt) -> bool:
+    """True if node is `if __name__ == '__main__':` (or reversed)."""
+    if not isinstance(node, ast.If):
+        return False
+    test = node.test
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1:
+        return False
+    if not isinstance(test.ops[0], ast.Eq):
+        return False
+    left, comparator = test.left, test.comparators[0]
+    def _is_name(n): return isinstance(n, ast.Name) and n.id == '__name__'
+    def _is_main(n): return isinstance(n, ast.Constant) and n.value == '__main__'
+    return (_is_name(left) and _is_main(comparator)) or (_is_main(left) and _is_name(comparator))
+
+
+def _collect_calls_in_stmt(stmt: ast.stmt, name_to_ids: dict, found: set) -> None:
+    """Walk a statement and add known bare-name call targets to found."""
+    for node in ast.walk(stmt):
+        if isinstance(node, ast.Call):
+            name = _bare_name(node.func)
+            if name and name in name_to_ids:
+                for qid in name_to_ids[name]:
+                    found.add(qid)
+
+
 def main():
     if len(sys.argv) < 2:
         print('Usage: analyze.py <workspace_root>', file=sys.stderr)
@@ -106,12 +163,15 @@ def main():
     root = sys.argv[1]
     definitions = collect_definitions(root)
     edges = collect_calls(root, definitions)
+    entry_point_ids = collect_entry_points(root, definitions)
 
-    graph = {
-        'nodes': list(definitions.values()),
-        'edges': edges,
-    }
-    print(json.dumps(graph))
+    nodes = list(definitions.values())
+    if entry_point_ids:
+        nodes.append({'id': MAIN_NODE_ID, 'name': 'MAIN', 'file': '', 'line': 0})
+        for ep_id in entry_point_ids:
+            edges.append({'source': MAIN_NODE_ID, 'target': ep_id})
+
+    print(json.dumps({'nodes': nodes, 'edges': edges}))
 
 
 if __name__ == '__main__':

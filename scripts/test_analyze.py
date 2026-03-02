@@ -249,5 +249,45 @@ class TestNameHelpers(unittest.TestCase):
         self.assertIsNone(analyze._method_name(attr_node))
 
 
+# ---------------------------------------------------------------------------
+# TestCollectEntryPoints
+# ---------------------------------------------------------------------------
+
+class TestCollectEntryPoints(unittest.TestCase):
+
+    def test_main_guard_calls(self):
+        """Functions called in if __name__ == '__main__': are detected."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'app.py', """
+                def run():
+                    pass
+
+                if __name__ == '__main__':
+                    run()
+            """)
+            defs = analyze.collect_definitions(d)
+            entry_ids = analyze.collect_entry_points(d, defs)
+
+        run_ids = [qid for qid, v in defs.items() if v['name'] == 'run']
+        self.assertEqual(len(run_ids), 1)
+        self.assertIn(run_ids[0], entry_ids)
+
+    def test_top_level_call(self):
+        """A bare top-level call is detected as an entry point."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'script.py', """
+                def process():
+                    pass
+
+                process()
+            """)
+            defs = analyze.collect_definitions(d)
+            entry_ids = analyze.collect_entry_points(d, defs)
+
+        proc_ids = [qid for qid, v in defs.items() if v['name'] == 'process']
+        self.assertEqual(len(proc_ids), 1)
+        self.assertIn(proc_ids[0], entry_ids)
+
+
 if __name__ == '__main__':
     unittest.main()

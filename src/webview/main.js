@@ -46,6 +46,16 @@ function renderGraph(data) {
         selector: 'node:selected',
         style: { 'background-color': '#f0a04e' },
       },
+      {
+        selector: 'node[id = "::MAIN::0"]',
+        style: {
+          'background-color': '#e05252',
+          'font-weight': 'bold',
+          width: 60,
+          height: 60,
+          shape: 'ellipse',
+        },
+      },
     ],
   });
 

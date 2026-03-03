@@ -13,7 +13,7 @@ const settings = {
   centerForce: 0.1,
   repelForce: 3000,
   linkForce: 1,
-  linkDistance: 60,
+  linkDistance: 40,
 };
 
 let graphData = null;
@@ -72,9 +72,9 @@ function getLayout({ reset = true } = {}) {
     gravity: settings.centerForce,
     repulsion: settings.repelForce,
     springCoeff: settings.linkForce,
-    idealEdgeLength: 520 - settings.linkDistance,
+    idealEdgeLength: 80 - settings.linkDistance,
     animate: true,
-    animationDuration: 400,
+    animationDuration: 10,
     animationEasing: 'ease-out',
   };
 }

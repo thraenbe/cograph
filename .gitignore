@@ -1,3 +1,6 @@
 node_modules/
 out/
 prompts/
+.vscode/
+.vscode-test/
+scripts/__pycache__/

@@ -167,7 +167,7 @@ function renderGraph(data) {
 
   cy = cytoscape({
     container: document.getElementById('cy'),
-    elements: buildElements(data),
+    elements: [],
     layout: getLayout({ reset: true }),
     minZoom: 0.05,
     style: [
@@ -333,6 +333,16 @@ function renderGraph(data) {
 
   _importanceScores = computeImportanceScores(graphData);
   _expandedClusters = new Set();
+
+  const nodeCount = data.nodes.length;
+  if (nodeCount > 200) {
+    complexityLevel = Math.max(0.1, Math.min(0.9, 200 / nodeCount));
+    const slider = document.getElementById('slider-complexity');
+    const valEl = document.getElementById('val-complexity');
+    if (slider) slider.value = String(complexityLevel);
+    if (valEl) valEl.textContent = complexityLevel.toFixed(2);
+  }
+
   applyComplexity();
 }
 

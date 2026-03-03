@@ -11,6 +11,13 @@
 </head>
 <body>
   <div id="cy"></div>
+  <div id="complexity-widget">
+    <div class="complexity-header">
+      <label for="slider-complexity">Detail</label>
+      <span id="val-complexity">1.00</span>
+    </div>
+    <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
+  </div>
   <button id="settings-btn" title="Settings">&#9881;</button>
   <div id="settings-panel">
 
@@ -124,6 +131,7 @@
     </div>
 
   </div>
+  <script src="clustering.js"></script>
   <script src="main.js"></script>
 </body>
 </html>

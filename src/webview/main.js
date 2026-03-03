@@ -17,6 +17,9 @@ const settings = {
 };
 
 let graphData = null;
+let complexityLevel = 1.0;
+let _importanceScores = null;
+let _clusterTimer = null;
 
 window.addEventListener('message', (event) => {
   const message = event.data;
@@ -75,6 +78,7 @@ function getLayout() {
 
 function applyFilters() {
   if (!cy) return;
+
   const query = document.getElementById('search')?.value.toLowerCase() ?? '';
   cy.nodes().forEach((node) => {
     if (node.isParent()) return;
@@ -82,7 +86,7 @@ function applyFilters() {
     if (query && !node.data('label').toLowerCase().includes(query)) {
       visible = false;
     }
-    if (settings.existingFilesOnly) {
+    if (settings.existingFilesOnly && !node.data('isCluster') && !node.data('isSynthetic')) {
       const file = node.data('file');
       const line = node.data('line');
       if (!file || !line || line <= 0) visible = false;
@@ -114,6 +118,21 @@ function applyDisplaySettings() {
   });
   const opacity = cy.zoom() >= settings.textFadeThreshold ? 1 : 0;
   cy.batch(() => cy.nodes().style('text-opacity', opacity));
+}
+
+function applyComplexity() {
+  if (!cy || !graphData || !_importanceScores) return;
+  const clusterResult = computeClusters(graphData, _importanceScores, complexityLevel);
+  const elements = buildClusteredElements(graphData, clusterResult, complexityLevel);
+  cy.elements().remove();
+  cy.add(elements);
+  applyFilters();
+  applyDisplaySettings();
+  cy.nodes().forEach((node) => {
+    const s = node.data('_size');
+    if (s) node.style({ width: s * settings.nodeSize, height: s * settings.nodeSize });
+  });
+  cy.layout(getLayout()).run();
 }
 
 let _layoutTimer = null;
@@ -193,6 +212,22 @@ function renderGraph(data) {
         },
       },
       {
+        selector: 'node[?isCluster]',
+        style: {
+          'background-color': '#7c4dbb',
+          color: '#ffffff',
+          'text-valign': 'center',
+          'text-halign': 'center',
+          'text-wrap': 'wrap',
+          'text-max-width': '80px',
+          'font-size': '10px',
+        },
+      },
+      {
+        selector: 'node[?isOrphanCluster]',
+        style: { 'background-color': '#666666' },
+      },
+      {
         selector: '$node > node',
         style: {
           'background-color': 'rgba(80, 80, 120, 0.1)',
@@ -206,11 +241,27 @@ function renderGraph(data) {
           'text-margin-y': -8,
         },
       },
+      {
+        selector: 'node[?isSynthetic]',
+        style: {
+          'background-color': 'var(--vscode-button-background, #0e639c)',
+          color: '#ffffff',
+          'font-size': '14px',
+          width: 80,
+          height: 80,
+          label: 'data(label)',
+          'text-valign': 'center',
+          'text-halign': 'center',
+          'text-wrap': 'wrap',
+          'text-max-width': '70px',
+        },
+      },
     ],
   });
 
   cy.on('tap', 'node', (evt) => {
     const node = evt.target;
+    if (node.data('isSynthetic') || node.data('isCluster')) return;
     vscode.postMessage({
       type: 'navigate',
       file: node.data('file'),
@@ -222,23 +273,23 @@ function renderGraph(data) {
     const node = evt.target;
     node.addClass('hovered');
     node.connectedEdges().addClass('highlighted');
-    const size = 36 * settings.nodeSize * 1.15;
-    node.style({ width: size, height: size });
+    const base = node.data('_size') ?? 36;
+    node.style({ width: base * settings.nodeSize * 1.15, height: base * settings.nodeSize * 1.15 });
   });
   cy.on('mouseout', 'node', (evt) => {
     const node = evt.target;
     node.removeClass('hovered');
     node.connectedEdges().removeClass('highlighted');
-    const size = 36 * settings.nodeSize;
-    node.style({ width: size, height: size });
+    const base = node.data('_size') ?? 36;
+    node.style({ width: base * settings.nodeSize, height: base * settings.nodeSize });
   });
 
   if (typeof cy.navigator === 'function') {
     cy.navigator({ container: '#minimap' });
   }
 
-  applyFilters();
-  applyDisplaySettings();
+  _importanceScores = computeImportanceScores(graphData);
+  applyComplexity();
 }
 
 // ── Settings panel ──────────────────────────────────────────────────────────
@@ -308,3 +359,14 @@ wireSlider('slider-center-force', 'val-center-force', 'centerForce', rerunLayout
 wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);
 wireSlider('slider-link-force', 'val-link-force', 'linkForce', rerunLayout);
 wireSlider('slider-link-distance', 'val-link-distance', 'linkDistance', rerunLayout);
+
+const complexitySlider = document.getElementById('slider-complexity');
+const complexityVal = document.getElementById('val-complexity');
+if (complexitySlider) {
+  complexitySlider.addEventListener('input', () => {
+    complexityLevel = parseFloat(complexitySlider.value);
+    if (complexityVal) complexityVal.textContent = complexityLevel.toFixed(2);
+    clearTimeout(_clusterTimer);
+    _clusterTimer = setTimeout(applyComplexity, 80);
+  });
+}

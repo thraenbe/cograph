@@ -11,9 +11,9 @@ const settings = {
   nodeSize: 1.0,
   linkThickness: 1,
   centerForce: 0.1,
-  repelForce: 2048,
+  repelForce: 3000,
   linkForce: 1,
-  linkDistance: 240,
+  linkDistance: 60,
 };
 
 let graphData = null;
@@ -105,9 +105,9 @@ function applyDisplaySettings() {
   if (!cy) return;
   const arrowShape = settings.arrows ? 'triangle' : 'none';
   cy.batch(() => {
-    cy.nodes().style({
-      width: 18 * settings.nodeSize,
-      height: 18 * settings.nodeSize,
+    cy.nodes().forEach((node) => {
+      const base = node.data('_size') ?? 6;
+      node.style({ width: base * settings.nodeSize, height: base * settings.nodeSize });
     });
     cy.edges().style({
       width: settings.linkThickness,
@@ -125,16 +125,19 @@ function applyDisplaySettings() {
 
 function applyComplexity() {
   if (!cy || !graphData || !_importanceScores) return;
+  const degreeMap = new Map();
+  graphData.nodes.forEach((n) => degreeMap.set(n.id, 0));
+  graphData.edges.forEach((e) => {
+    if (e.source === '::MAIN::0') return;
+    degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
+    degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
+  });
   const clusterResult = computeClusters(graphData, _importanceScores, complexityLevel);
-  const elements = buildClusteredElements(graphData, clusterResult, complexityLevel, _importanceScores, _expandedClusters);
+  const elements = buildClusteredElements(graphData, clusterResult, complexityLevel, _importanceScores, _expandedClusters, degreeMap);
   cy.elements().remove();
   cy.add(elements);
   applyFilters();
   applyDisplaySettings();
-  cy.nodes().forEach((node) => {
-    const s = node.data('_size');
-    if (s) node.style({ width: s * settings.nodeSize, height: s * settings.nodeSize });
-  });
   cy.layout(getLayout({ reset: true })).run();
 }
 
@@ -166,48 +169,62 @@ function renderGraph(data) {
     container: document.getElementById('cy'),
     elements: buildElements(data),
     layout: getLayout({ reset: true }),
-    minZoom: 0.1,
+    minZoom: 0.05,
     style: [
       {
         selector: 'node',
         style: {
           label: 'data(label)',
-          'font-size': '10px',
-          'background-color': '#a0a0a0',
-          color: '#cccccc',
+          'font-size': '9px',
+          'background-color': '#d4d4d4',
+          color: '#d4d4d4',
           'text-valign': 'bottom',
           'text-halign': 'center',
-          'text-margin-y': 8,
-          width: 18,
-          height: 18,
+          'text-margin-y': 5,
+          width: 6,
+          height: 6,
           shape: 'ellipse',
           cursor: 'pointer',
+          'border-width': 0,
+          'shadow-blur': 8,
+          'shadow-color': '#d4d4d4',
+          'shadow-opacity': 0.5,
+          'shadow-offset-x': 0,
+          'shadow-offset-y': 0,
         },
       },
       {
         selector: 'edge',
         style: {
-          width: settings.linkThickness,
-          'line-color': '#888',
-          'target-arrow-color': '#888',
+          width: 0.75,
+          'line-color': 'rgba(160,160,160,0.25)',
+          'target-arrow-color': 'rgba(160,160,160,0.25)',
           'target-arrow-shape': settings.arrows ? 'triangle' : 'none',
           'curve-style': 'bezier',
+          opacity: 0.7,
         },
       },
       {
         selector: 'node:selected',
-        style: { 'background-color': '#f0a04e' },
+        style: {
+          'background-color': '#f0b45a',
+          'shadow-color': '#f0b45a',
+        },
       },
       {
         selector: 'node[?isEntryPoint]',
         style: {
-          'background-color': '#e05252',
+          'background-color': '#e8734a',
+          'shadow-color': '#e8734a',
         },
       },
       {
         selector: 'node.hovered',
         style: {
-          'background-color': '#4e9bf0',
+          'background-color': '#7eb9ff',
+          'shadow-color': '#7eb9ff',
+          'shadow-blur': 18,
+          'shadow-opacity': 0.9,
           color: '#ffffff',
           'font-size': '11.5px',
         },
@@ -215,15 +232,17 @@ function renderGraph(data) {
       {
         selector: 'edge.highlighted',
         style: {
-          'line-color': '#4e9bf0',
-          'target-arrow-color': '#4e9bf0',
-          width: 2,
+          'line-color': '#5aabff',
+          'target-arrow-color': '#5aabff',
+          width: 1.5,
+          opacity: 1,
         },
       },
       {
         selector: 'node[?isCluster]',
         style: {
           'background-color': '#7c4dbb',
+          'shadow-color': '#7c4dbb',
           color: '#ffffff',
           'text-valign': 'center',
           'text-halign': 'center',
@@ -234,7 +253,10 @@ function renderGraph(data) {
       },
       {
         selector: 'node[?isOrphanCluster]',
-        style: { 'background-color': '#666666' },
+        style: {
+          'background-color': '#555',
+          'shadow-color': '#555',
+        },
       },
       {
         selector: '$node > node',
@@ -254,6 +276,9 @@ function renderGraph(data) {
         selector: 'node[?isSynthetic]',
         style: {
           'background-color': 'var(--vscode-button-background, #0e639c)',
+          'shadow-color': '#0e639c',
+          'shadow-blur': 12,
+          'shadow-opacity': 0.6,
           color: '#ffffff',
           'font-size': '14px',
           width: 80,
@@ -287,14 +312,14 @@ function renderGraph(data) {
     const node = evt.target;
     node.addClass('hovered');
     node.connectedEdges().addClass('highlighted');
-    const base = node.data('_size') ?? 18;
+    const base = node.data('_size') ?? 6;
     node.style({ width: base * settings.nodeSize * 1.15, height: base * settings.nodeSize * 1.15 });
   });
   cy.on('mouseout', 'node', (evt) => {
     const node = evt.target;
     node.removeClass('hovered');
     node.connectedEdges().removeClass('highlighted');
-    const base = node.data('_size') ?? 18;
+    const base = node.data('_size') ?? 6;
     node.style({ width: base * settings.nodeSize, height: base * settings.nodeSize });
   });
 

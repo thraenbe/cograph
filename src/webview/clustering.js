@@ -163,7 +163,7 @@ function computeClusters(data, importanceScores, level) {
   return { nodeToCluster, clusterMembers, orphanClusterId };
 }
 
-function buildClusteredElements(data, clusterResult, level, importanceScores, expandedClusters = new Set()) {
+function buildClusteredElements(data, clusterResult, level, importanceScores, expandedClusters = new Set(), degreeMap = new Map()) {
   const { nodeToCluster, clusterMembers, orphanClusterId } = clusterResult;
 
   const entryPointIds = new Set(
@@ -185,11 +185,12 @@ function buildClusteredElements(data, clusterResult, level, importanceScores, ex
       for (const memberId of members) {
         const n = nodeById.get(memberId);
         if (!n) continue;
+        const deg = degreeMap.get(memberId) ?? 0;
         elements.push({
           data: {
             id: memberId,
             label: n.name,
-            _size: 36,
+            _size: Math.max(6, 6 + Math.sqrt(deg) * 2.5),
             file: n.file,
             line: n.line,
             isEntryPoint: entryPointIds.has(memberId),
@@ -219,7 +220,10 @@ function buildClusteredElements(data, clusterResult, level, importanceScores, ex
         label = `${topName} +${memberCount - 1}`;
       }
 
-      const _size = 36 * Math.max(1, Math.log2(memberCount + 1));
+      const deg = memberCount === 1 ? (degreeMap.get(clusterId) ?? 0) : 0;
+      const _size = memberCount === 1
+        ? Math.max(6, 6 + Math.sqrt(deg) * 2.5)
+        : 36 * Math.max(1, Math.log2(memberCount + 1));
       const isOrphanCluster = orphanClusterId === clusterId && memberCount > 1;
       const isSynthetic = level <= 0.001;
       const isCluster = memberCount > 1 && level > 0.001;

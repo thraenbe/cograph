@@ -15,6 +15,7 @@ body {
 #cy {
   position: fixed;
   inset: 0;
+  background: var(--vscode-editor-background, #0d0d0d);
 }
 
 /* ── Settings button (top-right) ── */

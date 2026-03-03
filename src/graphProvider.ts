@@ -359,8 +359,8 @@ export class GraphProvider {
         <input type="range" id="slider-link-force" min="0.1" max="2" step="0.1" value="1" />
       </div>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-link-distance">Link Distance</label><span id="val-link-distance">240</span></div>
-        <input type="range" id="slider-link-distance" min="20" max="500" step="10" value="240" />
+        <div class="slider-header"><label for="slider-link-distance">Link Distance</label><span id="val-link-distance">40</span></div>
+        <input type="range" id="slider-link-distance" min="10" max="80" step="5" value="40" />
       </div>
     </div>
 

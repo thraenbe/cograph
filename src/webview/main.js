@@ -28,22 +28,29 @@ window.addEventListener('message', (event) => {
 function buildElements(data) {
   const elements = [];
 
+  const entryPointIds = new Set(
+    data.edges.filter((e) => e.source === '::MAIN::0').map((e) => e.target)
+  );
+
   if (settings.groupByFile) {
     const files = new Set(data.nodes.map((n) => n.file).filter(Boolean));
     files.forEach((file) => {
       elements.push({ data: { id: `file::${file}`, label: file.split('/').pop() } });
     });
     data.nodes.forEach((n) => {
+      if (n.id === '::MAIN::0') return;
       const parent = n.file ? `file::${n.file}` : undefined;
-      elements.push({ data: { id: n.id, label: n.name, file: n.file, line: n.line, parent } });
+      elements.push({ data: { id: n.id, label: n.name, file: n.file, line: n.line, parent, isEntryPoint: entryPointIds.has(n.id) } });
     });
   } else {
     data.nodes.forEach((n) => {
-      elements.push({ data: { id: n.id, label: n.name, file: n.file, line: n.line } });
+      if (n.id === '::MAIN::0') return;
+      elements.push({ data: { id: n.id, label: n.name, file: n.file, line: n.line, isEntryPoint: entryPointIds.has(n.id) } });
     });
   }
 
   data.edges.forEach((e) => {
+    if (e.source === '::MAIN::0') return;
     elements.push({ data: { source: e.source, target: e.target } });
   });
 
@@ -60,6 +67,9 @@ function getLayout() {
     repulsion: settings.repelForce,
     springCoeff: settings.linkForce,
     idealEdgeLength: settings.linkDistance,
+    animate: true,
+    animationDuration: 400,
+    animationEasing: 'ease-out',
   };
 }
 
@@ -88,8 +98,9 @@ function applyDisplaySettings() {
   if (!cy) return;
   const arrowShape = settings.arrows ? 'triangle' : 'none';
   cy.batch(() => {
-    cy.nodes().not('[id = "::MAIN::0"]').style({
-      padding: `${6 * settings.nodeSize}px`,
+    cy.nodes().style({
+      width: 36 * settings.nodeSize,
+      height: 36 * settings.nodeSize,
     });
     cy.edges().style({
       width: settings.linkThickness,
@@ -105,9 +116,11 @@ function applyDisplaySettings() {
   cy.batch(() => cy.nodes().style('text-opacity', opacity));
 }
 
+let _layoutTimer = null;
 function rerunLayout() {
   if (!cy) return;
-  cy.layout(getLayout()).run();
+  clearTimeout(_layoutTimer);
+  _layoutTimer = setTimeout(() => cy.layout(getLayout()).run(), 60);
 }
 
 function rebuildGraph() {
@@ -126,20 +139,21 @@ function renderGraph(data) {
     container: document.getElementById('cy'),
     elements: buildElements(data),
     layout: getLayout(),
+    minZoom: 0.1,
     style: [
       {
         selector: 'node',
         style: {
           label: 'data(label)',
           'font-size': '10px',
-          'background-color': '#4e9bf0',
-          color: '#fff',
-          'text-valign': 'center',
+          'background-color': '#a0a0a0',
+          color: '#cccccc',
+          'text-valign': 'bottom',
           'text-halign': 'center',
-          width: 'label',
-          height: 'label',
-          padding: '6px',
-          shape: 'roundrectangle',
+          'text-margin-y': 8,
+          width: 36,
+          height: 36,
+          shape: 'ellipse',
         },
       },
       {
@@ -157,13 +171,25 @@ function renderGraph(data) {
         style: { 'background-color': '#f0a04e' },
       },
       {
-        selector: 'node[id = "::MAIN::0"]',
+        selector: 'node[?isEntryPoint]',
         style: {
           'background-color': '#e05252',
-          'font-weight': 'bold',
-          width: 60,
-          height: 60,
-          shape: 'ellipse',
+        },
+      },
+      {
+        selector: 'node.hovered',
+        style: {
+          'background-color': '#4e9bf0',
+          color: '#ffffff',
+          'font-size': '11.5px',
+        },
+      },
+      {
+        selector: 'edge.highlighted',
+        style: {
+          'line-color': '#4e9bf0',
+          'target-arrow-color': '#4e9bf0',
+          width: 2,
         },
       },
       {
@@ -191,6 +217,25 @@ function renderGraph(data) {
       line: node.data('line'),
     });
   });
+
+  cy.on('mouseover', 'node', (evt) => {
+    const node = evt.target;
+    node.addClass('hovered');
+    node.connectedEdges().addClass('highlighted');
+    const size = 36 * settings.nodeSize * 1.15;
+    node.style({ width: size, height: size });
+  });
+  cy.on('mouseout', 'node', (evt) => {
+    const node = evt.target;
+    node.removeClass('hovered');
+    node.connectedEdges().removeClass('highlighted');
+    const size = 36 * settings.nodeSize;
+    node.style({ width: size, height: size });
+  });
+
+  if (typeof cy.navigator === 'function') {
+    cy.navigator({ container: '#minimap' });
+  }
 
   applyFilters();
   applyDisplaySettings();

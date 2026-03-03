@@ -5,6 +5,8 @@ Run with: python3 -m pytest scripts/test_analyze.py -v
 """
 
 import ast
+import io
+import json
 import os
 import sys
 import tempfile
@@ -92,6 +94,35 @@ class TestCollectDefinitions(unittest.TestCase):
                 f.write('def fake_func(): pass\n')
             defs = analyze.collect_definitions(d)
         self.assertEqual(len(defs), 0)
+
+    def test_multiple_files(self):
+        """Definitions from multiple .py files are all collected."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'a.py', """
+                def func_a():
+                    pass
+            """)
+            write_py(d, 'b.py', """
+                def func_b():
+                    pass
+            """)
+            defs = analyze.collect_definitions(d)
+        names = {v['name'] for v in defs.values()}
+        self.assertIn('func_a', names)
+        self.assertIn('func_b', names)
+
+    def test_subdirectory_walking(self):
+        """Functions inside nested subdirectory files are collected."""
+        with tempfile.TemporaryDirectory() as d:
+            sub_dir = os.path.join(d, 'sub')
+            os.makedirs(sub_dir)
+            write_py(sub_dir, 'module.py', """
+                def nested_func():
+                    pass
+            """)
+            defs = analyze.collect_definitions(d)
+        names = {v['name'] for v in defs.values()}
+        self.assertIn('nested_func', names)
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +248,72 @@ class TestCollectCalls(unittest.TestCase):
         matching = [e for e in edges if e['source'] == main_ids[0] and e['target'] == helper_ids[0]]
         self.assertEqual(len(matching), 1, 'Edge should appear exactly once')
 
+    def test_cross_file_call(self):
+        """Function in a.py calling function defined in b.py produces an edge."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'a.py', """
+                def caller():
+                    callee()
+            """)
+            write_py(d, 'b.py', """
+                def callee():
+                    pass
+            """)
+            defs = analyze.collect_definitions(d)
+            edges = analyze.collect_calls(d, defs)
+
+        caller_ids = [qid for qid, v in defs.items() if v['name'] == 'caller']
+        callee_ids = [qid for qid, v in defs.items() if v['name'] == 'callee']
+        self.assertEqual(len(caller_ids), 1)
+        self.assertEqual(len(callee_ids), 1)
+        self.assertIn({'source': caller_ids[0], 'target': callee_ids[0]}, edges)
+
+    def test_multiple_edges_from_one_caller(self):
+        """One function calling three others produces three distinct edges."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'multi.py', """
+                def a():
+                    pass
+
+                def b():
+                    pass
+
+                def c():
+                    pass
+
+                def caller():
+                    a()
+                    b()
+                    c()
+            """)
+            defs = analyze.collect_definitions(d)
+            edges = analyze.collect_calls(d, defs)
+
+        caller_ids = [qid for qid, v in defs.items() if v['name'] == 'caller']
+        self.assertEqual(len(caller_ids), 1)
+        outgoing = [e for e in edges if e['source'] == caller_ids[0]]
+        self.assertEqual(len(outgoing), 3)
+
+    def test_call_inside_nested_function(self):
+        """Inner function calling an outer-defined function produces an edge."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'nested.py', """
+                def helper():
+                    pass
+
+                def outer():
+                    def inner():
+                        helper()
+            """)
+            defs = analyze.collect_definitions(d)
+            edges = analyze.collect_calls(d, defs)
+
+        inner_ids = [qid for qid, v in defs.items() if v['name'] == 'inner']
+        helper_ids = [qid for qid, v in defs.items() if v['name'] == 'helper']
+        self.assertEqual(len(inner_ids), 1)
+        self.assertEqual(len(helper_ids), 1)
+        self.assertIn({'source': inner_ids[0], 'target': helper_ids[0]}, edges)
+
 
 # ---------------------------------------------------------------------------
 # TestNameHelpers
@@ -287,6 +384,125 @@ class TestCollectEntryPoints(unittest.TestCase):
         proc_ids = [qid for qid, v in defs.items() if v['name'] == 'process']
         self.assertEqual(len(proc_ids), 1)
         self.assertIn(proc_ids[0], entry_ids)
+
+    def test_reversed_main_guard(self):
+        """if '__main__' == __name__: (reversed) is also detected."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'rev.py', """
+                def start():
+                    pass
+
+                if '__main__' == __name__:
+                    start()
+            """)
+            defs = analyze.collect_definitions(d)
+            entry_ids = analyze.collect_entry_points(d, defs)
+
+        start_ids = [qid for qid, v in defs.items() if v['name'] == 'start']
+        self.assertEqual(len(start_ids), 1)
+        self.assertIn(start_ids[0], entry_ids)
+
+    def test_multiple_entry_points(self):
+        """Multiple calls in __main__ block are all detected as entry points."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'multi.py', """
+                def init():
+                    pass
+
+                def run():
+                    pass
+
+                def cleanup():
+                    pass
+
+                if __name__ == '__main__':
+                    init()
+                    run()
+                    cleanup()
+            """)
+            defs = analyze.collect_definitions(d)
+            entry_ids = analyze.collect_entry_points(d, defs)
+
+        for name in ('init', 'run', 'cleanup'):
+            ids = [qid for qid, v in defs.items() if v['name'] == name]
+            self.assertEqual(len(ids), 1, f'{name} should be defined')
+            self.assertIn(ids[0], entry_ids, f'{name} should be an entry point')
+
+    def test_no_entry_points(self):
+        """File with no top-level calls returns empty list."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'lib.py', """
+                def helper():
+                    pass
+
+                def util():
+                    helper()
+            """)
+            defs = analyze.collect_definitions(d)
+            entry_ids = analyze.collect_entry_points(d, defs)
+
+        self.assertEqual(entry_ids, [], 'no entry points expected')
+
+
+# ---------------------------------------------------------------------------
+# TestMain
+# ---------------------------------------------------------------------------
+
+class TestMain(unittest.TestCase):
+
+    def _run_main(self, workspace_dir: str) -> dict:
+        """Run analyze.main() against workspace_dir and return parsed JSON output."""
+        old_argv = sys.argv[:]
+        old_stdout = sys.stdout
+        buf = io.StringIO()
+        try:
+            sys.argv = ['analyze.py', workspace_dir]
+            sys.stdout = buf
+            analyze.main()
+        finally:
+            sys.argv = old_argv
+            sys.stdout = old_stdout
+        return json.loads(buf.getvalue())
+
+    def test_main_output_is_valid_json(self):
+        """main() outputs valid JSON with 'nodes' and 'edges' keys."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'simple.py', """
+                def greet():
+                    pass
+            """)
+            result = self._run_main(d)
+        self.assertIn('nodes', result)
+        self.assertIn('edges', result)
+        self.assertIsInstance(result['nodes'], list)
+        self.assertIsInstance(result['edges'], list)
+
+    def test_main_with_entry_points_adds_main_node(self):
+        """main() adds ::MAIN::0 node and outgoing edges when entry points exist."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'app.py', """
+                def start():
+                    pass
+
+                if __name__ == '__main__':
+                    start()
+            """)
+            result = self._run_main(d)
+        node_ids = [n['id'] for n in result['nodes']]
+        self.assertIn('::MAIN::0', node_ids, '::MAIN::0 node should be present')
+        main_edges = [e for e in result['edges'] if e['source'] == '::MAIN::0']
+        self.assertTrue(len(main_edges) > 0, 'MAIN node should have outgoing edges')
+
+    def test_main_no_entry_points_no_main_node(self):
+        """main() omits ::MAIN::0 when there are no entry points."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'lib.py', """
+                def helper():
+                    pass
+            """)
+            result = self._run_main(d)
+        node_ids = [n['id'] for n in result['nodes']]
+        self.assertNotIn('::MAIN::0', node_ids, '::MAIN::0 should not appear without entry points')
 
 
 if __name__ == '__main__':

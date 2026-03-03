@@ -1,0 +1,380 @@
+import * as assert from 'assert';
+
+// clustering.js lives under src/webview/ (excluded from TS compilation).
+// At runtime this compiled file is at out/test/suite/, so three levels up
+// lands at the project root, then down to src/webview/clustering.js.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const {
+  UnionFind,
+  computeImportanceScores,
+  computeClusters,
+  buildClusteredElements,
+  inferProjectName,
+} = require('../../../src/webview/clustering.js');
+
+// ---------------------------------------------------------------------------
+// UnionFind
+// ---------------------------------------------------------------------------
+
+suite('UnionFind', () => {
+  test('find returns self for singleton', () => {
+    const uf = new UnionFind(['a']);
+    assert.strictEqual(uf.find('a'), 'a');
+  });
+
+  test('union merges two components and returns true', () => {
+    const uf = new UnionFind(['a', 'b']);
+    const merged = uf.union('a', 'b');
+    assert.strictEqual(merged, true);
+    assert.strictEqual(uf.find('a'), uf.find('b'));
+  });
+
+  test('second union of already merged pair returns false', () => {
+    const uf = new UnionFind(['a', 'b']);
+    uf.union('a', 'b');
+    assert.strictEqual(uf.union('a', 'b'), false);
+  });
+
+  test('path compression: repeated find returns canonical root', () => {
+    const uf = new UnionFind(['a', 'b', 'c']);
+    uf.union('a', 'b');
+    uf.union('b', 'c');
+    const root = uf.find('a');
+    assert.strictEqual(uf.find('c'), root);
+    assert.strictEqual(uf.find('a'), root);
+  });
+
+  test('rank-based union: higher-rank root absorbs lower-rank tree', () => {
+    const uf = new UnionFind(['a', 'b', 'c', 'd']);
+    // union(a,b): both rank 0 → b under a, rank(a)=1
+    uf.union('a', 'b');
+    // union(a,c): rank(a)=1 > rank(c)=0 → c under a
+    uf.union('a', 'c');
+    // union(a,d): rank(a)=1 > rank(d)=0 → d under a
+    uf.union('a', 'd');
+    assert.strictEqual(uf.find('d'), uf.find('a'));
+    assert.strictEqual(uf.find('b'), uf.find('a'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inferProjectName
+// ---------------------------------------------------------------------------
+
+suite('inferProjectName', () => {
+  test('empty nodes → "Project"', () => {
+    assert.strictEqual(inferProjectName({ nodes: [] }), 'Project');
+  });
+
+  test('single file returns the filename as the last common segment', () => {
+    const result = inferProjectName({ nodes: [{ file: 'some/path/main.py' }] });
+    assert.strictEqual(result, 'main.py');
+  });
+
+  test('multiple files sharing a common directory → returns that directory name', () => {
+    const result = inferProjectName({
+      nodes: [
+        { file: '/home/user/myproject/a.py' },
+        { file: '/home/user/myproject/b.py' },
+      ],
+    });
+    assert.strictEqual(result, 'myproject');
+  });
+
+  test('files with no common prefix (relative paths) → "Project"', () => {
+    const result = inferProjectName({
+      nodes: [
+        { file: 'alpha/foo.py' },
+        { file: 'beta/bar.py' },
+      ],
+    });
+    assert.strictEqual(result, 'Project');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeImportanceScores
+// ---------------------------------------------------------------------------
+
+suite('computeImportanceScores', () => {
+  test('empty graph → empty Map', () => {
+    const scores = computeImportanceScores({ nodes: [], edges: [] });
+    assert.ok(scores instanceof Map);
+    assert.strictEqual(scores.size, 0);
+  });
+
+  test('isolated nodes with no edges → all zero scores', () => {
+    const data = { nodes: [{ id: 'a' }, { id: 'b' }], edges: [] };
+    const scores = computeImportanceScores(data);
+    assert.strictEqual(scores.get('a'), 0);
+    assert.strictEqual(scores.get('b'), 0);
+  });
+
+  test('entry-point node scores higher than unreachable node', () => {
+    const data = {
+      nodes: [{ id: 'entry' }, { id: 'isolated' }],
+      edges: [{ source: '::MAIN::0', target: 'entry' }],
+    };
+    const scores = computeImportanceScores(data);
+    assert.ok(
+      (scores.get('entry') as number) > (scores.get('isolated') as number),
+      'entry point should score higher than isolated node'
+    );
+  });
+
+  test('node with higher in-degree scores higher', () => {
+    const data = {
+      nodes: [
+        { id: 'high' }, { id: 'low' },
+        { id: 'caller1' }, { id: 'caller2' }, { id: 'caller3' },
+      ],
+      edges: [
+        { source: 'caller1', target: 'high' },
+        { source: 'caller2', target: 'high' },
+        { source: 'caller3', target: 'high' },
+        { source: 'caller1', target: 'low' },
+      ],
+    };
+    const scores = computeImportanceScores(data);
+    assert.ok(
+      (scores.get('high') as number) > (scores.get('low') as number),
+      'node with 3 in-edges should outscore node with 1 in-edge'
+    );
+  });
+
+  test('MAIN node edges excluded from in-degree calculation', () => {
+    const data = {
+      nodes: [{ id: 'ep' }, { id: 'other' }],
+      edges: [{ source: '::MAIN::0', target: 'ep' }],
+    };
+    const scores = computeImportanceScores(data);
+    // ep is an entry point (depth boost) but its in-degree should be 0,
+    // not 1. Score comes from depth only (0.4), not in-degree (which
+    // would add 0.6 if MAIN edges were incorrectly counted).
+    assert.ok(
+      (scores.get('ep') as number) < 0.5,
+      'ep score should reflect depth only, not a false in-degree from MAIN'
+    );
+    assert.ok(
+      (scores.get('ep') as number) > (scores.get('other') as number),
+      'ep still beats unreachable other via depth score'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeClusters
+// ---------------------------------------------------------------------------
+
+suite('computeClusters', () => {
+  test('level = 1.0 → every node in its own cluster', () => {
+    const data = {
+      nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      edges: [{ source: 'a', target: 'b' }],
+    };
+    const scores = new Map([['a', 0.5], ['b', 0.3], ['c', 0.1]]);
+    const result = computeClusters(data, scores, 1.0);
+    assert.strictEqual(result.clusterMembers.size, 3, 'no merges at level 1.0');
+  });
+
+  test('level = 0.999 (orphan phase only) → orphans grouped, connected nodes untouched', () => {
+    const data = {
+      // orphan1, orphan2 have no edges; 'connected' appears in an edge
+      nodes: [{ id: 'orphan1' }, { id: 'orphan2' }, { id: 'connected' }],
+      edges: [{ source: 'connected', target: 'connected' }],
+    };
+    const scores = new Map();
+    const result = computeClusters(data, scores, 0.999);
+    assert.strictEqual(
+      result.nodeToCluster.get('orphan1'),
+      result.nodeToCluster.get('orphan2'),
+      'orphans should be in the same cluster'
+    );
+    assert.notStrictEqual(
+      result.nodeToCluster.get('connected'),
+      result.nodeToCluster.get('orphan1'),
+      'connected node should remain separate'
+    );
+  });
+
+  test('level = 0.5 → neighbour-merge phase produces fewer clusters than nodes', () => {
+    const data = {
+      nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
+      edges: [
+        { source: 'a', target: 'b' },
+        { source: 'b', target: 'c' },
+        { source: 'c', target: 'd' },
+      ],
+    };
+    const scores = new Map([['a', 0.1], ['b', 0.2], ['c', 0.3], ['d', 0.4]]);
+    const result = computeClusters(data, scores, 0.5);
+    assert.ok(result.clusterMembers.size < 4, 'some merges should have occurred at level 0.5');
+  });
+
+  test('level = 0.001 → all nodes collapsed into one cluster', () => {
+    const data = {
+      nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      edges: [{ source: 'a', target: 'b' }],
+    };
+    const scores = new Map([['a', 0.5], ['b', 0.3], ['c', 0.1]]);
+    const result = computeClusters(data, scores, 0.001);
+    assert.strictEqual(result.clusterMembers.size, 1, 'project phase should merge everything');
+  });
+
+  test('MAIN node is excluded from the node list', () => {
+    const data = {
+      nodes: [{ id: '::MAIN::0' }, { id: 'a' }, { id: 'b' }],
+      edges: [{ source: '::MAIN::0', target: 'a' }],
+    };
+    const scores = new Map([['a', 0.5], ['b', 0.3]]);
+    const result = computeClusters(data, scores, 1.0);
+    assert.ok(!result.nodeToCluster.has('::MAIN::0'), '::MAIN::0 must not appear in nodeToCluster');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildClusteredElements
+// ---------------------------------------------------------------------------
+
+suite('buildClusteredElements', () => {
+  test('single-member cluster → node label equals function name', () => {
+    const data = {
+      nodes: [{ id: 'mod::fn::1', name: 'fn', file: 'mod.py', line: 1 }],
+      edges: [],
+    };
+    const scores = computeImportanceScores(data);
+    const clusterResult = computeClusters(data, scores, 1.0);
+    const elements = buildClusteredElements(data, clusterResult, 1.0, scores);
+    const el = elements.find((e: any) => e.data.id === 'mod::fn::1');
+    assert.ok(el, 'element should exist');
+    assert.strictEqual(el.data.label, 'fn');
+  });
+
+  test('multi-member cluster → label is "<topName> +N"', () => {
+    const data = {
+      nodes: [
+        { id: 'a', name: 'alpha', file: 'a.py', line: 1 },
+        { id: 'b', name: 'beta', file: 'b.py', line: 1 },
+      ],
+      edges: [{ source: 'a', target: 'b' }],
+    };
+    const scores = new Map([['a', 0.9], ['b', 0.1]]);
+    // Manually construct a cluster that groups a and b under representative 'a'
+    const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
+    const clusterMembers = new Map([['a', ['a', 'b']]]);
+    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+
+    const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
+    const el = elements.find((e: any) => e.data.id === 'a');
+    assert.ok(el, 'cluster element should exist');
+    assert.strictEqual(el.data.label, 'alpha +1');
+  });
+
+  test('orphan cluster → label is "Orphans (N)"', () => {
+    const data = {
+      nodes: [
+        { id: 'a', name: 'alpha', file: 'a.py', line: 1 },
+        { id: 'b', name: 'beta', file: 'b.py', line: 1 },
+      ],
+      edges: [],
+    };
+    const scores = new Map([['a', 0], ['b', 0]]);
+    const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
+    const clusterMembers = new Map([['a', ['a', 'b']]]);
+    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: 'a' };
+
+    const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
+    const el = elements.find((e: any) => e.data.id === 'a');
+    assert.ok(el, 'orphan cluster element should exist');
+    assert.strictEqual(el.data.label, 'Orphans (2)');
+  });
+
+  test('project-level cluster (level ≤ 0.001) → label uses inferProjectName', () => {
+    const data = {
+      nodes: [
+        { id: 'a', name: 'alpha', file: '/home/user/myproject/a.py', line: 1 },
+        { id: 'b', name: 'beta', file: '/home/user/myproject/b.py', line: 1 },
+      ],
+      edges: [{ source: 'a', target: 'b' }],
+    };
+    const scores = new Map([['a', 0.5], ['b', 0.5]]);
+    const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
+    const clusterMembers = new Map([['a', ['a', 'b']]]);
+    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+
+    const elements = buildClusteredElements(data, clusterResult, 0.001, scores);
+    const el = elements.find((e: any) => e.data.id === 'a');
+    assert.ok(el, 'cluster element should exist');
+    assert.strictEqual(el.data.label, 'myproject');
+  });
+
+  test('edges within the same cluster are filtered out (src === tgt)', () => {
+    const data = {
+      nodes: [
+        { id: 'a', name: 'alpha', file: 'a.py', line: 1 },
+        { id: 'b', name: 'beta', file: 'b.py', line: 1 },
+        { id: 'c', name: 'gamma', file: 'c.py', line: 1 },
+      ],
+      edges: [
+        { source: 'a', target: 'b' }, // within the cluster → collapsed
+        { source: 'a', target: 'c' }, // cross-cluster → kept
+      ],
+    };
+    const scores = new Map([['a', 0.9], ['b', 0.5], ['c', 0.1]]);
+    // a and b share cluster 'a'; c is alone
+    const nodeToCluster = new Map([['a', 'a'], ['b', 'a'], ['c', 'c']]);
+    const clusterMembers = new Map([['a', ['a', 'b']], ['c', ['c']]]);
+    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+
+    const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
+    const edges = elements.filter((e: any) => e.data.source !== undefined);
+    assert.strictEqual(edges.length, 1, 'intra-cluster edge should be dropped');
+    assert.strictEqual(edges[0].data.source, 'a');
+    assert.strictEqual(edges[0].data.target, 'c');
+  });
+
+  test('duplicate inter-cluster edges are deduplicated', () => {
+    const data = {
+      nodes: [
+        { id: 'a', name: 'alpha', file: 'a.py', line: 1 },
+        { id: 'b', name: 'beta', file: 'b.py', line: 1 },
+        { id: 'c', name: 'gamma', file: 'c.py', line: 1 },
+      ],
+      edges: [
+        { source: 'a', target: 'c' }, // cluster 'a' → 'c'
+        { source: 'b', target: 'c' }, // also cluster 'a' → 'c' (duplicate after clustering)
+      ],
+    };
+    const scores = new Map([['a', 0.9], ['b', 0.5], ['c', 0.1]]);
+    const nodeToCluster = new Map([['a', 'a'], ['b', 'a'], ['c', 'c']]);
+    const clusterMembers = new Map([['a', ['a', 'b']], ['c', ['c']]]);
+    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+
+    const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
+    const edges = elements.filter((e: any) => e.data.source !== undefined);
+    assert.strictEqual(edges.length, 1, 'duplicate edges must be deduplicated');
+  });
+
+  test('expanded cluster shows individual member nodes instead of cluster node', () => {
+    const data = {
+      nodes: [
+        { id: 'a', name: 'alpha', file: 'a.py', line: 1 },
+        { id: 'b', name: 'beta', file: 'b.py', line: 1 },
+      ],
+      edges: [{ source: 'a', target: 'b' }],
+    };
+    const scores = new Map([['a', 0.9], ['b', 0.1]]);
+    const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
+    const clusterMembers = new Map([['a', ['a', 'b']]]);
+    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+
+    const expandedClusters = new Set(['a']);
+    const elements = buildClusteredElements(data, clusterResult, 0.5, scores, expandedClusters);
+    const nodeIds = elements
+      .filter((e: any) => e.data.source === undefined)
+      .map((e: any) => e.data.id);
+    assert.ok(nodeIds.includes('a'), 'individual node a should be visible');
+    assert.ok(nodeIds.includes('b'), 'individual node b should be visible');
+    assert.strictEqual(nodeIds.length, 2, 'should show 2 individual nodes, not a cluster node');
+  });
+});

@@ -123,7 +123,7 @@ function applyDisplaySettings() {
 function applyComplexity() {
   if (!cy || !graphData || !_importanceScores) return;
   const clusterResult = computeClusters(graphData, _importanceScores, complexityLevel);
-  const elements = buildClusteredElements(graphData, clusterResult, complexityLevel);
+  const elements = buildClusteredElements(graphData, clusterResult, complexityLevel, _importanceScores);
   cy.elements().remove();
   cy.add(elements);
   applyFilters();

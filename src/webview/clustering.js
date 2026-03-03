@@ -163,7 +163,7 @@ function computeClusters(data, importanceScores, level) {
   return { nodeToCluster, clusterMembers, orphanClusterId };
 }
 
-function buildClusteredElements(data, clusterResult, level) {
+function buildClusteredElements(data, clusterResult, level, importanceScores) {
   const { nodeToCluster, clusterMembers, orphanClusterId } = clusterResult;
 
   const entryPointIds = new Set(
@@ -180,21 +180,22 @@ function buildClusteredElements(data, clusterResult, level) {
     const memberCount = members.length;
     const rep = nodeById.get(clusterId);
 
+    // Sort members by importance descending, pick the top as the cluster face
+    const sortedMembers = [...members].sort(
+      (a, b) => (importanceScores.get(b) ?? 0) - (importanceScores.get(a) ?? 0)
+    );
+    const topNode = nodeById.get(sortedMembers[0]);
+    const topName = topNode ? topNode.name : sortedMembers[0];
+
     let label;
     if (level <= 0.001) {
       label = inferProjectName(data);
     } else if (orphanClusterId === clusterId && memberCount > 1) {
-      label = 'Orphans';
+      label = `Orphans (${memberCount})`;
     } else if (memberCount === 1) {
-      label = rep ? rep.name : clusterId;
-    } else if (memberCount <= 3) {
-      const names = members.slice(0, 2).map((id) => {
-        const n = nodeById.get(id);
-        return n ? n.name : id;
-      });
-      label = names.join(' + ') + (memberCount === 3 ? '…' : '');
+      label = topName;
     } else {
-      label = `${memberCount} fns`;
+      label = `${topName} +${memberCount - 1}`;
     }
 
     const _size = 36 * Math.max(1, Math.log2(memberCount + 1));

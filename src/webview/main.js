@@ -13,13 +13,14 @@ const settings = {
   centerForce: 0.1,
   repelForce: 2048,
   linkForce: 1,
-  linkDistance: 80,
+  linkDistance: 240,
 };
 
 let graphData = null;
 let complexityLevel = 1.0;
 let _importanceScores = null;
 let _clusterTimer = null;
+let _expandedClusters = new Set();
 
 window.addEventListener('message', (event) => {
   const message = event.data;
@@ -60,16 +61,18 @@ function buildElements(data) {
   return elements;
 }
 
-function getLayout() {
+function getLayout({ reset = true } = {}) {
   if (settings.groupByFlow) {
     return { name: 'dagre', rankDir: 'LR' };
   }
   return {
     name: 'cose',
+    randomize: reset,
+    fit: reset,
     gravity: settings.centerForce,
     repulsion: settings.repelForce,
     springCoeff: settings.linkForce,
-    idealEdgeLength: settings.linkDistance,
+    idealEdgeLength: 520 - settings.linkDistance,
     animate: true,
     animationDuration: 400,
     animationEasing: 'ease-out',
@@ -103,8 +106,8 @@ function applyDisplaySettings() {
   const arrowShape = settings.arrows ? 'triangle' : 'none';
   cy.batch(() => {
     cy.nodes().style({
-      width: 36 * settings.nodeSize,
-      height: 36 * settings.nodeSize,
+      width: 18 * settings.nodeSize,
+      height: 18 * settings.nodeSize,
     });
     cy.edges().style({
       width: settings.linkThickness,
@@ -123,7 +126,7 @@ function applyDisplaySettings() {
 function applyComplexity() {
   if (!cy || !graphData || !_importanceScores) return;
   const clusterResult = computeClusters(graphData, _importanceScores, complexityLevel);
-  const elements = buildClusteredElements(graphData, clusterResult, complexityLevel, _importanceScores);
+  const elements = buildClusteredElements(graphData, clusterResult, complexityLevel, _importanceScores, _expandedClusters);
   cy.elements().remove();
   cy.add(elements);
   applyFilters();
@@ -132,14 +135,19 @@ function applyComplexity() {
     const s = node.data('_size');
     if (s) node.style({ width: s * settings.nodeSize, height: s * settings.nodeSize });
   });
-  cy.layout(getLayout()).run();
+  cy.layout(getLayout({ reset: true })).run();
 }
 
 let _layoutTimer = null;
+let _runningLayout = null;
 function rerunLayout() {
   if (!cy) return;
   clearTimeout(_layoutTimer);
-  _layoutTimer = setTimeout(() => cy.layout(getLayout()).run(), 60);
+  _layoutTimer = setTimeout(() => {
+    if (_runningLayout) _runningLayout.stop();
+    _runningLayout = cy.layout(getLayout({ reset: false }));
+    _runningLayout.run();
+  }, 300);
 }
 
 function rebuildGraph() {
@@ -157,7 +165,7 @@ function renderGraph(data) {
   cy = cytoscape({
     container: document.getElementById('cy'),
     elements: buildElements(data),
-    layout: getLayout(),
+    layout: getLayout({ reset: true }),
     minZoom: 0.1,
     style: [
       {
@@ -170,9 +178,10 @@ function renderGraph(data) {
           'text-valign': 'bottom',
           'text-halign': 'center',
           'text-margin-y': 8,
-          width: 36,
-          height: 36,
+          width: 18,
+          height: 18,
           shape: 'ellipse',
+          cursor: 'pointer',
         },
       },
       {
@@ -261,7 +270,12 @@ function renderGraph(data) {
 
   cy.on('tap', 'node', (evt) => {
     const node = evt.target;
-    if (node.data('isSynthetic') || node.data('isCluster')) return;
+    if (node.data('isSynthetic')) return;
+    if (node.data('isCluster')) {
+      _expandedClusters.add(node.id());
+      applyComplexity();
+      return;
+    }
     vscode.postMessage({
       type: 'navigate',
       file: node.data('file'),
@@ -273,15 +287,19 @@ function renderGraph(data) {
     const node = evt.target;
     node.addClass('hovered');
     node.connectedEdges().addClass('highlighted');
-    const base = node.data('_size') ?? 36;
+    const base = node.data('_size') ?? 18;
     node.style({ width: base * settings.nodeSize * 1.15, height: base * settings.nodeSize * 1.15 });
   });
   cy.on('mouseout', 'node', (evt) => {
     const node = evt.target;
     node.removeClass('hovered');
     node.connectedEdges().removeClass('highlighted');
-    const base = node.data('_size') ?? 36;
+    const base = node.data('_size') ?? 18;
     node.style({ width: base * settings.nodeSize, height: base * settings.nodeSize });
+  });
+
+  cy.on('dbltap', (evt) => {
+    if (evt.target === cy) cy.fit(undefined, 30);
   });
 
   if (typeof cy.navigator === 'function') {
@@ -289,6 +307,7 @@ function renderGraph(data) {
   }
 
   _importanceScores = computeImportanceScores(graphData);
+  _expandedClusters = new Set();
   applyComplexity();
 }
 
@@ -366,6 +385,7 @@ if (complexitySlider) {
   complexitySlider.addEventListener('input', () => {
     complexityLevel = parseFloat(complexitySlider.value);
     if (complexityVal) complexityVal.textContent = complexityLevel.toFixed(2);
+    _expandedClusters = new Set();
     clearTimeout(_clusterTimer);
     _clusterTimer = setTimeout(applyComplexity, 80);
   });

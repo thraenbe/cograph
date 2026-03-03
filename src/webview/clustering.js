@@ -163,7 +163,7 @@ function computeClusters(data, importanceScores, level) {
   return { nodeToCluster, clusterMembers, orphanClusterId };
 }
 
-function buildClusteredElements(data, clusterResult, level, importanceScores) {
+function buildClusteredElements(data, clusterResult, level, importanceScores, expandedClusters = new Set()) {
   const { nodeToCluster, clusterMembers, orphanClusterId } = clusterResult;
 
   const entryPointIds = new Set(
@@ -179,51 +179,79 @@ function buildClusteredElements(data, clusterResult, level, importanceScores) {
   for (const [clusterId, members] of clusterMembers) {
     const memberCount = members.length;
     const rep = nodeById.get(clusterId);
+    const isExpanded = expandedClusters.has(clusterId) && memberCount > 1;
 
-    // Sort members by importance descending, pick the top as the cluster face
-    const sortedMembers = [...members].sort(
-      (a, b) => (importanceScores.get(b) ?? 0) - (importanceScores.get(a) ?? 0)
-    );
-    const topNode = nodeById.get(sortedMembers[0]);
-    const topName = topNode ? topNode.name : sortedMembers[0];
-
-    let label;
-    if (level <= 0.001) {
-      label = inferProjectName(data);
-    } else if (orphanClusterId === clusterId && memberCount > 1) {
-      label = `Orphans (${memberCount})`;
-    } else if (memberCount === 1) {
-      label = topName;
+    if (isExpanded) {
+      for (const memberId of members) {
+        const n = nodeById.get(memberId);
+        if (!n) continue;
+        elements.push({
+          data: {
+            id: memberId,
+            label: n.name,
+            _size: 36,
+            file: n.file,
+            line: n.line,
+            isEntryPoint: entryPointIds.has(memberId),
+            isCluster: false,
+            isOrphanCluster: false,
+            isSynthetic: false,
+            memberCount: 1,
+          },
+        });
+      }
     } else {
-      label = `${topName} +${memberCount - 1}`;
+      // Sort members by importance descending, pick the top as the cluster face
+      const sortedMembers = [...members].sort(
+        (a, b) => (importanceScores.get(b) ?? 0) - (importanceScores.get(a) ?? 0)
+      );
+      const topNode = nodeById.get(sortedMembers[0]);
+      const topName = topNode ? topNode.name : sortedMembers[0];
+
+      let label;
+      if (level <= 0.001) {
+        label = inferProjectName(data);
+      } else if (orphanClusterId === clusterId && memberCount > 1) {
+        label = `Orphans (${memberCount})`;
+      } else if (memberCount === 1) {
+        label = topName;
+      } else {
+        label = `${topName} +${memberCount - 1}`;
+      }
+
+      const _size = 36 * Math.max(1, Math.log2(memberCount + 1));
+      const isOrphanCluster = orphanClusterId === clusterId && memberCount > 1;
+      const isSynthetic = level <= 0.001;
+      const isCluster = memberCount > 1 && level > 0.001;
+
+      elements.push({
+        data: {
+          id: clusterId,
+          label,
+          _size,
+          file: memberCount === 1 && rep ? rep.file : null,
+          line: memberCount === 1 && rep ? rep.line : null,
+          isEntryPoint: memberCount === 1 && entryPointIds.has(clusterId),
+          isCluster,
+          isOrphanCluster,
+          isSynthetic,
+          memberCount,
+        },
+      });
     }
-
-    const _size = 36 * Math.max(1, Math.log2(memberCount + 1));
-    const isOrphanCluster = orphanClusterId === clusterId && memberCount > 1;
-    const isSynthetic = level <= 0.001;
-    const isCluster = memberCount > 1 && level > 0.001;
-
-    elements.push({
-      data: {
-        id: clusterId,
-        label,
-        _size,
-        file: memberCount === 1 && rep ? rep.file : null,
-        line: memberCount === 1 && rep ? rep.line : null,
-        isEntryPoint: memberCount === 1 && entryPointIds.has(clusterId),
-        isCluster,
-        isOrphanCluster,
-        isSynthetic,
-        memberCount,
-      },
-    });
   }
 
-  // Build deduplicated cluster edges
+  // Build effective rendering target for each raw node ID (respects expansions)
+  const nodeToRendered = new Map();
+  for (const [nodeId, clusterId] of nodeToCluster) {
+    nodeToRendered.set(nodeId, expandedClusters.has(clusterId) ? nodeId : clusterId);
+  }
+
+  // Build deduplicated edges
   const seenEdges = new Set();
   for (const edge of realEdges) {
-    const src = nodeToCluster.get(edge.source);
-    const tgt = nodeToCluster.get(edge.target);
+    const src = nodeToRendered.get(edge.source);
+    const tgt = nodeToRendered.get(edge.target);
     if (!src || !tgt || src === tgt) continue;
     const key = `${src}→${tgt}`;
     if (!seenEdges.has(key)) {

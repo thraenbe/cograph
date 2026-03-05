@@ -7,10 +7,10 @@ const settings = {
   groupByFile: false,
   arrows: true,
   textFadeThreshold: 0.5,
-  nodeSize: 1.0,
-  linkThickness: 1,
-  centerForce: 0.1,
-  repelForce: 2048,
+  nodeSize: 2.5,
+  linkThickness: 4,
+  centerForce: 1,
+  repelForce: 500,
   linkForce: 1,
   linkDistance: 40,
 };
@@ -329,10 +329,10 @@ function renderElements(elements) {
       .distance(() => settings.linkDistance)
       .strength(() => settings.linkForce * 0.1))
     .force('charge', d3.forceManyBody().strength(-settings.repelForce))
-    .force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce * 0.5))
+    .force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce))
     .force('collision', d3.forceCollide(d => nodeRadius(d) + 2))
     .velocityDecay(0.3)
-    .alphaDecay(0.003)
+    .alphaDecay(0.02)
     .on('tick', ticked);
 }
 
@@ -381,7 +381,7 @@ function rerunLayout() {
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;
   const H = svgEl.clientHeight || window.innerHeight;
-  simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce * 0.5));
+  simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce));
   simulation.force('charge').strength(-settings.repelForce);
   simulation.force('link').strength(settings.linkForce * 0.1).distance(settings.linkDistance);
   simulation.alpha(0.5).restart();

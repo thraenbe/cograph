@@ -172,6 +172,34 @@ body {
   transform: translateX(14px);
 }
 
+/* ── Layout mode toggle ── */
+.layout-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.layout-btn {
+  flex: 1;
+  padding: 5px 4px;
+  font-size: 11px;
+  background: var(--vscode-button-secondaryBackground, #3a3a3a);
+  color: var(--vscode-foreground, #cccccc);
+  border: 1px solid var(--vscode-widget-border, #555);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.layout-btn.active {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #ffffff);
+  border-color: var(--vscode-button-background, #0e639c);
+}
+
+.layout-btn:hover:not(.active) {
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
 /* ── Stub / disabled ── */
 .stub {
   opacity: 0.4;

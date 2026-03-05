@@ -29,6 +29,7 @@ let svgLabels = null;
 let currentNodes = [];
 let currentZoom = 1;
 let _hasFitted = false;
+let layoutMode = 'dynamic'; // 'dynamic' | 'static'
 
 // ── SVG setup ─────────────────────────────────────────────────────────────────
 const svg = d3.select('#graph')
@@ -140,21 +141,50 @@ function fitToView() {
   );
 }
 
+// ── Layout mode toggle ────────────────────────────────────────────────────────
+function setLayoutMode(mode) {
+  layoutMode = mode;
+  document.getElementById('btn-layout-dynamic')?.classList.toggle('active', mode === 'dynamic');
+  document.getElementById('btn-layout-static')?.classList.toggle('active', mode === 'static');
+  const forcesSection = document.getElementById('forces-section');
+  if (forcesSection) forcesSection.style.opacity = mode === 'dynamic' ? '1' : '0.4';
+
+  if (mode === 'static') {
+    if (simulation) {
+      simulation.stop();
+      currentNodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
+    }
+  } else {
+    currentNodes.forEach(d => { d.fx = null; d.fy = null; });
+    if (simulation) simulation.alpha(0.3).restart();
+  }
+}
+
 // ── Drag (swimming effect) ────────────────────────────────────────────────────
 const drag = d3.drag()
   .on('start', (event, d) => {
-    if (!event.active && simulation) simulation.alphaTarget(0.3).restart();
+    if (layoutMode === 'dynamic' && !event.active && simulation)
+      simulation.alphaTarget(0.3).restart();
     d.fx = d.x;
     d.fy = d.y;
   })
   .on('drag', (event, d) => {
     d.fx = event.x;
     d.fy = event.y;
+    if (layoutMode === 'static') {
+      // Simulation stopped — sync x/y directly so ticked() renders correctly
+      d.x = event.x;
+      d.y = event.y;
+      ticked();
+    }
   })
   .on('end', (event, d) => {
-    if (!event.active && simulation) simulation.alphaTarget(0);
-    d.fx = null;
-    d.fy = null;
+    if (layoutMode === 'dynamic') {
+      if (!event.active && simulation) simulation.alphaTarget(0);
+      d.fx = null;
+      d.fy = null; // release — node rejoins simulation
+    }
+    // static: keep fx/fy pinned so node stays exactly where dropped
   });
 
 // ── Tick ──────────────────────────────────────────────────────────────────────
@@ -410,6 +440,10 @@ document.addEventListener('click', (e) => {
     settingsPanel.classList.remove('open');
   }
 });
+
+// ── Layout mode controls ──────────────────────────────────────────────────────
+document.getElementById('btn-layout-dynamic')?.addEventListener('click', () => setLayoutMode('dynamic'));
+document.getElementById('btn-layout-static')?.addEventListener('click', () => setLayoutMode('static'));
 
 // ── Filter controls ───────────────────────────────────────────────────────────
 document.getElementById('search')?.addEventListener('input', applyFilters);

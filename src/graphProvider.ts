@@ -287,6 +287,14 @@ export class GraphProvider {
   <div id="settings-panel">
 
     <div class="panel-section">
+      <h4>Layout Mode</h4>
+      <div class="layout-toggle">
+        <button id="btn-layout-dynamic" class="layout-btn active">&#9889; Dynamic</button>
+        <button id="btn-layout-static" class="layout-btn">&#9679; Static</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
       <h4>Filters</h4>
       <input id="search" type="text" placeholder="Filter functions..." />
       <div class="toggle-row">
@@ -336,7 +344,7 @@ export class GraphProvider {
       </div>
     </div>
 
-    <div class="panel-section">
+    <div class="panel-section" id="forces-section">
       <h4>Forces</h4>
       <div class="slider-row">
         <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">0.1</span></div>

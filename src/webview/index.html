@@ -4,13 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CoGraph</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="cy"></div>
+  <div id="graph"></div>
+  <div id="flow-notice">Dagre layout not available in D3 mode</div>
   <div id="complexity-widget">
     <div class="complexity-header">
       <label for="slider-complexity">Detail</label>

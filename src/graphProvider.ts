@@ -264,25 +264,18 @@ export class GraphProvider {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none';
-             script-src 'nonce-${nonce}' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net;
-             style-src 'unsafe-inline' ${webview.cspSource} https://cdn.jsdelivr.net;
+             script-src 'nonce-${nonce}' https://cdnjs.cloudflare.com;
+             style-src 'unsafe-inline' ${webview.cspSource};
              img-src ${webview.cspSource} data:;" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CoGraph</title>
   <link rel="stylesheet" href="${stylesUri}" />
-  <link rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/cytoscape-navigator@2.0.1/cytoscape.js-navigator.css" />
   <script nonce="${nonce}"
-    src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
-  <script nonce="${nonce}"
-    src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
-  <script nonce="${nonce}"
-    src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
-  <script nonce="${nonce}"
-    src="https://cdn.jsdelivr.net/npm/cytoscape-navigator@2.0.1/cytoscape-navigator.js"></script>
+    src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 </head>
 <body>
-  <div id="cy"></div>
+  <div id="graph"></div>
+  <div id="flow-notice">Dagre layout not available in D3 mode</div>
   <div id="complexity-widget">
     <div class="complexity-header">
       <label for="slider-complexity">Detail</label>
@@ -290,7 +283,6 @@ export class GraphProvider {
     </div>
     <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
   </div>
-  <div id="minimap"></div>
   <button id="settings-btn" title="Settings">&#9881;</button>
   <div id="settings-panel">
 

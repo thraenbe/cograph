@@ -1,17 +1,16 @@
 const vscode = acquireVsCodeApi();
-let cy;
 
+// ── State ─────────────────────────────────────────────────────────────────────
 const settings = {
   existingFilesOnly: false,
   showOrphans: true,
   groupByFile: false,
-  groupByFlow: false,
   arrows: true,
   textFadeThreshold: 0.5,
   nodeSize: 1.0,
   linkThickness: 1,
   centerForce: 0.1,
-  repelForce: 3000,
+  repelForce: 2048,
   linkForce: 1,
   linkDistance: 40,
 };
@@ -21,318 +20,364 @@ let complexityLevel = 1.0;
 let _importanceScores = null;
 let _clusterTimer = null;
 let _expandedClusters = new Set();
+let _connectedNodeIds = new Set();
 
-window.addEventListener('message', (event) => {
-  const message = event.data;
-  if (message.type === 'graph') {
-    renderGraph(message.data);
-  }
-});
+let simulation = null;
+let svgNodes = null;
+let svgLinks = null;
+let svgLabels = null;
+let currentNodes = [];
+let currentZoom = 1;
+let _hasFitted = false;
 
-function buildElements(data) {
-  const elements = [];
+// ── SVG setup ─────────────────────────────────────────────────────────────────
+const svg = d3.select('#graph')
+  .append('svg')
+  .attr('width', '100%')
+  .attr('height', '100%');
 
-  const entryPointIds = new Set(
-    data.edges.filter((e) => e.source === '::MAIN::0').map((e) => e.target)
-  );
+const defs = svg.append('defs');
 
-  if (settings.groupByFile) {
-    const files = new Set(data.nodes.map((n) => n.file).filter(Boolean));
-    files.forEach((file) => {
-      elements.push({ data: { id: `file::${file}`, label: file.split('/').pop() } });
-    });
-    data.nodes.forEach((n) => {
-      if (n.id === '::MAIN::0') return;
-      const parent = n.file ? `file::${n.file}` : undefined;
-      elements.push({ data: { id: n.id, label: n.name, file: n.file, line: n.line, parent, isEntryPoint: entryPointIds.has(n.id) } });
-    });
-  } else {
-    data.nodes.forEach((n) => {
-      if (n.id === '::MAIN::0') return;
-      elements.push({ data: { id: n.id, label: n.name, file: n.file, line: n.line, isEntryPoint: entryPointIds.has(n.id) } });
-    });
-  }
+// Arrow marker
+defs.append('marker')
+  .attr('id', 'arrow')
+  .attr('viewBox', '0 -5 10 10')
+  .attr('refX', 10)
+  .attr('refY', 0)
+  .attr('markerWidth', 4)
+  .attr('markerHeight', 4)
+  .attr('orient', 'auto')
+  .append('path')
+  .attr('d', 'M0,-5L10,0L0,5')
+  .attr('fill', 'rgba(160,160,160,0.6)');
 
-  data.edges.forEach((e) => {
-    if (e.source === '::MAIN::0') return;
-    elements.push({ data: { source: e.source, target: e.target } });
+// Default glow filter
+const glowFilter = defs.append('filter')
+  .attr('id', 'glow')
+  .attr('x', '-50%').attr('y', '-50%')
+  .attr('width', '200%').attr('height', '200%');
+glowFilter.append('feGaussianBlur').attr('in', 'SourceGraphic').attr('stdDeviation', '4').attr('result', 'blur');
+const fm1 = glowFilter.append('feMerge');
+fm1.append('feMergeNode').attr('in', 'blur');
+fm1.append('feMergeNode').attr('in', 'SourceGraphic');
+
+// Hover glow filter (larger blur)
+const hoverFilter = defs.append('filter')
+  .attr('id', 'glow-hover')
+  .attr('x', '-100%').attr('y', '-100%')
+  .attr('width', '300%').attr('height', '300%');
+hoverFilter.append('feGaussianBlur').attr('in', 'SourceGraphic').attr('stdDeviation', '8').attr('result', 'blur');
+const fm2 = hoverFilter.append('feMerge');
+fm2.append('feMergeNode').attr('in', 'blur');
+fm2.append('feMergeNode').attr('in', 'SourceGraphic');
+
+// Transform groups
+const g = svg.append('g');
+const linkG = g.append('g').attr('class', 'links');
+const nodeG = g.append('g').attr('class', 'nodes');
+const labelG = g.append('g').attr('class', 'labels');
+
+// ── Zoom ──────────────────────────────────────────────────────────────────────
+const zoomBehavior = d3.zoom()
+  .scaleExtent([0.02, 10])
+  .on('zoom', (event) => {
+    g.attr('transform', event.transform);
+    currentZoom = event.transform.k;
+    updateTextVisibility();
   });
 
-  return elements;
+svg.call(zoomBehavior);
+svg.on('dblclick.zoom', null); // Remove D3's default dblclick-to-zoom
+svg.on('dblclick', (event) => {
+  if (event.target.tagName !== 'circle') fitToView();
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function nodeRadius(d) {
+  return ((d._size ?? 6) / 2) * settings.nodeSize;
 }
 
-function getLayout({ reset = true } = {}) {
-  if (settings.groupByFlow) {
-    return { name: 'dagre', rankDir: 'LR' };
+function nodeColor(d) {
+  if (d.isSynthetic) return 'var(--vscode-button-background, #0e639c)';
+  if (d.isOrphanCluster) return '#555';
+  if (d.isCluster) return '#7c4dbb';
+  if (d.isEntryPoint) return '#e8734a';
+  return '#d4d4d4';
+}
+
+function fileColor(file) {
+  if (!file) return 'transparent';
+  let hash = 0;
+  for (let i = 0; i < file.length; i++) {
+    hash = ((hash << 5) - hash) + file.charCodeAt(i);
+    hash |= 0;
   }
-  return {
-    name: 'cose',
-    randomize: reset,
-    fit: reset,
-    gravity: settings.centerForce,
-    repulsion: settings.repelForce,
-    springCoeff: settings.linkForce,
-    idealEdgeLength: 80 - settings.linkDistance,
-    animate: true,
-    animationDuration: 10,
-    animationEasing: 'ease-out',
-  };
+  return `hsl(${((hash % 360) + 360) % 360}, 70%, 65%)`;
+}
+
+function updateTextVisibility() {
+  if (!svgLabels) return;
+  svgLabels.style('opacity', currentZoom >= settings.textFadeThreshold ? 1 : 0);
+}
+
+function fitToView() {
+  if (!currentNodes.length) return;
+  const xs = currentNodes.map(n => n.x).filter(v => v != null && isFinite(v));
+  const ys = currentNodes.map(n => n.y).filter(v => v != null && isFinite(v));
+  if (!xs.length) return;
+  const svgEl = svg.node();
+  const W = svgEl.clientWidth || window.innerWidth;
+  const H = svgEl.clientHeight || window.innerHeight;
+  const pad = 60;
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const scale = Math.min((W - pad * 2) / (maxX - minX || 1), (H - pad * 2) / (maxY - minY || 1), 4);
+  svg.transition().duration(500).call(
+    zoomBehavior.transform,
+    d3.zoomIdentity
+      .translate(W / 2 - scale * (minX + maxX) / 2, H / 2 - scale * (minY + maxY) / 2)
+      .scale(scale)
+  );
+}
+
+// ── Drag (swimming effect) ────────────────────────────────────────────────────
+const drag = d3.drag()
+  .on('start', (event, d) => {
+    if (!event.active && simulation) simulation.alphaTarget(0.3).restart();
+    d.fx = d.x;
+    d.fy = d.y;
+  })
+  .on('drag', (event, d) => {
+    d.fx = event.x;
+    d.fy = event.y;
+  })
+  .on('end', (event, d) => {
+    if (!event.active && simulation) simulation.alphaTarget(0);
+    d.fx = null;
+    d.fy = null;
+  });
+
+// ── Tick ──────────────────────────────────────────────────────────────────────
+function ticked() {
+  svgLinks?.each(function (d) {
+    const sx = d.source.x, sy = d.source.y;
+    const tx = d.target.x, ty = d.target.y;
+    const dx = tx - sx, dy = ty - sy;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const r1 = nodeRadius(d.source), r2 = nodeRadius(d.target);
+    this.setAttribute('x1', sx + (dx / dist) * r1);
+    this.setAttribute('y1', sy + (dy / dist) * r1);
+    this.setAttribute('x2', tx - (dx / dist) * r2);
+    this.setAttribute('y2', ty - (dy / dist) * r2);
+  });
+  svgNodes?.each(function (d) {
+    this.setAttribute('cx', d.x);
+    this.setAttribute('cy', d.y);
+  });
+  svgLabels?.each(function (d) {
+    this.setAttribute('x', d.x);
+    this.setAttribute('y', (d.isCluster || d.isSynthetic) ? d.y : d.y + nodeRadius(d) + 10);
+  });
+
+  // Auto-fit once after initial settling
+  if (!_hasFitted && simulation && simulation.alpha() < 0.1) {
+    _hasFitted = true;
+    fitToView();
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderElements(elements) {
+  const nodeData = elements.filter(e => e.data.source === undefined);
+  const edgeData = elements.filter(e => e.data.source !== undefined);
+
+  // Track connected nodes for orphan filtering
+  _connectedNodeIds = new Set();
+  edgeData.forEach(e => {
+    _connectedNodeIds.add(e.data.source);
+    _connectedNodeIds.add(e.data.target);
+  });
+
+  // Preserve positions from previous render
+  const oldPositions = new Map(currentNodes.map(n => [n.id, { x: n.x, y: n.y }]));
+  const svgEl = svg.node();
+  const W = svgEl.clientWidth || window.innerWidth;
+  const H = svgEl.clientHeight || window.innerHeight;
+
+  currentNodes = nodeData.map(e => ({
+    ...e.data,
+    x: oldPositions.get(e.data.id)?.x ?? W / 2 + (Math.random() - 0.5) * 200,
+    y: oldPositions.get(e.data.id)?.y ?? H / 2 + (Math.random() - 0.5) * 200,
+  }));
+
+  // Fresh link copies — D3 will mutate source/target to node objects
+  const allLinks = edgeData.map(e => ({ source: e.data.source, target: e.data.target }));
+
+  const visibleSet = getVisibleNodeIds();
+
+  // ── Links ──
+  svgLinks = linkG.selectAll('line')
+    .data(allLinks)
+    .join('line')
+    .attr('stroke', 'rgba(160,160,160,0.25)')
+    .attr('stroke-width', settings.linkThickness)
+    .attr('opacity', 0.7)
+    .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
+    .style('display', d => (visibleSet.has(d.source) && visibleSet.has(d.target)) ? null : 'none');
+
+  // ── Nodes ──
+  svgNodes = nodeG.selectAll('circle')
+    .data(currentNodes, d => d.id)
+    .join('circle')
+    .attr('r', d => nodeRadius(d))
+    .style('fill', d => nodeColor(d))
+    .attr('stroke', d => settings.groupByFile ? fileColor(d.file) : 'none')
+    .attr('stroke-width', 2)
+    .attr('filter', 'url(#glow)')
+    .attr('cursor', 'pointer')
+    .style('display', d => visibleSet.has(d.id) ? null : 'none')
+    .call(drag)
+    .on('click', (event, d) => {
+      event.stopPropagation();
+      if (d.isSynthetic) return;
+      if (d.isCluster) {
+        _expandedClusters.add(d.id);
+        applyComplexity();
+        return;
+      }
+      vscode.postMessage({ type: 'navigate', file: d.file, line: d.line });
+    })
+    .on('mouseover', (event, d) => {
+      d3.select(event.currentTarget)
+        .style('fill', '#7eb9ff')
+        .attr('r', nodeRadius(d) * 1.15)
+        .attr('filter', 'url(#glow-hover)');
+      svgLinks
+        ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+          ? '#5aabff' : 'rgba(160,160,160,0.25)')
+        .attr('stroke-width', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+          ? Math.max(1.5, settings.linkThickness) : settings.linkThickness)
+        .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+          ? 1 : 0.15);
+      svgLabels?.filter(l => l.id === d.id)
+        .style('opacity', 1)
+        .attr('font-size', '11.5px')
+        .attr('fill', '#ffffff');
+    })
+    .on('mouseout', (event, d) => {
+      d3.select(event.currentTarget)
+        .style('fill', nodeColor(d))
+        .attr('r', nodeRadius(d))
+        .attr('filter', 'url(#glow)');
+      svgLinks
+        ?.attr('stroke', 'rgba(160,160,160,0.25)')
+        .attr('stroke-width', settings.linkThickness)
+        .attr('opacity', 0.7);
+      svgLabels?.filter(l => l.id === d.id)
+        .style('opacity', currentZoom >= settings.textFadeThreshold ? 1 : 0)
+        .attr('font-size', d.isSynthetic ? '12px' : '9px')
+        .attr('fill', (d.isCluster || d.isSynthetic) ? '#ffffff' : '#d4d4d4');
+    });
+
+  // ── Labels ──
+  svgLabels = labelG.selectAll('text')
+    .data(currentNodes, d => d.id)
+    .join('text')
+    .text(d => d.label)
+    .attr('font-size', d => d.isSynthetic ? '12px' : '9px')
+    .attr('fill', d => (d.isCluster || d.isSynthetic) ? '#ffffff' : '#d4d4d4')
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', d => (d.isCluster || d.isSynthetic) ? 'middle' : 'auto')
+    .attr('pointer-events', 'none')
+    .style('display', d => visibleSet.has(d.id) ? null : 'none')
+    .style('opacity', currentZoom >= settings.textFadeThreshold ? 1 : 0);
+
+  // ── Simulation ──
+  if (simulation) simulation.stop();
+  simulation = d3.forceSimulation(currentNodes)
+    .force('link', d3.forceLink(allLinks).id(d => d.id)
+      .distance(() => settings.linkDistance)
+      .strength(() => settings.linkForce * 0.1))
+    .force('charge', d3.forceManyBody().strength(-settings.repelForce))
+    .force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce * 0.5))
+    .force('collision', d3.forceCollide(d => nodeRadius(d) + 2))
+    .velocityDecay(0.3)
+    .alphaDecay(0.003)
+    .on('tick', ticked);
+}
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+function getVisibleNodeIds() {
+  const query = document.getElementById('search')?.value.toLowerCase() ?? '';
+  const visible = new Set();
+  currentNodes.forEach(n => {
+    if (query && !n.label.toLowerCase().includes(query)) return;
+    if (settings.existingFilesOnly && !n.isCluster && !n.isSynthetic) {
+      if (!n.file || !n.line || n.line <= 0) return;
+    }
+    if (!settings.showOrphans && !_connectedNodeIds.has(n.id)) return;
+    visible.add(n.id);
+  });
+  return visible;
 }
 
 function applyFilters() {
-  if (!cy) return;
-
-  const query = document.getElementById('search')?.value.toLowerCase() ?? '';
-  cy.nodes().forEach((node) => {
-    if (node.isParent()) return;
-    let visible = true;
-    if (query && !node.data('label').toLowerCase().includes(query)) {
-      visible = false;
-    }
-    if (settings.existingFilesOnly && !node.data('isCluster') && !node.data('isSynthetic')) {
-      const file = node.data('file');
-      const line = node.data('line');
-      if (!file || !line || line <= 0) visible = false;
-    }
-    if (!settings.showOrphans && node.connectedEdges().length === 0) {
-      visible = false;
-    }
-    node.style('display', visible ? 'element' : 'none');
+  if (!svgNodes || !svgLinks || !svgLabels) return;
+  const visibleSet = getVisibleNodeIds();
+  svgNodes.style('display', d => visibleSet.has(d.id) ? null : 'none');
+  svgLabels.style('display', d => visibleSet.has(d.id) ? null : 'none');
+  svgLinks.style('display', d => {
+    const src = d.source?.id ?? d.source;
+    const tgt = d.target?.id ?? d.target;
+    return (visibleSet.has(src) && visibleSet.has(tgt)) ? null : 'none';
   });
 }
 
+// ── Display settings ──────────────────────────────────────────────────────────
 function applyDisplaySettings() {
-  if (!cy) return;
-  const arrowShape = settings.arrows ? 'triangle' : 'none';
-  cy.batch(() => {
-    cy.nodes().forEach((node) => {
-      const base = node.data('_size') ?? 6;
-      node.style({ width: base * settings.nodeSize, height: base * settings.nodeSize });
-    });
-    cy.edges().style({
-      width: settings.linkThickness,
-      'target-arrow-shape': arrowShape,
-    });
-  });
-  cy.off('zoom');
-  cy.on('zoom', () => {
-    const opacity = cy.zoom() >= settings.textFadeThreshold ? 1 : 0;
-    cy.batch(() => cy.nodes().style('text-opacity', opacity));
-  });
-  const opacity = cy.zoom() >= settings.textFadeThreshold ? 1 : 0;
-  cy.batch(() => cy.nodes().style('text-opacity', opacity));
+  if (!svgNodes || !svgLinks || !svgLabels) return;
+  svgNodes
+    .attr('r', d => nodeRadius(d))
+    .attr('stroke', d => settings.groupByFile ? fileColor(d.file) : 'none');
+  svgLinks
+    .attr('stroke-width', settings.linkThickness)
+    .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);
+  updateTextVisibility();
 }
 
+// ── Layout update ─────────────────────────────────────────────────────────────
+function rerunLayout() {
+  if (!simulation) return;
+  const svgEl = svg.node();
+  const W = svgEl.clientWidth || window.innerWidth;
+  const H = svgEl.clientHeight || window.innerHeight;
+  simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce * 0.5));
+  simulation.force('charge').strength(-settings.repelForce);
+  simulation.force('link').strength(settings.linkForce * 0.1).distance(settings.linkDistance);
+  simulation.alpha(0.5).restart();
+}
+
+// ── Complexity ────────────────────────────────────────────────────────────────
 function applyComplexity() {
-  if (!cy || !graphData || !_importanceScores) return;
+  if (!graphData || !_importanceScores) return;
   const degreeMap = new Map();
-  graphData.nodes.forEach((n) => degreeMap.set(n.id, 0));
-  graphData.edges.forEach((e) => {
+  graphData.nodes.forEach(n => degreeMap.set(n.id, 0));
+  graphData.edges.forEach(e => {
     if (e.source === '::MAIN::0') return;
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
   const clusterResult = computeClusters(graphData, _importanceScores, complexityLevel);
   const elements = buildClusteredElements(graphData, clusterResult, complexityLevel, _importanceScores, _expandedClusters, degreeMap);
-  cy.elements().remove();
-  cy.add(elements);
-  applyFilters();
-  applyDisplaySettings();
-  cy.layout(getLayout({ reset: true })).run();
+  renderElements(elements);
 }
 
-let _layoutTimer = null;
-let _runningLayout = null;
-function rerunLayout() {
-  if (!cy) return;
-  clearTimeout(_layoutTimer);
-  _layoutTimer = setTimeout(() => {
-    if (_runningLayout) _runningLayout.stop();
-    _runningLayout = cy.layout(getLayout({ reset: false }));
-    _runningLayout.run();
-  }, 300);
-}
-
-function rebuildGraph() {
-  if (!graphData) return;
-  renderGraph(graphData);
-}
-
+// ── Main entry ────────────────────────────────────────────────────────────────
 function renderGraph(data) {
   graphData = data;
-  if (cy) {
-    cy.destroy();
-    cy = null;
-  }
-
-  cy = cytoscape({
-    container: document.getElementById('cy'),
-    elements: [],
-    layout: getLayout({ reset: true }),
-    minZoom: 0.05,
-    style: [
-      {
-        selector: 'node',
-        style: {
-          label: 'data(label)',
-          'font-size': '9px',
-          'background-color': '#d4d4d4',
-          color: '#d4d4d4',
-          'text-valign': 'bottom',
-          'text-halign': 'center',
-          'text-margin-y': 5,
-          width: 6,
-          height: 6,
-          shape: 'ellipse',
-          cursor: 'pointer',
-          'border-width': 0,
-          'shadow-blur': 8,
-          'shadow-color': '#d4d4d4',
-          'shadow-opacity': 0.5,
-          'shadow-offset-x': 0,
-          'shadow-offset-y': 0,
-        },
-      },
-      {
-        selector: 'edge',
-        style: {
-          width: 0.75,
-          'line-color': 'rgba(160,160,160,0.25)',
-          'target-arrow-color': 'rgba(160,160,160,0.25)',
-          'target-arrow-shape': settings.arrows ? 'triangle' : 'none',
-          'curve-style': 'bezier',
-          opacity: 0.7,
-        },
-      },
-      {
-        selector: 'node:selected',
-        style: {
-          'background-color': '#f0b45a',
-          'shadow-color': '#f0b45a',
-        },
-      },
-      {
-        selector: 'node[?isEntryPoint]',
-        style: {
-          'background-color': '#e8734a',
-          'shadow-color': '#e8734a',
-        },
-      },
-      {
-        selector: 'node.hovered',
-        style: {
-          'background-color': '#7eb9ff',
-          'shadow-color': '#7eb9ff',
-          'shadow-blur': 18,
-          'shadow-opacity': 0.9,
-          color: '#ffffff',
-          'font-size': '11.5px',
-        },
-      },
-      {
-        selector: 'edge.highlighted',
-        style: {
-          'line-color': '#5aabff',
-          'target-arrow-color': '#5aabff',
-          width: 1.5,
-          opacity: 1,
-        },
-      },
-      {
-        selector: 'node[?isCluster]',
-        style: {
-          'background-color': '#7c4dbb',
-          'shadow-color': '#7c4dbb',
-          color: '#ffffff',
-          'text-valign': 'center',
-          'text-halign': 'center',
-          'text-wrap': 'wrap',
-          'text-max-width': '80px',
-          'font-size': '10px',
-        },
-      },
-      {
-        selector: 'node[?isOrphanCluster]',
-        style: {
-          'background-color': '#555',
-          'shadow-color': '#555',
-        },
-      },
-      {
-        selector: '$node > node',
-        style: {
-          'background-color': 'rgba(80, 80, 120, 0.1)',
-          'border-color': '#666',
-          'border-width': 1,
-          label: 'data(label)',
-          'font-size': '11px',
-          color: '#aaa',
-          'text-valign': 'top',
-          'text-halign': 'center',
-          'text-margin-y': -8,
-        },
-      },
-      {
-        selector: 'node[?isSynthetic]',
-        style: {
-          'background-color': 'var(--vscode-button-background, #0e639c)',
-          'shadow-color': '#0e639c',
-          'shadow-blur': 12,
-          'shadow-opacity': 0.6,
-          color: '#ffffff',
-          'font-size': '14px',
-          width: 80,
-          height: 80,
-          label: 'data(label)',
-          'text-valign': 'center',
-          'text-halign': 'center',
-          'text-wrap': 'wrap',
-          'text-max-width': '70px',
-        },
-      },
-    ],
-  });
-
-  cy.on('tap', 'node', (evt) => {
-    const node = evt.target;
-    if (node.data('isSynthetic')) return;
-    if (node.data('isCluster')) {
-      _expandedClusters.add(node.id());
-      applyComplexity();
-      return;
-    }
-    vscode.postMessage({
-      type: 'navigate',
-      file: node.data('file'),
-      line: node.data('line'),
-    });
-  });
-
-  cy.on('mouseover', 'node', (evt) => {
-    const node = evt.target;
-    node.addClass('hovered');
-    node.connectedEdges().addClass('highlighted');
-    const base = node.data('_size') ?? 6;
-    node.style({ width: base * settings.nodeSize * 1.15, height: base * settings.nodeSize * 1.15 });
-  });
-  cy.on('mouseout', 'node', (evt) => {
-    const node = evt.target;
-    node.removeClass('hovered');
-    node.connectedEdges().removeClass('highlighted');
-    const base = node.data('_size') ?? 6;
-    node.style({ width: base * settings.nodeSize, height: base * settings.nodeSize });
-  });
-
-  cy.on('dbltap', (evt) => {
-    if (evt.target === cy) cy.fit(undefined, 30);
-  });
-
-  if (typeof cy.navigator === 'function') {
-    cy.navigator({ container: '#minimap' });
-  }
-
   _importanceScores = computeImportanceScores(graphData);
   _expandedClusters = new Set();
+  _hasFitted = false;
 
   const nodeCount = data.nodes.length;
   if (nodeCount > 200) {
@@ -346,8 +391,12 @@ function renderGraph(data) {
   applyComplexity();
 }
 
-// ── Settings panel ──────────────────────────────────────────────────────────
+window.addEventListener('message', (event) => {
+  const message = event.data;
+  if (message.type === 'graph') renderGraph(message.data);
+});
 
+// ── Settings panel ────────────────────────────────────────────────────────────
 const settingsBtn = document.getElementById('settings-btn');
 const settingsPanel = document.getElementById('settings-panel');
 
@@ -362,9 +411,8 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ── Filter controls ──────────────────────────────────────────────────────────
-
-document.getElementById('search')?.addEventListener('input', () => applyFilters());
+// ── Filter controls ───────────────────────────────────────────────────────────
+document.getElementById('search')?.addEventListener('input', applyFilters);
 
 document.getElementById('toggle-existing')?.addEventListener('change', (e) => {
   settings.existingFilesOnly = e.target.checked;
@@ -376,20 +424,22 @@ document.getElementById('toggle-orphans')?.addEventListener('change', (e) => {
   applyFilters();
 });
 
-// ── Group controls ───────────────────────────────────────────────────────────
-
+// ── Group controls ────────────────────────────────────────────────────────────
 document.getElementById('toggle-group-file')?.addEventListener('change', (e) => {
   settings.groupByFile = e.target.checked;
-  rebuildGraph();
+  applyDisplaySettings();
 });
 
 document.getElementById('toggle-group-flow')?.addEventListener('change', (e) => {
-  settings.groupByFlow = e.target.checked;
-  rebuildGraph();
+  e.target.checked = false; // Dagre not available in D3 mode
+  const notice = document.getElementById('flow-notice');
+  if (notice) {
+    notice.style.display = 'block';
+    setTimeout(() => { notice.style.display = 'none'; }, 3000);
+  }
 });
 
-// ── Display controls ─────────────────────────────────────────────────────────
-
+// ── Display controls ──────────────────────────────────────────────────────────
 document.getElementById('toggle-arrows')?.addEventListener('change', (e) => {
   settings.arrows = e.target.checked;
   applyDisplaySettings();

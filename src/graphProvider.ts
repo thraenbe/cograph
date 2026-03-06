@@ -30,6 +30,8 @@ export class GraphProvider {
   private readonly context: vscode.ExtensionContext;
   private cachedNodes: GraphNode[] = [];
   private gitRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  private reanalysisTimer: ReturnType<typeof setTimeout> | undefined;
+  private activeProc: cp.ChildProcess | undefined;
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -65,7 +67,12 @@ export class GraphProvider {
     };
 
     const saveListener = vscode.workspace.onDidSaveTextDocument(doc => {
-      if (doc.uri.fsPath.startsWith(workspaceRoot)) { scheduleRefresh(); }
+      if (doc.uri.fsPath.startsWith(workspaceRoot)) {
+        scheduleRefresh();
+        if (doc.uri.fsPath.endsWith('.py')) {
+          this.scheduleReanalysis(workspaceRoot);
+        }
+      }
     });
 
     const gitIndexWatcher = vscode.workspace.createFileSystemWatcher(
@@ -79,6 +86,8 @@ export class GraphProvider {
       saveListener.dispose();
       gitIndexWatcher.dispose();
       if (this.gitRefreshTimer) { clearTimeout(this.gitRefreshTimer); }
+      if (this.reanalysisTimer) { clearTimeout(this.reanalysisTimer); }
+      if (this.activeProc) { this.activeProc.kill(); this.activeProc = undefined; }
       this.cachedNodes = [];
     });
 
@@ -234,16 +243,27 @@ export class GraphProvider {
       return;
     }
 
+    const isReanalysis = this.cachedNodes.length > 0;
     const gitAvailable = this.applyGitStatuses(graph.nodes, workspaceRoot);
     this.cachedNodes = graph.nodes;
 
-    const webviewHtml = this.getWebviewHtml(this.panel.webview);
-    this.panel.webview.html = webviewHtml;
+    if (isReanalysis) {
+      this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, isReanalysis: true });
+    } else {
+      this.panel.webview.html = this.getWebviewHtml(this.panel.webview);
+      // Delay postMessage so webview JS is fully initialised before the data arrives.
+      setTimeout(() => {
+        this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, isReanalysis: false });
+      }, 150);
+    }
+  }
 
-    // Delay postMessage so webview JS is fully initialised before the data arrives.
-    setTimeout(() => {
-      this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable });
-    }, 150);
+  private scheduleReanalysis(workspaceRoot: string): void {
+    if (this.reanalysisTimer) { clearTimeout(this.reanalysisTimer); }
+    this.reanalysisTimer = setTimeout(() => {
+      if (this.activeProc) { this.activeProc.kill(); this.activeProc = undefined; }
+      this.runAnalyzer(workspaceRoot);
+    }, 1000);
   }
 
   private runAnalyzer(workspaceRoot: string): void {
@@ -255,6 +275,7 @@ export class GraphProvider {
 
     const scriptPath = path.join(this.context.extensionPath, 'scripts', 'analyze.py');
     const proc = cp.spawn(pythonBin, [scriptPath, workspaceRoot]);
+    this.activeProc = proc;
 
     let stdout = '';
     let stdoutBytes = 0;
@@ -283,11 +304,13 @@ export class GraphProvider {
 
     proc.on('error', (err: Error) => {
       clearTimeout(timer);
+      this.activeProc = undefined;
       this.showError(`CoGraph: Failed to start Python — ${err.message}`);
     });
 
     proc.on('close', (code: number | null) => {
       clearTimeout(timer);
+      this.activeProc = undefined;
       if (timedOut) {
         return; // already handled above
       }

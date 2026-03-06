@@ -12,6 +12,7 @@ const state = {
   currentNodes: [],
   currentZoom: 1,
   hasFitted: false,
+  pendingReheat: false,
   layoutMode: 'dynamic',
   gitMode: false,
   gitAvailable: false,

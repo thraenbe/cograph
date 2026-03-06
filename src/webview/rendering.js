@@ -275,6 +275,13 @@ function renderLabels(visibleSet) {
 }
 
 function startSimulation(allLinks) {
+  if (state.pendingReheat && state.simulation) {
+    state.pendingReheat = false;
+    state.simulation.nodes(state.currentNodes);
+    state.simulation.force('link').links(allLinks);
+    state.simulation.alpha(0.1).restart();
+    return;
+  }
   if (state.simulation) state.simulation.stop();
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;

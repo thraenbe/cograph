@@ -135,11 +135,11 @@ function applyComplexity() {
 }
 
 // ── Main entry ────────────────────────────────────────────────────────────────
-function renderGraph(data) {
+function renderGraph(data, isReanalysis = false) {
   state.graphData = data;
   state.importanceScores = computeImportanceScores(state.graphData);
   state.expandedClusters = new Set();
-  state.hasFitted = false;
+  if (!isReanalysis) { state.hasFitted = false; }
 
   const nodeCount = data.nodes.length;
   if (nodeCount > 200) {
@@ -159,7 +159,8 @@ window.addEventListener('message', (event) => {
     state.gitAvailable = message.gitAvailable ?? false;
     const row = document.getElementById('git-toggle-row');
     if (row) row.style.display = state.gitAvailable ? 'block' : 'none';
-    renderGraph(message.data);
+    state.pendingReheat = message.isReanalysis && state.hasFitted;
+    renderGraph(message.data, message.isReanalysis);
     return;
   }
   if (message.type === 'git-update') {

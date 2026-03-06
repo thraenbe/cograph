@@ -253,6 +253,7 @@ export class GraphProvider {
 
   private getWebviewHtml(webview: vscode.Webview): string {
     const webviewDir = vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview');
+    const stateUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'state.js'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
     const clusteringUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'clustering.js'));
     const renderingUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'rendering.js'));
@@ -367,6 +368,7 @@ export class GraphProvider {
     </div>
 
   </div>
+  <script nonce="${nonce}" src="${stateUri}"></script>
   <script nonce="${nonce}" src="${clusteringUri}"></script>
   <script nonce="${nonce}" src="${renderingUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>

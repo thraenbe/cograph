@@ -163,19 +163,22 @@ function computeClusters(data, importanceScores, level) {
   return { nodeToCluster, clusterMembers, orphanClusterId };
 }
 
-function buildClusteredElements(data, clusterResult, level, importanceScores, expandedClusters = new Set(), degreeMap = new Map()) {
-  const { nodeToCluster, clusterMembers, orphanClusterId } = clusterResult;
-
-  const entryPointIds = new Set(
-    data.edges.filter((e) => e.source === '::MAIN::0').map((e) => e.target)
+function inferClusterLabel(clusterId, members, level, importanceScores, orphanClusterId, nodeById, data) {
+  const memberCount = members.length;
+  if (level <= 0.001) return inferProjectName(data);
+  if (orphanClusterId === clusterId && memberCount > 1) return `Orphans (${memberCount})`;
+  const sortedMembers = [...members].sort(
+    (a, b) => (importanceScores.get(b) ?? 0) - (importanceScores.get(a) ?? 0)
   );
+  const topNode = nodeById.get(sortedMembers[0]);
+  const topName = topNode ? topNode.name : sortedMembers[0];
+  return memberCount === 1 ? topName : `${topName} +${memberCount - 1}`;
+}
 
-  const nodeById = new Map(data.nodes.map((n) => [n.id, n]));
-  const realEdges = data.edges.filter((e) => e.source !== '::MAIN::0');
-
+function buildClusterNodes(data, clusterResult, level, importanceScores, expandedClusters, degreeMap, entryPointIds, nodeById) {
+  const { clusterMembers, orphanClusterId } = clusterResult;
   const elements = [];
 
-  // Build cluster nodes
   for (const [clusterId, members] of clusterMembers) {
     const memberCount = members.length;
     const rep = nodeById.get(clusterId);
@@ -202,24 +205,7 @@ function buildClusteredElements(data, clusterResult, level, importanceScores, ex
         });
       }
     } else {
-      // Sort members by importance descending, pick the top as the cluster face
-      const sortedMembers = [...members].sort(
-        (a, b) => (importanceScores.get(b) ?? 0) - (importanceScores.get(a) ?? 0)
-      );
-      const topNode = nodeById.get(sortedMembers[0]);
-      const topName = topNode ? topNode.name : sortedMembers[0];
-
-      let label;
-      if (level <= 0.001) {
-        label = inferProjectName(data);
-      } else if (orphanClusterId === clusterId && memberCount > 1) {
-        label = `Orphans (${memberCount})`;
-      } else if (memberCount === 1) {
-        label = topName;
-      } else {
-        label = `${topName} +${memberCount - 1}`;
-      }
-
+      const label = inferClusterLabel(clusterId, members, level, importanceScores, orphanClusterId, nodeById, data);
       const deg = memberCount === 1 ? (degreeMap.get(clusterId) ?? 0) : 0;
       const _size = memberCount === 1
         ? Math.max(6, 6 + Math.sqrt(deg) * 2.5)
@@ -245,13 +231,19 @@ function buildClusteredElements(data, clusterResult, level, importanceScores, ex
     }
   }
 
-  // Build effective rendering target for each raw node ID (respects expansions)
+  return elements;
+}
+
+function buildRenderedNodeMap(nodeToCluster, expandedClusters) {
   const nodeToRendered = new Map();
   for (const [nodeId, clusterId] of nodeToCluster) {
     nodeToRendered.set(nodeId, expandedClusters.has(clusterId) ? nodeId : clusterId);
   }
+  return nodeToRendered;
+}
 
-  // Build deduplicated edges
+function buildDeduplicatedEdges(realEdges, nodeToRendered) {
+  const elements = [];
   const seenEdges = new Set();
   for (const edge of realEdges) {
     const src = nodeToRendered.get(edge.source);
@@ -263,8 +255,18 @@ function buildClusteredElements(data, clusterResult, level, importanceScores, ex
       elements.push({ data: { source: src, target: tgt } });
     }
   }
-
   return elements;
+}
+
+function buildClusteredElements(data, clusterResult, level, importanceScores, expandedClusters = new Set(), degreeMap = new Map()) {
+  const { nodeToCluster } = clusterResult;
+  const entryPointIds = new Set(data.edges.filter(e => e.source === '::MAIN::0').map(e => e.target));
+  const nodeById = new Map(data.nodes.map(n => [n.id, n]));
+  const realEdges = data.edges.filter(e => e.source !== '::MAIN::0');
+  const nodeElements = buildClusterNodes(data, clusterResult, level, importanceScores, expandedClusters, degreeMap, entryPointIds, nodeById);
+  const nodeToRendered = buildRenderedNodeMap(nodeToCluster, expandedClusters);
+  const edgeElements = buildDeduplicatedEdges(realEdges, nodeToRendered);
+  return [...nodeElements, ...edgeElements];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires

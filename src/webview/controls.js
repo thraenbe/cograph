@@ -74,10 +74,10 @@ const complexitySlider = document.getElementById('slider-complexity');
 const complexityVal = document.getElementById('val-complexity');
 if (complexitySlider) {
   complexitySlider.addEventListener('input', () => {
-    complexityLevel = parseFloat(complexitySlider.value);
-    if (complexityVal) complexityVal.textContent = complexityLevel.toFixed(2);
-    _expandedClusters = new Set();
-    clearTimeout(_clusterTimer);
-    _clusterTimer = setTimeout(applyComplexity, 80);
+    state.complexityLevel = parseFloat(complexitySlider.value);
+    if (complexityVal) complexityVal.textContent = state.complexityLevel.toFixed(2);
+    state.expandedClusters = new Set();
+    clearTimeout(state.clusterTimer);
+    state.clusterTimer = setTimeout(applyComplexity, 80);
   });
 }

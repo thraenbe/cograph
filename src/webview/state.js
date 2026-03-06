@@ -1,0 +1,16 @@
+const state = {
+  graphData: null,
+  complexityLevel: 1.0,
+  importanceScores: null,
+  clusterTimer: null,
+  expandedClusters: new Set(),
+  connectedNodeIds: new Set(),
+  simulation: null,
+  svgNodes: null,
+  svgLinks: null,
+  svgLabels: null,
+  currentNodes: [],
+  currentZoom: 1,
+  hasFitted: false,
+  layoutMode: 'dynamic',
+};

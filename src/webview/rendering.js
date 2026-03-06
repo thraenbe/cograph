@@ -50,7 +50,7 @@ const zoomBehavior = d3.zoom()
   .scaleExtent([0.02, 10])
   .on('zoom', (event) => {
     g.attr('transform', event.transform);
-    currentZoom = event.transform.k;
+    state.currentZoom = event.transform.k;
     updateTextVisibility();
   });
 
@@ -84,14 +84,14 @@ function fileColor(file) {
 }
 
 function updateTextVisibility() {
-  if (!svgLabels) return;
-  svgLabels.style('opacity', currentZoom >= settings.textFadeThreshold ? 1 : 0);
+  if (!state.svgLabels) return;
+  state.svgLabels.style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0);
 }
 
 function fitToView() {
-  if (!currentNodes.length) return;
-  const xs = currentNodes.map(n => n.x).filter(v => v != null && isFinite(v));
-  const ys = currentNodes.map(n => n.y).filter(v => v != null && isFinite(v));
+  if (!state.currentNodes.length) return;
+  const xs = state.currentNodes.map(n => n.x).filter(v => v != null && isFinite(v));
+  const ys = state.currentNodes.map(n => n.y).filter(v => v != null && isFinite(v));
   if (!xs.length) return;
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;
@@ -111,15 +111,15 @@ function fitToView() {
 // ── Drag (swimming effect) ────────────────────────────────────────────────────
 const drag = d3.drag()
   .on('start', (event, d) => {
-    if (layoutMode === 'dynamic' && !event.active && simulation)
-      simulation.alphaTarget(0.3).restart();
+    if (state.layoutMode === 'dynamic' && !event.active && state.simulation)
+      state.simulation.alphaTarget(0.3).restart();
     d.fx = d.x;
     d.fy = d.y;
   })
   .on('drag', (event, d) => {
     d.fx = event.x;
     d.fy = event.y;
-    if (layoutMode === 'static') {
+    if (state.layoutMode === 'static') {
       // Simulation stopped — sync x/y directly so ticked() renders correctly
       d.x = event.x;
       d.y = event.y;
@@ -127,8 +127,8 @@ const drag = d3.drag()
     }
   })
   .on('end', (event, d) => {
-    if (layoutMode === 'dynamic') {
-      if (!event.active && simulation) simulation.alphaTarget(0);
+    if (state.layoutMode === 'dynamic') {
+      if (!event.active && state.simulation) state.simulation.alphaTarget(0);
       d.fx = null;
       d.fy = null; // release — node rejoins simulation
     }
@@ -137,7 +137,7 @@ const drag = d3.drag()
 
 // ── Tick ──────────────────────────────────────────────────────────────────────
 function ticked() {
-  svgLinks?.each(function (d) {
+  state.svgLinks?.each(function (d) {
     const sx = d.source.x, sy = d.source.y;
     const tx = d.target.x, ty = d.target.y;
     const dx = tx - sx, dy = ty - sy;
@@ -148,53 +148,51 @@ function ticked() {
     this.setAttribute('x2', tx - (dx / dist) * r2);
     this.setAttribute('y2', ty - (dy / dist) * r2);
   });
-  svgNodes?.each(function (d) {
+  state.svgNodes?.each(function (d) {
     this.setAttribute('cx', d.x);
     this.setAttribute('cy', d.y);
   });
-  svgLabels?.each(function (d) {
+  state.svgLabels?.each(function (d) {
     this.setAttribute('x', d.x);
     this.setAttribute('y', (d.isCluster || d.isSynthetic) ? d.y : d.y + nodeRadius(d) + 10);
   });
 
   // Auto-fit once after initial settling
-  if (!_hasFitted && simulation && simulation.alpha() < 0.1) {
-    _hasFitted = true;
+  if (!state.hasFitted && state.simulation && state.simulation.alpha() < 0.1) {
+    state.hasFitted = true;
     fitToView();
   }
 }
 
-// ── Render ────────────────────────────────────────────────────────────────────
-function renderElements(elements) {
+// ── Render sub-functions ──────────────────────────────────────────────────────
+function prepareRenderData(elements) {
   const nodeData = elements.filter(e => e.data.source === undefined);
   const edgeData = elements.filter(e => e.data.source !== undefined);
 
-  // Track connected nodes for orphan filtering
-  _connectedNodeIds = new Set();
+  state.connectedNodeIds = new Set();
   edgeData.forEach(e => {
-    _connectedNodeIds.add(e.data.source);
-    _connectedNodeIds.add(e.data.target);
+    state.connectedNodeIds.add(e.data.source);
+    state.connectedNodeIds.add(e.data.target);
   });
 
-  // Preserve positions from previous render
-  const oldPositions = new Map(currentNodes.map(n => [n.id, { x: n.x, y: n.y }]));
+  const oldPositions = new Map(state.currentNodes.map(n => [n.id, { x: n.x, y: n.y }]));
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;
   const H = svgEl.clientHeight || window.innerHeight;
 
-  currentNodes = nodeData.map(e => ({
+  state.currentNodes = nodeData.map(e => ({
     ...e.data,
     x: oldPositions.get(e.data.id)?.x ?? W / 2 + (Math.random() - 0.5) * 200,
     y: oldPositions.get(e.data.id)?.y ?? H / 2 + (Math.random() - 0.5) * 200,
   }));
 
-  // Fresh link copies — D3 will mutate source/target to node objects
   const allLinks = edgeData.map(e => ({ source: e.data.source, target: e.data.target }));
-
   const visibleSet = getVisibleNodeIds();
+  return { allLinks, visibleSet };
+}
 
-  // ── Links ──
-  svgLinks = linkG.selectAll('line')
+function renderLinks(allLinks, visibleSet) {
+  return linkG.selectAll('line')
     .data(allLinks)
     .join('line')
     .attr('stroke', 'rgba(160,160,160,0.25)')
@@ -202,10 +200,11 @@ function renderElements(elements) {
     .attr('opacity', 0.7)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
     .style('display', d => (visibleSet.has(d.source) && visibleSet.has(d.target)) ? null : 'none');
+}
 
-  // ── Nodes ──
-  svgNodes = nodeG.selectAll('circle')
-    .data(currentNodes, d => d.id)
+function renderNodes(visibleSet) {
+  return nodeG.selectAll('circle')
+    .data(state.currentNodes, d => d.id)
     .join('circle')
     .attr('r', d => nodeRadius(d))
     .style('fill', d => nodeColor(d))
@@ -219,7 +218,7 @@ function renderElements(elements) {
       event.stopPropagation();
       if (d.isSynthetic) return;
       if (d.isCluster) {
-        _expandedClusters.add(d.id);
+        state.expandedClusters.add(d.id);
         applyComplexity();
         return;
       }
@@ -230,14 +229,14 @@ function renderElements(elements) {
         .style('fill', '#7eb9ff')
         .attr('r', nodeRadius(d) * 1.15)
         .attr('filter', 'url(#glow-hover)');
-      svgLinks
+      state.svgLinks
         ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
           ? '#5aabff' : 'rgba(160,160,160,0.25)')
         .attr('stroke-width', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
           ? Math.max(1.5, settings.linkThickness) : settings.linkThickness)
         .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
           ? 1 : 0.15);
-      svgLabels?.filter(l => l.id === d.id)
+      state.svgLabels?.filter(l => l.id === d.id)
         .style('opacity', 1)
         .attr('font-size', '11.5px')
         .attr('fill', '#ffffff');
@@ -247,19 +246,20 @@ function renderElements(elements) {
         .style('fill', nodeColor(d))
         .attr('r', nodeRadius(d))
         .attr('filter', 'url(#glow)');
-      svgLinks
+      state.svgLinks
         ?.attr('stroke', 'rgba(160,160,160,0.25)')
         .attr('stroke-width', settings.linkThickness)
         .attr('opacity', 0.7);
-      svgLabels?.filter(l => l.id === d.id)
-        .style('opacity', currentZoom >= settings.textFadeThreshold ? 1 : 0)
+      state.svgLabels?.filter(l => l.id === d.id)
+        .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
         .attr('font-size', d.isSynthetic ? '12px' : '9px')
         .attr('fill', (d.isCluster || d.isSynthetic) ? '#ffffff' : '#d4d4d4');
     });
+}
 
-  // ── Labels ──
-  svgLabels = labelG.selectAll('text')
-    .data(currentNodes, d => d.id)
+function renderLabels(visibleSet) {
+  return labelG.selectAll('text')
+    .data(state.currentNodes, d => d.id)
     .join('text')
     .text(d => d.label)
     .attr('font-size', d => d.isSynthetic ? '12px' : '9px')
@@ -268,11 +268,15 @@ function renderElements(elements) {
     .attr('dominant-baseline', d => (d.isCluster || d.isSynthetic) ? 'middle' : 'auto')
     .attr('pointer-events', 'none')
     .style('display', d => visibleSet.has(d.id) ? null : 'none')
-    .style('opacity', currentZoom >= settings.textFadeThreshold ? 1 : 0);
+    .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0);
+}
 
-  // ── Simulation ──
-  if (simulation) simulation.stop();
-  simulation = d3.forceSimulation(currentNodes)
+function startSimulation(allLinks) {
+  if (state.simulation) state.simulation.stop();
+  const svgEl = svg.node();
+  const W = svgEl.clientWidth || window.innerWidth;
+  const H = svgEl.clientHeight || window.innerHeight;
+  state.simulation = d3.forceSimulation(state.currentNodes)
     .force('link', d3.forceLink(allLinks).id(d => d.id)
       .distance(() => settings.linkDistance)
       .strength(() => settings.linkForce * 0.1))
@@ -282,4 +286,13 @@ function renderElements(elements) {
     .velocityDecay(0.3)
     .alphaDecay(0.02)
     .on('tick', ticked);
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderElements(elements) {
+  const { allLinks, visibleSet } = prepareRenderData(elements);
+  state.svgLinks = renderLinks(allLinks, visibleSet);
+  state.svgNodes = renderNodes(visibleSet);
+  state.svgLabels = renderLabels(visibleSet);
+  startSimulation(allLinks);
 }

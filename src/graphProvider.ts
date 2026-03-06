@@ -12,6 +12,7 @@ interface GraphNode {
   name: string;
   file: string;
   line: number;
+  gitStatus?: { unstaged: 'added' | 'modified' | 'deleted' | null; staged: 'added' | 'modified' | 'deleted' | null };
 }
 
 interface GraphEdge {
@@ -27,6 +28,8 @@ interface GraphData {
 export class GraphProvider {
   private panel: vscode.WebviewPanel | undefined;
   private readonly context: vscode.ExtensionContext;
+  private cachedNodes: GraphNode[] = [];
+  private gitRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -56,8 +59,27 @@ export class GraphProvider {
       }
     );
 
+    const scheduleRefresh = () => {
+      if (this.gitRefreshTimer) { clearTimeout(this.gitRefreshTimer); }
+      this.gitRefreshTimer = setTimeout(() => this.refreshGitStatus(workspaceRoot), 300);
+    };
+
+    const saveListener = vscode.workspace.onDidSaveTextDocument(doc => {
+      if (doc.uri.fsPath.startsWith(workspaceRoot)) { scheduleRefresh(); }
+    });
+
+    const gitIndexWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(workspaceRoot), '.git/index')
+    );
+    gitIndexWatcher.onDidChange(scheduleRefresh);
+    gitIndexWatcher.onDidCreate(scheduleRefresh);
+
     this.panel.onDidDispose(() => {
       this.panel = undefined;
+      saveListener.dispose();
+      gitIndexWatcher.dispose();
+      if (this.gitRefreshTimer) { clearTimeout(this.gitRefreshTimer); }
+      this.cachedNodes = [];
     });
 
     this.panel.webview.onDidReceiveMessage((message) => {
@@ -68,6 +90,59 @@ export class GraphProvider {
 
     this.panel.webview.html = this.getLoadingHtml();
     this.runAnalyzer(workspaceRoot);
+  }
+
+  private parseGitStatus(workspaceRoot: string): Map<string, { unstaged: 'added'|'modified'|'deleted'|null; staged: 'added'|'modified'|'deleted'|null }> | null {
+    try {
+      const out = cp.execFileSync('git', ['status', '--porcelain', '-z'], {
+        cwd: workspaceRoot, timeout: 5000, encoding: 'utf8'
+      });
+      const map = new Map();
+      for (const entry of out.split('\0').filter((e: string) => e.length >= 4)) {
+        const X = entry[0], Y = entry[1];
+        const rel = entry.slice(3);
+        const abs = path.join(workspaceRoot, rel);
+        let unstaged: 'added'|'modified'|'deleted'|null = null;
+        if (X === '?' && Y === '?') { unstaged = 'added'; }
+        else if (Y === 'M') { unstaged = 'modified'; }
+        else if (Y === 'D') { unstaged = 'deleted'; }
+        else if (X === 'A' && Y === ' ') { unstaged = 'added'; }
+        let staged: 'added' | 'modified' | 'deleted' | null = null;
+        if (X === 'A') { staged = 'added'; }
+        else if (X === 'D') { staged = 'deleted'; }
+        else if (X !== ' ' && X !== '?') { staged = 'modified'; }
+        map.set(abs, { unstaged, staged });
+      }
+      return map;
+    } catch { return null; }
+  }
+
+  private parseGitDiff(workspaceRoot: string, staged: boolean): Map<string, Array<{start: number; end: number; isNew: boolean}>> {
+    try {
+      const args = ['diff', '--unified=0'];
+      if (staged) { args.push('--cached'); }
+      const out = cp.execFileSync('git', args, {
+        cwd: workspaceRoot, timeout: 5000, encoding: 'utf8'
+      });
+      const map = new Map<string, Array<{start: number; end: number; isNew: boolean}>>();
+      let currentFile: string | null = null;
+      for (const line of out.split('\n')) {
+        if (line.startsWith('+++ b/')) {
+          currentFile = path.join(workspaceRoot, line.slice(6).trimEnd());
+          if (!map.has(currentFile)) { map.set(currentFile, []); }
+        } else if (line.startsWith('@@') && currentFile) {
+          const m = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+          if (m) {
+            const oldCount  = m[2] !== undefined ? parseInt(m[2], 10) : 1;
+            const newStart  = parseInt(m[3], 10);
+            const newCount  = m[4] !== undefined ? parseInt(m[4], 10) : 1;
+            const end = newCount > 0 ? newStart + newCount - 1 : newStart;
+            map.get(currentFile)!.push({ start: newStart, end, isNew: oldCount === 0 });
+          }
+        }
+      }
+      return map;
+    } catch { return new Map(); }
   }
 
   /** Try `python3` then `python`; return first working binary or null. */
@@ -91,8 +166,57 @@ export class GraphProvider {
     vscode.window.showErrorMessage(message);
   }
 
+  private applyGitStatuses(nodes: GraphNode[], workspaceRoot: string): boolean {
+    const gitMap = this.parseGitStatus(workspaceRoot);
+    if (gitMap === null) { return false; }
+
+    const nodesByFile = new Map<string, GraphNode[]>();
+    for (const node of nodes) {
+      if (!nodesByFile.has(node.file)) { nodesByFile.set(node.file, []); }
+      nodesByFile.get(node.file)!.push(node);
+    }
+    for (const list of nodesByFile.values()) {
+      list.sort((a, b) => a.line - b.line);
+    }
+
+    const unstagedDiff = this.parseGitDiff(workspaceRoot, false);
+    const stagedDiff   = this.parseGitDiff(workspaceRoot, true);
+
+    for (const node of nodes) {
+      const fileStatus = gitMap.get(node.file);
+      if (!fileStatus) { node.gitStatus = { unstaged: null, staged: null }; continue; }
+      if (fileStatus.unstaged === 'added' || fileStatus.unstaged === 'deleted') {
+        node.gitStatus = fileStatus; continue;
+      }
+      const siblings  = nodesByFile.get(node.file)!;
+      const idx       = siblings.indexOf(node);
+      const nodeStart = node.line;
+      const nodeEnd   = idx + 1 < siblings.length ? siblings[idx + 1].line - 1 : Infinity;
+      const hunkStatus = (hunks: Array<{start: number; end: number; isNew: boolean}>): 'added'|'modified'|null => {
+        const overlapping = hunks.filter(h => h.start <= nodeEnd && h.end >= nodeStart);
+        if (overlapping.length === 0) { return null; }
+        const defLineIsNew = overlapping.some(h => h.isNew && h.start <= nodeStart && nodeStart <= h.end);
+        return defLineIsNew ? 'added' : 'modified';
+      };
+      node.gitStatus = {
+        unstaged: hunkStatus(unstagedDiff.get(node.file) ?? []),
+        staged:   hunkStatus(stagedDiff.get(node.file)   ?? []),
+      };
+    }
+    return true;
+  }
+
+  private refreshGitStatus(workspaceRoot: string): void {
+    if (!this.panel || this.cachedNodes.length === 0) { return; }
+    this.applyGitStatuses(this.cachedNodes, workspaceRoot);
+    this.panel.webview.postMessage({
+      type: 'git-update',
+      nodes: this.cachedNodes.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
+    });
+  }
+
   /** Parse stdout, guard empty graphs, and post the graph message. */
-  private handleAnalysisResult(stdout: string): void {
+  private handleAnalysisResult(stdout: string, workspaceRoot: string): void {
     if (!this.panel) {
       return;
     }
@@ -110,12 +234,15 @@ export class GraphProvider {
       return;
     }
 
+    const gitAvailable = this.applyGitStatuses(graph.nodes, workspaceRoot);
+    this.cachedNodes = graph.nodes;
+
     const webviewHtml = this.getWebviewHtml(this.panel.webview);
     this.panel.webview.html = webviewHtml;
 
     // Delay postMessage so webview JS is fully initialised before the data arrives.
     setTimeout(() => {
-      this.panel?.webview.postMessage({ type: 'graph', data: graph });
+      this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable });
     }, 150);
   }
 
@@ -172,7 +299,7 @@ export class GraphProvider {
         this.showError(`CoGraph: Analysis failed (exit ${code}).\n${detail}`);
         return;
       }
-      this.handleAnalysisResult(stdout);
+      this.handleAnalysisResult(stdout, workspaceRoot);
     });
   }
 
@@ -285,6 +412,9 @@ export class GraphProvider {
       <span id="val-complexity">1.00</span>
     </div>
     <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
+    <div id="git-toggle-row" style="display:none; margin-top:6px;">
+      <button id="btn-git-mode" class="git-toggle-btn" title="Overlay git status on node colors">Git</button>
+    </div>
   </div>
   <button id="settings-btn" title="Settings">&#9881;</button>
   <div id="settings-panel">

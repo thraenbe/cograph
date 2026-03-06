@@ -13,4 +13,6 @@ const state = {
   currentZoom: 1,
   hasFitted: false,
   layoutMode: 'dynamic',
+  gitMode: false,
+  gitAvailable: false,
 };

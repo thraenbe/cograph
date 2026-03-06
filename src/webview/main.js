@@ -61,12 +61,46 @@ function applyFilters() {
   });
 }
 
+// ── Git color resolvers ───────────────────────────────────────────────────────
+function resolveNodeFill(d) {
+  if (state.gitMode && !d.isCluster && !d.isSynthetic && !d.isOrphanCluster && d.gitStatus) {
+    const status = d.gitStatus.unstaged ?? d.gitStatus.staged;
+    if (status === 'added')    return '#4caf50';
+    if (status === 'modified') return '#ff9800';
+    if (status === 'deleted')  return '#555';
+  }
+  return nodeColor(d);
+}
+
+function resolveNodeStroke(d) {
+  if (state.gitMode && d.gitStatus?.staged != null && !d.isCluster && !d.isSynthetic)
+    return '#ffffff';
+  return settings.groupByFile ? fileColor(d.file) : 'none';
+}
+
+function resolveNodeStrokeWidth(d) {
+  if (state.gitMode && d.gitStatus?.staged != null && !d.isCluster && !d.isSynthetic) return 3;
+  return 2;
+}
+
+function applyGitColors() {
+  if (!state.svgNodes) return;
+  state.svgNodes
+    .style('fill', d => resolveNodeFill(d))
+    .attr('stroke', d => resolveNodeStroke(d))
+    .attr('stroke-width', d => resolveNodeStrokeWidth(d));
+  state.svgLabels?.style('text-decoration', d =>
+    state.gitMode && (d.gitStatus?.unstaged === 'deleted' || d.gitStatus?.staged === 'deleted') ? 'line-through' : null
+  );
+}
+
 // ── Display settings ──────────────────────────────────────────────────────────
 function applyDisplaySettings() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
   state.svgNodes
     .attr('r', d => nodeRadius(d))
-    .attr('stroke', d => settings.groupByFile ? fileColor(d.file) : 'none');
+    .attr('stroke', d => resolveNodeStroke(d))
+    .attr('stroke-width', d => resolveNodeStrokeWidth(d));
   state.svgLinks
     .attr('stroke-width', settings.linkThickness)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);
@@ -121,5 +155,17 @@ function renderGraph(data) {
 
 window.addEventListener('message', (event) => {
   const message = event.data;
-  if (message.type === 'graph') renderGraph(message.data);
+  if (message.type === 'graph') {
+    state.gitAvailable = message.gitAvailable ?? false;
+    const row = document.getElementById('git-toggle-row');
+    if (row) row.style.display = state.gitAvailable ? 'block' : 'none';
+    renderGraph(message.data);
+    return;
+  }
+  if (message.type === 'git-update') {
+    const byId = new Map(message.nodes.map(n => [n.id, n.gitStatus]));
+    state.currentNodes.forEach(n => { if (byId.has(n.id)) { n.gitStatus = byId.get(n.id); } });
+    if (state.gitMode) { applyGitColors(); }
+    return;
+  }
 });

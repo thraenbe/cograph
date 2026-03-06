@@ -201,6 +201,7 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
             isOrphanCluster: false,
             isSynthetic: false,
             memberCount: 1,
+            gitStatus: n.gitStatus,
           },
         });
       }
@@ -226,6 +227,7 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
           isOrphanCluster,
           isSynthetic,
           memberCount,
+          gitStatus: memberCount === 1 && rep ? rep.gitStatus : undefined,
         },
       });
     }

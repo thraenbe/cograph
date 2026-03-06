@@ -70,6 +70,18 @@ wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);
 wireSlider('slider-link-force', 'val-link-force', 'linkForce', rerunLayout);
 wireSlider('slider-link-distance', 'val-link-distance', 'linkDistance', rerunLayout);
 
+// ── Git mode toggle ───────────────────────────────────────────────────────────
+document.getElementById('btn-git-mode')?.addEventListener('click', () => {
+  state.gitMode = !state.gitMode;
+  document.getElementById('btn-git-mode')?.classList.toggle('active', state.gitMode);
+  applyGitColors();
+  // If the simulation hasn't auto-fit yet, do it now so git colors are immediately visible
+  if (state.gitMode && !state.hasFitted) {
+    state.hasFitted = true;
+    fitToView();
+  }
+});
+
 const complexitySlider = document.getElementById('slider-complexity');
 const complexityVal = document.getElementById('val-complexity');
 if (complexitySlider) {

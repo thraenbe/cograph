@@ -207,9 +207,9 @@ function renderNodes(visibleSet) {
     .data(state.currentNodes, d => d.id)
     .join('circle')
     .attr('r', d => nodeRadius(d))
-    .style('fill', d => nodeColor(d))
-    .attr('stroke', d => settings.groupByFile ? fileColor(d.file) : 'none')
-    .attr('stroke-width', 2)
+    .style('fill', d => resolveNodeFill(d))
+    .attr('stroke', d => resolveNodeStroke(d))
+    .attr('stroke-width', d => resolveNodeStrokeWidth(d))
     .attr('filter', 'url(#glow)')
     .attr('cursor', 'pointer')
     .style('display', d => visibleSet.has(d.id) ? null : 'none')
@@ -243,7 +243,7 @@ function renderNodes(visibleSet) {
     })
     .on('mouseout', (event, d) => {
       d3.select(event.currentTarget)
-        .style('fill', nodeColor(d))
+        .style('fill', resolveNodeFill(d))
         .attr('r', nodeRadius(d))
         .attr('filter', 'url(#glow)');
       state.svgLinks
@@ -268,7 +268,10 @@ function renderLabels(visibleSet) {
     .attr('dominant-baseline', d => (d.isCluster || d.isSynthetic) ? 'middle' : 'auto')
     .attr('pointer-events', 'none')
     .style('display', d => visibleSet.has(d.id) ? null : 'none')
-    .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0);
+    .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
+    .style('text-decoration', d =>
+      state.gitMode && (d.gitStatus?.unstaged === 'deleted' || d.gitStatus?.staged === 'deleted') ? 'line-through' : null
+    );
 }
 
 function startSimulation(allLinks) {
@@ -295,4 +298,5 @@ function renderElements(elements) {
   state.svgNodes = renderNodes(visibleSet);
   state.svgLabels = renderLabels(visibleSet);
   startSimulation(allLinks);
+  if (state.gitMode) applyGitColors();
 }

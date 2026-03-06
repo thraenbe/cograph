@@ -8,6 +8,7 @@ const settings = {
   arrows: true,
   textFadeThreshold: 0.5,
   nodeSize: 2.5,
+  textSize: 1.0,
   linkThickness: 4,
   centerForce: 1,
   repelForce: 500,
@@ -104,6 +105,15 @@ function applyDisplaySettings() {
   state.svgLinks
     .attr('stroke-width', settings.linkThickness)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);
+  // Reposition labels to reflect new node size and apply font sizes
+  state.svgLabels
+    .each(function(d) {
+      this.setAttribute('y', (d.isCluster || d.isSynthetic) ? d.y : d.y + nodeRadius(d) + 10);
+    })
+    .attr('font-size', d => {
+      const base = d.isSynthetic ? 12 : 9;
+      return `${base * settings.textSize}px`;
+    });
   updateTextVisibility();
 }
 

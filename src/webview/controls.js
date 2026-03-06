@@ -64,6 +64,7 @@ function wireSlider(id, valId, settingsKey, onInput) {
 
 wireSlider('slider-text-fade', 'val-text-fade', 'textFadeThreshold', applyDisplaySettings);
 wireSlider('slider-node-size', 'val-node-size', 'nodeSize', applyDisplaySettings);
+wireSlider('slider-text-size', 'val-text-size', 'textSize', applyDisplaySettings);
 wireSlider('slider-link-thickness', 'val-link-thickness', 'linkThickness', applyDisplaySettings);
 wireSlider('slider-center-force', 'val-center-force', 'centerForce', rerunLayout);
 wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);

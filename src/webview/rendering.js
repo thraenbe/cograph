@@ -238,7 +238,7 @@ function renderNodes(visibleSet) {
           ? 1 : 0.15);
       state.svgLabels?.filter(l => l.id === d.id)
         .style('opacity', 1)
-        .attr('font-size', '11.5px')
+        .attr('font-size', `${11.5 * settings.textSize}px`)
         .attr('fill', '#ffffff');
     })
     .on('mouseout', (event, d) => {
@@ -252,7 +252,7 @@ function renderNodes(visibleSet) {
         .attr('opacity', 0.7);
       state.svgLabels?.filter(l => l.id === d.id)
         .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
-        .attr('font-size', d.isSynthetic ? '12px' : '9px')
+        .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
         .attr('fill', (d.isCluster || d.isSynthetic) ? '#ffffff' : '#d4d4d4');
     });
 }
@@ -262,7 +262,7 @@ function renderLabels(visibleSet) {
     .data(state.currentNodes, d => d.id)
     .join('text')
     .text(d => d.label)
-    .attr('font-size', d => d.isSynthetic ? '12px' : '9px')
+    .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
     .attr('fill', d => (d.isCluster || d.isSynthetic) ? '#ffffff' : '#d4d4d4')
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', d => (d.isCluster || d.isSynthetic) ? 'middle' : 'auto')

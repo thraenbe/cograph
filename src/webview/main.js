@@ -105,15 +105,12 @@ function applyDisplaySettings() {
   state.svgLinks
     .attr('stroke-width', settings.linkThickness)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);
-  // Reposition labels to reflect new node size and apply font sizes
-  state.svgLabels
-    .each(function(d) {
-      this.setAttribute('y', (d.isCluster || d.isSynthetic) ? d.y : d.y + nodeRadius(d) + 10);
-    })
-    .attr('font-size', d => {
-      const base = d.isSynthetic ? 12 : 9;
-      return `${base * settings.textSize}px`;
-    });
+  // Reposition links and labels to reflect new node size
+  ticked();
+  state.svgLabels.attr('font-size', d => {
+    const base = d.isSynthetic ? 12 : 9;
+    return `${base * settings.textSize}px`;
+  });
   updateTextVisibility();
 }
 

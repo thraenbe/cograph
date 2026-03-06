@@ -4,8 +4,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 
-const MAX_OUTPUT_BYTES = 500 * 1024 * 1024; // 500 MB guard
-const ANALYSIS_TIMEOUT_MS = 300_000;         // 5 min
+export const MAX_OUTPUT_BYTES = 500 * 1024 * 1024; // 500 MB guard
+export const ANALYSIS_TIMEOUT_MS = 300_000;         // 5 min
 
 interface GraphNode {
   id: string;

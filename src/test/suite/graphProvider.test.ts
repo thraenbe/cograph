@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { EventEmitter } from 'events';
-import { GraphProvider } from '../../graphProvider';
+import { GraphProvider, MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from '../../graphProvider';
 
 // Use require() so sinon can stub the underlying CJS module properties.
 // (The `import * as cp` wrapper uses getter-only descriptors that sinon cannot replace.)
@@ -157,7 +157,7 @@ suite('GraphProvider', () => {
       provider.show();
 
       // Emit a chunk slightly over 100 MB
-      const bigChunk = Buffer.alloc(101 * 1024 * 1024);
+      const bigChunk = Buffer.alloc(MAX_OUTPUT_BYTES + 1);
       fakeProc.stdout.emit('data', bigChunk);
 
       assert.ok(fakeProc.kill.calledOnce, 'process should be killed');
@@ -183,7 +183,7 @@ suite('GraphProvider', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sandbox.stub(global, 'setTimeout').callsFake((fn: any, ms?: number) => {
         // Replace only the 60 s analysis timeout; pass everything else through.
-        return realSetTimeout(fn, ms === 60_000 ? TIMEOUT_MS : (ms as number));
+        return realSetTimeout(fn, ms === ANALYSIS_TIMEOUT_MS ? TIMEOUT_MS : (ms as number));
       });
 
       const provider = new GraphProvider(makeFakeContext());

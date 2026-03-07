@@ -4,6 +4,7 @@ const vscode = acquireVsCodeApi();
 const settings = {
   existingFilesOnly: false,
   showOrphans: true,
+  showLibraries: false,
   groupByFile: false,
   arrows: true,
   textFadeThreshold: 0.5,
@@ -15,6 +16,29 @@ const settings = {
   linkForce: 1,
   linkDistance: 40,
 };
+
+// ── Library doc popup ─────────────────────────────────────────────────────────
+function showLibDocPopup(d) {
+  state.activeLibNode = d;
+  const docsUrl = d.language === 'python'
+    ? `https://docs.python.org/3/library/${d.libraryName.split('.')[0]}`
+    : `https://www.npmjs.com/package/${d.libraryName}`;
+
+  document.getElementById('lib-doc-title').textContent = `${d.libraryName}.${d.name}`;
+  document.getElementById('lib-doc-lang-badge').textContent = d.language === 'python' ? 'Python' : 'TypeScript';
+  document.getElementById('lib-doc-lang-badge').className = `lang-badge lang-badge-${d.language}`;
+  document.getElementById('lib-doc-function').textContent = d.name;
+  document.getElementById('lib-doc-package').textContent = d.libraryName;
+  document.getElementById('lib-doc-url').textContent = docsUrl;
+
+  const descEl = document.getElementById('lib-doc-desc');
+  const descRow = document.getElementById('lib-doc-desc-row');
+  if (descEl) { descEl.textContent = '…'; }
+  if (descRow) { descRow.style.display = 'block'; }
+
+  document.getElementById('lib-doc-popup').style.display = 'flex';
+  vscode.postMessage({ type: 'get-lib-description', libraryName: d.libraryName, functionName: d.name, language: d.language });
+}
 
 // ── Layout mode toggle ────────────────────────────────────────────────────────
 function setLayoutMode(mode) {
@@ -40,6 +64,12 @@ function getVisibleNodeIds() {
   const query = document.getElementById('search')?.value.toLowerCase() ?? '';
   const visible = new Set();
   state.currentNodes.forEach(n => {
+    if (n.isLibrary) {
+      if (!settings.showLibraries) return;
+      if (query && !n.label.toLowerCase().includes(query)) return;
+      visible.add(n.id);
+      return;
+    }
     if (query && !n.label.toLowerCase().includes(query)) return;
     if (settings.existingFilesOnly && !n.isCluster && !n.isSynthetic) {
       if (!n.file || !n.line || n.line <= 0) return;
@@ -55,6 +85,8 @@ function applyFilters() {
   const visibleSet = getVisibleNodeIds();
   state.svgNodes.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgLabels.style('display', d => visibleSet.has(d.id) ? null : 'none');
+  state.svgLibNodes?.style('display', d => visibleSet.has(d.id) ? null : 'none');
+  state.svgLibLabels?.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgLinks.style('display', d => {
     const src = d.source?.id ?? d.source;
     const tgt = d.target?.id ?? d.target;
@@ -173,33 +205,46 @@ function rerunLayout() {
   const H = svgEl.clientHeight || window.innerHeight;
   state.simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce));
   state.simulation.force('charge').strength(-settings.repelForce);
-  state.simulation.force('link').strength(settings.linkForce * 0.1).distance(settings.linkDistance);
+  state.simulation.force('link').strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1).distance(settings.linkDistance);
   state.simulation.alpha(0.5).restart();
 }
 
 // ── Complexity ────────────────────────────────────────────────────────────────
 function applyComplexity() {
   if (!state.graphData || !state.importanceScores) return;
+  const projectData = {
+    nodes: state.graphData.nodes.filter(n => !n.isLibrary),
+    edges: state.graphData.edges.filter(e => !e.isLibraryEdge),
+  };
   const degreeMap = new Map();
-  state.graphData.nodes.forEach(n => degreeMap.set(n.id, 0));
-  state.graphData.edges.forEach(e => {
+  projectData.nodes.forEach(n => degreeMap.set(n.id, 0));
+  projectData.edges.forEach(e => {
     if (e.source === '::MAIN::0') return;
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
-  const clusterResult = computeClusters(state.graphData, state.importanceScores, state.complexityLevel);
-  const elements = buildClusteredElements(state.graphData, clusterResult, state.complexityLevel, state.importanceScores, state.expandedClusters, degreeMap);
+  const clusterResult = computeClusters(projectData, state.importanceScores, state.complexityLevel);
+  const elements = buildClusteredElements(projectData, clusterResult, state.complexityLevel, state.importanceScores, state.expandedClusters, degreeMap);
+  if (settings.showLibraries) {
+    state.graphData.nodes.filter(n => n.isLibrary).forEach(ln => {
+      elements.push({ data: { ...ln, label: ln.name, _size: 6, isCluster: false, isSynthetic: false, isOrphanCluster: false } });
+    });
+    state.graphData.edges.filter(e => e.isLibraryEdge).forEach(le => {
+      elements.push({ data: { source: le.source, target: le.target, isLibraryEdge: true } });
+    });
+  }
   renderElements(elements);
 }
 
 // ── Main entry ────────────────────────────────────────────────────────────────
 function renderGraph(data, isReanalysis = false) {
   state.graphData = data;
-  state.importanceScores = computeImportanceScores(state.graphData);
+  const projectData = { nodes: data.nodes.filter(n => !n.isLibrary), edges: data.edges.filter(e => !e.isLibraryEdge) };
+  state.importanceScores = computeImportanceScores(projectData);
   state.expandedClusters = new Set();
   if (!isReanalysis) { state.hasFitted = false; }
 
-  const nodeCount = data.nodes.length;
+  const nodeCount = projectData.nodes.length;
   if (nodeCount > 200) {
     state.complexityLevel = Math.max(0.1, Math.min(0.9, 200 / nodeCount));
     const slider = document.getElementById('slider-complexity');
@@ -214,6 +259,15 @@ function renderGraph(data, isReanalysis = false) {
 
 window.addEventListener('message', (event) => {
   const message = event.data;
+  if (message.type === 'lib-description') {
+    const descEl = document.getElementById('lib-doc-desc');
+    const descRow = document.getElementById('lib-doc-desc-row');
+    if (descEl && descRow) {
+      descEl.textContent = message.description;
+      descRow.style.display = message.description ? 'block' : 'none';
+    }
+    return;
+  }
   if (message.type === 'graph') {
     state.gitAvailable = message.gitAvailable ?? false;
     const row = document.getElementById('git-toggle-row');

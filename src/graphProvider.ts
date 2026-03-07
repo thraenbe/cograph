@@ -10,15 +10,18 @@ export const ANALYSIS_TIMEOUT_MS = 300_000;         // 5 min
 interface GraphNode {
   id: string;
   name: string;
-  file: string;
+  file: string | null;
   line: number;
   language?: 'python' | 'typescript';
   gitStatus?: { unstaged: 'added' | 'modified' | 'deleted' | null; staged: 'added' | 'modified' | 'deleted' | null };
+  isLibrary?: boolean;
+  libraryName?: string;
 }
 
 interface GraphEdge {
   source: string;
   target: string;
+  isLibraryEdge?: boolean;
 }
 
 interface GraphData {
@@ -99,6 +102,21 @@ export class GraphProvider {
     this.panel.webview.onDidReceiveMessage((message) => {
       if (message.type === 'navigate') {
         this.navigateTo(message.file, message.line);
+      } else if (message.type === 'open-docs') {
+        const { libraryName, language } = message;
+        let url: string;
+        if (language === 'python') {
+          url = `https://docs.python.org/3/library/${libraryName.split('.')[0]}`;
+        } else {
+          url = `https://www.npmjs.com/package/${libraryName}`;
+        }
+        vscode.env.openExternal(vscode.Uri.parse(url));
+      } else if (message.type === 'get-lib-description') {
+        const { libraryName, functionName, language } = message;
+        this.fetchLibDescription(libraryName, functionName, language, workspaceRoot)
+          .then(description => {
+            this.panel?.webview.postMessage({ type: 'lib-description', description });
+          });
       }
     });
 
@@ -186,6 +204,7 @@ export class GraphProvider {
 
     const nodesByFile = new Map<string, GraphNode[]>();
     for (const node of nodes) {
+      if (!node.file) continue;
       if (!nodesByFile.has(node.file)) { nodesByFile.set(node.file, []); }
       nodesByFile.get(node.file)!.push(node);
     }
@@ -197,6 +216,7 @@ export class GraphProvider {
     const stagedDiff   = this.parseGitDiff(workspaceRoot, true);
 
     for (const node of nodes) {
+      if (!node.file) continue;
       const fileStatus = gitMap.get(node.file);
       if (!fileStatus) { node.gitStatus = { unstaged: null, staged: null }; continue; }
       if (fileStatus.unstaged === 'added' || fileStatus.unstaged === 'deleted') {
@@ -250,7 +270,7 @@ export class GraphProvider {
 
     const isReanalysis = this.cachedNodes.length > 0;
     const gitAvailable = this.applyGitStatuses(graph.nodes, workspaceRoot);
-    this.cachedNodes = graph.nodes;
+    this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
 
     if (isReanalysis) {
       this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, isReanalysis: true });
@@ -372,6 +392,71 @@ export class GraphProvider {
       };
       this.handleAnalysisResult(JSON.stringify(merged), workspaceRoot);
     });
+  }
+
+  private fetchLibDescription(libraryName: string, functionName: string, language: string, workspaceRoot: string): Promise<string> {
+    if (language === 'python') {
+      return this.fetchPythonDescription(libraryName, functionName);
+    }
+    return Promise.resolve(this.fetchTsDescription(libraryName, functionName, workspaceRoot));
+  }
+
+  private fetchPythonDescription(libraryName: string, functionName: string): Promise<string> {
+    const pythonBin = this.resolvePythonBin();
+    if (!pythonBin) { return Promise.resolve(''); }
+    const script = path.join(this.context.extensionPath, 'scripts', 'describe_lib.py');
+    return new Promise(resolve => {
+      let resolved = false;
+      const done = (val: string) => { if (!resolved) { resolved = true; resolve(val); } };
+      let proc: cp.ChildProcess;
+      try {
+        proc = cp.spawn(pythonBin, [script, libraryName, functionName]);
+      } catch {
+        done('');
+        return;
+      }
+      let stdout = '';
+      proc.stdout!.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+      proc.on('close', () => done(stdout.trim()));
+      proc.on('error', () => done(''));
+      setTimeout(() => { proc.kill(); done(''); }, 5000);
+    });
+  }
+
+  private fetchTsDescription(libraryName: string, functionName: string, workspaceRoot: string): string {
+    const nmDir = path.join(workspaceRoot, 'node_modules');
+    const pkgDirs = [
+      path.join(nmDir, '@types', libraryName),
+      path.join(nmDir, libraryName),
+    ];
+    const candidates: string[] = [];
+    for (const pkgDir of pkgDirs) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+        const typesFile = pkg.types || pkg.typings;
+        if (typesFile) { candidates.push(path.join(pkgDir, typesFile)); }
+      } catch { /* no package.json */ }
+      candidates.push(path.join(pkgDir, 'index.d.ts'));
+    }
+    const escaped = functionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`/\\*\\*([\\s\\S]*?)\\*/[\\s\\S]{0,300}?\\b${escaped}\\s*[(<]`, 'g');
+    for (const filePath of candidates) {
+      try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        re.lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = re.exec(content)) !== null) {
+          const desc = match[1]
+            .split('\n')
+            .map((l: string) => l.replace(/^\s*\*\s?/, '').trim())
+            .filter((l: string) => l && !l.startsWith('@'))
+            .join('\n')
+            .trim();
+          if (desc) { return desc; }
+        }
+      } catch { /* skip */ }
+    }
+    return '';
   }
 
   private async navigateTo(file: string, line: number) {
@@ -513,6 +598,10 @@ export class GraphProvider {
         <span>Show Orphans</span>
         <label class="switch"><input type="checkbox" id="toggle-orphans" checked /><span class="pill"></span></label>
       </div>
+      <div class="toggle-row">
+        <span>Show Libraries</span>
+        <label class="switch"><input type="checkbox" id="toggle-libraries" /><span class="pill"></span></label>
+      </div>
     </div>
 
     <div class="panel-section">
@@ -576,6 +665,37 @@ export class GraphProvider {
       </div>
     </div>
 
+  </div>
+  <div id="lib-doc-popup">
+    <div id="lib-doc-card">
+      <div id="lib-doc-header">
+        <div>
+          <span id="lib-doc-title"></span>
+          <span id="lib-doc-lang-badge"></span>
+        </div>
+        <button id="lib-doc-close" title="Close">&#x2715;</button>
+      </div>
+      <div id="lib-doc-desc-row">
+        <span id="lib-doc-desc"></span>
+      </div>
+      <div id="lib-doc-body">
+        <div id="lib-doc-function-row">
+          <span class="lib-doc-label">Function</span>
+          <span id="lib-doc-function"></span>
+        </div>
+        <div id="lib-doc-package-row">
+          <span class="lib-doc-label">Package</span>
+          <span id="lib-doc-package"></span>
+        </div>
+        <div id="lib-doc-url-row">
+          <span class="lib-doc-label">Docs</span>
+          <span id="lib-doc-url"></span>
+        </div>
+      </div>
+      <div id="lib-doc-footer">
+        <button id="lib-doc-goto-btn">Go to documentation &#x2197;</button>
+      </div>
+    </div>
   </div>
   <script nonce="${nonce}" src="${stateUri}"></script>
   <script nonce="${nonce}" src="${clusteringUri}"></script>

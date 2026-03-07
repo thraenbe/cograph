@@ -39,11 +39,20 @@ const fm2 = hoverFilter.append('feMerge');
 fm2.append('feMergeNode').attr('in', 'blur');
 fm2.append('feMergeNode').attr('in', 'SourceGraphic');
 
+// Book icon symbol for library nodes
+defs.append('symbol')
+  .attr('id', 'icon-book')
+  .attr('viewBox', '0 0 16 16')
+  .append('path')
+  .attr('d', 'M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zM2.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11zM3 5.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z');
+
 // Transform groups
 const g = svg.append('g');
 const linkG = g.append('g').attr('class', 'links');
 const nodeG = g.append('g').attr('class', 'nodes');
 const labelG = g.append('g').attr('class', 'labels');
+const libNodeG = g.append('g').attr('class', 'lib-nodes');
+const libLabelG = g.append('g').attr('class', 'lib-labels');
 
 // ── Zoom ──────────────────────────────────────────────────────────────────────
 const zoomBehavior = d3.zoom()
@@ -66,6 +75,7 @@ function nodeRadius(d) {
 }
 
 function nodeColor(d) {
+  if (d.isLibrary) return '#c8a84b';
   if (d.isSynthetic) return 'var(--vscode-button-background, #0e639c)';
   if (d.isOrphanCluster) return '#555';
   if (d.isCluster) return '#7c4dbb';
@@ -85,7 +95,9 @@ function fileColor(file) {
 
 function updateTextVisibility() {
   if (!state.svgLabels) return;
-  state.svgLabels.style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0);
+  const opacity = state.currentZoom >= settings.textFadeThreshold ? 1 : 0;
+  state.svgLabels.style('opacity', opacity);
+  state.svgLibLabels?.style('opacity', opacity);
 }
 
 function fitToView() {
@@ -156,6 +168,15 @@ function ticked() {
     this.setAttribute('x', d.x);
     this.setAttribute('y', (d.isCluster || d.isSynthetic) ? d.y : d.y + nodeRadius(d) + 10);
   });
+  state.svgLibNodes?.each(function (d) {
+    const r = nodeRadius(d);
+    this.setAttribute('x', d.x - r);
+    this.setAttribute('y', d.y - r);
+  });
+  state.svgLibLabels?.each(function (d) {
+    this.setAttribute('x', d.x);
+    this.setAttribute('y', d.y + nodeRadius(d) + 10);
+  });
 
   // Auto-fit once after initial settling
   if (!state.hasFitted && state.simulation && state.simulation.alpha() < 0.1) {
@@ -186,7 +207,7 @@ function prepareRenderData(elements) {
     y: oldPositions.get(e.data.id)?.y ?? H / 2 + (Math.random() - 0.5) * 200,
   }));
 
-  const allLinks = edgeData.map(e => ({ source: e.data.source, target: e.data.target }));
+  const allLinks = edgeData.map(e => ({ source: e.data.source, target: e.data.target, isLibraryEdge: e.data.isLibraryEdge ?? false }));
   const visibleSet = getVisibleNodeIds();
   return { allLinks, visibleSet };
 }
@@ -195,7 +216,8 @@ function renderLinks(allLinks, visibleSet) {
   return linkG.selectAll('line')
     .data(allLinks)
     .join('line')
-    .attr('stroke', 'rgba(160,160,160,0.25)')
+    .attr('stroke', d => d.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
+    .attr('stroke-dasharray', d => d.isLibraryEdge ? '6,3' : null)
     .attr('stroke-width', settings.linkThickness)
     .attr('opacity', 0.7)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
@@ -204,7 +226,7 @@ function renderLinks(allLinks, visibleSet) {
 
 function renderNodes(visibleSet) {
   return nodeG.selectAll('circle')
-    .data(state.currentNodes, d => d.id)
+    .data(state.currentNodes.filter(n => !n.isLibrary), d => d.id)
     .join('circle')
     .attr('r', d => nodeRadius(d))
     .style('fill', d => resolveNodeFill(d))
@@ -231,7 +253,7 @@ function renderNodes(visibleSet) {
         .attr('filter', 'url(#glow-hover)');
       state.svgLinks
         ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-          ? '#5aabff' : 'rgba(160,160,160,0.25)')
+          ? '#5aabff' : l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
         .attr('stroke-width', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
           ? Math.max(1.5, settings.linkThickness) : settings.linkThickness)
         .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
@@ -247,7 +269,7 @@ function renderNodes(visibleSet) {
         .attr('r', nodeRadius(d))
         .attr('filter', 'url(#glow)');
       state.svgLinks
-        ?.attr('stroke', 'rgba(160,160,160,0.25)')
+        ?.attr('stroke', l => l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
         .attr('stroke-width', settings.linkThickness)
         .attr('opacity', 0.7);
       state.svgLabels?.filter(l => l.id === d.id)
@@ -259,7 +281,7 @@ function renderNodes(visibleSet) {
 
 function renderLabels(visibleSet) {
   return labelG.selectAll('text')
-    .data(state.currentNodes, d => d.id)
+    .data(state.currentNodes.filter(n => !n.isLibrary), d => d.id)
     .join('text')
     .text(d => d.label)
     .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
@@ -289,7 +311,7 @@ function startSimulation(allLinks) {
   state.simulation = d3.forceSimulation(state.currentNodes)
     .force('link', d3.forceLink(allLinks).id(d => d.id)
       .distance(() => settings.linkDistance)
-      .strength(() => settings.linkForce * 0.1))
+      .strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1))
     .force('charge', d3.forceManyBody().strength(-settings.repelForce))
     .force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce))
     .force('collision', d3.forceCollide(d => nodeRadius(d) + 2))
@@ -298,12 +320,64 @@ function startSimulation(allLinks) {
     .on('tick', ticked);
 }
 
+function renderLibraryNodes(libNodeData, visibleSet) {
+  return libNodeG.selectAll('use')
+    .data(libNodeData, d => d.id)
+    .join(
+      enter => enter.append('use')
+        .attr('href', '#icon-book')
+        .each(function(d) {
+          d3.select(this).append('title').text(`${d.libraryName}::${d.name}`);
+        }),
+      update => update,
+      exit => exit.remove()
+    )
+    .attr('width', d => nodeRadius(d) * 2)
+    .attr('height', d => nodeRadius(d) * 2)
+    .attr('fill', '#c8a84b')
+    .attr('cursor', 'pointer')
+    .style('display', d => visibleSet.has(d.id) ? null : 'none')
+    .on('click', (event, d) => {
+      event.stopPropagation();
+      showLibDocPopup(d);
+    })
+    .on('mouseover', (event, d) => {
+      d3.select(event.currentTarget).attr('fill', '#f0d080');
+      state.svgLinks
+        ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+          ? '#f0d080' : l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
+        .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+          ? 1 : 0.15);
+    })
+    .on('mouseout', (event, d) => {
+      d3.select(event.currentTarget).attr('fill', '#c8a84b');
+      state.svgLinks
+        ?.attr('stroke', l => l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
+        .attr('opacity', 0.7);
+    });
+}
+
+function renderLibraryLabels(libNodeData, visibleSet) {
+  return libLabelG.selectAll('text')
+    .data(libNodeData, d => d.id)
+    .join('text')
+    .text(d => `${d.libraryName}.${d.name}`)
+    .attr('font-size', d => `${9 * settings.textSize}px`)
+    .attr('text-anchor', 'middle')
+    .attr('pointer-events', 'none')
+    .style('display', d => visibleSet.has(d.id) ? null : 'none')
+    .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0);
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderElements(elements) {
   const { allLinks, visibleSet } = prepareRenderData(elements);
   state.svgLinks = renderLinks(allLinks, visibleSet);
   state.svgNodes = renderNodes(visibleSet);
   state.svgLabels = renderLabels(visibleSet);
+  const libNodeData = state.currentNodes.filter(n => n.isLibrary);
+  state.svgLibNodes = renderLibraryNodes(libNodeData, visibleSet);
+  state.svgLibLabels = renderLibraryLabels(libNodeData, visibleSet);
   startSimulation(allLinks);
   if (state.gitMode) applyGitColors();
 }

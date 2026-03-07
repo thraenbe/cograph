@@ -30,6 +30,11 @@ document.getElementById('toggle-orphans')?.addEventListener('change', (e) => {
   applyFilters();
 });
 
+document.getElementById('toggle-libraries')?.addEventListener('change', (e) => {
+  settings.showLibraries = e.target.checked;
+  applyComplexity();
+});
+
 // ── Group controls ────────────────────────────────────────────────────────────
 document.getElementById('toggle-group-file')?.addEventListener('change', (e) => {
   settings.groupByFile = e.target.checked;
@@ -88,6 +93,25 @@ document.getElementById('btn-language-mode')?.addEventListener('click', () => {
   state.languageMode = !state.languageMode;
   document.getElementById('btn-language-mode')?.classList.toggle('active', state.languageMode);
   applyGitColors();
+});
+
+// ── Library doc popup controls ────────────────────────────────────────────────
+document.getElementById('lib-doc-close')?.addEventListener('click', () => {
+  document.getElementById('lib-doc-popup').style.display = 'none';
+  state.activeLibNode = null;
+});
+
+document.getElementById('lib-doc-popup')?.addEventListener('click', (e) => {
+  if (e.target === document.getElementById('lib-doc-popup')) {
+    document.getElementById('lib-doc-popup').style.display = 'none';
+    state.activeLibNode = null;
+  }
+});
+
+document.getElementById('lib-doc-goto-btn')?.addEventListener('click', () => {
+  if (!state.activeLibNode) return;
+  const d = state.activeLibNode;
+  vscode.postMessage({ type: 'open-docs', libraryName: d.libraryName, functionName: d.name, language: d.language });
 });
 
 const complexitySlider = document.getElementById('slider-complexity');

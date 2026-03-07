@@ -9,6 +9,8 @@ const state = {
   svgNodes: null,
   svgLinks: null,
   svgLabels: null,
+  svgLibNodes: null,
+  svgLibLabels: null,
   currentNodes: [],
   currentZoom: 1,
   hasFitted: false,
@@ -17,4 +19,5 @@ const state = {
   gitMode: false,
   languageMode: false,
   gitAvailable: false,
+  activeLibNode: null,
 };

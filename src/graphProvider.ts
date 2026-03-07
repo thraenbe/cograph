@@ -485,7 +485,11 @@ export class GraphProvider {
     <div id="git-toggle-row" style="display:none; margin-top:6px;">
       <button id="btn-git-mode" class="git-toggle-btn" title="Overlay git status on node colors">Git</button>
     </div>
+    <div id="language-toggle-row" style="margin-top:6px;">
+      <button id="btn-language-mode" class="git-toggle-btn" title="Color nodes by language">Lang</button>
+    </div>
   </div>
+  <div id="language-legend" style="display:none;"></div>
   <button id="settings-btn" title="Settings">&#9881;</button>
   <div id="settings-panel">
 

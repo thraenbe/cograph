@@ -15,5 +15,6 @@ const state = {
   pendingReheat: false,
   layoutMode: 'dynamic',
   gitMode: false,
+  languageMode: false,
   gitAvailable: false,
 };

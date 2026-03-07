@@ -314,4 +314,42 @@ body {
   background: var(--vscode-list-hoverBackground, #2a2d2e);
 }
 
+/* ── Language legend ── */
+#language-legend {
+  position: fixed;
+  top: 10px;
+  left: 200px;
+  z-index: 20;
+  padding: 7px 10px 8px;
+  background: var(--vscode-sideBar-background, #252526);
+  border: 1px solid var(--vscode-widget-border, #444);
+  border-radius: 6px;
+  min-width: 120px;
+}
+
+.lang-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.lang-legend-row:last-child { margin-bottom: 0; }
+
+.lang-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--vscode-widget-border, #555);
+  border-radius: 3px;
+  cursor: pointer;
+  background: none;
+  flex-shrink: 0;
+}
+
+.lang-label {
+  font-size: 11px;
+  color: var(--vscode-foreground, #cccccc);
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
 

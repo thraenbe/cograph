@@ -62,6 +62,20 @@ function applyFilters() {
   });
 }
 
+// ── Language colors ───────────────────────────────────────────────────────────
+const languageColors = {
+  python:     '#3572A5',
+  typescript: '#3178c6',
+};
+
+function getLanguageColor(lang) {
+  if (!lang) return null;
+  if (languageColors[lang]) return languageColors[lang];
+  let hash = 0;
+  for (let i = 0; i < lang.length; i++) hash = lang.charCodeAt(i) + ((hash << 5) - hash);
+  return `hsl(${((hash >>> 0) % 360)}, 55%, 55%)`;
+}
+
 // ── Git color resolvers ───────────────────────────────────────────────────────
 function resolveNodeFill(d) {
   if (state.gitMode && !d.isCluster && !d.isSynthetic && !d.isOrphanCluster && d.gitStatus) {
@@ -69,6 +83,9 @@ function resolveNodeFill(d) {
     if (status === 'added')    return '#4caf50';
     if (status === 'modified') return '#ff9800';
     if (status === 'deleted')  return '#555';
+  }
+  if (state.languageMode && !d.isCluster && !d.isSynthetic && !d.isOrphanCluster && d.language) {
+    return getLanguageColor(d.language);
   }
   return nodeColor(d);
 }
@@ -84,6 +101,39 @@ function resolveNodeStrokeWidth(d) {
   return 2;
 }
 
+function renderLanguageLegend() {
+  const el = document.getElementById('language-legend');
+  if (!el) return;
+
+  if (!state.languageMode || !state.graphData) {
+    el.style.display = 'none';
+    return;
+  }
+
+  const langs = [...new Set(
+    state.graphData.nodes.map(n => n.language).filter(Boolean)
+  )].sort();
+
+  if (langs.length === 0) { el.style.display = 'none'; return; }
+
+  el.innerHTML = langs.map(lang => {
+    const color = getLanguageColor(lang);
+    return `<div class="lang-legend-row">
+      <input type="color" class="lang-swatch" data-lang="${lang}" value="${color}" title="Click to change color">
+      <span class="lang-label">${lang}</span>
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('.lang-swatch').forEach(input => {
+    input.addEventListener('input', (e) => {
+      languageColors[e.target.dataset.lang] = e.target.value;
+      applyGitColors();
+    });
+  });
+
+  el.style.display = 'block';
+}
+
 function applyGitColors() {
   if (!state.svgNodes) return;
   state.svgNodes
@@ -93,6 +143,7 @@ function applyGitColors() {
   state.svgLabels?.style('text-decoration', d =>
     state.gitMode && (d.gitStatus?.unstaged === 'deleted' || d.gitStatus?.staged === 'deleted') ? 'line-through' : null
   );
+  renderLanguageLegend();
 }
 
 // ── Display settings ──────────────────────────────────────────────────────────
@@ -158,6 +209,7 @@ function renderGraph(data, isReanalysis = false) {
   }
 
   applyComplexity();
+  renderLanguageLegend();
 }
 
 window.addEventListener('message', (event) => {

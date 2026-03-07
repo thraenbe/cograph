@@ -83,6 +83,13 @@ document.getElementById('btn-git-mode')?.addEventListener('click', () => {
   }
 });
 
+// ── Language mode toggle ──────────────────────────────────────────────────────
+document.getElementById('btn-language-mode')?.addEventListener('click', () => {
+  state.languageMode = !state.languageMode;
+  document.getElementById('btn-language-mode')?.classList.toggle('active', state.languageMode);
+  applyGitColors();
+});
+
 const complexitySlider = document.getElementById('slider-complexity');
 const complexityVal = document.getElementById('val-complexity');
 if (complexitySlider) {

@@ -42,14 +42,33 @@ def collect_definitions(root: str) -> dict[str, dict]:
     return definitions
 
 
-def collect_calls(root: str, definitions: dict) -> list[dict]:
-    """Walk all .py files and collect call edges between known definitions."""
+def collect_import_map(tree: ast.AST) -> dict[str, str]:
+    """Return localName -> moduleName for all non-relative imports in a parsed AST."""
+    import_map: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname if alias.asname else alias.name
+                import_map[local] = alias.name
+        elif isinstance(node, ast.ImportFrom):
+            if node.level and node.level > 0:
+                continue  # skip relative imports
+            module = node.module or ''
+            for alias in node.names:
+                local = alias.asname if alias.asname else alias.name
+                import_map[local] = f"{module}.{alias.name}" if module else alias.name
+    return import_map
+
+
+def collect_calls(root: str, definitions: dict) -> tuple[list[dict], list[dict]]:
+    """Walk all .py files and collect call edges between known definitions, plus library nodes."""
     name_to_ids: dict[str, list[str]] = {}
     for qid, defn in definitions.items():
         name_to_ids.setdefault(defn['name'], []).append(qid)
 
     edges = []
     seen_edges: set[tuple[str, str]] = set()
+    library_nodes: dict[str, dict] = {}
 
     for dirpath, _, filenames in os.walk(root):
         for filename in filenames:
@@ -61,6 +80,8 @@ def collect_calls(root: str, definitions: dict) -> list[dict]:
                 tree = ast.parse(source, filename=filepath)
             except SyntaxError:
                 continue
+
+            import_map = collect_import_map(tree)
 
             for func_node in ast.walk(tree):
                 if not isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -78,7 +99,38 @@ def collect_calls(root: str, definitions: dict) -> list[dict]:
                             if key not in seen_edges and caller_id != callee_id:
                                 seen_edges.add(key)
                                 edges.append({'source': caller_id, 'target': callee_id})
-    return edges
+                    # Detect bare-name library calls: foo() where foo is an imported name
+                    if isinstance(child.func, ast.Name):
+                        name = child.func.id
+                        if name in import_map and name not in name_to_ids:
+                            lib_name = import_map[name]
+                            lib_id = f"library::{lib_name}::{name}"
+                            if lib_id not in library_nodes:
+                                library_nodes[lib_id] = {
+                                    'id': lib_id, 'name': name, 'file': None, 'line': 0,
+                                    'isLibrary': True, 'libraryName': lib_name, 'language': 'python',
+                                }
+                            key = (caller_id, lib_id)
+                            if key not in seen_edges:
+                                seen_edges.add(key)
+                                edges.append({'source': caller_id, 'target': lib_id, 'isLibraryEdge': True})
+                    # Detect attribute library calls: np.array() where np is an imported name
+                    elif isinstance(child.func, ast.Attribute) and isinstance(child.func.value, ast.Name):
+                        obj_name = child.func.value.id
+                        if obj_name in import_map and obj_name not in name_to_ids:
+                            lib_name = import_map[obj_name]
+                            func_name = child.func.attr
+                            lib_id = f"library::{lib_name}::{func_name}"
+                            if lib_id not in library_nodes:
+                                library_nodes[lib_id] = {
+                                    'id': lib_id, 'name': func_name, 'file': None, 'line': 0,
+                                    'isLibrary': True, 'libraryName': lib_name, 'language': 'python',
+                                }
+                            key = (caller_id, lib_id)
+                            if key not in seen_edges:
+                                seen_edges.add(key)
+                                edges.append({'source': caller_id, 'target': lib_id, 'isLibraryEdge': True})
+    return edges, list(library_nodes.values())
 
 
 def _bare_name(node: ast.expr) -> str | None:
@@ -163,7 +215,7 @@ def main():
 
     root = sys.argv[1]
     definitions = collect_definitions(root)
-    edges = collect_calls(root, definitions)
+    edges, library_nodes = collect_calls(root, definitions)
     entry_point_ids = collect_entry_points(root, definitions)
 
     nodes = list(definitions.values())
@@ -172,6 +224,7 @@ def main():
         for ep_id in entry_point_ids:
             edges.append({'source': MAIN_NODE_ID, 'target': ep_id})
 
+    nodes.extend(library_nodes)
     print(json.dumps({'nodes': nodes, 'edges': edges}))
 
 

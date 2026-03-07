@@ -88,7 +88,8 @@ suite('GraphProvider', () => {
       sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
       const fakeProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').returns(fakeProc);
+      const fakeTsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
 
       const fakePanel = makeFakePanel();
       sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
@@ -130,7 +131,8 @@ suite('GraphProvider', () => {
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
 
       const fakeProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').returns(fakeProc);
+      const fakeTsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -151,12 +153,13 @@ suite('GraphProvider', () => {
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
 
       const fakeProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').returns(fakeProc);
+      const fakeTsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
 
-      // Emit a chunk slightly over 100 MB
+      // Emit a chunk slightly over 100 MB on the Python proc only
       const bigChunk = Buffer.alloc(MAX_OUTPUT_BYTES + 1);
       fakeProc.stdout.emit('data', bigChunk);
 
@@ -174,7 +177,8 @@ suite('GraphProvider', () => {
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
 
       const fakeProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').returns(fakeProc);
+      const fakeTsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
 
       // Capture the real setTimeout BEFORE stubbing so the stub and the
       // test's own timer can call it without infinite recursion.
@@ -205,7 +209,8 @@ suite('GraphProvider', () => {
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
 
       const fakeProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').returns(fakeProc);
+      const fakeTsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -214,8 +219,8 @@ suite('GraphProvider', () => {
 
       assert.ok(showErr.calledOnce, 'showErrorMessage called');
       assert.ok(
-        showErr.firstCall.args[0].includes('Failed to start Python'),
-        'error should mention failed to start Python'
+        showErr.firstCall.args[0].includes('Failed to start analyzer'),
+        'error should mention failed to start analyzer'
       );
     });
 
@@ -226,10 +231,15 @@ suite('GraphProvider', () => {
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
 
       const fakeProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').returns(fakeProc);
+      const fakeTsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
+
+      // TS proc completes with no nodes so merged result = Python nodes only
+      fakeTsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeTsProc.emit('close', 0);
 
       const graph = {
         nodes: [{ id: 'a::b::1', name: 'b', file: 'a.py', line: 1 }],
@@ -263,7 +273,8 @@ suite('GraphProvider', () => {
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
 
       const fakeProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').returns(fakeProc);
+      const fakeTsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -272,6 +283,10 @@ suite('GraphProvider', () => {
         nodes: [{ id: 'a::b::1', name: 'b', file: 'a.py', line: 1 }],
         edges: [],
       };
+
+      // TS proc completes with no nodes so merged result = Python nodes only
+      fakeTsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeTsProc.emit('close', 0);
 
       fakeProc.stdout.emit('data', Buffer.from(JSON.stringify(graph)));
       fakeProc.emit('close', 0);
@@ -286,22 +301,30 @@ suite('GraphProvider', () => {
       }, 300);
     });
 
-    test('zero nodes → sets empty state HTML', () => {
+    test('zero nodes → sets empty state HTML', function (done) {
       sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
       const fakePanel = makeFakePanel();
       sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
 
       const fakeProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').returns(fakeProc);
+      const fakeTsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
 
+      // Both procs must close before Promise.all resolves
       fakeProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeProc.emit('close', 0);
+      fakeTsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeTsProc.emit('close', 0);
 
-      assert.ok(fakePanel.webview.html.includes('No Python functions'), 'empty state HTML set');
+      // Wait for Promise.all microtask to settle
+      setTimeout(() => {
+        assert.ok(fakePanel.webview.html.includes('No functions found'), 'empty state HTML set');
+        done();
+      }, 50);
     });
 
     test('invalid JSON → shows parse error', () => {
@@ -355,7 +378,8 @@ suite('GraphProvider', () => {
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
 
       const fakeProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').returns(fakeProc);
+      const fakeTsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
 
       const fakePanel = makeFakePanel();
       const createPanel = sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);

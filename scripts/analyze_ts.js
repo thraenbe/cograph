@@ -84,6 +84,36 @@ function collectDefinitions(files) {
   return definitions;
 }
 
+function collectImportMap(sourceFile) {
+  const importMap = {};
+  ts.forEachChild(sourceFile, node => {
+    if (!ts.isImportDeclaration(node)) return;
+    try {
+      const spec = node.moduleSpecifier.text;
+      if (spec.startsWith('.')) return; // skip relative imports
+      const clause = node.importClause;
+      if (!clause) return;
+      // Default import: import React from 'react'
+      if (clause.name) {
+        importMap[clause.name.text] = spec;
+      }
+      if (clause.namedBindings) {
+        if (ts.isNamespaceImport(clause.namedBindings)) {
+          // Namespace: import * as fs from 'fs'
+          importMap[clause.namedBindings.name.text] = spec;
+        } else if (ts.isNamedImports(clause.namedBindings)) {
+          // Named: import { useState } from 'react'
+          for (const element of clause.namedBindings.elements) {
+            const local = element.name.text;
+            importMap[local] = spec;
+          }
+        }
+      }
+    } catch { /* skip malformed */ }
+  });
+  return importMap;
+}
+
 function collectCalls(files, definitions) {
   const nameToIds = {};
   for (const [qid, defn] of Object.entries(definitions)) {
@@ -93,6 +123,7 @@ function collectCalls(files, definitions) {
 
   const edges = [];
   const seenEdges = new Set();
+  const libraryNodes = new Map();
 
   for (const filepath of files) {
     let source;
@@ -101,6 +132,8 @@ function collectCalls(files, definitions) {
     try {
       sourceFile = ts.createSourceFile(filepath, source, ts.ScriptTarget.Latest, true);
     } catch { continue; }
+
+    const importMap = collectImportMap(sourceFile);
 
     function visitFunc(funcNode, callerId) {
       ts.forEachChild(funcNode, function walkCalls(node) {
@@ -121,6 +154,37 @@ function collectCalls(files, definitions) {
                 if (!seenEdges.has(key) && callerId !== calleeId) {
                   seenEdges.add(key);
                   edges.push({ source: callerId, target: calleeId });
+                }
+              }
+            }
+            // Library call detection
+            if (ts.isIdentifier(callee)) {
+              const name = callee.text;
+              if (importMap[name] && !nameToIds[name]) {
+                const libName = importMap[name];
+                const libId = `library::${libName}::${name}`;
+                if (!libraryNodes.has(libId)) {
+                  libraryNodes.set(libId, { id: libId, name, file: null, line: 0, isLibrary: true, libraryName: libName, language: 'typescript' });
+                }
+                const key = `${callerId}|${libId}`;
+                if (!seenEdges.has(key)) {
+                  seenEdges.add(key);
+                  edges.push({ source: callerId, target: libId, isLibraryEdge: true });
+                }
+              }
+            } else if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
+              const objName = callee.expression.text;
+              if (importMap[objName] && !nameToIds[objName]) {
+                const libName = importMap[objName];
+                const funcName = callee.name.text;
+                const libId = `library::${libName}::${funcName}`;
+                if (!libraryNodes.has(libId)) {
+                  libraryNodes.set(libId, { id: libId, name: funcName, file: null, line: 0, isLibrary: true, libraryName: libName, language: 'typescript' });
+                }
+                const key = `${callerId}|${libId}`;
+                if (!seenEdges.has(key)) {
+                  seenEdges.add(key);
+                  edges.push({ source: callerId, target: libId, isLibraryEdge: true });
                 }
               }
             }
@@ -152,7 +216,7 @@ function collectCalls(files, definitions) {
     }
     try { visit(sourceFile); } catch { continue; }
   }
-  return edges;
+  return { edges, libraryNodes: Array.from(libraryNodes.values()) };
 }
 
 function main() {
@@ -163,8 +227,8 @@ function main() {
   const root = process.argv[2];
   const files = collectTsFiles(root);
   const definitions = collectDefinitions(files);
-  const edges = collectCalls(files, definitions);
-  const nodes = Object.values(definitions);
+  const { edges, libraryNodes } = collectCalls(files, definitions);
+  const nodes = [...Object.values(definitions), ...libraryNodes];
   process.stdout.write(JSON.stringify({ nodes, edges }) + '\n');
 }
 

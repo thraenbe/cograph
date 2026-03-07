@@ -37,6 +37,7 @@ def collect_definitions(root: str) -> dict[str, dict]:
                         'name': node.name,
                         'file': filepath,
                         'line': node.lineno,
+                        'language': 'python',
                     }
     return definitions
 

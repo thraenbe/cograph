@@ -12,6 +12,7 @@ interface GraphNode {
   name: string;
   file: string;
   line: number;
+  language?: 'python' | 'typescript';
   gitStatus?: { unstaged: 'added' | 'modified' | 'deleted' | null; staged: 'added' | 'modified' | 'deleted' | null };
 }
 
@@ -31,7 +32,7 @@ export class GraphProvider {
   private cachedNodes: GraphNode[] = [];
   private gitRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   private reanalysisTimer: ReturnType<typeof setTimeout> | undefined;
-  private activeProc: cp.ChildProcess | undefined;
+  private activeProcs: cp.ChildProcess[] = [];
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -69,7 +70,9 @@ export class GraphProvider {
     const saveListener = vscode.workspace.onDidSaveTextDocument(doc => {
       if (doc.uri.fsPath.startsWith(workspaceRoot)) {
         scheduleRefresh();
-        if (doc.uri.fsPath.endsWith('.py')) {
+        if (doc.uri.fsPath.endsWith('.py') ||
+            doc.uri.fsPath.endsWith('.ts') ||
+            doc.uri.fsPath.endsWith('.tsx')) {
           this.scheduleReanalysis(workspaceRoot);
         }
       }
@@ -87,7 +90,8 @@ export class GraphProvider {
       gitIndexWatcher.dispose();
       if (this.gitRefreshTimer) { clearTimeout(this.gitRefreshTimer); }
       if (this.reanalysisTimer) { clearTimeout(this.reanalysisTimer); }
-      if (this.activeProc) { this.activeProc.kill(); this.activeProc = undefined; }
+      for (const proc of this.activeProcs) { proc.kill(); }
+      this.activeProcs = [];
       this.cachedNodes = [];
     });
 
@@ -261,9 +265,90 @@ export class GraphProvider {
   private scheduleReanalysis(workspaceRoot: string): void {
     if (this.reanalysisTimer) { clearTimeout(this.reanalysisTimer); }
     this.reanalysisTimer = setTimeout(() => {
-      if (this.activeProc) { this.activeProc.kill(); this.activeProc = undefined; }
+      for (const proc of this.activeProcs) { proc.kill(); }
+      this.activeProcs = [];
       this.runAnalyzer(workspaceRoot);
     }, 1000);
+  }
+
+  private spawnAnalyzerProcess(bin: string, args: string[], fatal: boolean): Promise<GraphData> {
+    const empty: GraphData = { nodes: [], edges: [] };
+    return new Promise((resolve) => {
+      let proc: cp.ChildProcess;
+      try {
+        proc = cp.spawn(bin, args);
+      } catch (err: unknown) {
+        if (fatal) {
+          this.showError(`CoGraph: Failed to start analyzer — ${(err as Error).message}`);
+        }
+        resolve(empty);
+        return;
+      }
+      this.activeProcs.push(proc);
+
+      let stdout = '';
+      let stdoutBytes = 0;
+      let stderr = '';
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        proc.kill();
+        if (fatal) {
+          this.showError(`CoGraph: Analysis timed out after ${ANALYSIS_TIMEOUT_MS / 1000}s.`);
+        }
+        resolve(empty);
+      }, ANALYSIS_TIMEOUT_MS);
+
+      proc.stdout!.on('data', (chunk: Buffer) => {
+        stdoutBytes += chunk.length;
+        if (stdoutBytes > MAX_OUTPUT_BYTES) {
+          proc.kill();
+          if (fatal) {
+            this.showError('CoGraph: Analysis output too large (> 500 MB). Try a smaller workspace.');
+          }
+          return;
+        }
+        stdout += chunk.toString();
+      });
+
+      proc.stderr!.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+
+      proc.on('error', (err: Error) => {
+        clearTimeout(timer);
+        this.activeProcs = this.activeProcs.filter(p => p !== proc);
+        if (fatal) {
+          this.showError(`CoGraph: Failed to start analyzer — ${err.message}`);
+        }
+        resolve(empty);
+      });
+
+      proc.on('close', (code: number | null) => {
+        clearTimeout(timer);
+        this.activeProcs = this.activeProcs.filter(p => p !== proc);
+        if (timedOut || stdoutBytes > MAX_OUTPUT_BYTES) {
+          return; // already resolved above
+        }
+        if (code !== 0) {
+          if (fatal) {
+            const detail = stderr.slice(0, 500);
+            this.showError(`CoGraph: Analysis failed (exit ${code}).\n${detail}`);
+          }
+          resolve(empty);
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout) as GraphData);
+        } catch {
+          if (fatal) {
+            this.showError('CoGraph: Failed to parse graph data.');
+          }
+          resolve(empty);
+        }
+      });
+    });
   }
 
   private runAnalyzer(workspaceRoot: string): void {
@@ -273,56 +358,18 @@ export class GraphProvider {
       return;
     }
 
-    const scriptPath = path.join(this.context.extensionPath, 'scripts', 'analyze.py');
-    const proc = cp.spawn(pythonBin, [scriptPath, workspaceRoot]);
-    this.activeProc = proc;
+    const pyScript = path.join(this.context.extensionPath, 'scripts', 'analyze.py');
+    const tsScript = path.join(this.context.extensionPath, 'scripts', 'analyze_ts.js');
 
-    let stdout = '';
-    let stdoutBytes = 0;
-    let stderr = '';
-    let timedOut = false;
+    const pyPromise = this.spawnAnalyzerProcess(pythonBin, [pyScript, workspaceRoot], true);
+    const tsPromise = this.spawnAnalyzerProcess(process.execPath, [tsScript, workspaceRoot], false);
 
-    const timer = setTimeout(() => {
-      timedOut = true;
-      proc.kill();
-      this.showError(`CoGraph: Analysis timed out after ${ANALYSIS_TIMEOUT_MS / 1000}s.`);
-    }, ANALYSIS_TIMEOUT_MS);
-
-    proc.stdout.on('data', (chunk: Buffer) => {
-      stdoutBytes += chunk.length;
-      if (stdoutBytes > MAX_OUTPUT_BYTES) {
-        proc.kill();
-        this.showError('CoGraph: Analysis output too large (> 500 MB). Try a smaller workspace.');
-        return;
-      }
-      stdout += chunk.toString();
-    });
-
-    proc.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    proc.on('error', (err: Error) => {
-      clearTimeout(timer);
-      this.activeProc = undefined;
-      this.showError(`CoGraph: Failed to start Python — ${err.message}`);
-    });
-
-    proc.on('close', (code: number | null) => {
-      clearTimeout(timer);
-      this.activeProc = undefined;
-      if (timedOut) {
-        return; // already handled above
-      }
-      if (stdoutBytes > MAX_OUTPUT_BYTES) {
-        return; // already handled above
-      }
-      if (code !== 0) {
-        const detail = stderr.slice(0, 500);
-        this.showError(`CoGraph: Analysis failed (exit ${code}).\n${detail}`);
-        return;
-      }
-      this.handleAnalysisResult(stdout, workspaceRoot);
+    Promise.all([pyPromise, tsPromise]).then(([pyGraph, tsGraph]) => {
+      const merged: GraphData = {
+        nodes: [...pyGraph.nodes, ...tsGraph.nodes],
+        edges: [...pyGraph.edges, ...tsGraph.edges],
+      };
+      this.handleAnalysisResult(JSON.stringify(merged), workspaceRoot);
     });
   }
 
@@ -370,7 +417,7 @@ export class GraphProvider {
 <body>
   <div style="text-align:center">
     <div style="font-size:48px">&#x2205;</div>
-    <p>No Python functions found in this workspace.</p>
+    <p>No functions found in this workspace.</p>
   </div>
 </body>
 </html>`;

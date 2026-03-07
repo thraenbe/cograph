@@ -202,6 +202,7 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
             isSynthetic: false,
             memberCount: 1,
             gitStatus: n.gitStatus,
+            language: n.language,
           },
         });
       }
@@ -228,6 +229,7 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
           isSynthetic,
           memberCount,
           gitStatus: memberCount === 1 && rep ? rep.gitStatus : undefined,
+          language: memberCount === 1 && rep ? rep.language : undefined,
         },
       });
     }

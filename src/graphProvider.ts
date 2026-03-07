@@ -56,6 +56,7 @@ export class GraphProvider {
       vscode.ViewColumn.Beside,
       {
         enableScripts: true,
+        retainContextWhenHidden: true,
         localResourceRoots: [
           vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview'),
         ],

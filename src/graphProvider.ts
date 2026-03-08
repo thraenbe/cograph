@@ -693,19 +693,19 @@ export class GraphProvider {
 
     <div class="panel-section">
       <h4>Groups</h4>
-      <div class="toggle-row">
+      <div class="toggle-row stub" title="Coming soon">
         <span>Group by File Structure</span>
-        <label class="switch"><input type="checkbox" id="toggle-group-file" /><span class="pill"></span></label>
+        <label class="switch"><input type="checkbox" id="toggle-group-file" disabled /><span class="pill"></span></label>
       </div>
       <div class="toggle-row stub" title="Coming soon">
         <span>Group by Inheritance</span>
         <label class="switch"><input type="checkbox" id="toggle-group-inherit" disabled /><span class="pill"></span></label>
       </div>
-      <div class="toggle-row">
+      <div class="toggle-row stub" title="Coming soon">
         <span>Group by Flow (L&#8594;R)</span>
-        <label class="switch"><input type="checkbox" id="toggle-group-flow" /><span class="pill"></span></label>
+        <label class="switch"><input type="checkbox" id="toggle-group-flow" disabled /><span class="pill"></span></label>
       </div>
-      <button id="btn-new-group" disabled>+ Create new Group</button>
+      <button id="btn-new-group" class="stub" disabled>+ Create new Group</button>
     </div>
 
     <div class="panel-section">

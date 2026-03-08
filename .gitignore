@@ -4,3 +4,5 @@ prompts/
 .vscode/
 .vscode-test/
 scripts/__pycache__/
+*.vsix
+*.swp

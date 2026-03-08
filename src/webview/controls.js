@@ -30,21 +30,6 @@ document.getElementById('toggle-libraries')?.addEventListener('change', (e) => {
   applyComplexity();
 });
 
-// ── Group controls ────────────────────────────────────────────────────────────
-document.getElementById('toggle-group-file')?.addEventListener('change', (e) => {
-  settings.groupByFile = e.target.checked;
-  applyDisplaySettings();
-});
-
-document.getElementById('toggle-group-flow')?.addEventListener('change', (e) => {
-  e.target.checked = false; // Dagre not available in D3 mode
-  const notice = document.getElementById('flow-notice');
-  if (notice) {
-    notice.style.display = 'block';
-    setTimeout(() => { notice.style.display = 'none'; }, 3000);
-  }
-});
-
 // ── Display controls ──────────────────────────────────────────────────────────
 document.getElementById('toggle-arrows')?.addEventListener('change', (e) => {
   settings.arrows = e.target.checked;

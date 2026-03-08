@@ -10,12 +10,62 @@
 <body>
   <div id="graph"></div>
   <div id="flow-notice">Dagre layout not available in D3 mode</div>
-  <div id="complexity-widget">
-    <div class="complexity-header">
-      <label for="slider-complexity">Detail</label>
-      <span id="val-complexity">1.00</span>
+  <div id="top-left-controls">
+    <div class="tl-btn-row">
+      <button id="btn-detail" class="tl-btn active" title="Toggle detail legend">Detail</button>
+      <button id="btn-git-mode" class="tl-btn" title="Toggle git diff colors">Git</button>
+      <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Lang</button>
     </div>
-    <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
+
+    <!-- Detail panel: slider + node-type legend -->
+    <div id="panel-detail" class="tl-panel">
+      <div class="tl-slider-header">
+        <label for="slider-complexity">Detail</label>
+        <span id="val-complexity">0.99</span>
+      </div>
+      <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="0.99" />
+      <div class="tl-legend">
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot" style="background:#d4d4d4"></span>
+          <span class="tl-legend-label">Function Node</span>
+        </div>
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot" style="background:#7c4dbb"></span>
+          <span class="tl-legend-label">Clustered Node</span>
+        </div>
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot tl-legend-dot--ring" style="background:#c8a84b"></span>
+          <span class="tl-legend-label">Library Node</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Git panel: status legend (auto-opens with git mode) -->
+    <div id="panel-git" class="tl-panel" style="display:none">
+      <div class="tl-legend">
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot" style="background:#ff9800"></span>
+          <span class="tl-legend-label">Modified Func</span>
+        </div>
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot" style="background:#4caf50"></span>
+          <span class="tl-legend-label">New Func</span>
+        </div>
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot" style="background:#555555"></span>
+          <span class="tl-legend-label">Deleted</span>
+        </div>
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot tl-legend-dot--staged"></span>
+          <span class="tl-legend-label">Staged</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lang panel: editable language color swatches (auto-opens with lang mode) -->
+    <div id="panel-lang" class="tl-panel" style="display:none">
+      <div id="language-legend"></div>
+    </div>
   </div>
   <button id="settings-btn" title="Settings">&#9881;</button>
   <div id="settings-panel">
@@ -31,13 +81,6 @@
     <div class="panel-section">
       <h4>Filters</h4>
       <input id="search" type="text" placeholder="Filter functions..." />
-      <div class="toggle-row">
-        <span>Existing files only</span>
-        <label class="switch">
-          <input type="checkbox" id="toggle-existing" />
-          <span class="pill"></span>
-        </label>
-      </div>
       <div class="toggle-row">
         <span>Show Orphans</span>
         <label class="switch">

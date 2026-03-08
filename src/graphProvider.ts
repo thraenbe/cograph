@@ -36,6 +36,15 @@ export class GraphProvider {
   private gitRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   private reanalysisTimer: ReturnType<typeof setTimeout> | undefined;
   private activeProcs: cp.ChildProcess[] = [];
+  private resolvedPythonBin: string | null | undefined = undefined; // undefined = not yet resolved
+  private _outputChannel?: vscode.OutputChannel;
+
+  private get outputChannel() {
+    if (!this._outputChannel) {
+      this._outputChannel = vscode.window.createOutputChannel('CoGraph');
+    }
+    return this._outputChannel;
+  }
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -113,9 +122,10 @@ export class GraphProvider {
         vscode.env.openExternal(vscode.Uri.parse(url));
       } else if (message.type === 'get-lib-description') {
         const { libraryName, functionName, language } = message;
+        const { reqId } = message;
         this.fetchLibDescription(libraryName, functionName, language, workspaceRoot)
           .then(description => {
-            this.panel?.webview.postMessage({ type: 'lib-description', description });
+            this.panel?.webview.postMessage({ type: 'lib-description', description, reqId });
           });
       }
     });
@@ -177,16 +187,51 @@ export class GraphProvider {
     } catch { return new Map(); }
   }
 
-  /** Try `python3` then `python`; return first working binary or null. */
+  /** Try the VS Code Python extension interpreter, then workspace venvs, then `python3`/`python`; return first working binary or null. Caches result. */
   resolvePythonBin(): string | null {
-    for (const bin of ['python3', 'python']) {
+    if (this.resolvedPythonBin !== undefined) { return this.resolvedPythonBin; }
+
+    const candidates: (string | undefined)[] = [];
+
+    // 1. VS Code Python extension live API (most reliable — reflects active environment)
+    const pythonExt = vscode.extensions.getExtension('ms-python.python');
+    if (pythonExt?.isActive) {
       try {
-        cp.execFileSync(bin, ['--version'], { timeout: 3000 });
-        return bin;
-      } catch {
-        // try next
+        const api = pythonExt.exports as any;
+        const apiPath =
+          api.settings?.getExecutionDetails?.()?.execCommand?.[0] ||
+          api.environment?.getActiveInterpreterPath?.() ||
+          api.environments?.getActiveEnvironmentPath?.()?.path;
+        candidates.push(apiPath || undefined);
+      } catch { /* Python ext API unavailable */ }
+    }
+
+    // 2. VS Code configuration settings
+    candidates.push(
+      vscode.workspace.getConfiguration('python').get<string>('defaultInterpreterPath') || undefined,
+      vscode.workspace.getConfiguration('python').get<string>('pythonPath') || undefined, // legacy
+    );
+
+    // 3. Workspace-local virtualenvs (common project layouts)
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (wsRoot) {
+      for (const rel of ['.venv/bin/python', 'venv/bin/python', '.env/bin/python']) {
+        candidates.push(path.join(wsRoot, rel));
       }
     }
+
+    // 4. PATH fallback
+    candidates.push('python3', 'python');
+
+    for (const bin of candidates.filter(Boolean) as string[]) {
+      try {
+        cp.execFileSync(bin, ['--version'], { timeout: 2000 });
+        this.resolvedPythonBin = bin;
+        return bin;
+      } catch { /* try next */ }
+    }
+
+    this.resolvedPythonBin = null;
     return null;
   }
 
@@ -404,6 +449,7 @@ export class GraphProvider {
   private fetchPythonDescription(libraryName: string, functionName: string): Promise<string> {
     const pythonBin = this.resolvePythonBin();
     if (!pythonBin) { return Promise.resolve(''); }
+    this.outputChannel.appendLine(`[CoGraph] Using Python: ${pythonBin}`);
     const script = path.join(this.context.extensionPath, 'scripts', 'describe_lib.py');
     return new Promise(resolve => {
       let resolved = false;
@@ -417,6 +463,9 @@ export class GraphProvider {
       }
       let stdout = '';
       proc.stdout!.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+      proc.stderr!.on('data', (chunk: Buffer) => {
+        this.outputChannel.appendLine(`[describe_lib] ${chunk.toString().trim()}`);
+      });
       proc.on('close', () => done(stdout.trim()));
       proc.on('error', () => done(''));
       setTimeout(() => { proc.kill(); done(''); }, 5000);
@@ -562,20 +611,57 @@ export class GraphProvider {
 <body>
   <div id="graph"></div>
   <div id="flow-notice">Dagre layout not available in D3 mode</div>
-  <div id="complexity-widget">
-    <div class="complexity-header">
-      <label for="slider-complexity">Detail</label>
-      <span id="val-complexity">1.00</span>
+  <div id="top-left-controls">
+    <div class="tl-btn-row">
+      <button id="btn-detail" class="tl-btn active" title="Toggle detail legend">Detail</button>
+      <button id="btn-git-mode" class="tl-btn" title="Toggle git diff colors">Git</button>
+      <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Lang</button>
     </div>
-    <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
-    <div id="git-toggle-row" style="display:none; margin-top:6px;">
-      <button id="btn-git-mode" class="git-toggle-btn" title="Overlay git status on node colors">Git</button>
+    <div id="panel-detail" class="tl-panel">
+      <div class="tl-slider-header">
+        <label for="slider-complexity">Detail</label>
+        <span id="val-complexity">0.99</span>
+      </div>
+      <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="0.99" />
+      <div class="tl-legend">
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot" style="background:#d4d4d4"></span>
+          <span class="tl-legend-label">Function Node</span>
+        </div>
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot" style="background:#7c4dbb"></span>
+          <span class="tl-legend-label">Clustered Node</span>
+        </div>
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot tl-legend-dot--ring" style="background:#c8a84b"></span>
+          <span class="tl-legend-label">Library Node</span>
+        </div>
+      </div>
     </div>
-    <div id="language-toggle-row" style="margin-top:6px;">
-      <button id="btn-language-mode" class="git-toggle-btn" title="Color nodes by language">Lang</button>
+    <div id="panel-git" class="tl-panel" style="display:none">
+      <div class="tl-legend">
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot" style="background:#ff9800"></span>
+          <span class="tl-legend-label">Modified Func</span>
+        </div>
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot" style="background:#4caf50"></span>
+          <span class="tl-legend-label">New Func</span>
+        </div>
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot" style="background:#555555"></span>
+          <span class="tl-legend-label">Deleted</span>
+        </div>
+        <div class="tl-legend-row">
+          <span class="tl-legend-dot tl-legend-dot--staged"></span>
+          <span class="tl-legend-label">Staged</span>
+        </div>
+      </div>
+    </div>
+    <div id="panel-lang" class="tl-panel" style="display:none">
+      <div id="language-legend"></div>
     </div>
   </div>
-  <div id="language-legend" style="display:none;"></div>
   <button id="settings-btn" title="Settings">&#9881;</button>
   <div id="settings-panel">
 
@@ -590,10 +676,6 @@ export class GraphProvider {
     <div class="panel-section">
       <h4>Filters</h4>
       <input id="search" type="text" placeholder="Filter functions..." />
-      <div class="toggle-row">
-        <span>Existing files only</span>
-        <label class="switch"><input type="checkbox" id="toggle-existing" /><span class="pill"></span></label>
-      </div>
       <div class="toggle-row">
         <span>Show Orphans</span>
         <label class="switch"><input type="checkbox" id="toggle-orphans" checked /><span class="pill"></span></label>

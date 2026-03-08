@@ -20,11 +20,6 @@ document.getElementById('btn-layout-static')?.addEventListener('click', () => se
 // ── Filter controls ───────────────────────────────────────────────────────────
 document.getElementById('search')?.addEventListener('input', applyFilters);
 
-document.getElementById('toggle-existing')?.addEventListener('change', (e) => {
-  settings.existingFilesOnly = e.target.checked;
-  applyFilters();
-});
-
 document.getElementById('toggle-orphans')?.addEventListener('change', (e) => {
   settings.showOrphans = e.target.checked;
   applyFilters();
@@ -76,12 +71,21 @@ wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);
 wireSlider('slider-link-force', 'val-link-force', 'linkForce', rerunLayout);
 wireSlider('slider-link-distance', 'val-link-distance', 'linkDistance', rerunLayout);
 
+// ── Detail panel toggle ───────────────────────────────────────────────────────
+document.getElementById('btn-detail')?.addEventListener('click', () => {
+  const panel = document.getElementById('panel-detail');
+  const btn = document.getElementById('btn-detail');
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  btn.classList.toggle('active', !open);
+});
+
 // ── Git mode toggle ───────────────────────────────────────────────────────────
 document.getElementById('btn-git-mode')?.addEventListener('click', () => {
   state.gitMode = !state.gitMode;
   document.getElementById('btn-git-mode')?.classList.toggle('active', state.gitMode);
+  document.getElementById('panel-git').style.display = state.gitMode ? 'block' : 'none';
   applyGitColors();
-  // If the simulation hasn't auto-fit yet, do it now so git colors are immediately visible
   if (state.gitMode && !state.hasFitted) {
     state.hasFitted = true;
     fitToView();
@@ -92,6 +96,7 @@ document.getElementById('btn-git-mode')?.addEventListener('click', () => {
 document.getElementById('btn-language-mode')?.addEventListener('click', () => {
   state.languageMode = !state.languageMode;
   document.getElementById('btn-language-mode')?.classList.toggle('active', state.languageMode);
+  document.getElementById('panel-lang').style.display = state.languageMode ? 'block' : 'none';
   applyGitColors();
 });
 

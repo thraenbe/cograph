@@ -37,7 +37,8 @@ function showLibDocPopup(d) {
   if (descRow) { descRow.style.display = 'block'; }
 
   document.getElementById('lib-doc-popup').style.display = 'flex';
-  vscode.postMessage({ type: 'get-lib-description', libraryName: d.libraryName, functionName: d.name, language: d.language });
+  state.libDescRequestId = Date.now();
+  vscode.postMessage({ type: 'get-lib-description', libraryName: d.libraryName, functionName: d.name, language: d.language, reqId: state.libDescRequestId });
 }
 
 // ── Layout mode toggle ────────────────────────────────────────────────────────
@@ -136,17 +137,13 @@ function resolveNodeStrokeWidth(d) {
 function renderLanguageLegend() {
   const el = document.getElementById('language-legend');
   if (!el) return;
-
-  if (!state.languageMode || !state.graphData) {
-    el.style.display = 'none';
-    return;
-  }
+  if (!state.graphData) { el.innerHTML = ''; return; }
 
   const langs = [...new Set(
     state.graphData.nodes.map(n => n.language).filter(Boolean)
   )].sort();
 
-  if (langs.length === 0) { el.style.display = 'none'; return; }
+  if (langs.length === 0) { el.innerHTML = ''; return; }
 
   el.innerHTML = langs.map(lang => {
     const color = getLanguageColor(lang);
@@ -162,8 +159,6 @@ function renderLanguageLegend() {
       applyGitColors();
     });
   });
-
-  el.style.display = 'block';
 }
 
 function applyGitColors() {
@@ -229,12 +224,60 @@ function applyComplexity() {
   });
   const clusterResult = computeClusters(projectData, state.importanceScores, state.complexityLevel);
   const elements = buildClusteredElements(projectData, clusterResult, state.complexityLevel, state.importanceScores, state.expandedClusters, degreeMap);
+  const nodeToRendered = buildRenderedNodeMap(clusterResult.nodeToCluster, state.expandedClusters);
   if (settings.showLibraries) {
-    state.graphData.nodes.filter(n => n.isLibrary).forEach(ln => {
-      elements.push({ data: { ...ln, label: ln.name, _size: 6, isCluster: false, isSynthetic: false, isOrphanCluster: false } });
+    const libNodes = state.graphData.nodes.filter(n => n.isLibrary);
+    const libEdges = state.graphData.edges.filter(e => e.isLibraryEdge);
+    const libNodeById = new Map(libNodes.map(n => [n.id, n]));
+
+    // Group by package name
+    const byPackage = new Map();
+    libNodes.forEach(n => {
+      if (!byPackage.has(n.libraryName)) byPackage.set(n.libraryName, []);
+      byPackage.get(n.libraryName).push(n);
     });
-    state.graphData.edges.filter(e => e.isLibraryEdge).forEach(le => {
-      elements.push({ data: { source: le.source, target: le.target, isLibraryEdge: true } });
+
+    // At high detail (>= 0.999) or if manually expanded: show individual nodes
+    byPackage.forEach((nodes, pkgName) => {
+      const expanded = state.complexityLevel >= 0.999 || state.expandedLibClusters.has(pkgName);
+      if (expanded) {
+        nodes.forEach(n => {
+          elements.push({ data: { ...n, label: n.name, _size: 6, isCluster: false, isSynthetic: false, isOrphanCluster: false } });
+        });
+      } else {
+        elements.push({ data: {
+          id: `libcluster::${pkgName}`,
+          name: pkgName,
+          label: `${pkgName} (${nodes.length})`,
+          libraryName: pkgName,
+          language: nodes[0].language,
+          isLibrary: true,
+          isLibCluster: true,
+          _count: nodes.length,
+          _size: 8,
+          file: null,
+          line: 0,
+          isCluster: false,
+          isSynthetic: false,
+          isOrphanCluster: false,
+        }});
+      }
+    });
+
+    // Emit edges: reroute to cluster id when collapsed, deduplicate
+    const seenEdgeKeys = new Set();
+    libEdges.forEach(e => {
+      const targetNode = libNodeById.get(e.target);
+      if (!targetNode) return;
+      const pkgName = targetNode.libraryName;
+      const expanded = state.complexityLevel >= 0.999 || state.expandedLibClusters.has(pkgName);
+      const targetId = expanded ? e.target : `libcluster::${pkgName}`;
+      const sourceId = nodeToRendered.get(e.source) ?? e.source;
+      const key = `${sourceId}|${targetId}`;
+      if (!seenEdgeKeys.has(key)) {
+        seenEdgeKeys.add(key);
+        elements.push({ data: { source: sourceId, target: targetId, isLibraryEdge: true } });
+      }
     });
   }
   renderElements(elements);
@@ -246,6 +289,7 @@ function renderGraph(data, isReanalysis = false) {
   const projectData = { nodes: data.nodes.filter(n => !n.isLibrary), edges: data.edges.filter(e => !e.isLibraryEdge) };
   state.importanceScores = computeImportanceScores(projectData);
   state.expandedClusters = new Set();
+  state.expandedLibClusters = new Set();
   if (!isReanalysis) { state.hasFitted = false; }
 
   const nodeCount = projectData.nodes.length;
@@ -264,18 +308,19 @@ function renderGraph(data, isReanalysis = false) {
 window.addEventListener('message', (event) => {
   const message = event.data;
   if (message.type === 'lib-description') {
+    if (message.reqId !== state.libDescRequestId) { return; }
     const descEl = document.getElementById('lib-doc-desc');
     const descRow = document.getElementById('lib-doc-desc-row');
     if (descEl && descRow) {
-      descEl.textContent = message.description;
-      descRow.style.display = message.description ? 'block' : 'none';
+      descEl.textContent = message.description || 'No description available.';
+      descRow.style.display = 'block';
     }
     return;
   }
   if (message.type === 'graph') {
     state.gitAvailable = message.gitAvailable ?? false;
-    const row = document.getElementById('git-toggle-row');
-    if (row) row.style.display = state.gitAvailable ? 'block' : 'none';
+    const gitBtn = document.getElementById('btn-git-mode');
+    if (gitBtn) gitBtn.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     renderGraph(message.data, message.isReanalysis);
     return;

@@ -1,9 +1,10 @@
 const state = {
   graphData: null,
-  complexityLevel: 1.0,
+  complexityLevel: 0.99,
   importanceScores: null,
   clusterTimer: null,
   expandedClusters: new Set(),
+  expandedLibClusters: new Set(),
   connectedNodeIds: new Set(),
   simulation: null,
   svgNodes: null,
@@ -20,4 +21,5 @@ const state = {
   languageMode: false,
   gitAvailable: false,
   activeLibNode: null,
+  libDescRequestId: 0,
 };

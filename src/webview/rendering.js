@@ -328,7 +328,11 @@ function renderLibraryNodes(libNodeData, visibleSet) {
         .attr('x', 0)
         .attr('y', 0)
         .each(function(d) {
-          d3.select(this).append('title').text(`${d.libraryName}::${d.name}`);
+          d3.select(this).append('title').text(
+            d.isLibCluster
+              ? `${d.libraryName} — ${d._count} function${d._count === 1 ? '' : 's'} — click to expand`
+              : `${d.libraryName}::${d.name}`
+          );
         }),
       update => update,
       exit => exit.remove()
@@ -340,7 +344,12 @@ function renderLibraryNodes(libNodeData, visibleSet) {
     .style('display', d => visibleSet.has(d.id) ? null : 'none')
     .on('click', (event, d) => {
       event.stopPropagation();
-      showLibDocPopup(d);
+      if (d.isLibCluster) {
+        state.expandedLibClusters.add(d.libraryName);
+        applyComplexity();
+      } else {
+        showLibDocPopup(d);
+      }
     })
     .on('mouseover', (event, d) => {
       d3.select(event.currentTarget).attr('fill', '#f0d080');
@@ -362,7 +371,7 @@ function renderLibraryLabels(libNodeData, visibleSet) {
   return libLabelG.selectAll('text')
     .data(libNodeData, d => d.id)
     .join('text')
-    .text(d => `${d.libraryName}.${d.name}`)
+    .text(d => d.isLibCluster ? d.label : `${d.libraryName}.${d.name}`)
     .attr('font-size', d => `${9 * settings.textSize}px`)
     .attr('text-anchor', 'middle')
     .attr('pointer-events', 'none')

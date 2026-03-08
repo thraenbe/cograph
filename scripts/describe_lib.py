@@ -23,12 +23,8 @@ def main():
         # Strip the redundant suffix so we import the module, not traverse into the function.
         if len(parts) > 1 and parts[-1] == func_name:
             parts = parts[:-1]
-        mod = importlib.import_module(parts[0])
-        for p in parts[1:]:
-            mod = getattr(mod, p, None)
-            if mod is None:
-                break
-        fn = getattr(mod, func_name, None) if mod is not None else None
+        mod = importlib.import_module('.'.join(parts))
+        fn = getattr(mod, func_name, None)
         if fn is None:
             print('')
             return
@@ -38,7 +34,9 @@ def main():
         else:
             print('')
     except Exception:
-        print('')
+        print('', flush=True)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
 
 
 if __name__ == '__main__':

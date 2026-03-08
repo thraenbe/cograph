@@ -71,20 +71,24 @@ wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);
 wireSlider('slider-link-force', 'val-link-force', 'linkForce', rerunLayout);
 wireSlider('slider-link-distance', 'val-link-distance', 'linkDistance', rerunLayout);
 
-// ── Detail panel toggle ───────────────────────────────────────────────────────
-document.getElementById('btn-detail')?.addEventListener('click', () => {
-  const panel = document.getElementById('panel-detail');
-  const btn = document.getElementById('btn-detail');
-  const open = panel.style.display !== 'none';
-  panel.style.display = open ? 'none' : 'block';
-  btn.classList.toggle('active', !open);
-});
+// ── Collapsible legend headers ────────────────────────────────────────────────
+function wireLegendToggle(headerId, bodyId) {
+  const header = document.getElementById(headerId);
+  const body = document.getElementById(bodyId);
+  if (!header || !body) return;
+  header.addEventListener('click', () => {
+    const collapsed = body.style.display === 'none';
+    body.style.display = collapsed ? '' : 'none';
+    header.querySelector('.tl-chevron').classList.toggle('collapsed', !collapsed);
+  });
+}
+wireLegendToggle('toggle-detail-legend', 'detail-legend-body');
+wireLegendToggle('toggle-git-legend', 'git-legend-body');
 
 // ── Git mode toggle ───────────────────────────────────────────────────────────
 document.getElementById('btn-git-mode')?.addEventListener('click', () => {
   state.gitMode = !state.gitMode;
   document.getElementById('btn-git-mode')?.classList.toggle('active', state.gitMode);
-  document.getElementById('panel-git').style.display = state.gitMode ? 'block' : 'none';
   applyGitColors();
   if (state.gitMode && !state.hasFitted) {
     state.hasFitted = true;
@@ -96,7 +100,6 @@ document.getElementById('btn-git-mode')?.addEventListener('click', () => {
 document.getElementById('btn-language-mode')?.addEventListener('click', () => {
   state.languageMode = !state.languageMode;
   document.getElementById('btn-language-mode')?.classList.toggle('active', state.languageMode);
-  document.getElementById('panel-lang').style.display = state.languageMode ? 'block' : 'none';
   applyGitColors();
 });
 

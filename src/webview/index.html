@@ -11,12 +11,6 @@
   <div id="graph"></div>
   <div id="flow-notice">Dagre layout not available in D3 mode</div>
   <div id="top-left-controls">
-    <div class="tl-btn-row">
-      <button id="btn-detail" class="tl-btn active" title="Toggle detail legend">Detail</button>
-      <button id="btn-git-mode" class="tl-btn" title="Toggle git diff colors">Git</button>
-      <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Lang</button>
-    </div>
-
     <!-- Detail panel: slider + node-type legend -->
     <div id="panel-detail" class="tl-panel">
       <div class="tl-slider-header">
@@ -24,7 +18,11 @@
         <span id="val-complexity">0.99</span>
       </div>
       <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="0.99" />
-      <div class="tl-legend">
+      <div class="tl-legend-header" id="toggle-detail-legend">
+        <span>Legend</span>
+        <span class="tl-chevron">▾</span>
+      </div>
+      <div class="tl-legend" id="detail-legend-body">
         <div class="tl-legend-row">
           <span class="tl-legend-dot" style="background:#d4d4d4"></span>
           <span class="tl-legend-label">Function Node</span>
@@ -40,9 +38,14 @@
       </div>
     </div>
 
-    <!-- Git panel: status legend (auto-opens with git mode) -->
+    <!-- Git panel: toggle button + status legend (hidden when git unavailable) -->
     <div id="panel-git" class="tl-panel" style="display:none">
-      <div class="tl-legend">
+      <button id="btn-git-mode" class="tl-btn" title="Toggle git diff colors">Git</button>
+      <div class="tl-legend-header" id="toggle-git-legend">
+        <span>Legend</span>
+        <span class="tl-chevron">▾</span>
+      </div>
+      <div class="tl-legend" id="git-legend-body">
         <div class="tl-legend-row">
           <span class="tl-legend-dot" style="background:#ff9800"></span>
           <span class="tl-legend-label">Modified Func</span>
@@ -62,8 +65,9 @@
       </div>
     </div>
 
-    <!-- Lang panel: editable language color swatches (auto-opens with lang mode) -->
-    <div id="panel-lang" class="tl-panel" style="display:none">
+    <!-- Lang panel: toggle button + editable language color swatches -->
+    <div id="panel-lang" class="tl-panel">
+      <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Lang</button>
       <div id="language-legend"></div>
     </div>
   </div>

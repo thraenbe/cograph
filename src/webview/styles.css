@@ -263,15 +263,9 @@ body {
   width: 190px;
 }
 
-.tl-btn-row {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 0;
-}
-
 .tl-btn {
-  flex: 1;
-  padding: 5px 4px;
+  width: 100%;
+  padding: 5px 8px;
   font-size: 11px;
   font-weight: 600;
   background: var(--vscode-button-secondaryBackground, #3a3a3a);
@@ -290,6 +284,10 @@ body {
 
 .tl-btn:hover:not(.active) {
   background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.tl-panel > .tl-btn {
+  margin-bottom: 8px;
 }
 
 .tl-panel {
@@ -328,8 +326,35 @@ body {
   margin-bottom: 6px;
 }
 
+.tl-legend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tl-legend-header > span:first-child {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--vscode-descriptionForeground, #858585);
+}
+
+.tl-chevron {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #858585);
+  transition: transform 0.15s;
+}
+
+.tl-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
 .tl-legend {
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .tl-legend-row {

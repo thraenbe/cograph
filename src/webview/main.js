@@ -319,8 +319,8 @@ window.addEventListener('message', (event) => {
   }
   if (message.type === 'graph') {
     state.gitAvailable = message.gitAvailable ?? false;
-    const gitBtn = document.getElementById('btn-git-mode');
-    if (gitBtn) gitBtn.style.display = state.gitAvailable ? '' : 'none';
+    const gitPanel = document.getElementById('panel-git');
+    if (gitPanel) gitPanel.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     renderGraph(message.data, message.isReanalysis);
     return;

@@ -188,6 +188,10 @@ function applyDisplaySettings() {
   state.svgLinks
     .attr('stroke-width', settings.linkThickness)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);
+  // Update library node dimensions to match new node size
+  state.svgLibNodes
+    ?.attr('width', d => nodeRadius(d) * 2)
+    .attr('height', d => nodeRadius(d) * 2);
   // Reposition links and labels to reflect new node size
   ticked();
   state.svgLabels.attr('font-size', d => {

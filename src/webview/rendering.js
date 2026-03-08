@@ -170,8 +170,7 @@ function ticked() {
   });
   state.svgLibNodes?.each(function (d) {
     const r = nodeRadius(d);
-    this.setAttribute('x', d.x - r);
-    this.setAttribute('y', d.y - r);
+    this.setAttribute('transform', `translate(${d.x - r},${d.y - r})`);
   });
   state.svgLibLabels?.each(function (d) {
     this.setAttribute('x', d.x);
@@ -326,6 +325,8 @@ function renderLibraryNodes(libNodeData, visibleSet) {
     .join(
       enter => enter.append('use')
         .attr('href', '#icon-book')
+        .attr('x', 0)
+        .attr('y', 0)
         .each(function(d) {
           d3.select(this).append('title').text(`${d.libraryName}::${d.name}`);
         }),

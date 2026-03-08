@@ -2,17 +2,18 @@
   "name": "cograph",
   "displayName": "CoGraph",
   "description": "Graph-based visualization of Python project call graphs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "thraenbe",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bela/cograph.git"
+    "url": "https://github.com/thraenbe/cograph.git"
   },
   "bugs": {
-    "url": "https://github.com/bela/cograph/issues"
+    "url": "https://github.com/thraenbe/cograph/issues"
   },
-  "homepage": "https://github.com/bela/cograph#readme",
+  "homepage": "https://github.com/thraenbe/cograph#readme",
+  "license": "MIT",
   "keywords": [
     "python",
     "call graph",
@@ -27,7 +28,7 @@
     "Visualization",
     "Programming Languages"
   ],
-  "activationEvents": [],
+  "activationEvents": ["onCommand:cograph.visualize"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [

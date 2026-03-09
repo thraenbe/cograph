@@ -5,4 +5,5 @@ prompts/
 .vscode-test/
 scripts/__pycache__/
 *.vsix
+cograph-*/
 *.swp

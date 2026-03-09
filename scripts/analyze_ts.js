@@ -230,3 +230,7 @@ function main() {
 }
 
 main();
+
+if (typeof module !== 'undefined') {
+  module.exports = { collectTsFiles, collectDefinitions, collectCalls };
+}

@@ -71,9 +71,17 @@ wireLegendToggle('toggle-detail-legend', 'detail-legend-body');
 wireLegendToggle('toggle-git-legend', 'git-legend-body');
 
 // ── Git mode toggle ───────────────────────────────────────────────────────────
+function setGitLegendVisible(visible) {
+  const display = visible ? '' : 'none';
+  document.getElementById('toggle-git-legend').style.display = display;
+  document.getElementById('git-legend-body').style.display = display;
+}
+setGitLegendVisible(false);
+
 document.getElementById('btn-git-mode')?.addEventListener('click', () => {
   state.gitMode = !state.gitMode;
   document.getElementById('btn-git-mode')?.classList.toggle('active', state.gitMode);
+  setGitLegendVisible(state.gitMode);
   applyGitColors();
   if (state.gitMode && !state.hasFitted) {
     state.hasFitted = true;
@@ -82,9 +90,15 @@ document.getElementById('btn-git-mode')?.addEventListener('click', () => {
 });
 
 // ── Language mode toggle ──────────────────────────────────────────────────────
+function setLangLegendVisible(visible) {
+  document.getElementById('language-legend').style.display = visible ? '' : 'none';
+}
+setLangLegendVisible(false);
+
 document.getElementById('btn-language-mode')?.addEventListener('click', () => {
   state.languageMode = !state.languageMode;
   document.getElementById('btn-language-mode')?.classList.toggle('active', state.languageMode);
+  setLangLegendVisible(state.languageMode);
   applyGitColors();
 });
 

@@ -632,7 +632,7 @@ export class GraphProvider {
           <span class="tl-legend-label">Clustered Node</span>
         </div>
         <div class="tl-legend-row">
-          <span class="tl-legend-dot tl-legend-dot--ring" style="background:#c8a84b"></span>
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="#c8a84b" style="flex-shrink:0"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zM2.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11zM3 5.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z"/></svg>
           <span class="tl-legend-label">Library Node</span>
         </div>
       </div>

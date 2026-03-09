@@ -81,7 +81,7 @@ export class GraphProvider {
     };
 
     const saveListener = vscode.workspace.onDidSaveTextDocument(doc => {
-      if (doc.uri.fsPath.startsWith(workspaceRoot)) {
+      if (vscode.workspace.getWorkspaceFolder(doc.uri)) {
         scheduleRefresh();
         if (doc.uri.fsPath.endsWith('.py') ||
             doc.uri.fsPath.endsWith('.ts') ||
@@ -127,6 +127,21 @@ export class GraphProvider {
           .then(description => {
             this.panel?.webview.postMessage({ type: 'lib-description', description, reqId });
           });
+      } else if (message.type === 'get-func-source') {
+        const { file, line, reqId } = message;
+        try {
+          const source = this.getFuncSource(file, line);
+          this.panel?.webview.postMessage({ type: 'func-source', source, reqId });
+        } catch (err: unknown) {
+          this.panel?.webview.postMessage({ type: 'func-source', source: '', error: (err as Error).message, reqId });
+        }
+      } else if (message.type === 'save-func-source') {
+        const { file, line, newSource } = message;
+        try {
+          this.saveFuncSource(file, line, newSource);
+        } catch (err: unknown) {
+          vscode.window.showErrorMessage(`CoGraph: Failed to save — ${(err as Error).message}`);
+        }
       }
     });
 
@@ -140,7 +155,7 @@ export class GraphProvider {
         cwd: workspaceRoot, timeout: 5000, encoding: 'utf8'
       });
       const map = new Map();
-      for (const entry of out.split('\0').filter((e: string) => e.length >= 4)) {
+      for (const entry of out.split('\0').filter((e: string) => e.length >= 4 && /^[A-Z? ][A-Z? ] /.test(e))) {
         const X = entry[0], Y = entry[1];
         const rel = entry.slice(3);
         const abs = path.join(workspaceRoot, rel);
@@ -212,10 +227,21 @@ export class GraphProvider {
       vscode.workspace.getConfiguration('python').get<string>('pythonPath') || undefined, // legacy
     );
 
-    // 3. Workspace-local virtualenvs (common project layouts)
+    // 3. Workspace-local virtualenvs (common project layouts, Unix and Windows)
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (wsRoot) {
-      for (const rel of ['.venv/bin/python', 'venv/bin/python', '.env/bin/python']) {
+      const venvLayouts = process.platform === 'win32'
+        ? [
+            path.join('.venv', 'Scripts', 'python.exe'),
+            path.join('venv', 'Scripts', 'python.exe'),
+            path.join('.env', 'Scripts', 'python.exe'),
+          ]
+        : [
+            path.join('.venv', 'bin', 'python'),
+            path.join('venv', 'bin', 'python'),
+            path.join('.env', 'bin', 'python'),
+          ];
+      for (const rel of venvLayouts) {
         candidates.push(path.join(wsRoot, rel));
       }
     }
@@ -508,6 +534,52 @@ export class GraphProvider {
     return '';
   }
 
+  private getFuncSource(file: string, line: number): string {
+    const lines = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n').split('\n');
+    const startIdx = line - 1;
+    if (startIdx < 0 || startIdx >= lines.length) throw new Error(`Line ${line} out of range`);
+    const endIdx = file.endsWith('.py')
+      ? this.findPythonFuncEnd(lines, startIdx)
+      : this.findJsFuncEnd(lines, startIdx);
+    return lines.slice(startIdx, endIdx + 1).join('\n');
+  }
+
+  private findPythonFuncEnd(lines: string[], startIdx: number): number {
+    const baseIndent = lines[startIdx].match(/^(\s*)/)?.[1].length ?? 0;
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      if (lines[i].trim() === '') continue;
+      if ((lines[i].match(/^(\s*)/)?.[1].length ?? 0) <= baseIndent) return i - 1;
+    }
+    return lines.length - 1;
+  }
+
+  private findJsFuncEnd(lines: string[], startIdx: number): number {
+    let depth = 0, foundOpen = false;
+    for (let i = startIdx; i < lines.length; i++) {
+      for (const ch of lines[i]) {
+        if (ch === '{') { depth++; foundOpen = true; }
+        else if (ch === '}') depth--;
+      }
+      if (!foundOpen && i > startIdx) return startIdx; // arrow fn without braces
+      if (foundOpen && depth === 0) return i;
+    }
+    return lines.length - 1;
+  }
+
+  private saveFuncSource(file: string, line: number, newSource: string): void {
+    const raw = fs.readFileSync(file, 'utf8');
+    const crlf = raw.includes('\r\n');
+    const lines = raw.replace(/\r\n/g, '\n').split('\n');
+    const startIdx = line - 1;
+    if (startIdx < 0 || startIdx >= lines.length) throw new Error(`Line ${line} out of range`);
+    const endIdx = file.endsWith('.py')
+      ? this.findPythonFuncEnd(lines, startIdx)
+      : this.findJsFuncEnd(lines, startIdx);
+    lines.splice(startIdx, endIdx - startIdx + 1, ...newSource.replace(/\r\n/g, '\n').split('\n'));
+    const eol = crlf ? '\r\n' : '\n';
+    fs.writeFileSync(file, lines.join(eol), 'utf8');
+  }
+
   private async navigateTo(file: string, line: number) {
     const doc = await vscode.workspace.openTextDocument(file);
     const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
@@ -781,6 +853,24 @@ export class GraphProvider {
       </div>
       <div id="lib-doc-footer">
         <button id="lib-doc-goto-btn">Go to documentation &#x2197;</button>
+      </div>
+    </div>
+  </div>
+  <div id="func-popup">
+    <div id="func-card">
+      <div id="func-header">
+        <span id="func-popup-title"></span>
+        <button id="func-popup-close" title="Close">&#x2715;</button>
+      </div>
+      <div id="func-body">
+        <div id="func-editor-wrap">
+          <pre id="func-highlight" aria-hidden="true"><code id="func-highlight-code"></code></pre>
+          <textarea id="func-source-textarea" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+        </div>
+      </div>
+      <div id="func-footer">
+        <button id="func-save-btn">Save</button>
+        <button id="func-open-file-btn">Open File &#x2197;</button>
       </div>
     </div>
   </div>

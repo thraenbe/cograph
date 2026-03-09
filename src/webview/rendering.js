@@ -243,7 +243,7 @@ function renderNodes(visibleSet) {
         applyComplexity();
         return;
       }
-      vscode.postMessage({ type: 'navigate', file: d.file, line: d.line });
+      showFuncPopup(d);
     })
     .on('mouseover', (event, d) => {
       d3.select(event.currentTarget)

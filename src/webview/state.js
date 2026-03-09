@@ -22,4 +22,6 @@ const state = {
   gitAvailable: false,
   activeLibNode: null,
   libDescRequestId: 0,
+  activeFuncNode: null,
+  funcSourceRequestId: 0,
 };

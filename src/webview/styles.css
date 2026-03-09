@@ -559,3 +559,125 @@ body {
 #lib-doc-goto-btn:hover {
   background: var(--vscode-button-hoverBackground, #1177bb);
 }
+
+/* ── Function source popup ─────────────────────────────────────────────────── */
+#func-popup {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+
+#func-card {
+  width: 520px;
+  max-width: 90vw;
+  background: var(--vscode-sideBar-background, #1e1e1e);
+  border: 1px solid var(--vscode-widget-border, #3a3a3a);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#func-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--vscode-widget-border, #3a3a3a);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+#func-header button {
+  background: none;
+  border: none;
+  color: var(--vscode-editor-foreground, #cccccc);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+#func-header button:hover {
+  background: var(--vscode-toolbar-hoverBackground, #333);
+}
+
+#func-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+#func-editor-wrap {
+  display: grid;
+  grid-template-areas: "editor";
+  overflow: auto;
+  height: 280px;
+  resize: vertical;
+  border: 1px solid var(--vscode-widget-border, #3a3a3a);
+  border-radius: 4px;
+  background: var(--vscode-editor-background, #1e1e1e);
+}
+
+#func-highlight,
+#func-source-textarea {
+  grid-area: editor;
+  font-family: var(--vscode-editor-font-family, 'Menlo', 'Monaco', 'Courier New', monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px;
+  white-space: pre;
+  tab-size: 4;
+  box-sizing: border-box;
+  margin: 0;
+  min-width: 100%;
+}
+
+#func-highlight {
+  pointer-events: none;
+  color: var(--vscode-editor-foreground, #d4d4d4);
+  overflow: visible;
+  min-height: 100%;
+}
+
+#func-highlight code {
+  font: inherit;
+  display: block;
+}
+
+#func-source-textarea {
+  background: transparent;
+  color: transparent;
+  caret-color: var(--vscode-editorCursor-foreground, #aeafad);
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+}
+
+#func-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--vscode-widget-border, #3a3a3a);
+}
+
+#func-save-btn,
+#func-open-file-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #ffffff);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#func-save-btn:hover,
+#func-open-file-btn:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}

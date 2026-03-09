@@ -90,7 +90,7 @@ function computeImportanceScores(data) {
 function inferProjectName(data) {
   const files = data.nodes.map((n) => n.file).filter(Boolean);
   if (files.length === 0) return 'Project';
-  const parts = files.map((f) => f.split('/'));
+  const parts = files.map((f) => f.split(/[\\/]/));
   const minLen = Math.min(...parts.map((p) => p.length));
   let commonLen = 0;
   for (let i = 0; i < minLen; i++) {

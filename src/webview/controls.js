@@ -121,6 +121,45 @@ document.getElementById('lib-doc-goto-btn')?.addEventListener('click', () => {
   vscode.postMessage({ type: 'open-docs', libraryName: d.libraryName, functionName: d.name, language: d.language });
 });
 
+// ── Function popup controls ────────────────────────────────────────────────────
+document.getElementById('func-popup-close')?.addEventListener('click', () => {
+  document.getElementById('func-popup').style.display = 'none';
+  state.activeFuncNode = null;
+});
+document.getElementById('func-popup')?.addEventListener('click', (e) => {
+  if (e.target === document.getElementById('func-popup')) {
+    document.getElementById('func-popup').style.display = 'none';
+    state.activeFuncNode = null;
+  }
+});
+document.getElementById('func-open-file-btn')?.addEventListener('click', () => {
+  if (!state.activeFuncNode) return;
+  const d = state.activeFuncNode;
+  vscode.postMessage({ type: 'navigate', file: d.file, line: d.line });
+});
+document.getElementById('func-source-textarea')?.addEventListener('input', () => updateFuncHighlight());
+
+document.getElementById('func-source-textarea')?.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  e.preventDefault();
+  const ta = e.target;
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  ta.value = ta.value.slice(0, start) + '\t' + ta.value.slice(end);
+  ta.selectionStart = ta.selectionEnd = start + 1;
+  updateFuncHighlight();
+});
+
+document.getElementById('func-save-btn')?.addEventListener('click', () => {
+  if (!state.activeFuncNode) return;
+  const d = state.activeFuncNode;
+  const textarea = document.getElementById('func-source-textarea');
+  if (!textarea || textarea.readOnly) return;
+  vscode.postMessage({ type: 'save-func-source', file: d.file, line: d.line, newSource: textarea.value });
+  document.getElementById('func-popup').style.display = 'none';
+  state.activeFuncNode = null;
+});
+
 const complexitySlider = document.getElementById('slider-complexity');
 const complexityVal = document.getElementById('val-complexity');
 if (complexitySlider) {

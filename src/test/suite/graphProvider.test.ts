@@ -1,6 +1,9 @@
 import * as assert from 'assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { EventEmitter } from 'events';
 import { GraphProvider, MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from '../../graphProvider';
 
@@ -400,5 +403,228 @@ suite('GraphProvider', () => {
       const html = (provider as any).getErrorHtml('<script>&</script>');
       assert.ok(html.includes('&lt;script&gt;&amp;'), 'HTML entities should be escaped');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseGitStatus() — P3-A: regex filters bare rename-old-path fragments
+// ---------------------------------------------------------------------------
+
+suite('parseGitStatus()', () => {
+  let sandbox: sinon.SinonSandbox;
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+  });
+
+  teardown(() => {
+    sandbox.restore();
+  });
+
+  test('modified, added, deleted, untracked entries are parsed correctly', () => {
+    // Null-separated porcelain: modified, added (untracked), deleted
+    const porcelain = 'M  modified.py\0?? untracked.py\0D  deleted.py\0';
+    sandbox.stub(rawCp, 'execFileSync').returns(porcelain);
+
+    const provider = new GraphProvider(makeFakeContext());
+    const map = (provider as any).parseGitStatus('/ws') as Map<string, any>;
+
+    assert.ok(map !== null, 'should return a map');
+    assert.ok(map.has('/ws/modified.py'), 'modified.py should be in map');
+    assert.ok(map.has('/ws/untracked.py'), 'untracked.py should be in map');
+    assert.ok(map.has('/ws/deleted.py'), 'deleted.py should be in map');
+    assert.strictEqual(map.get('/ws/modified.py').staged, 'modified');
+    assert.strictEqual(map.get('/ws/untracked.py').unstaged, 'added');
+    assert.strictEqual(map.get('/ws/deleted.py').staged, 'deleted');
+  });
+
+  test('rename entry: renamed-to path is included, bare old-path fragment is excluded', () => {
+    // git -z porcelain for rename: "R  newfile.ts\0oldfile.ts\0M  other.ts\0"
+    // "R  newfile.ts" has XY prefix → included
+    // "oldfile.ts"    has no XY prefix → filtered by /^[A-Z? ][A-Z? ] /
+    // "M  other.ts"   has XY prefix → included
+    const porcelain = 'R  newfile.ts\0oldfile.ts\0M  other.ts\0';
+    sandbox.stub(rawCp, 'execFileSync').returns(porcelain);
+
+    const provider = new GraphProvider(makeFakeContext());
+    const map = (provider as any).parseGitStatus('/ws') as Map<string, any>;
+
+    assert.ok(map !== null);
+    assert.ok(map.has('/ws/newfile.ts'), 'renamed-to path should be included');
+    assert.ok(!map.has('/ws/oldfile.ts'), 'bare old-path fragment must be excluded');
+    assert.ok(map.has('/ws/other.ts'), 'other.ts should be included');
+  });
+
+  test('empty null-separated entries are skipped', () => {
+    // Leading/trailing/double nulls produce empty strings
+    const porcelain = '\0M  real.py\0\0';
+    sandbox.stub(rawCp, 'execFileSync').returns(porcelain);
+
+    const provider = new GraphProvider(makeFakeContext());
+    const map = (provider as any).parseGitStatus('/ws') as Map<string, any>;
+
+    assert.ok(map !== null);
+    assert.strictEqual(map.size, 1, 'only one real entry should be parsed');
+    assert.ok(map.has('/ws/real.py'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getFuncSource() — P2-A: CRLF normalisation
+// ---------------------------------------------------------------------------
+
+suite('getFuncSource()', () => {
+  let tmpDir: string;
+
+  setup(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-test-'));
+  });
+
+  teardown(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('CRLF file: returned source contains no \\r characters', () => {
+    const filePath = path.join(tmpDir, 'hello.py');
+    // Write a simple Python function with CRLF line endings
+    fs.writeFileSync(filePath, 'def hello():\r\n    return 1\r\n', 'utf8');
+
+    const provider = new GraphProvider(makeFakeContext());
+    const source: string = (provider as any).getFuncSource(filePath, 1);
+
+    assert.ok(!source.includes('\r'), 'returned source should not contain \\r');
+    assert.ok(source.includes('def hello()'), 'source should contain function definition');
+  });
+
+  test('LF file: returned source is correct', () => {
+    const filePath = path.join(tmpDir, 'hello.py');
+    fs.writeFileSync(filePath, 'def hello():\n    return 1\n', 'utf8');
+
+    const provider = new GraphProvider(makeFakeContext());
+    const source: string = (provider as any).getFuncSource(filePath, 1);
+
+    assert.ok(source.includes('def hello()'), 'source should contain function definition');
+    assert.ok(source.includes('return 1'), 'source should include function body');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// saveFuncSource() — P2-A: preserves line endings of the target file
+// ---------------------------------------------------------------------------
+
+suite('saveFuncSource()', () => {
+  let tmpDir: string;
+
+  setup(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-test-'));
+  });
+
+  teardown(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('CRLF file: written output uses CRLF line endings', () => {
+    const filePath = path.join(tmpDir, 'hello.py');
+    fs.writeFileSync(filePath, 'def hello():\r\n    return 1\r\n', 'utf8');
+
+    const provider = new GraphProvider(makeFakeContext());
+    (provider as any).saveFuncSource(filePath, 1, 'def hello():\n    return 42\n');
+
+    const written = fs.readFileSync(filePath, 'utf8');
+    assert.ok(written.includes('\r\n'), 'CRLF file should keep CRLF after save');
+    assert.ok(written.includes('return 42'), 'new source content should be written');
+  });
+
+  test('LF file: written output uses LF line endings', () => {
+    const filePath = path.join(tmpDir, 'hello.py');
+    fs.writeFileSync(filePath, 'def hello():\n    return 1\n', 'utf8');
+
+    const provider = new GraphProvider(makeFakeContext());
+    (provider as any).saveFuncSource(filePath, 1, 'def hello():\n    return 42\n');
+
+    const written = fs.readFileSync(filePath, 'utf8');
+    assert.ok(!written.includes('\r\n'), 'LF file should keep LF after save');
+    assert.ok(written.includes('return 42'), 'new source content should be written');
+  });
+
+  test('CRLF newSource in LF file: output preserves LF (not CRLF from source)', () => {
+    const filePath = path.join(tmpDir, 'hello.py');
+    fs.writeFileSync(filePath, 'def hello():\n    return 1\n', 'utf8');
+
+    const provider = new GraphProvider(makeFakeContext());
+    // newSource has CRLF — but the file is LF, so output must use LF
+    (provider as any).saveFuncSource(filePath, 1, 'def hello():\r\n    return 99\r\n');
+
+    const written = fs.readFileSync(filePath, 'utf8');
+    assert.ok(!written.includes('\r\n'), 'LF file should remain LF even when newSource has CRLF');
+    assert.ok(written.includes('return 99'), 'new source content should be written');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolvePythonBin() — P1-A: Windows venv path selection
+// ---------------------------------------------------------------------------
+
+suite('resolvePythonBin() - venv path selection', () => {
+  let sandbox: sinon.SinonSandbox;
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+  });
+
+  teardown(() => {
+    sandbox.restore();
+  });
+
+  test('win32: resolves .venv/Scripts/python.exe when only that path exists', () => {
+    const origDesc = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });
+    try {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: 'C:\\myproject' } }]);
+      // VS Code Python extension not active
+      sandbox.stub(vscode.extensions, 'getExtension').returns(undefined);
+      // Python config returns nothing
+      sandbox.stub(vscode.workspace, 'getConfiguration').returns({
+        get: () => undefined,
+      } as any);
+
+      const winVenvPath = path.join('C:\\myproject', '.venv', 'Scripts', 'python.exe');
+      sandbox.stub(rawCp, 'execFileSync').callsFake((...args: unknown[]) => {
+        if (args[0] === winVenvPath) { return Buffer.from('Python 3.11.0'); }
+        throw new Error('not found');
+      });
+
+      const provider = new GraphProvider(makeFakeContext());
+      const result = provider.resolvePythonBin();
+
+      assert.strictEqual(result, winVenvPath, 'should resolve Windows venv path');
+    } finally {
+      Object.defineProperty(process, 'platform', origDesc);
+    }
+  });
+
+  test('unix: resolves .venv/bin/python when only that path exists', () => {
+    const origDesc = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' });
+    try {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/home/user/myproject' } }]);
+      sandbox.stub(vscode.extensions, 'getExtension').returns(undefined);
+      sandbox.stub(vscode.workspace, 'getConfiguration').returns({
+        get: () => undefined,
+      } as any);
+
+      const unixVenvPath = path.join('/home/user/myproject', '.venv', 'bin', 'python');
+      sandbox.stub(rawCp, 'execFileSync').callsFake((...args: unknown[]) => {
+        if (args[0] === unixVenvPath) { return Buffer.from('Python 3.11.0'); }
+        throw new Error('not found');
+      });
+
+      const provider = new GraphProvider(makeFakeContext());
+      const result = provider.resolvePythonBin();
+
+      assert.strictEqual(result, unixVenvPath, 'should resolve Unix venv path');
+    } finally {
+      Object.defineProperty(process, 'platform', origDesc);
+    }
   });
 });

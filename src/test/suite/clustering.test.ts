@@ -90,6 +90,26 @@ suite('inferProjectName', () => {
     });
     assert.strictEqual(result, 'Project');
   });
+
+  test('Windows backslash paths → returns common directory name', () => {
+    const result = inferProjectName({
+      nodes: [
+        { file: 'C:\\Users\\user\\myproject\\a.py' },
+        { file: 'C:\\Users\\user\\myproject\\b.py' },
+      ],
+    });
+    assert.strictEqual(result, 'myproject');
+  });
+
+  test('mixed forward/backslash paths → returns common directory name', () => {
+    const result = inferProjectName({
+      nodes: [
+        { file: 'C:\\Users\\user\\myproject\\a.py' },
+        { file: 'C:/Users/user/myproject/b.py' },
+      ],
+    });
+    assert.strictEqual(result, 'myproject');
+  });
 });
 
 // ---------------------------------------------------------------------------

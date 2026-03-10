@@ -4,7 +4,7 @@ const vscode = acquireVsCodeApi();
 const settings = {
   existingFilesOnly: false,
   showOrphans: true,
-  showLibraries: false,
+  showLibraries: true,
   groupByFile: false,
   arrows: true,
   textFadeThreshold: 0.5,
@@ -16,30 +16,6 @@ const settings = {
   linkForce: 1,
   linkDistance: 40,
 };
-
-// ── Library doc popup ─────────────────────────────────────────────────────────
-function showLibDocPopup(d) {
-  state.activeLibNode = d;
-  const docsUrl = d.language === 'python'
-    ? `https://docs.python.org/3/library/${d.libraryName.split('.')[0]}`
-    : `https://www.npmjs.com/package/${d.libraryName}`;
-
-  document.getElementById('lib-doc-title').textContent = `${d.libraryName}.${d.name}`;
-  document.getElementById('lib-doc-lang-badge').textContent = d.language === 'python' ? 'Python' : 'TypeScript';
-  document.getElementById('lib-doc-lang-badge').className = `lang-badge lang-badge-${d.language}`;
-  document.getElementById('lib-doc-function').textContent = d.name;
-  document.getElementById('lib-doc-package').textContent = d.libraryName;
-  document.getElementById('lib-doc-url').textContent = docsUrl;
-
-  const descEl = document.getElementById('lib-doc-desc');
-  const descRow = document.getElementById('lib-doc-desc-row');
-  if (descEl) { descEl.textContent = '…'; }
-  if (descRow) { descRow.style.display = 'block'; }
-
-  document.getElementById('lib-doc-popup').style.display = 'flex';
-  state.libDescRequestId = Date.now();
-  vscode.postMessage({ type: 'get-lib-description', libraryName: d.libraryName, functionName: d.name, language: d.language, reqId: state.libDescRequestId });
-}
 
 // ── Layout mode toggle ────────────────────────────────────────────────────────
 function setLayoutMode(mode) {
@@ -93,84 +69,6 @@ function applyFilters() {
     const tgt = d.target?.id ?? d.target;
     return (visibleSet.has(src) && visibleSet.has(tgt)) ? null : 'none';
   });
-}
-
-// ── Language colors ───────────────────────────────────────────────────────────
-const languageColors = {
-  python:     '#3572A5',
-  typescript: '#3178c6',
-};
-
-function getLanguageColor(lang) {
-  if (!lang) return null;
-  if (languageColors[lang]) return languageColors[lang];
-  let hash = 0;
-  for (let i = 0; i < lang.length; i++) hash = lang.charCodeAt(i) + ((hash << 5) - hash);
-  return `hsl(${((hash >>> 0) % 360)}, 55%, 55%)`;
-}
-
-// ── Git color resolvers ───────────────────────────────────────────────────────
-function resolveNodeFill(d) {
-  if (state.gitMode && !d.isCluster && !d.isSynthetic && !d.isOrphanCluster && d.gitStatus) {
-    const status = d.gitStatus.unstaged ?? d.gitStatus.staged;
-    if (status === 'added')    return '#4caf50';
-    if (status === 'modified') return '#ff9800';
-    if (status === 'deleted')  return '#555';
-  }
-  if (state.languageMode && !d.isCluster && !d.isSynthetic && !d.isOrphanCluster && d.language) {
-    return getLanguageColor(d.language);
-  }
-  return nodeColor(d);
-}
-
-function resolveNodeStroke(d) {
-  if (state.gitMode && d.gitStatus?.staged != null && !d.isCluster && !d.isSynthetic)
-    return '#ffffff';
-  return settings.groupByFile ? fileColor(d.file) : 'none';
-}
-
-function resolveNodeStrokeWidth(d) {
-  if (state.gitMode && d.gitStatus?.staged != null && !d.isCluster && !d.isSynthetic) return 3;
-  return 2;
-}
-
-function renderLanguageLegend() {
-  const el = document.getElementById('language-legend');
-  if (!el) return;
-  if (!state.graphData) { el.innerHTML = ''; return; }
-
-  const langs = [...new Set(
-    state.graphData.nodes.map(n => n.language).filter(Boolean)
-  )].sort();
-
-  if (langs.length === 0) { el.innerHTML = ''; return; }
-
-  el.innerHTML = langs.map(lang => {
-    const color = getLanguageColor(lang);
-    return `<div class="lang-legend-row">
-      <input type="color" class="lang-swatch" data-lang="${lang}" value="${color}" title="Click to change color">
-      <span class="lang-label">${lang}</span>
-    </div>`;
-  }).join('');
-
-  el.querySelectorAll('.lang-swatch').forEach(input => {
-    input.addEventListener('input', (e) => {
-      languageColors[e.target.dataset.lang] = e.target.value;
-      applyGitColors();
-    });
-  });
-}
-
-function applyGitColors() {
-  if (!state.svgNodes) return;
-  state.svgNodes
-    .style('fill', d => resolveNodeFill(d))
-    .attr('stroke', d => resolveNodeStroke(d))
-    .attr('stroke-width', d => resolveNodeStrokeWidth(d));
-  state.svgLabels?.style('text-decoration', d =>
-    state.gitMode && (d.gitStatus?.unstaged === 'deleted' || d.gitStatus?.staged === 'deleted') ? 'line-through' : null
-  );
-  renderLanguageLegend();
 }
 
 // ── Display settings ──────────────────────────────────────────────────────────
@@ -317,12 +215,31 @@ window.addEventListener('message', (event) => {
     }
     return;
   }
+  if (message.type === 'func-source') {
+    if (message.reqId !== state.funcSourceRequestId) { return; }
+    const textarea = document.getElementById('func-source-textarea');
+    if (textarea) {
+      if (message.error) {
+        textarea.value = `(error: ${message.error})`;
+        textarea.readOnly = true;
+        state.originalFuncSource = null;
+      } else {
+        textarea.value = message.source;
+        textarea.readOnly = false;
+        state.originalFuncSource = message.source;
+      }
+    }
+    updateFuncHighlight();
+    updateSaveBtn();
+    return;
+  }
   if (message.type === 'graph') {
     state.gitAvailable = message.gitAvailable ?? false;
     const gitPanel = document.getElementById('panel-git');
     if (gitPanel) gitPanel.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     renderGraph(message.data, message.isReanalysis);
+    if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     return;
   }
   if (message.type === 'git-update') {

@@ -184,6 +184,40 @@ function ticked() {
   }
 }
 
+// ── Node event handlers ───────────────────────────────────────────────────────
+function onNodeMouseOver(event, d) {
+  d3.select(event.currentTarget)
+    .style('fill', '#7eb9ff')
+    .attr('r', nodeRadius(d) * 1.15)
+    .attr('filter', 'url(#glow-hover)');
+  state.svgLinks
+    ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+      ? '#5aabff' : l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
+    .attr('stroke-width', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+      ? Math.max(1.5, settings.linkThickness) : settings.linkThickness)
+    .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+      ? 1 : 0.15);
+  state.svgLabels?.filter(l => l.id === d.id)
+    .style('opacity', 1)
+    .attr('font-size', `${11.5 * settings.textSize}px`)
+    .attr('fill', '#ffffff');
+}
+
+function onNodeMouseOut(event, d) {
+  d3.select(event.currentTarget)
+    .style('fill', resolveNodeFill(d))
+    .attr('r', nodeRadius(d))
+    .attr('filter', 'url(#glow)');
+  state.svgLinks
+    ?.attr('stroke', l => l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
+    .attr('stroke-width', settings.linkThickness)
+    .attr('opacity', 0.7);
+  state.svgLabels?.filter(l => l.id === d.id)
+    .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
+    .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
+    .attr('fill', (d.isCluster || d.isSynthetic) ? '#ffffff' : '#d4d4d4');
+}
+
 // ── Render sub-functions ──────────────────────────────────────────────────────
 function prepareRenderData(elements) {
   const nodeData = elements.filter(e => e.data.source === undefined);
@@ -243,39 +277,10 @@ function renderNodes(visibleSet) {
         applyComplexity();
         return;
       }
-      vscode.postMessage({ type: 'navigate', file: d.file, line: d.line });
+      showFuncPopup(d);
     })
-    .on('mouseover', (event, d) => {
-      d3.select(event.currentTarget)
-        .style('fill', '#7eb9ff')
-        .attr('r', nodeRadius(d) * 1.15)
-        .attr('filter', 'url(#glow-hover)');
-      state.svgLinks
-        ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-          ? '#5aabff' : l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
-        .attr('stroke-width', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-          ? Math.max(1.5, settings.linkThickness) : settings.linkThickness)
-        .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-          ? 1 : 0.15);
-      state.svgLabels?.filter(l => l.id === d.id)
-        .style('opacity', 1)
-        .attr('font-size', `${11.5 * settings.textSize}px`)
-        .attr('fill', '#ffffff');
-    })
-    .on('mouseout', (event, d) => {
-      d3.select(event.currentTarget)
-        .style('fill', resolveNodeFill(d))
-        .attr('r', nodeRadius(d))
-        .attr('filter', 'url(#glow)');
-      state.svgLinks
-        ?.attr('stroke', l => l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
-        .attr('stroke-width', settings.linkThickness)
-        .attr('opacity', 0.7);
-      state.svgLabels?.filter(l => l.id === d.id)
-        .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
-        .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
-        .attr('fill', (d.isCluster || d.isSynthetic) ? '#ffffff' : '#d4d4d4');
-    });
+    .on('mouseover', onNodeMouseOver)
+    .on('mouseout', onNodeMouseOut);
 }
 
 function renderLabels(visibleSet) {

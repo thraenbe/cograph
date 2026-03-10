@@ -15,11 +15,7 @@ const path = require('path');
 const fs   = require('fs');
 const ts   = require(path.join(__dirname, '..', 'node_modules', 'typescript'));
 
-const SKIP_DIRS = ['/node_modules/', '/out/', '/dist/'];
-
-function shouldSkip(filepath) {
-  return SKIP_DIRS.some(d => filepath.includes(d)) || filepath.endsWith('.d.ts');
-}
+const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist']);
 
 function collectTsFiles(root) {
   const results = [];
@@ -29,9 +25,10 @@ function collectTsFiles(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!shouldSkip(full + '/')) walk(full);
-      } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
-        if (!shouldSkip(full)) results.push(full);
+        if (!SKIP_DIR_NAMES.has(entry.name)) walk(full);
+      } else if (entry.isFile() && !entry.name.endsWith('.d.ts') &&
+                 (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
+        results.push(full);
       }
     }
   }
@@ -233,3 +230,7 @@ function main() {
 }
 
 main();
+
+if (typeof module !== 'undefined') {
+  module.exports = { collectTsFiles, collectDefinitions, collectCalls };
+}

@@ -1,7 +1,7 @@
 // ── Language colors ───────────────────────────────────────────────────────────
 const languageColors = {
   python:     '#3572A5',
-  typescript: '#3178c6',
+  typescript: '#dd3b71',
 };
 
 function getLanguageColor(lang) {
@@ -62,6 +62,10 @@ function renderLanguageLegend() {
       applyGitColors();
     });
   });
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = { resolveNodeFill, getLanguageColor, renderLanguageLegend };
 }
 
 function applyGitColors() {

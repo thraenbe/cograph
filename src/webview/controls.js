@@ -76,7 +76,8 @@ function setGitLegendVisible(visible) {
   document.getElementById('toggle-git-legend').style.display = display;
   document.getElementById('git-legend-body').style.display = display;
 }
-setGitLegendVisible(false);
+setGitLegendVisible(state.gitMode);
+document.getElementById('btn-git-mode')?.classList.toggle('active', state.gitMode);
 
 document.getElementById('btn-git-mode')?.addEventListener('click', () => {
   state.gitMode = !state.gitMode;
@@ -93,7 +94,8 @@ document.getElementById('btn-git-mode')?.addEventListener('click', () => {
 function setLangLegendVisible(visible) {
   document.getElementById('language-legend').style.display = visible ? '' : 'none';
 }
-setLangLegendVisible(false);
+setLangLegendVisible(state.languageMode);
+document.getElementById('btn-language-mode')?.classList.toggle('active', state.languageMode);
 
 document.getElementById('btn-language-mode')?.addEventListener('click', () => {
   state.languageMode = !state.languageMode;
@@ -239,6 +241,10 @@ function initFuncDrag() {
     if (e.target.closest('button')) return;
     closeFuncPopupFloat();
   });
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = { applyResizeDelta };
 }
 
 // ── Resize math helper ────────────────────────────────────────────────────────

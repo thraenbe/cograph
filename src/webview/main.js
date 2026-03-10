@@ -4,7 +4,7 @@ const vscode = acquireVsCodeApi();
 const settings = {
   existingFilesOnly: false,
   showOrphans: true,
-  showLibraries: false,
+  showLibraries: true,
   groupByFile: false,
   arrows: true,
   textFadeThreshold: 0.5,
@@ -239,6 +239,7 @@ window.addEventListener('message', (event) => {
     if (gitPanel) gitPanel.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     renderGraph(message.data, message.isReanalysis);
+    if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     return;
   }
   if (message.type === 'git-update') {

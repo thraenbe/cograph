@@ -28,7 +28,9 @@
     "Visualization",
     "Programming Languages"
   ],
-  "activationEvents": ["onCommand:cograph.visualize"],
+  "activationEvents": [
+    "onCommand:cograph.visualize"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -52,6 +54,7 @@
     "typescript": "^5.3.0"
   },
   "devDependencies": {
+    "@types/jsdom": "^21.1.7",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.0.0",
     "@types/sinon": "^17.0.0",
@@ -62,6 +65,7 @@
     "@vscode/vsce": "^2.32.0",
     "eslint": "^8.0.0",
     "glob": "^10.3.0",
+    "jsdom": "^25.0.1",
     "mocha": "^10.4.0",
     "sinon": "^17.0.0"
   }

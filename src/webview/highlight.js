@@ -97,3 +97,7 @@ function highlightCode(source, lang) {
   }
   return out;
 }
+
+if (typeof module !== 'undefined') {
+  module.exports = { highlightCode };
+}

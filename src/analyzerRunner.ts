@@ -7,7 +7,7 @@ export const ANALYSIS_TIMEOUT_MS = 300_000;         // 5 min
 
 interface GraphNode {
   id: string; name: string; file: string | null; line: number;
-  language?: 'python' | 'typescript'; gitStatus?: unknown;
+  language?: 'python' | 'typescript' | 'javascript'; gitStatus?: unknown;
   isLibrary?: boolean; libraryName?: string;
 }
 interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; }
@@ -49,12 +49,14 @@ export class AnalyzerRunner {
     }
     const pyScript = path.join(this.context.extensionPath, 'scripts', 'analyze.py');
     const tsScript = path.join(this.context.extensionPath, 'scripts', 'analyze_ts.js');
+    const jsScript = path.join(this.context.extensionPath, 'scripts', 'analyze_js.js');
     const pyPromise = this.spawnAnalyzerProcess(pythonBin, [pyScript, workspaceRoot], true);
     const tsPromise = this.spawnAnalyzerProcess(process.execPath, [tsScript, workspaceRoot], false);
-    Promise.all([pyPromise, tsPromise]).then(([pyGraph, tsGraph]) => {
+    const jsPromise = this.spawnAnalyzerProcess(process.execPath, [jsScript, workspaceRoot], false);
+    Promise.all([pyPromise, tsPromise, jsPromise]).then(([pyGraph, tsGraph, jsGraph]) => {
       const merged: GraphData = {
-        nodes: [...pyGraph.nodes, ...tsGraph.nodes],
-        edges: [...pyGraph.edges, ...tsGraph.edges],
+        nodes: [...pyGraph.nodes, ...tsGraph.nodes, ...jsGraph.nodes],
+        edges: [...pyGraph.edges, ...tsGraph.edges, ...jsGraph.edges],
       };
       this.onResult(JSON.stringify(merged), workspaceRoot);
     });

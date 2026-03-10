@@ -13,7 +13,7 @@ interface GraphNode {
   name: string;
   file: string | null;
   line: number;
-  language?: 'python' | 'typescript';
+  language?: 'python' | 'typescript' | 'javascript';
   gitStatus?: { unstaged: 'added' | 'modified' | 'deleted' | null; staged: 'added' | 'modified' | 'deleted' | null };
   isLibrary?: boolean;
   libraryName?: string;
@@ -90,7 +90,11 @@ export class GraphProvider {
         scheduleRefresh();
         if (doc.uri.fsPath.endsWith('.py') ||
             doc.uri.fsPath.endsWith('.ts') ||
-            doc.uri.fsPath.endsWith('.tsx')) {
+            doc.uri.fsPath.endsWith('.tsx') ||
+            doc.uri.fsPath.endsWith('.js') ||
+            doc.uri.fsPath.endsWith('.jsx') ||
+            doc.uri.fsPath.endsWith('.mjs') ||
+            doc.uri.fsPath.endsWith('.cjs')) {
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
       }

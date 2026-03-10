@@ -92,7 +92,8 @@ suite('GraphProvider', () => {
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
+      const fakeJsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
 
       const fakePanel = makeFakePanel();
       sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
@@ -135,7 +136,8 @@ suite('GraphProvider', () => {
 
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
+      const fakeJsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -157,7 +159,8 @@ suite('GraphProvider', () => {
 
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
+      const fakeJsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -181,7 +184,8 @@ suite('GraphProvider', () => {
 
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
+      const fakeJsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
 
       // Capture the real setTimeout BEFORE stubbing so the stub and the
       // test's own timer can call it without infinite recursion.
@@ -213,7 +217,8 @@ suite('GraphProvider', () => {
 
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
+      const fakeJsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -235,12 +240,16 @@ suite('GraphProvider', () => {
 
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
+      const fakeJsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
 
       // TS proc completes with no nodes so merged result = Python nodes only
+      fakeJsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeJsProc.emit('close', 0);
+
       fakeTsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeTsProc.emit('close', 0);
 
@@ -277,7 +286,8 @@ suite('GraphProvider', () => {
 
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
+      const fakeJsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -288,6 +298,10 @@ suite('GraphProvider', () => {
       };
 
       // TS proc completes with no nodes so merged result = Python nodes only
+
+      fakeJsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeJsProc.emit('close', 0);
+
       fakeTsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeTsProc.emit('close', 0);
 
@@ -312,7 +326,8 @@ suite('GraphProvider', () => {
 
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
+      const fakeJsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -322,6 +337,8 @@ suite('GraphProvider', () => {
       fakeProc.emit('close', 0);
       fakeTsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeTsProc.emit('close', 0);
+      fakeJsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeJsProc.emit('close', 0);
 
       // Wait for Promise.all microtask to settle
       setTimeout(() => {
@@ -382,7 +399,8 @@ suite('GraphProvider', () => {
 
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
+      const fakeJsProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
 
       const fakePanel = makeFakePanel();
       const createPanel = sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);

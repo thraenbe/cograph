@@ -9,14 +9,12 @@ scripts/test_*.py
 **/*.ts
 **/*.swp
 **/*.tmp
-out/**
-!out/extension.js
-!out/graphProvider.js
+out/test/**
+out/**/*.test.js
+out/**/*.test.js.map
 node_modules/**
 .eslintrc.json
 tsconfig.json
-**/*.test.js
-**/*.test.js.map
 .pytest_cache/**
 requirements-dev.txt
 CLAUDE.md

@@ -103,34 +103,27 @@ def collect_calls(root: str, definitions: dict) -> tuple[list[dict], list[dict]]
                     if isinstance(child.func, ast.Name):
                         name = child.func.id
                         if name in import_map and name not in name_to_ids:
-                            lib_name = import_map[name]
-                            lib_id = f"library::{lib_name}::{name}"
-                            if lib_id not in library_nodes:
-                                library_nodes[lib_id] = {
-                                    'id': lib_id, 'name': name, 'file': None, 'line': 0,
-                                    'isLibrary': True, 'libraryName': lib_name, 'language': 'python',
-                                }
-                            key = (caller_id, lib_id)
-                            if key not in seen_edges:
-                                seen_edges.add(key)
-                                edges.append({'source': caller_id, 'target': lib_id, 'isLibraryEdge': True})
+                            _emit_library_edge(caller_id, import_map[name], name, library_nodes, seen_edges, edges)
                     # Detect attribute library calls: np.array() where np is an imported name
                     elif isinstance(child.func, ast.Attribute) and isinstance(child.func.value, ast.Name):
                         obj_name = child.func.value.id
                         if obj_name in import_map and obj_name not in name_to_ids:
-                            lib_name = import_map[obj_name]
-                            func_name = child.func.attr
-                            lib_id = f"library::{lib_name}::{func_name}"
-                            if lib_id not in library_nodes:
-                                library_nodes[lib_id] = {
-                                    'id': lib_id, 'name': func_name, 'file': None, 'line': 0,
-                                    'isLibrary': True, 'libraryName': lib_name, 'language': 'python',
-                                }
-                            key = (caller_id, lib_id)
-                            if key not in seen_edges:
-                                seen_edges.add(key)
-                                edges.append({'source': caller_id, 'target': lib_id, 'isLibraryEdge': True})
+                            _emit_library_edge(caller_id, import_map[obj_name], child.func.attr, library_nodes, seen_edges, edges)
     return edges, list(library_nodes.values())
+
+
+def _emit_library_edge(caller_id: str, lib_name: str, func_name: str, library_nodes: dict, seen_edges: set, edges: list) -> None:
+    """Emit a library node (if new) and a library edge from caller to it."""
+    lib_id = f"library::{lib_name}::{func_name}"
+    if lib_id not in library_nodes:
+        library_nodes[lib_id] = {
+            'id': lib_id, 'name': func_name, 'file': None, 'line': 0,
+            'isLibrary': True, 'libraryName': lib_name, 'language': 'python',
+        }
+    key = (caller_id, lib_id)
+    if key not in seen_edges:
+        seen_edges.add(key)
+        edges.append({'source': caller_id, 'target': lib_id, 'isLibraryEdge': True})
 
 
 def _bare_name(node: ast.expr) -> str | None:

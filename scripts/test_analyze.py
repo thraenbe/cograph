@@ -142,7 +142,7 @@ class TestCollectCalls(unittest.TestCase):
                     callee()
             """)
             defs = analyze.collect_definitions(d)
-            edges = analyze.collect_calls(d, defs)
+            edges, _ = analyze.collect_calls(d, defs)
 
         caller_ids = [qid for qid, v in defs.items() if v['name'] == 'caller']
         callee_ids = [qid for qid, v in defs.items() if v['name'] == 'callee']
@@ -162,7 +162,7 @@ class TestCollectCalls(unittest.TestCase):
                         self.helper()
             """)
             defs = analyze.collect_definitions(d)
-            edges = analyze.collect_calls(d, defs)
+            edges, _ = analyze.collect_calls(d, defs)
 
         runner_ids = [qid for qid, v in defs.items() if v['name'] == 'runner']
         helper_ids = [qid for qid, v in defs.items() if v['name'] == 'helper']
@@ -184,7 +184,7 @@ class TestCollectCalls(unittest.TestCase):
                         pass
             """)
             defs = analyze.collect_definitions(d)
-            edges = analyze.collect_calls(d, defs)
+            edges, _ = analyze.collect_calls(d, defs)
 
         build_ids = [qid for qid, v in defs.items() if v['name'] == 'build']
         validate_ids = [qid for qid, v in defs.items() if v['name'] == 'validate']
@@ -207,7 +207,7 @@ class TestCollectCalls(unittest.TestCase):
                     pass
             """)
             defs = analyze.collect_definitions(d)
-            edges = analyze.collect_calls(d, defs)
+            edges, _ = analyze.collect_calls(d, defs)
 
         process_ids = [qid for qid, v in defs.items() if v['name'] == 'process']
         json_ids = [qid for qid, v in defs.items() if v['name'] == 'json']
@@ -224,7 +224,7 @@ class TestCollectCalls(unittest.TestCase):
                         recurse(n - 1)
             """)
             defs = analyze.collect_definitions(d)
-            edges = analyze.collect_calls(d, defs)
+            edges, _ = analyze.collect_calls(d, defs)
 
         for edge in edges:
             self.assertNotEqual(edge['source'], edge['target'], 'Self-edges are forbidden')
@@ -241,7 +241,7 @@ class TestCollectCalls(unittest.TestCase):
                     helper()
             """)
             defs = analyze.collect_definitions(d)
-            edges = analyze.collect_calls(d, defs)
+            edges, _ = analyze.collect_calls(d, defs)
 
         helper_ids = [qid for qid, v in defs.items() if v['name'] == 'helper']
         main_ids = [qid for qid, v in defs.items() if v['name'] == 'main']
@@ -260,7 +260,7 @@ class TestCollectCalls(unittest.TestCase):
                     pass
             """)
             defs = analyze.collect_definitions(d)
-            edges = analyze.collect_calls(d, defs)
+            edges, _ = analyze.collect_calls(d, defs)
 
         caller_ids = [qid for qid, v in defs.items() if v['name'] == 'caller']
         callee_ids = [qid for qid, v in defs.items() if v['name'] == 'callee']
@@ -287,7 +287,7 @@ class TestCollectCalls(unittest.TestCase):
                     c()
             """)
             defs = analyze.collect_definitions(d)
-            edges = analyze.collect_calls(d, defs)
+            edges, _ = analyze.collect_calls(d, defs)
 
         caller_ids = [qid for qid, v in defs.items() if v['name'] == 'caller']
         self.assertEqual(len(caller_ids), 1)
@@ -306,7 +306,7 @@ class TestCollectCalls(unittest.TestCase):
                         helper()
             """)
             defs = analyze.collect_definitions(d)
-            edges = analyze.collect_calls(d, defs)
+            edges, _ = analyze.collect_calls(d, defs)
 
         inner_ids = [qid for qid, v in defs.items() if v['name'] == 'inner']
         helper_ids = [qid for qid, v in defs.items() if v['name'] == 'helper']

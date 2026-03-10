@@ -241,6 +241,21 @@ function initFuncDrag() {
   });
 }
 
+// ── Resize math helper ────────────────────────────────────────────────────────
+function applyResizeDelta(card, dir, dx, dy, startLeft, startTop, startW, startH) {
+  let newLeft = startLeft, newTop = startTop, newW = startW, newH = startH;
+  if (dir.includes('e')) newW = Math.max(320, startW + dx);
+  if (dir.includes('s')) newH = Math.max(200, startH + dy);
+  if (dir.includes('w')) { newW = Math.max(320, startW - dx); newLeft = startLeft + startW - newW; }
+  if (dir.includes('n')) { newH = Math.max(200, startH - dy); newTop = startTop + startH - newH; }
+  newLeft = Math.max(0, Math.min(window.innerWidth - newW, newLeft));
+  newTop = Math.max(0, Math.min(window.innerHeight - newH, newTop));
+  card.style.left = newLeft + 'px';
+  card.style.top = newTop + 'px';
+  card.style.width = newW + 'px';
+  card.style.height = newH + 'px';
+}
+
 // ── Resize by dragging borders/corners ────────────────────────────────────────
 function initFuncResize() {
   const handles = document.querySelectorAll('.func-resize-handle');
@@ -284,19 +299,7 @@ function initFuncResize() {
     if (!resizing) return;
     const card = document.getElementById('func-card');
     if (!card) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    let newLeft = startLeft, newTop = startTop, newW = startW, newH = startH;
-    if (dir.includes('e')) newW = Math.max(320, startW + dx);
-    if (dir.includes('s')) newH = Math.max(200, startH + dy);
-    if (dir.includes('w')) { newW = Math.max(320, startW - dx); newLeft = startLeft + startW - newW; }
-    if (dir.includes('n')) { newH = Math.max(200, startH - dy); newTop = startTop + startH - newH; }
-    newLeft = Math.max(0, Math.min(window.innerWidth - newW, newLeft));
-    newTop = Math.max(0, Math.min(window.innerHeight - newH, newTop));
-    card.style.left = newLeft + 'px';
-    card.style.top = newTop + 'px';
-    card.style.width = newW + 'px';
-    card.style.height = newH + 'px';
+    applyResizeDelta(card, dir, e.clientX - startX, e.clientY - startY, startLeft, startTop, startW, startH);
   });
 
   document.addEventListener('mouseup', () => { resizing = false; });

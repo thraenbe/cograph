@@ -141,6 +141,20 @@ function highlightCode(source, lang) {
   return out;
 }
 
+function updateSaveBtn() {
+  const btn = document.getElementById('func-save-btn');
+  const textarea = document.getElementById('func-source-textarea');
+  const titleEl = document.getElementById('func-popup-title');
+  if (!btn || !textarea) return;
+  const hasChanges = !textarea.readOnly
+    && state.originalFuncSource !== null
+    && textarea.value !== state.originalFuncSource;
+  btn.disabled = !hasChanges;
+  if (titleEl && state.activeFuncNode) {
+    titleEl.textContent = (hasChanges ? '● ' : '') + state.activeFuncNode.name;
+  }
+}
+
 function updateFuncHighlight() {
   const codeEl = document.getElementById('func-highlight-code');
   if (!codeEl) return;
@@ -148,10 +162,19 @@ function updateFuncHighlight() {
   const source = textarea ? textarea.value : '';
   if (textarea && textarea.readOnly) {
     codeEl.textContent = source;
-    return;
+  } else {
+    const lang = state.activeFuncNode?.language ?? 'typescript';
+    codeEl.innerHTML = highlightCode(source, lang) + '\n';
   }
-  const lang = state.activeFuncNode?.language ?? 'typescript';
-  codeEl.innerHTML = highlightCode(source, lang) + '\n';
+  if (textarea) {
+    textarea.style.height = 'auto';
+    textarea.style.height = textarea.scrollHeight + 'px';
+  }
+  const lineNumEl = document.getElementById('func-line-numbers');
+  if (lineNumEl) {
+    const lines = source.split('\n').length;
+    lineNumEl.textContent = Array.from({ length: lines }, (_, i) => i + 1).join('\n');
+  }
 }
 
 // ── Function source popup ─────────────────────────────────────────────────────
@@ -160,7 +183,9 @@ function showFuncPopup(d) {
   document.getElementById('func-popup-title').textContent = d.name;
   const textarea = document.getElementById('func-source-textarea');
   if (textarea) { textarea.value = 'Loading…'; textarea.readOnly = true; }
+  state.originalFuncSource = null;
   updateFuncHighlight();
+  updateSaveBtn();
   document.getElementById('func-popup').style.display = 'flex';
   state.funcSourceRequestId = Date.now();
   if (!d.file || d.line <= 0) {
@@ -451,10 +476,18 @@ window.addEventListener('message', (event) => {
     if (message.reqId !== state.funcSourceRequestId) { return; }
     const textarea = document.getElementById('func-source-textarea');
     if (textarea) {
-      if (message.error) { textarea.value = `(error: ${message.error})`; textarea.readOnly = true; }
-      else { textarea.value = message.source; textarea.readOnly = false; }
+      if (message.error) {
+        textarea.value = `(error: ${message.error})`;
+        textarea.readOnly = true;
+        state.originalFuncSource = null;
+      } else {
+        textarea.value = message.source;
+        textarea.readOnly = false;
+        state.originalFuncSource = message.source;
+      }
     }
     updateFuncHighlight();
+    updateSaveBtn();
     return;
   }
   if (message.type === 'graph') {

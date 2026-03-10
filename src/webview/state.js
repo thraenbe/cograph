@@ -24,4 +24,10 @@ const state = {
   libDescRequestId: 0,
   activeFuncNode: null,
   funcSourceRequestId: 0,
+  originalFuncSource: null,
+  funcCardDragged: false,
+  funcCardX: 0,
+  funcCardY: 0,
+  funcCardW: 0,
+  funcCardH: 0,
 };

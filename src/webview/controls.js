@@ -122,24 +122,54 @@ document.getElementById('lib-doc-goto-btn')?.addEventListener('click', () => {
 });
 
 // ── Function popup controls ────────────────────────────────────────────────────
-document.getElementById('func-popup-close')?.addEventListener('click', () => {
-  document.getElementById('func-popup').style.display = 'none';
+function closeFuncPopupFloat() {
+  const card = document.getElementById('func-card');
+  if (!card) return;
+  card.classList.remove('func-card--floating');
+  card.style.left = '';
+  card.style.top = '';
+  card.style.width = '';
+  card.style.height = '';
+  state.funcCardDragged = false;
+  const popup = document.getElementById('func-popup');
+  if (popup) delete popup.dataset.noBackdropClose;
+}
+
+function closeFuncPopup() {
+  closeFuncPopupFloat();
+  const popup = document.getElementById('func-popup');
+  if (popup) popup.style.display = 'none';
   state.activeFuncNode = null;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const popup = document.getElementById('func-popup');
+    if (popup && popup.style.display !== 'none') closeFuncPopup();
+  }
+});
+
+document.getElementById('func-popup-close')?.addEventListener('click', () => {
+  closeFuncPopup();
 });
 document.getElementById('func-popup')?.addEventListener('click', (e) => {
-  if (e.target === document.getElementById('func-popup')) {
-    document.getElementById('func-popup').style.display = 'none';
-    state.activeFuncNode = null;
-  }
+  const popup = document.getElementById('func-popup');
+  if (e.target === popup && !popup.dataset.noBackdropClose) closeFuncPopup();
 });
 document.getElementById('func-open-file-btn')?.addEventListener('click', () => {
   if (!state.activeFuncNode) return;
   const d = state.activeFuncNode;
   vscode.postMessage({ type: 'navigate', file: d.file, line: d.line });
 });
-document.getElementById('func-source-textarea')?.addEventListener('input', () => updateFuncHighlight());
+document.getElementById('func-source-textarea')?.addEventListener('input', () => { updateFuncHighlight(); updateSaveBtn(); });
 
 document.getElementById('func-source-textarea')?.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    const btn = document.getElementById('func-save-btn');
+    if (!btn?.disabled) btn?.click();
+    return;
+  }
   if (e.key !== 'Tab') return;
   e.preventDefault();
   const ta = e.target;
@@ -156,9 +186,124 @@ document.getElementById('func-save-btn')?.addEventListener('click', () => {
   const textarea = document.getElementById('func-source-textarea');
   if (!textarea || textarea.readOnly) return;
   vscode.postMessage({ type: 'save-func-source', file: d.file, line: d.line, newSource: textarea.value });
-  document.getElementById('func-popup').style.display = 'none';
-  state.activeFuncNode = null;
+  closeFuncPopup();
 });
+
+// ── Drag to move ───────────────────────────────────────────────────────────────
+function initFuncDrag() {
+  const header = document.getElementById('func-header');
+  if (!header) return;
+  let dragging = false;
+  let startX, startY, startLeft, startTop;
+
+  header.addEventListener('mousedown', (e) => {
+    if (e.target.closest('button')) return;
+    const card = document.getElementById('func-card');
+    const popup = document.getElementById('func-popup');
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    state.funcCardX = rect.left;
+    state.funcCardY = rect.top;
+    state.funcCardW = rect.width;
+    state.funcCardH = rect.height;
+    card.classList.add('func-card--floating');
+    card.style.left = state.funcCardX + 'px';
+    card.style.top = state.funcCardY + 'px';
+    card.style.width = state.funcCardW + 'px';
+    card.style.height = state.funcCardH + 'px';
+    if (popup) popup.dataset.noBackdropClose = '1';
+    state.funcCardDragged = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    startLeft = state.funcCardX;
+    startTop = state.funcCardY;
+    dragging = true;
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const card = document.getElementById('func-card');
+    if (!card) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    const newLeft = Math.max(0, Math.min(window.innerWidth - state.funcCardW, startLeft + dx));
+    const newTop = Math.max(0, Math.min(window.innerHeight - state.funcCardH, startTop + dy));
+    card.style.left = newLeft + 'px';
+    card.style.top = newTop + 'px';
+  });
+
+  document.addEventListener('mouseup', () => { dragging = false; });
+
+  header.addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    closeFuncPopupFloat();
+  });
+}
+
+// ── Resize by dragging borders/corners ────────────────────────────────────────
+function initFuncResize() {
+  const handles = document.querySelectorAll('.func-resize-handle');
+  if (!handles.length) return;
+  let resizing = false;
+  let dir, startX, startY, startLeft, startTop, startW, startH;
+
+  handles.forEach(handle => {
+    handle.addEventListener('mousedown', (e) => {
+      const card = document.getElementById('func-card');
+      const popup = document.getElementById('func-popup');
+      if (!card) return;
+      if (!state.funcCardDragged) {
+        const rect = card.getBoundingClientRect();
+        state.funcCardX = rect.left;
+        state.funcCardY = rect.top;
+        state.funcCardW = rect.width;
+        state.funcCardH = rect.height;
+        card.classList.add('func-card--floating');
+        card.style.left = state.funcCardX + 'px';
+        card.style.top = state.funcCardY + 'px';
+        card.style.width = state.funcCardW + 'px';
+        card.style.height = state.funcCardH + 'px';
+        if (popup) popup.dataset.noBackdropClose = '1';
+        state.funcCardDragged = true;
+      }
+      dir = handle.dataset.dir;
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = parseFloat(card.style.left) || 0;
+      startTop = parseFloat(card.style.top) || 0;
+      startW = parseFloat(card.style.width) || card.offsetWidth;
+      startH = parseFloat(card.style.height) || card.offsetHeight;
+      resizing = true;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!resizing) return;
+    const card = document.getElementById('func-card');
+    if (!card) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    let newLeft = startLeft, newTop = startTop, newW = startW, newH = startH;
+    if (dir.includes('e')) newW = Math.max(320, startW + dx);
+    if (dir.includes('s')) newH = Math.max(200, startH + dy);
+    if (dir.includes('w')) { newW = Math.max(320, startW - dx); newLeft = startLeft + startW - newW; }
+    if (dir.includes('n')) { newH = Math.max(200, startH - dy); newTop = startTop + startH - newH; }
+    newLeft = Math.max(0, Math.min(window.innerWidth - newW, newLeft));
+    newTop = Math.max(0, Math.min(window.innerHeight - newH, newTop));
+    card.style.left = newLeft + 'px';
+    card.style.top = newTop + 'px';
+    card.style.width = newW + 'px';
+    card.style.height = newH + 'px';
+  });
+
+  document.addEventListener('mouseup', () => { resizing = false; });
+}
+
+initFuncDrag();
+initFuncResize();
 
 const complexitySlider = document.getElementById('slider-complexity');
 const complexityVal = document.getElementById('val-complexity');

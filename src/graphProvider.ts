@@ -152,7 +152,8 @@ export class GraphProvider {
   private parseGitStatus(workspaceRoot: string): Map<string, { unstaged: 'added'|'modified'|'deleted'|null; staged: 'added'|'modified'|'deleted'|null }> | null {
     try {
       const out = cp.execFileSync('git', ['status', '--porcelain', '-z'], {
-        cwd: workspaceRoot, timeout: 5000, encoding: 'utf8'
+        cwd: workspaceRoot, timeout: 5000, encoding: 'utf8',
+        shell: process.platform === 'win32',
       });
       const map = new Map();
       for (const entry of out.split('\0').filter((e: string) => e.length >= 4 && /^[A-Z? ][A-Z? ] /.test(e))) {
@@ -179,7 +180,8 @@ export class GraphProvider {
       const args = ['diff', '--unified=0'];
       if (staged) { args.push('--cached'); }
       const out = cp.execFileSync('git', args, {
-        cwd: workspaceRoot, timeout: 5000, encoding: 'utf8'
+        cwd: workspaceRoot, timeout: 5000, encoding: 'utf8',
+        shell: process.platform === 'win32',
       });
       const map = new Map<string, Array<{start: number; end: number; isNew: boolean}>>();
       let currentFile: string | null = null;
@@ -858,19 +860,30 @@ export class GraphProvider {
   </div>
   <div id="func-popup">
     <div id="func-card">
-      <div id="func-header">
-        <span id="func-popup-title"></span>
-        <button id="func-popup-close" title="Close">&#x2715;</button>
-      </div>
-      <div id="func-body">
-        <div id="func-editor-wrap">
-          <pre id="func-highlight" aria-hidden="true"><code id="func-highlight-code"></code></pre>
-          <textarea id="func-source-textarea" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+      <div class="func-resize-handle func-resize-n"  data-dir="n"></div>
+      <div class="func-resize-handle func-resize-s"  data-dir="s"></div>
+      <div class="func-resize-handle func-resize-e"  data-dir="e"></div>
+      <div class="func-resize-handle func-resize-w"  data-dir="w"></div>
+      <div class="func-resize-handle func-resize-ne" data-dir="ne"></div>
+      <div class="func-resize-handle func-resize-nw" data-dir="nw"></div>
+      <div class="func-resize-handle func-resize-se" data-dir="se"></div>
+      <div class="func-resize-handle func-resize-sw" data-dir="sw"></div>
+      <div id="func-card-inner">
+        <div id="func-header">
+          <span id="func-popup-title"></span>
+          <button id="func-popup-close" title="Close">&#x2715;</button>
         </div>
-      </div>
-      <div id="func-footer">
-        <button id="func-save-btn">Save</button>
-        <button id="func-open-file-btn">Open File &#x2197;</button>
+        <div id="func-body">
+          <div id="func-editor-wrap">
+            <div id="func-line-numbers" aria-hidden="true"></div>
+            <pre id="func-highlight" aria-hidden="true"><code id="func-highlight-code"></code></pre>
+            <textarea id="func-source-textarea" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+          </div>
+        </div>
+        <div id="func-footer">
+          <button id="func-save-btn">Save</button>
+          <button id="func-open-file-btn">Open File &#x2197;</button>
+        </div>
       </div>
     </div>
   </div>

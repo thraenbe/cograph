@@ -572,14 +572,39 @@ body {
 }
 
 #func-card {
-  width: 520px;
+  width: 660px;
   max-width: 90vw;
-  background: var(--vscode-sideBar-background, #1e1e1e);
-  border: 1px solid var(--vscode-widget-border, #3a3a3a);
-  border-radius: 8px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: visible;
+  min-width: 320px;
+  min-height: 200px;
+}
+
+#func-card.func-card--floating { position: fixed; max-width: none; }
+
+/* Resize handles */
+.func-resize-handle { position: absolute; z-index: 10; }
+.func-resize-n  { top: -4px; left: 14px; right: 14px; height: 8px; cursor: n-resize; }
+.func-resize-s  { bottom: -4px; left: 14px; right: 14px; height: 8px; cursor: s-resize; }
+.func-resize-e  { right: -4px; top: 14px; bottom: 14px; width: 8px; cursor: e-resize; }
+.func-resize-w  { left: -4px; top: 14px; bottom: 14px; width: 8px; cursor: w-resize; }
+.func-resize-ne { top: -4px; right: -4px; width: 14px; height: 14px; cursor: ne-resize; }
+.func-resize-nw { top: -4px; left: -4px; width: 14px; height: 14px; cursor: nw-resize; }
+.func-resize-se { bottom: -4px; right: -4px; width: 14px; height: 14px; cursor: se-resize; }
+.func-resize-sw { bottom: -4px; left: -4px; width: 14px; height: 14px; cursor: sw-resize; }
+
+#func-card-inner {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--vscode-widget-border, #3a3a3a);
+  background: var(--vscode-sideBar-background, #1e1e1e);
+  flex: 1;
+  min-height: 0;
 }
 
 #func-header {
@@ -590,7 +615,10 @@ body {
   border-bottom: 1px solid var(--vscode-widget-border, #3a3a3a);
   font-weight: 600;
   font-size: 13px;
+  cursor: grab;
+  user-select: none;
 }
+#func-header:active { cursor: grabbing; }
 
 #func-header button {
   background: none;
@@ -609,14 +637,18 @@ body {
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 #func-editor-wrap {
   display: grid;
-  grid-template-areas: "editor";
+  grid-template-areas: "gutter editor";
+  grid-template-columns: 36px 1fr;
   overflow: auto;
-  height: 280px;
-  resize: vertical;
+  flex: 1;
+  min-height: 360px;
   border: 1px solid var(--vscode-widget-border, #3a3a3a);
   border-radius: 4px;
   background: var(--vscode-editor-background, #1e1e1e);
@@ -641,11 +673,26 @@ body {
   color: var(--vscode-editor-foreground, #d4d4d4);
   overflow: visible;
   min-height: 100%;
+  background: transparent;
 }
 
 #func-highlight code {
   font: inherit;
   display: block;
+}
+
+#func-line-numbers {
+  grid-area: gutter;
+  font-family: var(--vscode-editor-font-family, 'Menlo', 'Monaco', 'Courier New', monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 4px 8px 8px;
+  white-space: pre;
+  box-sizing: border-box;
+  color: var(--vscode-editorLineNumber-foreground, #858585);
+  text-align: right;
+  user-select: none;
+  pointer-events: none;
 }
 
 #func-source-textarea {
@@ -656,6 +703,11 @@ body {
   outline: none;
   resize: none;
   overflow: hidden;
+}
+
+#func-source-textarea::selection {
+  background: rgba(100, 160, 255, 0.35);
+  color: transparent;
 }
 
 #func-footer {
@@ -680,4 +732,13 @@ body {
 #func-save-btn:hover,
 #func-open-file-btn:hover {
   background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+#func-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#func-save-btn:disabled:hover {
+  background: var(--vscode-button-background, #0e639c);
 }

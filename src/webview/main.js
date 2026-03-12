@@ -91,6 +91,10 @@ function applyDisplaySettings() {
     const base = d.isSynthetic ? 12 : 9;
     return `${base * settings.textSize}px`;
   });
+  state.svgFileCircles?.selectAll('.file-circle-label')
+    .attr('font-size', `${11 * settings.textSize}px`);
+  state.svgFolderBubbles?.selectAll('.folder-bubble-label')
+    .attr('font-size', function(d) { return `${(12 + 6 / (d.depth + 1)) * settings.textSize}px`; });
   updateTextVisibility();
 }
 

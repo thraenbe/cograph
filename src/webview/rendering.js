@@ -400,38 +400,45 @@ function renderElements(elements) {
   startSimulation(allLinks);
   if (state.folderMode) {
     const nodesByFile    = groupByFile(state.currentNodes);
-    const foldersByPath  = groupByFolder([...nodesByFile.keys()]);
-    const folderDepths   = computeFolderDepths([...foldersByPath.keys()]);
+    const folderTree     = buildFolderTree(nodesByFile);
 
     state.svgFileCircles   = renderFileCircles(fileG, nodesByFile);
-    state.svgFolderBubbles = renderFolderBubbles(folderG, foldersByPath, folderDepths);
+    state.svgFolderBubbles = renderFolderBubbles(folderG, folderTree, nodesByFile);
 
     // One-time static attrs — colors set each tick via tickFolderOverlay
     state.svgFileCircles.each(function() {
       d3.select(this).select('.file-circle-shape')
         .attr('stroke-width', 1.5)
         .attr('stroke-dasharray', '6,3')
-        .attr('pointer-events', 'all');
+        .attr('pointer-events', 'all')
+        .attr('cursor', 'grab');
       d3.select(this).select('.file-circle-label')
-        .attr('font-size', '11px').attr('text-anchor', 'middle')
+        .attr('font-size', `${11 * settings.textSize}px`).attr('text-anchor', 'middle')
         .attr('font-weight', '600').attr('pointer-events', 'none');
     });
-    state.svgFolderBubbles.each(function() {
+    state.svgFolderBubbles.each(function(d) {
       d3.select(this).select('.folder-bubble-shape')
-        .attr('stroke-width', 1.5).attr('pointer-events', 'all');
+        .attr('rx', 8)
+        .attr('stroke-width', 1.5).attr('pointer-events', 'all')
+        .attr('cursor', 'grab');
       d3.select(this).select('.folder-bubble-label')
-        .attr('font-size', '11px').attr('text-anchor', 'middle')
+        .attr('font-size', `${(12 + 6 / (d.depth + 1)) * settings.textSize}px`).attr('text-anchor', 'middle')
         .attr('font-weight', '600').attr('fill', '#999999')
         .attr('pointer-events', 'none');
     });
 
+    state.svgFileCircles.call(createFileDrag()).on('mousemove', onFileHoverMove);
+    state.svgFolderBubbles.call(createFolderDrag()).on('mousemove', onFolderHoverMove);
+
     state.simulation.force('fileCluster', createFileClusterForce(nodesByFile));
+    state.simulation.force('folderSeparation', createFolderSeparationForce(folderTree, nodesByFile));
   } else {
     fileG.selectAll('*').remove();
     folderG.selectAll('*').remove();
     state.svgFileCircles   = null;
     state.svgFolderBubbles = null;
     state.simulation?.force('fileCluster', null);
+    state.simulation?.force('folderSeparation', null);
   }
   if (state.gitMode) applyGitColors();
 }

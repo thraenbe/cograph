@@ -48,6 +48,8 @@ defs.append('symbol')
 
 // Transform groups
 const g = svg.append('g');
+const folderG = g.append('g').attr('class', 'folder-bubbles');
+const fileG   = g.append('g').attr('class', 'file-circles');
 const linkG = g.append('g').attr('class', 'links');
 const nodeG = g.append('g').attr('class', 'nodes');
 const labelG = g.append('g').attr('class', 'labels');
@@ -182,6 +184,8 @@ function ticked() {
     state.hasFitted = true;
     fitToView();
   }
+
+  tickFolderOverlay();   // global from folder.js
 }
 
 // ── Node event handlers ───────────────────────────────────────────────────────
@@ -394,5 +398,40 @@ function renderElements(elements) {
   state.svgLibNodes = renderLibraryNodes(libNodeData, visibleSet);
   state.svgLibLabels = renderLibraryLabels(libNodeData, visibleSet);
   startSimulation(allLinks);
+  if (state.folderMode) {
+    const nodesByFile    = groupByFile(state.currentNodes);
+    const foldersByPath  = groupByFolder([...nodesByFile.keys()]);
+    const folderDepths   = computeFolderDepths([...foldersByPath.keys()]);
+
+    state.svgFileCircles   = renderFileCircles(fileG, nodesByFile);
+    state.svgFolderBubbles = renderFolderBubbles(folderG, foldersByPath, folderDepths);
+
+    // One-time static attrs — colors set each tick via tickFolderOverlay
+    state.svgFileCircles.each(function() {
+      d3.select(this).select('.file-circle-shape')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '6,3')
+        .attr('pointer-events', 'all');
+      d3.select(this).select('.file-circle-label')
+        .attr('font-size', '11px').attr('text-anchor', 'middle')
+        .attr('font-weight', '600').attr('pointer-events', 'none');
+    });
+    state.svgFolderBubbles.each(function() {
+      d3.select(this).select('.folder-bubble-shape')
+        .attr('stroke-width', 1.5).attr('pointer-events', 'all');
+      d3.select(this).select('.folder-bubble-label')
+        .attr('font-size', '11px').attr('text-anchor', 'middle')
+        .attr('font-weight', '600').attr('fill', '#999999')
+        .attr('pointer-events', 'none');
+    });
+
+    state.simulation.force('fileCluster', createFileClusterForce(nodesByFile));
+  } else {
+    fileG.selectAll('*').remove();
+    folderG.selectAll('*').remove();
+    state.svgFileCircles   = null;
+    state.svgFolderBubbles = null;
+    state.simulation?.force('fileCluster', null);
+  }
   if (state.gitMode) applyGitColors();
 }

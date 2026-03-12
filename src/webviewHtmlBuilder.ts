@@ -74,6 +74,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   const clusteringUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'clustering.js'));
   const highlightUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'highlight.js'));
   const renderingUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'rendering.js'));
+  const folderUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'folder.js'));
   const colorsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'colors.js'));
   const popupsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'popups.js'));
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
@@ -153,6 +154,9 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     <div id="panel-lang" class="tl-panel">
       <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Lang</button>
       <div id="language-legend"></div>
+    </div>
+    <div id="panel-folder" class="tl-panel">
+      <button id="btn-folder-mode" class="tl-btn active" title="Toggle folder/file structure overlay">Folder</button>
     </div>
   </div>
   <button id="settings-btn" title="Settings">&#9881;</button>
@@ -301,10 +305,14 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
       </div>
     </div>
   </div>
+  <div id="ctx-menu" style="display:none">
+    <ul id="ctx-menu-list"></ul>
+  </div>
   <script nonce="${nonce}" src="${stateUri}"></script>
   <script nonce="${nonce}" src="${clusteringUri}"></script>
   <script nonce="${nonce}" src="${highlightUri}"></script>
   <script nonce="${nonce}" src="${renderingUri}"></script>
+  <script nonce="${nonce}" src="${folderUri}"></script>
   <script nonce="${nonce}" src="${colorsUri}"></script>
   <script nonce="${nonce}" src="${popupsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>

@@ -104,6 +104,20 @@ document.getElementById('btn-language-mode')?.addEventListener('click', () => {
   applyGitColors();
 });
 
+// ── Folder mode ────────────────────────────────────────────────────────────────
+document.getElementById('btn-folder-mode')?.classList.toggle('active', state.folderMode);
+document.getElementById('btn-folder-mode')?.addEventListener('click', () => {
+  state.folderMode = !state.folderMode;
+  document.getElementById('btn-folder-mode')?.classList.toggle('active', state.folderMode);
+  applyComplexity();
+});
+
+// ── Context menu global dismiss ────────────────────────────────────────────────
+document.addEventListener('mousedown', e => {
+  const menu = document.getElementById('ctx-menu');
+  if (menu && !menu.contains(e.target)) hideContextMenu();
+});
+
 // ── Library doc popup controls ────────────────────────────────────────────────
 document.getElementById('lib-doc-close')?.addEventListener('click', () => {
   document.getElementById('lib-doc-popup').style.display = 'none';

@@ -75,6 +75,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   const highlightUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'highlight.js'));
   const renderingUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'rendering.js'));
   const folderUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'folder.js'));
+  const classUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'class.js'));
   const colorsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'colors.js'));
   const popupsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'popups.js'));
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
@@ -157,6 +158,9 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     </div>
     <div id="panel-folder" class="tl-panel">
       <button id="btn-folder-mode" class="tl-btn active" title="Toggle folder/file structure overlay">Folder</button>
+    </div>
+    <div id="panel-class" class="tl-panel">
+      <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
     </div>
   </div>
   <button id="settings-btn" title="Settings">&#9881;</button>
@@ -313,6 +317,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   <script nonce="${nonce}" src="${highlightUri}"></script>
   <script nonce="${nonce}" src="${renderingUri}"></script>
   <script nonce="${nonce}" src="${folderUri}"></script>
+  <script nonce="${nonce}" src="${classUri}"></script>
   <script nonce="${nonce}" src="${colorsUri}"></script>
   <script nonce="${nonce}" src="${popupsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>

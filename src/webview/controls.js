@@ -112,11 +112,19 @@ document.getElementById('btn-folder-mode')?.addEventListener('click', () => {
   applyComplexity();
 });
 
+// ── Class mode ─────────────────────────────────────────────────────────────────
+document.getElementById('btn-class-mode')?.classList.toggle('active', state.classMode);
+document.getElementById('btn-class-mode')?.addEventListener('click', () => {
+  state.classMode = !state.classMode;
+  document.getElementById('btn-class-mode')?.classList.toggle('active', state.classMode);
+  applyComplexity();
+});
+
 // ── Context menu global dismiss ────────────────────────────────────────────────
 document.addEventListener('mousedown', e => {
   const menu = document.getElementById('ctx-menu');
   if (menu && !menu.contains(e.target)) hideContextMenu();
-});
+}, true);   // capture phase — fires before d3-zoom's stopImmediatePropagation
 
 // ── Library doc popup controls ────────────────────────────────────────────────
 document.getElementById('lib-doc-close')?.addEventListener('click', () => {

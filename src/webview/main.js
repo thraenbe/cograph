@@ -95,6 +95,8 @@ function applyDisplaySettings() {
     .attr('font-size', `${11 * settings.textSize}px`);
   state.svgFolderBubbles?.selectAll('.folder-bubble-label')
     .attr('font-size', function(d) { return `${(12 + 6 / (d.depth + 1)) * settings.textSize}px`; });
+  state.svgClassBubbles?.selectAll('.class-bubble-label')
+    .attr('font-size', `${11 * settings.textSize}px`);
   updateTextVisibility();
 }
 

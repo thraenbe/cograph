@@ -49,6 +49,7 @@ defs.append('symbol')
 // Transform groups
 const g = svg.append('g');
 const folderG = g.append('g').attr('class', 'folder-bubbles');
+const classG  = g.append('g').attr('class', 'class-bubbles');
 const fileG   = g.append('g').attr('class', 'file-circles');
 const linkG = g.append('g').attr('class', 'links');
 const nodeG = g.append('g').attr('class', 'nodes');
@@ -186,6 +187,7 @@ function ticked() {
   }
 
   tickFolderOverlay();   // global from folder.js
+  tickClassOverlay();    // global from class.js
 }
 
 // ── Node event handlers ───────────────────────────────────────────────────────
@@ -418,17 +420,20 @@ function renderElements(elements) {
     });
     state.svgFolderBubbles.each(function(d) {
       d3.select(this).select('.folder-bubble-shape')
-        .attr('rx', 8)
-        .attr('stroke-width', 1.5).attr('pointer-events', 'all')
-        .attr('cursor', 'grab');
+        .attr('rx', 8).attr('stroke-width', 1.5).attr('pointer-events', 'all');
+      d3.select(this).select('.folder-bubble-titlebar')
+        .attr('pointer-events', 'all').attr('cursor', 'grab');
       d3.select(this).select('.folder-bubble-label')
-        .attr('font-size', `${(12 + 6 / (d.depth + 1)) * settings.textSize}px`).attr('text-anchor', 'middle')
-        .attr('font-weight', '600').attr('fill', '#999999')
-        .attr('pointer-events', 'none');
+        .attr('font-size', `${(12 + 6 / (d.depth + 1)) * settings.textSize}px`)
+        .attr('text-anchor', 'middle').attr('font-weight', '600')
+        .attr('dominant-baseline', 'central')
+        .attr('fill', '#cccccc').attr('pointer-events', 'none');
     });
 
     state.svgFileCircles.call(createFileDrag()).on('mousemove', onFileHoverMove);
-    state.svgFolderBubbles.call(createFolderDrag()).on('mousemove', onFolderHoverMove);
+    state.svgFolderBubbles.select('.folder-bubble-titlebar').call(createFolderDrag());
+    state.svgFolderBubbles.select('.folder-bubble-shape').call(createFolderResizeDrag());
+    state.svgFolderBubbles.on('mousemove', onFolderHoverMove);
 
     state.simulation.force('fileCluster', createFileClusterForce(nodesByFile));
     state.simulation.force('folderSeparation', createFolderSeparationForce(folderTree, nodesByFile));
@@ -440,5 +445,30 @@ function renderElements(elements) {
     state.simulation?.force('fileCluster', null);
     state.simulation?.force('folderSeparation', null);
   }
+  if (state.classMode) {
+    const classByKey = groupByClass(state.currentNodes);  // global from class.js
+    state.svgClassBubbles = renderClassBubbles(classG, classByKey);
+
+    state.svgClassBubbles.each(function(d) {
+      d3.select(this).select('.class-bubble-shape')
+        .attr('rx', 8).attr('stroke-width', 1.5).attr('pointer-events', 'all');
+      d3.select(this).select('.class-bubble-titlebar')
+        .attr('pointer-events', 'all').attr('cursor', 'grab');
+      d3.select(this).select('.class-bubble-label')
+        .attr('font-size', `${11 * settings.textSize}px`)
+        .attr('text-anchor', 'middle').attr('font-weight', '600')
+        .attr('fill', '#cccccc').attr('pointer-events', 'none');
+    });
+
+    state.svgClassBubbles.select('.class-bubble-titlebar').call(createClassDrag());
+    state.svgClassBubbles.select('.class-bubble-shape').call(createClassResizeDrag());
+
+    state.simulation?.force('classCluster', createClassClusterForce(classByKey));
+  } else {
+    classG.selectAll('*').remove();
+    state.svgClassBubbles = null;
+    state.simulation?.force('classCluster', null);
+  }
+
   if (state.gitMode) applyGitColors();
 }

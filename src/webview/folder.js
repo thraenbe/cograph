@@ -5,6 +5,7 @@ const CLUSTER_STRENGTH           = 0.04;
 const FOLDER_SEPARATION_STRENGTH = 0.12;
 const PATH_SEP_RE                = /[\\/]+/;       // handles both / and \ (B1)
 const INTERACT_EDGE_PX           = 12;             // px-width of resize hit zone on bubble border
+const FOLDER_TITLEBAR_HEIGHT     = 22;             // px height of the draggable title bar
 
 // ── Path utilities ────────────────────────────────────────────────────────────
 function pathDirname(fp) {
@@ -104,6 +105,10 @@ function folderStrokeColor(depth) {
   const l = Math.max(60, 90 - depth * 8);
   return `rgba(${l},${l},${l},0.35)`;
 }
+function folderTitlebarColor(depth) {
+  const l = Math.max(30, 55 - depth * 6);
+  return `rgba(${l},${l},${l + 8},0.88)`;
+}
 
 // ── D3 data joins ─────────────────────────────────────────────────────────────
 function renderFileCircles(fileG, nodesByFile) {
@@ -165,6 +170,7 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
       enter => {
         const g = enter.append('g').attr('class', 'folder-bubble');
         g.append('rect').attr('class', 'folder-bubble-shape');
+        g.append('rect').attr('class', 'folder-bubble-titlebar');
         g.append('text').attr('class', 'folder-bubble-label');
         return g;
       },
@@ -263,9 +269,16 @@ function tickFolderOverlay() {
       .attr('fill',   folderFillColor(d.depth))
       .attr('stroke', folderStrokeColor(d.depth));
 
+    d3.select(el).select('.folder-bubble-titlebar')
+      .attr('x', padded.minX).attr('y', padded.minY)
+      .attr('width',  padded.maxX - padded.minX)
+      .attr('height', FOLDER_TITLEBAR_HEIGHT)
+      .attr('fill',   folderTitlebarColor(d.depth))
+      .attr('rx', 8);
+
     d3.select(el).select('.folder-bubble-label')
       .attr('x', (padded.minX + padded.maxX) / 2)
-      .attr('y', padded.minY + 16)                  // inside, near top edge
+      .attr('y', padded.minY + FOLDER_TITLEBAR_HEIGHT / 2)
       .text(d.shortName);
   });
 }
@@ -377,7 +390,7 @@ function _folderCursor(mx, my, x, y, w, h) {
   if (nearR)          return 'e-resize';
   if (nearT)          return 'n-resize';
   if (nearB)          return 's-resize';
-  return 'grab';
+  return 'default';   // interior — no drag action
 }
 
 // ── Hover cursor handlers (attached via .on('mousemove', ...)) ────────────────
@@ -452,51 +465,62 @@ function createFileDrag() {
     });
 }
 
+// Move drag — attached to the title bar; translates all descendant nodes
 function createFolderDrag() {
   return d3.drag()
     .on('start', function(event, d) {
-      const shape = d3.select(this).select('.folder-bubble-shape');
-      const x = +shape.attr('x'), y = +shape.attr('y');
-      const w = +shape.attr('width'), h = +shape.attr('height');
-      const isResize = Math.min(
-        event.x - x, (x + w) - event.x, event.y - y, (y + h) - event.y
-      ) < INTERACT_EDGE_PX;
-
-      d._dragMode = isResize ? 'resize' : 'move';
       d._dragStart = { x: event.x, y: event.y };
-      const cx = x + w / 2, cy = y + h / 2;
-      if (isResize) {
-        d._resizeCenter = { x: cx, y: cy };
-        d._resizeStartDist = Math.hypot(event.x - cx, event.y - cy) || 1;
-        d._nodeStarts = d.allNodes.map(n => ({ n, ox: (n.x ?? 0) - cx, oy: (n.y ?? 0) - cy }));
-      } else {
-        d._nodeStarts = d.allNodes.map(n => ({ n, x: n.x ?? 0, y: n.y ?? 0 }));
-      }
+      d._nodeStarts = d.allNodes.map(n => ({ n, x: n.x ?? 0, y: n.y ?? 0 }));
       if (state.layoutMode === 'dynamic' && !event.active && state.simulation)
         state.simulation.alphaTarget(0.3).restart();
       d.allNodes.forEach(n => { n.fx = n.x; n.fy = n.y; });
     })
     .on('drag', function(event, d) {
-      if (d._dragMode === 'resize') {
-        const { x: cx, y: cy } = d._resizeCenter;
-        const scale = (Math.hypot(event.x - cx, event.y - cy) || 1) / d._resizeStartDist;
-        d._nodeStarts.forEach(({ n, ox, oy }) => {
-          n.fx = cx + ox * scale; n.fy = cy + oy * scale;
-          if (state.layoutMode === 'static') { n.x = n.fx; n.y = n.fy; }
-        });
-      } else {
-        const dx = event.x - d._dragStart.x, dy = event.y - d._dragStart.y;
-        d._nodeStarts.forEach(({ n, x, y }) => {
-          n.fx = x + dx; n.fy = y + dy;
-          if (state.layoutMode === 'static') { n.x = n.fx; n.y = n.fy; }
-        });
-      }
+      const dx = event.x - d._dragStart.x, dy = event.y - d._dragStart.y;
+      d._nodeStarts.forEach(({ n, x, y }) => {
+        n.fx = x + dx; n.fy = y + dy;
+        if (state.layoutMode === 'static') { n.x = n.fx; n.y = n.fy; }
+      });
       if (state.layoutMode === 'static') ticked();
     })
     .on('end', function(event, d) {
-      delete d._dragStart; delete d._nodeStarts; delete d._dragMode;
-      delete d._resizeCenter; delete d._resizeStartDist;
+      delete d._dragStart; delete d._nodeStarts;
       if (state.layoutMode === 'dynamic') {
+        if (!event.active && state.simulation) state.simulation.alphaTarget(0);
+        d.allNodes.forEach(n => { n.fx = null; n.fy = null; });
+      }
+    });
+}
+
+// Resize drag — attached to the shape; activates only on border zone
+function createFolderResizeDrag() {
+  return d3.drag()
+    .on('start', function(event, d) {
+      const x = +d3.select(this).attr('x'), y = +d3.select(this).attr('y');
+      const w = +d3.select(this).attr('width'), h = +d3.select(this).attr('height');
+      if (Math.min(event.x - x, (x + w) - event.x, event.y - y, (y + h) - event.y) >= INTERACT_EDGE_PX) return;
+      const cx = x + w / 2, cy = y + h / 2;
+      d._resizeCenter = { x: cx, y: cy };
+      d._resizeStartDist = Math.hypot(event.x - cx, event.y - cy) || 1;
+      d._nodeStarts = d.allNodes.map(n => ({ n, ox: (n.x ?? 0) - cx, oy: (n.y ?? 0) - cy }));
+      if (state.layoutMode === 'dynamic' && !event.active && state.simulation)
+        state.simulation.alphaTarget(0.3).restart();
+      d.allNodes.forEach(n => { n.fx = n.x; n.fy = n.y; });
+    })
+    .on('drag', function(event, d) {
+      if (!d._nodeStarts) return;
+      const { x: cx, y: cy } = d._resizeCenter;
+      const scale = (Math.hypot(event.x - cx, event.y - cy) || 1) / d._resizeStartDist;
+      d._nodeStarts.forEach(({ n, ox, oy }) => {
+        n.fx = cx + ox * scale; n.fy = cy + oy * scale;
+        if (state.layoutMode === 'static') { n.x = n.fx; n.y = n.fy; }
+      });
+      if (state.layoutMode === 'static') ticked();
+    })
+    .on('end', function(event, d) {
+      const hadResize = !!d._nodeStarts;
+      delete d._nodeStarts; delete d._resizeCenter; delete d._resizeStartDist;
+      if (hadResize && state.layoutMode === 'dynamic') {
         if (!event.active && state.simulation) state.simulation.alphaTarget(0);
         d.allNodes.forEach(n => { n.fx = null; n.fy = null; });
       }
@@ -532,9 +556,9 @@ function hideContextMenu() {
 if (typeof module !== 'undefined') {
   module.exports = {
     tickFolderOverlay, groupByFile, buildFolderTree,
-    folderFillColor, folderStrokeColor,
+    folderFillColor, folderStrokeColor, folderTitlebarColor,
     renderFileCircles, renderFolderBubbles, createFileClusterForce,
-    createFolderSeparationForce, createFileDrag, createFolderDrag,
+    createFolderSeparationForce, createFileDrag, createFolderDrag, createFolderResizeDrag,
     onFileHoverMove, onFolderHoverMove,
     getAllFolderNodes, unionRect,
     showContextMenu, hideContextMenu, boundingCircle,

@@ -280,36 +280,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
       </div>
     </div>
   </div>
-  <div id="func-popup">
-    <div id="func-card">
-      <div class="func-resize-handle func-resize-n"  data-dir="n"></div>
-      <div class="func-resize-handle func-resize-s"  data-dir="s"></div>
-      <div class="func-resize-handle func-resize-e"  data-dir="e"></div>
-      <div class="func-resize-handle func-resize-w"  data-dir="w"></div>
-      <div class="func-resize-handle func-resize-ne" data-dir="ne"></div>
-      <div class="func-resize-handle func-resize-nw" data-dir="nw"></div>
-      <div class="func-resize-handle func-resize-se" data-dir="se"></div>
-      <div class="func-resize-handle func-resize-sw" data-dir="sw"></div>
-      <div id="func-card-inner">
-        <div id="func-header">
-          <span id="func-popup-title"></span>
-          <button id="func-popup-close" title="Close">&#x2715;</button>
-        </div>
-        <div id="func-body">
-          <div id="func-editor-wrap">
-            <div id="func-line-numbers" aria-hidden="true"></div>
-            <pre id="func-highlight" aria-hidden="true"><code id="func-highlight-code"></code></pre>
-            <textarea id="func-source-textarea" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
-          </div>
-        </div>
-        <div id="func-footer">
-          <button id="func-save-btn">Save</button>
-          <button id="func-open-file-btn">Open File &#x2197;</button>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div id="ctx-menu" style="display:none">
+<div id="ctx-menu" style="display:none">
     <ul id="ctx-menu-list"></ul>
   </div>
   <script nonce="${nonce}" src="${stateUri}"></script>

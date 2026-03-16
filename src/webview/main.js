@@ -222,21 +222,21 @@ window.addEventListener('message', (event) => {
     return;
   }
   if (message.type === 'func-source') {
-    if (message.reqId !== state.funcSourceRequestId) { return; }
-    const textarea = document.getElementById('func-source-textarea');
-    if (textarea) {
-      if (message.error) {
-        textarea.value = `(error: ${message.error})`;
-        textarea.readOnly = true;
-        state.originalFuncSource = null;
-      } else {
-        textarea.value = message.source;
-        textarea.readOnly = false;
-        state.originalFuncSource = message.source;
-      }
+    const inst = [...state.funcPopups.values()].find(p => p.reqId === message.reqId);
+    if (!inst) return;
+    inst.colorizedHtml = message.colorizedHtml ?? null;
+    inst.endLine       = message.endLine       ?? null;
+    if (message.error) {
+      inst.textarea.value = `(error: ${message.error})`;
+      inst.textarea.readOnly = true;
+      inst.originalSource = null;
+    } else {
+      inst.textarea.value = message.source;
+      inst.textarea.readOnly = false;
+      inst.originalSource = message.source;
     }
-    updateFuncHighlight();
-    updateSaveBtn();
+    updateFuncHighlight(inst);
+    updateSaveBtn(inst);
     return;
   }
   if (message.type === 'graph') {

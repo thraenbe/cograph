@@ -12,7 +12,7 @@ const settings = {
   textSize: 1.0,
   linkThickness: 4,
   centerForce: 1,
-  repelForce: 500,
+  repelForce: 350,
   linkForce: 1,
   linkDistance: 40,
 };

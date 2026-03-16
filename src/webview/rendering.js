@@ -324,7 +324,7 @@ function startSimulation(allLinks) {
       .strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1))
     .force('charge', d3.forceManyBody().strength(-settings.repelForce))
     .force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce))
-    .force('collision', d3.forceCollide(d => nodeRadius(d) + 2))
+    .force('collision', d3.forceCollide(d => nodeRadius(d) + 1))
     .velocityDecay(0.3)
     .alphaDecay(0.02)
     .on('tick', ticked);

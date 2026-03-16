@@ -23,7 +23,7 @@ function makeDOM() {
     <input id="slider-text-size" type="range" value="1" /><span id="val-text-size">1</span>
     <input id="slider-link-thickness" type="range" value="4" /><span id="val-link-thickness">4</span>
     <input id="slider-center-force" type="range" value="1" /><span id="val-center-force">1</span>
-    <input id="slider-repel-force" type="range" value="500" /><span id="val-repel-force">500</span>
+    <input id="slider-repel-force" type="range" value="350" /><span id="val-repel-force">350</span>
     <input id="slider-link-force" type="range" value="1" /><span id="val-link-force">1</span>
     <input id="slider-link-distance" type="range" value="40" /><span id="val-link-distance">40</span>
     <div id="toggle-detail-legend"><span class="tl-chevron">▾</span></div>
@@ -78,7 +78,7 @@ const dom = makeDOM();
 (global as any).settings = {
   showOrphans: true, showLibraries: false, arrows: true,
   textFadeThreshold: 0.5, nodeSize: 2.5, textSize: 1.0, linkThickness: 4,
-  centerForce: 1, repelForce: 500, linkForce: 1, linkDistance: 40,
+  centerForce: 1, repelForce: 350, linkForce: 1, linkDistance: 40,
 };
 (global as any).vscode = { postMessage: () => {} };
 

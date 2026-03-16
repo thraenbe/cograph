@@ -105,9 +105,9 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     <div id="panel-detail" class="tl-panel">
       <div class="tl-slider-header">
         <label for="slider-complexity">Detail</label>
-        <span id="val-complexity">0.99</span>
+        <span id="val-complexity">1</span>
       </div>
-      <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="0.99" />
+      <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
       <div class="tl-legend-header" id="toggle-detail-legend">
         <span>Legend</span>
         <span class="tl-chevron">▾</span>
@@ -235,8 +235,8 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <input type="range" id="slider-center-force" min="0" max="5" step="0.05" value="1" />
       </div>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">500</span></div>
-        <input type="range" id="slider-repel-force" min="0" max="8192" step="50" value="500" />
+        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">350</span></div>
+        <input type="range" id="slider-repel-force" min="0" max="8192" step="50" value="350" />
       </div>
       <div class="slider-row">
         <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">1</span></div>

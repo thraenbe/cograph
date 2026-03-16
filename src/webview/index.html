@@ -15,9 +15,9 @@
     <div id="panel-detail" class="tl-panel">
       <div class="tl-slider-header">
         <label for="slider-complexity">Detail</label>
-        <span id="val-complexity">0.99</span>
+        <span id="val-complexity">1</span>
       </div>
-      <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="0.99" />
+      <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
       <div class="tl-legend-header" id="toggle-detail-legend">
         <span>Legend</span>
         <span class="tl-chevron">▾</span>
@@ -70,6 +70,12 @@
       <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Lang</button>
       <div id="language-legend"></div>
     </div>
+    <div id="panel-folder" class="tl-panel">
+      <button id="btn-folder-mode" class="tl-btn active" title="Toggle folder/file structure overlay">Folder</button>
+    </div>
+    <div id="panel-class" class="tl-panel">
+      <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
+    </div>
   </div>
   <button id="settings-btn" title="Settings">&#9881;</button>
   <div id="settings-panel">
@@ -89,6 +95,13 @@
         <span>Show Orphans</span>
         <label class="switch">
           <input type="checkbox" id="toggle-orphans" checked />
+          <span class="pill"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span>Show Libraries</span>
+        <label class="switch">
+          <input type="checkbox" id="toggle-libraries" checked />
           <span class="pill"></span>
         </label>
       </div>
@@ -171,9 +184,9 @@
       <div class="slider-row">
         <div class="slider-header">
           <label for="slider-repel-force">Repel Force</label>
-          <span id="val-repel-force">500</span>
+          <span id="val-repel-force">350</span>
         </div>
-        <input type="range" id="slider-repel-force" min="0" max="8192" step="50" value="500" />
+        <input type="range" id="slider-repel-force" min="0" max="8192" step="50" value="350" />
       </div>
       <div class="slider-row">
         <div class="slider-header">
@@ -185,7 +198,7 @@
       <div class="slider-row">
         <div class="slider-header">
           <label for="slider-link-distance">Link Distance</label>
-          <span id="val-link-distance">60</span>
+          <span id="val-link-distance">40</span>
         </div>
         <input type="range" id="slider-link-distance" min="10" max="80" step="5" value="40" />
       </div>
@@ -194,7 +207,12 @@
   </div>
   <script src="state.js"></script>
   <script src="clustering.js"></script>
+  <script src="highlight.js"></script>
   <script src="rendering.js"></script>
+  <script src="folder.js"></script>
+  <script src="class.js"></script>
+  <script src="colors.js"></script>
+  <script src="popups.js"></script>
   <script src="main.js"></script>
   <script src="controls.js"></script>
 </body>

@@ -203,6 +203,9 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
             memberCount: 1,
             gitStatus: n.gitStatus,
             language: n.language,
+            className: n.className,
+            classExtends: n.classExtends,
+            classImplements: n.classImplements,
           },
         });
       }
@@ -230,6 +233,9 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
           memberCount,
           gitStatus: memberCount === 1 && rep ? rep.gitStatus : undefined,
           language: memberCount === 1 && rep ? rep.language : undefined,
+          className: memberCount === 1 && rep ? rep.className : undefined,
+          classExtends: memberCount === 1 && rep ? rep.classExtends : undefined,
+          classImplements: memberCount === 1 && rep ? rep.classImplements : undefined,
         },
       });
     }

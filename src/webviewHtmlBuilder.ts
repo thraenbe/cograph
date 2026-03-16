@@ -74,6 +74,8 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   const clusteringUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'clustering.js'));
   const highlightUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'highlight.js'));
   const renderingUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'rendering.js'));
+  const folderUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'folder.js'));
+  const classUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'class.js'));
   const colorsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'colors.js'));
   const popupsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'popups.js'));
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
@@ -103,9 +105,9 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     <div id="panel-detail" class="tl-panel">
       <div class="tl-slider-header">
         <label for="slider-complexity">Detail</label>
-        <span id="val-complexity">0.99</span>
+        <span id="val-complexity">1</span>
       </div>
-      <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="0.99" />
+      <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
       <div class="tl-legend-header" id="toggle-detail-legend">
         <span>Legend</span>
         <span class="tl-chevron">▾</span>
@@ -153,6 +155,12 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     <div id="panel-lang" class="tl-panel">
       <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Lang</button>
       <div id="language-legend"></div>
+    </div>
+    <div id="panel-folder" class="tl-panel">
+      <button id="btn-folder-mode" class="tl-btn active" title="Toggle folder/file structure overlay">Folder</button>
+    </div>
+    <div id="panel-class" class="tl-panel">
+      <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
     </div>
   </div>
   <button id="settings-btn" title="Settings">&#9881;</button>
@@ -227,8 +235,8 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <input type="range" id="slider-center-force" min="0" max="5" step="0.05" value="1" />
       </div>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">500</span></div>
-        <input type="range" id="slider-repel-force" min="0" max="8192" step="50" value="500" />
+        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">350</span></div>
+        <input type="range" id="slider-repel-force" min="0" max="8192" step="50" value="350" />
       </div>
       <div class="slider-row">
         <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">1</span></div>
@@ -272,39 +280,15 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
       </div>
     </div>
   </div>
-  <div id="func-popup">
-    <div id="func-card">
-      <div class="func-resize-handle func-resize-n"  data-dir="n"></div>
-      <div class="func-resize-handle func-resize-s"  data-dir="s"></div>
-      <div class="func-resize-handle func-resize-e"  data-dir="e"></div>
-      <div class="func-resize-handle func-resize-w"  data-dir="w"></div>
-      <div class="func-resize-handle func-resize-ne" data-dir="ne"></div>
-      <div class="func-resize-handle func-resize-nw" data-dir="nw"></div>
-      <div class="func-resize-handle func-resize-se" data-dir="se"></div>
-      <div class="func-resize-handle func-resize-sw" data-dir="sw"></div>
-      <div id="func-card-inner">
-        <div id="func-header">
-          <span id="func-popup-title"></span>
-          <button id="func-popup-close" title="Close">&#x2715;</button>
-        </div>
-        <div id="func-body">
-          <div id="func-editor-wrap">
-            <div id="func-line-numbers" aria-hidden="true"></div>
-            <pre id="func-highlight" aria-hidden="true"><code id="func-highlight-code"></code></pre>
-            <textarea id="func-source-textarea" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
-          </div>
-        </div>
-        <div id="func-footer">
-          <button id="func-save-btn">Save</button>
-          <button id="func-open-file-btn">Open File &#x2197;</button>
-        </div>
-      </div>
-    </div>
+<div id="ctx-menu" style="display:none">
+    <ul id="ctx-menu-list"></ul>
   </div>
   <script nonce="${nonce}" src="${stateUri}"></script>
   <script nonce="${nonce}" src="${clusteringUri}"></script>
   <script nonce="${nonce}" src="${highlightUri}"></script>
   <script nonce="${nonce}" src="${renderingUri}"></script>
+  <script nonce="${nonce}" src="${folderUri}"></script>
+  <script nonce="${nonce}" src="${classUri}"></script>
   <script nonce="${nonce}" src="${colorsUri}"></script>
   <script nonce="${nonce}" src="${popupsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>

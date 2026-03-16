@@ -1,12 +1,13 @@
 /**
- * CoGraph TypeScript AST analyzer.
+ * CoGraph JavaScript AST analyzer.
  *
- * Usage: node analyze_ts.js <workspace_root>
+ * Usage: node analyze_js.js <workspace_root>
  *
  * Outputs a JSON call graph to stdout:
  *   { "nodes": [{id, name, file, line, language}], "edges": [{source, target}] }
  *
- * Scope: workspace .ts/.tsx files (excludes .d.ts). Best-effort static analysis.
+ * Scope: workspace .js/.jsx/.mjs/.cjs files. Best-effort static analysis.
+ * Handles both ESM (import) and CommonJS (require()) imports.
  */
 
 'use strict';
@@ -16,8 +17,9 @@ const fs   = require('fs');
 const ts   = require(path.join(__dirname, '..', 'node_modules', 'typescript'));
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist']);
+const JS_EXTENSIONS  = new Set(['.js', '.jsx', '.mjs', '.cjs']);
 
-function collectTsFiles(root) {
+function collectJsFiles(root) {
   const results = [];
   function walk(dir) {
     let entries;
@@ -26,8 +28,7 @@ function collectTsFiles(root) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         if (!SKIP_DIR_NAMES.has(entry.name)) walk(full);
-      } else if (entry.isFile() && !entry.name.endsWith('.d.ts') &&
-                 (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
+      } else if (entry.isFile() && JS_EXTENSIONS.has(path.extname(entry.name))) {
         results.push(full);
       }
     }
@@ -47,7 +48,7 @@ function collectDefinitions(files) {
     try { source = fs.readFileSync(filepath, 'utf8'); } catch { continue; }
     let sourceFile;
     try {
-      sourceFile = ts.createSourceFile(filepath, source, ts.ScriptTarget.Latest, true);
+      sourceFile = ts.createSourceFile(filepath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
     } catch { continue; }
 
     function visit(node) {
@@ -56,7 +57,7 @@ function collectDefinitions(files) {
           const name = node.name.text;
           const line = getLine(sourceFile, node);
           const id = `${filepath}::${name}::${line}`;
-          definitions[id] = { id, name, file: filepath, line, language: 'typescript' };
+          definitions[id] = { id, name, file: filepath, line, language: 'javascript' };
         } else if (ts.isMethodDeclaration(node) && ts.isClassDeclaration(node.parent) && node.name) {
           const name = node.name.getText(sourceFile);
           const line = getLine(sourceFile, node);
@@ -76,7 +77,7 @@ function collectDefinitions(files) {
               }
             }
           }
-          const def = { id, name, file: filepath, line, language: 'typescript', className };
+          const def = { id, name, file: filepath, line, language: 'javascript', className };
           if (classExtends !== undefined) def.classExtends = classExtends;
           if (classImplements.length) def.classImplements = classImplements;
           definitions[id] = def;
@@ -98,7 +99,7 @@ function collectDefinitions(files) {
               }
             }
           }
-          const def = { id, name: 'constructor', file: filepath, line, language: 'typescript', className };
+          const def = { id, name: 'constructor', file: filepath, line, language: 'javascript', className };
           if (classExtends !== undefined) def.classExtends = classExtends;
           if (classImplements.length) def.classImplements = classImplements;
           definitions[id] = def;
@@ -123,7 +124,7 @@ function collectDefinitions(files) {
               }
             }
           }
-          const def = { id, name, file: filepath, line, language: 'typescript', className };
+          const def = { id, name, file: filepath, line, language: 'javascript', className };
           if (classExtends !== undefined) def.classExtends = classExtends;
           if (classImplements.length) def.classImplements = classImplements;
           definitions[id] = def;
@@ -134,7 +135,7 @@ function collectDefinitions(files) {
               const name = decl.name.text;
               const line = getLine(sourceFile, decl);
               const id = `${filepath}::${name}::${line}`;
-              definitions[id] = { id, name, file: filepath, line, language: 'typescript' };
+              definitions[id] = { id, name, file: filepath, line, language: 'javascript' };
             }
           }
         }
@@ -146,33 +147,70 @@ function collectDefinitions(files) {
   return definitions;
 }
 
+/**
+ * Collects ESM import bindings AND CommonJS require() bindings.
+ * Returns a map of local name -> package/module specifier.
+ */
 function collectImportMap(sourceFile) {
   const importMap = {};
+
   ts.forEachChild(sourceFile, node => {
-    if (!ts.isImportDeclaration(node)) return;
-    try {
-      const spec = node.moduleSpecifier.text;
-      if (spec.startsWith('.')) return; // skip relative imports
-      const clause = node.importClause;
-      if (!clause) return;
-      // Default import: import React from 'react'
-      if (clause.name) {
-        importMap[clause.name.text] = spec;
-      }
-      if (clause.namedBindings) {
-        if (ts.isNamespaceImport(clause.namedBindings)) {
-          // Namespace: import * as fs from 'fs'
-          importMap[clause.namedBindings.name.text] = spec;
-        } else if (ts.isNamedImports(clause.namedBindings)) {
-          // Named: import { useState } from 'react'
-          for (const element of clause.namedBindings.elements) {
-            const local = element.name.text;
-            importMap[local] = spec;
+    // ESM: import React from 'react' / import * as fs from 'fs' / import { x } from 'pkg'
+    if (ts.isImportDeclaration(node)) {
+      try {
+        const spec = node.moduleSpecifier.text;
+        if (spec.startsWith('.')) return;
+        const clause = node.importClause;
+        if (!clause) return;
+        if (clause.name) {
+          importMap[clause.name.text] = spec;
+        }
+        if (clause.namedBindings) {
+          if (ts.isNamespaceImport(clause.namedBindings)) {
+            importMap[clause.namedBindings.name.text] = spec;
+          } else if (ts.isNamedImports(clause.namedBindings)) {
+            for (const element of clause.namedBindings.elements) {
+              importMap[element.name.text] = spec;
+            }
           }
         }
-      }
-    } catch { /* skip malformed */ }
+      } catch { /* skip malformed */ }
+      return;
+    }
+
+    // CJS: const x = require('pkg')  /  const { a, b } = require('pkg')
+    if (ts.isVariableStatement(node)) {
+      try {
+        for (const decl of node.declarationList.declarations) {
+          if (!decl.initializer) continue;
+          // Unwrap: require('pkg') or require('pkg').something
+          let call = decl.initializer;
+          if (ts.isPropertyAccessExpression(call)) call = call.expression;
+          if (!ts.isCallExpression(call)) continue;
+          const expr = call.expression;
+          if (!ts.isIdentifier(expr) || expr.text !== 'require') continue;
+          if (call.arguments.length < 1) continue;
+          const arg = call.arguments[0];
+          if (!ts.isStringLiteral(arg)) continue;
+          const spec = arg.text;
+          if (spec.startsWith('.')) continue;
+
+          if (ts.isIdentifier(decl.name)) {
+            // const x = require('pkg')
+            importMap[decl.name.text] = spec;
+          } else if (ts.isObjectBindingPattern(decl.name)) {
+            // const { a, b } = require('pkg')
+            for (const element of decl.name.elements) {
+              if (ts.isIdentifier(element.name)) {
+                importMap[element.name.text] = spec;
+              }
+            }
+          }
+        }
+      } catch { /* skip malformed */ }
+    }
   });
+
   return importMap;
 }
 
@@ -192,7 +230,7 @@ function collectCalls(files, definitions) {
     try { source = fs.readFileSync(filepath, 'utf8'); } catch { continue; }
     let sourceFile;
     try {
-      sourceFile = ts.createSourceFile(filepath, source, ts.ScriptTarget.Latest, true);
+      sourceFile = ts.createSourceFile(filepath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
     } catch { continue; }
 
     const importMap = collectImportMap(sourceFile);
@@ -226,7 +264,7 @@ function collectCalls(files, definitions) {
                 const libName = importMap[name];
                 const libId = `library::${libName}::${name}`;
                 if (!libraryNodes.has(libId)) {
-                  libraryNodes.set(libId, { id: libId, name, file: null, line: 0, isLibrary: true, libraryName: libName, language: 'typescript' });
+                  libraryNodes.set(libId, { id: libId, name, file: null, line: 0, isLibrary: true, libraryName: libName, language: 'javascript' });
                 }
                 const key = `${callerId}|${libId}`;
                 if (!seenEdges.has(key)) {
@@ -241,7 +279,7 @@ function collectCalls(files, definitions) {
                 const funcName = callee.name.text;
                 const libId = `library::${libName}::${funcName}`;
                 if (!libraryNodes.has(libId)) {
-                  libraryNodes.set(libId, { id: libId, name: funcName, file: null, line: 0, isLibrary: true, libraryName: libName, language: 'typescript' });
+                  libraryNodes.set(libId, { id: libId, name: funcName, file: null, line: 0, isLibrary: true, libraryName: libName, language: 'javascript' });
                 }
                 const key = `${callerId}|${libId}`;
                 if (!seenEdges.has(key)) {
@@ -288,11 +326,11 @@ function collectCalls(files, definitions) {
 
 function main() {
   if (process.argv.length < 3) {
-    process.stderr.write('Usage: analyze_ts.js <workspace_root>\n');
+    process.stderr.write('Usage: analyze_js.js <workspace_root>\n');
     process.exit(1);
   }
   const root = process.argv[2];
-  const files = collectTsFiles(root);
+  const files = collectJsFiles(root);
   const definitions = collectDefinitions(files);
   const { edges, libraryNodes } = collectCalls(files, definitions);
   const nodes = [...Object.values(definitions), ...libraryNodes];
@@ -302,5 +340,5 @@ function main() {
 main();
 
 if (typeof module !== 'undefined') {
-  module.exports = { collectTsFiles, collectDefinitions, collectCalls };
+  module.exports = { collectJsFiles, collectDefinitions, collectCalls };
 }

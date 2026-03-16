@@ -2,7 +2,7 @@
   "name": "cograph",
   "displayName": "CoGraph",
   "description": "Graph-based visualization of Python project call graphs",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "publisher": "thraenbe",
   "icon": "media/icon.png",
   "repository": {

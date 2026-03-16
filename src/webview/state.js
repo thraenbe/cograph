@@ -1,6 +1,6 @@
 const state = {
   graphData: null,
-  complexityLevel: 0.99,
+  complexityLevel: 1,
   importanceScores: null,
   clusterTimer: null,
   expandedClusters: new Set(),

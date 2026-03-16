@@ -135,7 +135,23 @@ export class GraphProvider {
         const { file, line, reqId } = message;
         try {
           const source = getFuncSource(file, line);
-          this.panel?.webview.postMessage({ type: 'func-source', source, reqId });
+          const endLine = line + source.split('\n').length - 1;
+          const ext = file.split('.').pop() ?? '';
+          const languageId = ext === 'py' ? 'python' : ext === 'js' ? 'javascript' : 'typescript';
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const colorize = (vscode.languages as any).colorize;
+          if (typeof colorize === 'function') {
+            colorize(source, languageId, { tabSize: 4 }).then(
+              (colorizedHtml: string) => {
+                this.panel?.webview.postMessage({ type: 'func-source', source, colorizedHtml, endLine, reqId });
+              },
+              () => {
+                this.panel?.webview.postMessage({ type: 'func-source', source, endLine, reqId });
+              }
+            );
+          } else {
+            this.panel?.webview.postMessage({ type: 'func-source', source, endLine, reqId });
+          }
         } catch (err: unknown) {
           this.panel?.webview.postMessage({ type: 'func-source', source: '', error: (err as Error).message, reqId });
         }

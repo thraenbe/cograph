@@ -470,13 +470,16 @@ suite('Message Handling', () => {
     assert.ok(url.includes('lodash'), 'URL should include the package name');
   });
 
-  test('get-func-source → reads file and posts func-source message', () => {
+  test('get-func-source → reads file and posts func-source message', async () => {
     const { fakePanel } = setupProvider();
 
     const filePath = path.join(tmpDir, 'hello.py');
     fs.writeFileSync(filePath, 'def hello():\n    return 1\n');
 
     fakePanel.sendMessage({ type: 'get-func-source', file: filePath, line: 1, reqId: 99 });
+
+    // colorize() may be async; wait a tick for the promise to resolve
+    await new Promise(r => setTimeout(r, 50));
 
     assert.ok(fakePanel.webview.postMessage.calledOnce, 'postMessage should be called');
     const msg = fakePanel.webview.postMessage.firstCall.args[0];

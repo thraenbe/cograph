@@ -9,6 +9,7 @@ interface GraphNode {
   id: string; name: string; file: string | null; line: number;
   language?: 'python' | 'typescript' | 'javascript'; gitStatus?: unknown;
   isLibrary?: boolean; libraryName?: string;
+  className?: string; classExtends?: string; classImplements?: string[];
 }
 interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; }
 interface GraphData { nodes: GraphNode[]; edges: GraphEdge[]; }

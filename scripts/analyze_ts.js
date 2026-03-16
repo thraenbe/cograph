@@ -61,7 +61,72 @@ function collectDefinitions(files) {
           const name = node.name.getText(sourceFile);
           const line = getLine(sourceFile, node);
           const id = `${filepath}::${name}::${line}`;
-          definitions[id] = { id, name, file: filepath, line, language: 'typescript' };
+          const classNode = node.parent;
+          const className = classNode.name?.text ?? '(anonymous)';
+          let classExtends;
+          const classImplements = [];
+          if (classNode.heritageClauses) {
+            for (const clause of classNode.heritageClauses) {
+              if (clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types.length) {
+                classExtends = clause.types[0].expression.getText(sourceFile);
+              } else if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
+                for (const t of clause.types) {
+                  classImplements.push(t.expression.getText(sourceFile));
+                }
+              }
+            }
+          }
+          const def = { id, name, file: filepath, line, language: 'typescript', className };
+          if (classExtends !== undefined) def.classExtends = classExtends;
+          if (classImplements.length) def.classImplements = classImplements;
+          definitions[id] = def;
+        } else if (ts.isConstructorDeclaration(node) && ts.isClassDeclaration(node.parent)) {
+          const line = getLine(sourceFile, node);
+          const classNode = node.parent;
+          const className = classNode.name?.text ?? '(anonymous)';
+          const id = `${filepath}::constructor::${line}`;
+          let classExtends;
+          const classImplements = [];
+          if (classNode.heritageClauses) {
+            for (const clause of classNode.heritageClauses) {
+              if (clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types.length) {
+                classExtends = clause.types[0].expression.getText(sourceFile);
+              } else if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
+                for (const t of clause.types) {
+                  classImplements.push(t.expression.getText(sourceFile));
+                }
+              }
+            }
+          }
+          const def = { id, name: 'constructor', file: filepath, line, language: 'typescript', className };
+          if (classExtends !== undefined) def.classExtends = classExtends;
+          if (classImplements.length) def.classImplements = classImplements;
+          definitions[id] = def;
+        } else if ((ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node))
+                   && ts.isClassDeclaration(node.parent) && node.name) {
+          const prefix = ts.isGetAccessorDeclaration(node) ? 'get ' : 'set ';
+          const name = prefix + node.name.getText(sourceFile);
+          const line = getLine(sourceFile, node);
+          const id = `${filepath}::${name}::${line}`;
+          const classNode = node.parent;
+          const className = classNode.name?.text ?? '(anonymous)';
+          let classExtends;
+          const classImplements = [];
+          if (classNode.heritageClauses) {
+            for (const clause of classNode.heritageClauses) {
+              if (clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types.length) {
+                classExtends = clause.types[0].expression.getText(sourceFile);
+              } else if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
+                for (const t of clause.types) {
+                  classImplements.push(t.expression.getText(sourceFile));
+                }
+              }
+            }
+          }
+          const def = { id, name, file: filepath, line, language: 'typescript', className };
+          if (classExtends !== undefined) def.classExtends = classExtends;
+          if (classImplements.length) def.classImplements = classImplements;
+          definitions[id] = def;
         } else if (ts.isVariableStatement(node)) {
           for (const decl of node.declarationList.declarations) {
             if (ts.isIdentifier(decl.name) && decl.initializer &&
@@ -200,6 +265,11 @@ function collectCalls(files, definitions) {
         } else if (ts.isMethodDeclaration(node) && ts.isClassDeclaration(node.parent) && node.name) {
           const line = getLine(sourceFile, node);
           callerId = `${filepath}::${node.name.getText(sourceFile)}::${line}`;
+        } else if ((ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node))
+                   && ts.isClassDeclaration(node.parent) && node.name) {
+          const prefix = ts.isGetAccessorDeclaration(node) ? 'get ' : 'set ';
+          const line = getLine(sourceFile, node);
+          callerId = `${filepath}::${prefix}${node.name.getText(sourceFile)}::${line}`;
         } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
                    (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
           const line = getLine(sourceFile, node);

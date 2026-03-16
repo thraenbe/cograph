@@ -67,13 +67,12 @@ const dom = makeDOM();
   gitMode: false,
   languageMode: false,
   hasFitted: false,
-  funcCardDragged: false,
-  funcCardX: 0, funcCardY: 0, funcCardW: 0, funcCardH: 0,
   complexityLevel: 0.99,
   expandedClusters: new Set(),
   clusterTimer: null,
-  activeFuncNode: null,
   activeLibNode: null,
+  funcPopups: new Map(),
+  funcPopupZCounter: 200,
 };
 (global as any).settings = {
   showOrphans: true, showLibraries: false, arrows: true,
@@ -92,6 +91,7 @@ const dom = makeDOM();
 (global as any).fitToView = () => {};
 (global as any).updateFuncHighlight = () => {};
 (global as any).updateSaveBtn = () => {};
+(global as any).highlightCode = () => '';
 
 // Load controls.js (attaches all event listeners to existing DOM elements)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -100,6 +100,10 @@ require('../../../src/webview/controls.js');
 // Also get applyResizeDelta for direct testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { applyResizeDelta } = require('../../../src/webview/controls.js');
+
+// Load popups.js factory for textarea handler tests
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { createFuncPopupInstance } = require('../../../src/webview/popups.js');
 
 // ---------------------------------------------------------------------------
 // Helper: dispatch a synthetic event on a DOM element
@@ -323,29 +327,33 @@ suite('Complexity slider', () => {
 // ---------------------------------------------------------------------------
 
 suite('Textarea keyboard handlers', () => {
-  test('Tab key in textarea → inserts \\t at cursor position', () => {
-    const ta = dom.window.document.getElementById('func-source-textarea') as any;
-    ta.value = 'hello world';
-    ta.selectionStart = 5;
-    ta.selectionEnd = 5;
+  const mockNode = { id: 'test-fn', name: 'testFunc', file: '/test.ts', line: 1, language: 'typescript' };
+  let inst: any;
 
-    const evt = dispatchKey(ta, 'keydown', 'Tab');
-    // In jsdom, preventDefault doesn't actually prevent default, but we can check value
-    // after the handler runs
-    assert.ok(ta.value.includes('\t') || evt.defaultPrevented, 'Tab should insert a tab character or be prevented');
+  setup(() => {
+    inst = createFuncPopupInstance(mockNode);
+    inst.textarea.readOnly = false;
   });
 
-  test('Ctrl+S in textarea → triggeres save (button click prevented default)', () => {
-    const ta = dom.window.document.getElementById('func-source-textarea')!;
-    const saveBtn = dom.window.document.getElementById('func-save-btn') as any;
-    saveBtn.disabled = false;
+  teardown(() => {
+    inst.element.remove();
+  });
 
+  test('Tab key in textarea → inserts \\t at cursor position', () => {
+    inst.textarea.value = 'hello world';
+    inst.textarea.selectionStart = 5;
+    inst.textarea.selectionEnd = 5;
+    const evt = dispatchKey(inst.textarea, 'keydown', 'Tab');
+    assert.ok(inst.textarea.value.includes('\t') || evt.defaultPrevented,
+      'Tab should insert a tab character or be prevented');
+  });
+
+  test('Ctrl+S in textarea → triggers save button click', () => {
+    inst.saveBtn.disabled = false;
     let saveCalled = false;
-    saveBtn.addEventListener('click', () => { saveCalled = true; });
-
-    const evt = dispatchKey(ta, 'keydown', 's', { ctrlKey: true });
-
-    // Either the save button was clicked or the event was prevented
-    assert.ok(saveCalled || evt.defaultPrevented, 'Ctrl+S should trigger save or prevent default');
+    inst.saveBtn.addEventListener('click', () => { saveCalled = true; });
+    const evt = dispatchKey(inst.textarea, 'keydown', 's', { ctrlKey: true });
+    assert.ok(saveCalled || evt.defaultPrevented,
+      'Ctrl+S should trigger save or prevent default');
   });
 });

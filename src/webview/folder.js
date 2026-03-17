@@ -448,7 +448,7 @@ function _folderCursor(mx, my, x, y, w, h) {
   if (nearR)          return 'e-resize';
   if (nearT)          return 'n-resize';
   if (nearB)          return 's-resize';
-  return 'default';   // interior — no drag action
+  return 'grab';   // interior — pan the view
 }
 
 // ── Hover cursor handlers (attached via .on('mousemove', ...)) ────────────────
@@ -565,10 +565,16 @@ function createFolderDrag() {
 // Resize drag — attached to the shape; activates only on border zone
 function createFolderResizeDrag() {
   return d3.drag()
+    .filter(function(event) {
+      const el = d3.select(this);
+      const x = +el.attr('x'), y = +el.attr('y');
+      const w = +el.attr('width'), h = +el.attr('height');
+      const [mx, my] = d3.pointer(event, this);
+      return Math.min(mx - x, (x + w) - mx, my - y, (y + h) - my) < INTERACT_EDGE_PX;
+    })
     .on('start', function(event, d) {
       const x = +d3.select(this).attr('x'), y = +d3.select(this).attr('y');
       const w = +d3.select(this).attr('width'), h = +d3.select(this).attr('height');
-      if (Math.min(event.x - x, (x + w) - event.x, event.y - y, (y + h) - event.y) >= INTERACT_EDGE_PX) return;
       const cx = x + w / 2, cy = y + h / 2;
       d._resizeCenter = { x: cx, y: cy };
       d._resizeStartDist = Math.hypot(event.x - cx, event.y - cy) || 1;

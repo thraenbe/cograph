@@ -159,6 +159,8 @@ export class GraphProvider {
         const { file, line, newSource } = message;
         try {
           saveFuncSource(file, line, newSource);
+          this.refreshGitStatus(workspaceRoot);
+          this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         } catch (err: unknown) {
           vscode.window.showErrorMessage(`CoGraph: Failed to save — ${(err as Error).message}`);
         }

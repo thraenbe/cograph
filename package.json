@@ -24,7 +24,7 @@
     "graph"
   ],
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.46.0"
   },
   "categories": [
     "Visualization",

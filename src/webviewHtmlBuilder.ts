@@ -81,7 +81,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
   const controlsUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'controls.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
-  const nonce = crypto.randomUUID();
+  const nonce = crypto.randomBytes(16).toString('hex');
 
   return `<!DOCTYPE html>
 <html lang="en">

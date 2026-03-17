@@ -17,7 +17,7 @@ defs.append('marker')
   .attr('orient', 'auto')
   .append('path')
   .attr('d', 'M0,-5L10,0L0,5')
-  .attr('fill', 'rgba(160,160,160,0.6)');
+  .attr('fill', 'context-stroke');
 
 // Default glow filter
 const glowFilter = defs.append('filter')

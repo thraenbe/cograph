@@ -30,6 +30,11 @@ document.getElementById('toggle-libraries')?.addEventListener('change', (e) => {
   applyComplexity();
 });
 
+document.getElementById('toggle-empty-files')?.addEventListener('change', (e) => {
+  settings.showEmptyFiles = e.target.checked;
+  applyComplexity();
+});
+
 // ── Display controls ──────────────────────────────────────────────────────────
 document.getElementById('toggle-arrows')?.addEventListener('change', (e) => {
   settings.arrows = e.target.checked;

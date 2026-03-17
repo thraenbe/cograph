@@ -29,4 +29,5 @@ const state = {
   libDescRequestId: 0,
   funcPopups: new Map(),
   funcPopupZCounter: 200,
+  allScannedFiles: [],
 };

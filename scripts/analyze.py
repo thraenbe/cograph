@@ -218,7 +218,8 @@ def main():
             edges.append({'source': MAIN_NODE_ID, 'target': ep_id})
 
     nodes.extend(library_nodes)
-    print(json.dumps({'nodes': nodes, 'edges': edges}))
+    all_files = [os.path.join(dp, f) for dp, _, fs in os.walk(root) for f in fs if f.endswith('.py')]
+    print(json.dumps({'nodes': nodes, 'edges': edges, 'files': all_files}))
 
 
 if __name__ == '__main__':

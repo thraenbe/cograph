@@ -5,6 +5,7 @@ const settings = {
   existingFilesOnly: false,
   showOrphans: true,
   showLibraries: true,
+  showEmptyFiles: false,
   groupByFile: false,
   arrows: true,
   textFadeThreshold: 0.5,
@@ -244,6 +245,7 @@ window.addEventListener('message', (event) => {
     const gitPanel = document.getElementById('panel-git');
     if (gitPanel) gitPanel.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
+    state.allScannedFiles = message.data.files ?? [];
     renderGraph(message.data, message.isReanalysis);
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     return;

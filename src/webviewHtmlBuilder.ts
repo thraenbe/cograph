@@ -185,6 +185,10 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <span>Show Libraries</span>
         <label class="switch"><input type="checkbox" id="toggle-libraries" checked /><span class="pill"></span></label>
       </div>
+      <div class="toggle-row">
+        <span>Show Empty Files</span>
+        <label class="switch"><input type="checkbox" id="toggle-empty-files" /><span class="pill"></span></label>
+      </div>
     </div>
 
     <div class="panel-section">

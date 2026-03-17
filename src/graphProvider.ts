@@ -101,7 +101,7 @@ export class GraphProvider {
     });
 
     const gitIndexWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(vscode.workspace.workspaceFolders![0], '.git/index')
+      new vscode.RelativePattern(vscode.Uri.file(workspaceRoot), '.git/index')
     );
     gitIndexWatcher.onDidChange(scheduleRefresh);
     gitIndexWatcher.onDidCreate(scheduleRefresh);

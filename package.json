@@ -2,7 +2,7 @@
   "name": "cograph",
   "displayName": "CoGraph",
   "description": "Interactive call graph visualization for Python, TypeScript, and JavaScript projects",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "publisher": "thraenbe",
   "icon": "media/icon.png",
   "repository": {
@@ -60,7 +60,7 @@
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.0.0",
     "@types/sinon": "^17.0.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.46.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.0",

@@ -24,7 +24,7 @@
     "graph"
   ],
   "engines": {
-    "vscode": "^1.46.0"
+    "vscode": "^1.64.0"
   },
   "categories": [
     "Visualization",
@@ -60,7 +60,7 @@
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.0.0",
     "@types/sinon": "^17.0.0",
-    "@types/vscode": "^1.46.0",
+    "@types/vscode": "^1.64.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.0",

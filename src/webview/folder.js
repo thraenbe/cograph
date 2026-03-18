@@ -448,7 +448,7 @@ function _folderCursor(mx, my, x, y, w, h) {
   if (nearR)          return 'e-resize';
   if (nearT)          return 'n-resize';
   if (nearB)          return 's-resize';
-  return 'grab';   // interior — pan the view
+  return 'default';   // interior — no drag action
 }
 
 // ── Hover cursor handlers (attached via .on('mousemove', ...)) ────────────────

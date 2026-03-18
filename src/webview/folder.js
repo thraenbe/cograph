@@ -233,6 +233,12 @@ function tickFolderOverlay() {
   const fileCircleMap = new Map();          // filePath -> { cx, cy, r }
 
   state.svgFileCircles.each(function(d) {
+    // ── guard: hide this file circle if its folder is hidden ──────────────────
+    const _ffp = pathDirname(d.filePath);
+    const _inHidden = (folder) => _ffp === folder || _ffp.startsWith(folder + '/') || _ffp.startsWith(folder + '\\');
+    if (state.onlyShowFolder && !_inHidden(state.onlyShowFolder)) { d3.select(this).style('display', 'none'); return; }
+    for (const hf of state.hiddenFolders) { if (_inHidden(hf)) { d3.select(this).style('display', 'none'); return; } }
+    // ─────────────────────────────────────────────────────────────────────────
     const langColor = getLanguageColor(d.lang) ?? '#888888';   // global from colors.js
     const points = d.nodes
       .filter(n => visibleIds.has(n.id) && n.x != null && n.y != null)

@@ -49,8 +49,8 @@ defs.append('symbol')
 // Transform groups
 const g = svg.append('g');
 const folderG = g.append('g').attr('class', 'folder-bubbles');
-const classG  = g.append('g').attr('class', 'class-bubbles');
 const fileG   = g.append('g').attr('class', 'file-circles');
+const classG  = g.append('g').attr('class', 'class-bubbles');
 const linkG = g.append('g').attr('class', 'links');
 const nodeG = g.append('g').attr('class', 'nodes');
 const labelG = g.append('g').attr('class', 'labels');

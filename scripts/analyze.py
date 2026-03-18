@@ -19,26 +19,22 @@ import sys
 def collect_definitions(root: str) -> dict[str, dict]:
     """Walk all .py files and collect function definitions keyed by qualified id."""
     definitions = {}
-    for dirpath, _, filenames in os.walk(root):
-        for filename in filenames:
-            if not filename.endswith('.py'):
-                continue
-            filepath = os.path.join(dirpath, filename)
-            try:
-                source = open(filepath, encoding='utf-8', errors='ignore').read()
-                tree = ast.parse(source, filename=filepath)
-            except SyntaxError:
-                continue
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    qualified_id = f"{filepath}::{node.name}::{node.lineno}"
-                    definitions[qualified_id] = {
-                        'id': qualified_id,
-                        'name': node.name,
-                        'file': filepath,
-                        'line': node.lineno,
-                        'language': 'python',
-                    }
+    for filepath in _walk_py_files(root):
+        try:
+            source = open(filepath, encoding='utf-8', errors='ignore').read()
+            tree = ast.parse(source, filename=filepath)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qualified_id = f"{filepath}::{node.name}::{node.lineno}"
+                definitions[qualified_id] = {
+                    'id': qualified_id,
+                    'name': node.name,
+                    'file': filepath,
+                    'line': node.lineno,
+                    'language': 'python',
+                }
     return definitions
 
 
@@ -70,45 +66,41 @@ def collect_calls(root: str, definitions: dict) -> tuple[list[dict], list[dict]]
     seen_edges: set[tuple[str, str]] = set()
     library_nodes: dict[str, dict] = {}
 
-    for dirpath, _, filenames in os.walk(root):
-        for filename in filenames:
-            if not filename.endswith('.py'):
-                continue
-            filepath = os.path.join(dirpath, filename)
-            try:
-                source = open(filepath, encoding='utf-8', errors='ignore').read()
-                tree = ast.parse(source, filename=filepath)
-            except SyntaxError:
-                continue
+    for filepath in _walk_py_files(root):
+        try:
+            source = open(filepath, encoding='utf-8', errors='ignore').read()
+            tree = ast.parse(source, filename=filepath)
+        except SyntaxError:
+            continue
 
-            import_map = collect_import_map(tree)
+        import_map = collect_import_map(tree)
 
-            for func_node in ast.walk(tree):
-                if not isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        for func_node in ast.walk(tree):
+            if not isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            caller_id = f"{filepath}::{func_node.name}::{func_node.lineno}"
+            if caller_id not in definitions:
+                continue
+            for child in ast.walk(func_node):
+                if not isinstance(child, ast.Call):
                     continue
-                caller_id = f"{filepath}::{func_node.name}::{func_node.lineno}"
-                if caller_id not in definitions:
-                    continue
-                for child in ast.walk(func_node):
-                    if not isinstance(child, ast.Call):
-                        continue
-                    callee_name = _bare_name(child.func) or _method_name(child.func)
-                    if callee_name and callee_name in name_to_ids:
-                        for callee_id in name_to_ids[callee_name]:
-                            key = (caller_id, callee_id)
-                            if key not in seen_edges and caller_id != callee_id:
-                                seen_edges.add(key)
-                                edges.append({'source': caller_id, 'target': callee_id})
-                    # Detect bare-name library calls: foo() where foo is an imported name
-                    if isinstance(child.func, ast.Name):
-                        name = child.func.id
-                        if name in import_map and name not in name_to_ids:
-                            _emit_library_edge(caller_id, import_map[name], name, library_nodes, seen_edges, edges)
-                    # Detect attribute library calls: np.array() where np is an imported name
-                    elif isinstance(child.func, ast.Attribute) and isinstance(child.func.value, ast.Name):
-                        obj_name = child.func.value.id
-                        if obj_name in import_map and obj_name not in name_to_ids:
-                            _emit_library_edge(caller_id, import_map[obj_name], child.func.attr, library_nodes, seen_edges, edges)
+                callee_name = _bare_name(child.func) or _method_name(child.func)
+                if callee_name and callee_name in name_to_ids:
+                    for callee_id in name_to_ids[callee_name]:
+                        key = (caller_id, callee_id)
+                        if key not in seen_edges and caller_id != callee_id:
+                            seen_edges.add(key)
+                            edges.append({'source': caller_id, 'target': callee_id})
+                # Detect bare-name library calls: foo() where foo is an imported name
+                if isinstance(child.func, ast.Name):
+                    name = child.func.id
+                    if name in import_map and name not in name_to_ids:
+                        _emit_library_edge(caller_id, import_map[name], name, library_nodes, seen_edges, edges)
+                # Detect attribute library calls: np.array() where np is an imported name
+                elif isinstance(child.func, ast.Attribute) and isinstance(child.func.value, ast.Name):
+                    obj_name = child.func.value.id
+                    if obj_name in import_map and obj_name not in name_to_ids:
+                        _emit_library_edge(caller_id, import_map[obj_name], child.func.attr, library_nodes, seen_edges, edges)
     return edges, list(library_nodes.values())
 
 
@@ -144,6 +136,18 @@ def _method_name(node: ast.expr) -> str | None:
     return node.attr
 
 
+SKIP_DIR_NAMES = frozenset({'node_modules', 'out', 'dist', '__pycache__'})
+
+
+def _walk_py_files(root: str):
+    """Yield .py file paths, skipping hidden directories and common non-source dirs."""
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith('.') and d not in SKIP_DIR_NAMES]
+        for filename in filenames:
+            if filename.endswith('.py'):
+                yield os.path.join(dirpath, filename)
+
+
 MAIN_NODE_ID = '::MAIN::0'
 
 
@@ -155,23 +159,19 @@ def collect_entry_points(root: str, definitions: dict) -> list[str]:
 
     found: set[str] = set()
 
-    for dirpath, _, filenames in os.walk(root):
-        for filename in filenames:
-            if not filename.endswith('.py'):
-                continue
-            filepath = os.path.join(dirpath, filename)
-            try:
-                source = open(filepath, encoding='utf-8', errors='ignore').read()
-                tree = ast.parse(source, filename=filepath)
-            except SyntaxError:
-                continue
+    for filepath in _walk_py_files(root):
+        try:
+            source = open(filepath, encoding='utf-8', errors='ignore').read()
+            tree = ast.parse(source, filename=filepath)
+        except SyntaxError:
+            continue
 
-            for node in tree.body:
-                if _is_main_guard(node):
-                    for stmt in node.body:
-                        _collect_calls_in_stmt(stmt, name_to_ids, found)
-                elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-                    _collect_calls_in_stmt(node, name_to_ids, found)
+        for node in tree.body:
+            if _is_main_guard(node):
+                for stmt in node.body:
+                    _collect_calls_in_stmt(stmt, name_to_ids, found)
+            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                _collect_calls_in_stmt(node, name_to_ids, found)
 
     return list(found)
 
@@ -218,7 +218,7 @@ def main():
             edges.append({'source': MAIN_NODE_ID, 'target': ep_id})
 
     nodes.extend(library_nodes)
-    all_files = [os.path.join(dp, f) for dp, _, fs in os.walk(root) for f in fs if f.endswith('.py')]
+    all_files = list(_walk_py_files(root))
     print(json.dumps({'nodes': nodes, 'edges': edges, 'files': all_files}))
 
 

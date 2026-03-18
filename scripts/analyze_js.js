@@ -27,7 +27,7 @@ function collectJsFiles(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIP_DIR_NAMES.has(entry.name)) walk(full);
+        if (!SKIP_DIR_NAMES.has(entry.name) && !entry.name.startsWith('.')) walk(full);
       } else if (entry.isFile() && JS_EXTENSIONS.has(path.extname(entry.name))) {
         results.push(full);
       }

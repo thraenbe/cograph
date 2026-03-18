@@ -16,6 +16,7 @@ const settings = {
   repelForce: 350,
   linkForce: 1,
   linkDistance: 40,
+  openFunctionPopup: true,
 };
 
 // ── Layout mode toggle ────────────────────────────────────────────────────────

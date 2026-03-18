@@ -235,6 +235,14 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
       </div>
     </div>
 
+    <div class="panel-section">
+      <h4>Configuration</h4>
+      <div class="toggle-row">
+        <span>Open Function Popup</span>
+        <label class="switch"><input type="checkbox" id="toggle-func-popup" checked /><span class="pill"></span></label>
+      </div>
+    </div>
+
   </div>
   <div id="lib-doc-popup">
     <div id="lib-doc-card">

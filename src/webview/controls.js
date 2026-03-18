@@ -35,6 +35,11 @@ document.getElementById('toggle-empty-files')?.addEventListener('change', (e) =>
   applyComplexity();
 });
 
+// ── Configuration controls ────────────────────────────────────────────────────
+document.getElementById('toggle-func-popup')?.addEventListener('change', (e) => {
+  settings.openFunctionPopup = e.target.checked;
+});
+
 // ── Display controls ──────────────────────────────────────────────────────────
 document.getElementById('toggle-arrows')?.addEventListener('change', (e) => {
   settings.arrows = e.target.checked;

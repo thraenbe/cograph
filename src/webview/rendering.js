@@ -283,7 +283,11 @@ function renderNodes(visibleSet) {
         applyComplexity();
         return;
       }
-      showFuncPopup(d);
+      if (settings.openFunctionPopup) {
+        showFuncPopup(d);
+      } else if (d.file && d.line > 0) {
+        vscode.postMessage({ type: 'navigate', file: d.file, line: d.line });
+      }
     })
     .on('mouseover', onNodeMouseOver)
     .on('mouseout', onNodeMouseOut);

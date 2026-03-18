@@ -221,10 +221,10 @@ export class GraphProvider {
 
   private async navigateTo(file: string, line: number) {
     const doc = await vscode.workspace.openTextDocument(file);
-    const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+    const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
     const position = new vscode.Position(line - 1, 0);
     editor.selection = new vscode.Selection(position, position);
-    editor.revealRange(new vscode.Range(position, position));
+    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
   }
 
   // ── Thin delegates kept for test compatibility ────────────────────────────

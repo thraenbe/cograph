@@ -260,6 +260,27 @@ function tickFolderOverlay() {
     }
     d3.select(this).style('display', null);
 
+    if (state.classMode) {
+      const CLASS_PAD = 20; // matches CLASS_PADDING in class.js
+      const classPtsMap = new Map();
+      d.nodes
+        .filter(n => visibleIds.has(n.id) && n.x != null && n.y != null && n.className)
+        .forEach(n => {
+          if (!classPtsMap.has(n.className)) classPtsMap.set(n.className, []);
+          classPtsMap.get(n.className).push({ x: n.x, y: n.y, r: nodeRadius(n) });
+        });
+      classPtsMap.forEach(cPts => {
+        const cbc = boundingCircle(cPts);
+        const hw = cbc.r + CLASS_PAD;
+        points.push(
+          { x: cbc.cx - hw, y: cbc.cy - hw },
+          { x: cbc.cx + hw, y: cbc.cy - hw },
+          { x: cbc.cx + hw, y: cbc.cy + hw },
+          { x: cbc.cx - hw, y: cbc.cy + hw },
+        );
+      });
+    }
+
     const bc = boundingCircle(points);
     bc.r = Math.max(bc.r + FILE_PADDING, 30);                  // B6: minimum radius
     fileCircleMap.set(d.filePath, bc);

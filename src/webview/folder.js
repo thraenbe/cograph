@@ -210,11 +210,17 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
     .on('contextmenu', (event, d) => {
       event.preventDefault();
       event.stopPropagation();
-      showContextMenu(event, [
-        { label: 'Rename',           action: () => {} },
-        { label: 'New file',         action: () => {} },
-        { label: 'Only show Folder', action: () => {} },
-      ]);
+      const items = [
+        { label: `${d.shortName} (Folder)`, isHeader: true },
+        { label: 'Rename',           action: () => vscode.postMessage({ type: 'request-rename-folder', folderPath: d.folderPath }) },
+        { label: 'New File',         action: () => vscode.postMessage({ type: 'request-new-file',      folderPath: d.folderPath }) },
+        { label: 'Hide Folder',      action: () => { state.hiddenFolders.add(d.folderPath); applyFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Only Show Folder', action: () => { state.onlyShowFolder = d.folderPath; applyFilters(); ticked(); updateFolderPanel(); } },
+      ];
+      if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
+        items.push({ label: 'Show All Folders', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); ticked(); updateFolderPanel(); } });
+      }
+      showContextMenu(event, items);
     });
 }
 
@@ -629,11 +635,15 @@ function showContextMenu(event, items) {
   const menu = document.getElementById('ctx-menu');
   const list = document.getElementById('ctx-menu-list');
   if (!menu || !list) return;
+  const actionItems = items.filter(item => !item.isHeader);
+  let actionIdx = 0;
   list.innerHTML = items
-    .map((item, i) => `<li class="ctx-menu-item" data-idx="${i}">${item.label}</li>`)
+    .map(item => item.isHeader
+      ? `<li class="ctx-menu-header">${item.label}</li>`
+      : `<li class="ctx-menu-item" data-idx="${actionIdx++}">${item.label}</li>`)
     .join('');
   list.querySelectorAll('.ctx-menu-item').forEach((li, i) => {
-    li.addEventListener('click', e => { e.stopPropagation(); items[i].action(); hideContextMenu(); });
+    li.addEventListener('click', e => { e.stopPropagation(); actionItems[i].action(); hideContextMenu(); });
   });
   menu.style.left    = event.pageX + 'px';
   menu.style.top     = event.pageY + 'px';

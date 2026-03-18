@@ -158,6 +158,11 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     </div>
     <div id="panel-folder" class="tl-panel">
       <button id="btn-folder-mode" class="tl-btn active" title="Toggle folder/file structure overlay">Folder</button>
+      <div class="tl-legend-header" id="toggle-folder-filters">
+        <span>Filters</span>
+        <span class="tl-chevron collapsed">▾</span>
+      </div>
+      <div class="tl-legend" id="folder-filters-body" style="display:none"></div>
     </div>
     <div id="panel-class" class="tl-panel">
       <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>

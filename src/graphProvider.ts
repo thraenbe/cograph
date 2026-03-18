@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 
 export { MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from './analyzerRunner';
 
@@ -116,7 +117,7 @@ export class GraphProvider {
       this.cachedNodes = [];
     });
 
-    this.panel.webview.onDidReceiveMessage((message) => {
+    this.panel.webview.onDidReceiveMessage(async (message) => {
       if (message.type === 'navigate') {
         this.navigateTo(message.file, message.line);
       } else if (message.type === 'open-docs') {
@@ -163,6 +164,31 @@ export class GraphProvider {
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         } catch (err: unknown) {
           vscode.window.showErrorMessage(`CoGraph: Failed to save — ${(err as Error).message}`);
+        }
+      } else if (message.type === 'request-rename-folder') {
+        const { folderPath } = message;
+        const newName = await vscode.window.showInputBox({
+          prompt: 'Rename folder',
+          value: path.basename(folderPath),
+          validateInput: v => v.trim() ? null : 'Name cannot be empty',
+        });
+        if (newName?.trim() && newName !== path.basename(folderPath)) {
+          const newFolderUri = vscode.Uri.file(path.join(path.dirname(folderPath), newName.trim()));
+          await vscode.workspace.fs.rename(vscode.Uri.file(folderPath), newFolderUri);
+          this.analyzerRunner.scheduleReanalysis(workspaceRoot);
+        }
+      } else if (message.type === 'request-new-file') {
+        const { folderPath } = message;
+        const fileName = await vscode.window.showInputBox({
+          prompt: 'New file name',
+          placeHolder: 'e.g. utils.py',
+          validateInput: v => v.trim() ? null : 'Name cannot be empty',
+        });
+        if (fileName?.trim()) {
+          const fileUri = vscode.Uri.file(path.join(folderPath, fileName.trim()));
+          await vscode.workspace.fs.writeFile(fileUri, new Uint8Array());
+          await vscode.window.showTextDocument(fileUri);
+          this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
       }
     });

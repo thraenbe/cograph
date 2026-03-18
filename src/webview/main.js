@@ -54,6 +54,14 @@ function getVisibleNodeIds() {
       if (!n.file || !n.line || n.line <= 0) return;
     }
     if (!settings.showOrphans && !state.connectedNodeIds.has(n.id)) return;
+    if (n.file && !n.isLibrary && !n.isCluster && !n.isSynthetic) {
+      const nf = pathDirname(n.file);
+      const inside = (folder) => nf === folder || nf.startsWith(folder + '/') || nf.startsWith(folder + '\\');
+      if (state.onlyShowFolder && !inside(state.onlyShowFolder)) return;
+      for (const hf of state.hiddenFolders) {
+        if (inside(hf)) return;
+      }
+    }
     visible.add(n.id);
   });
   return visible;

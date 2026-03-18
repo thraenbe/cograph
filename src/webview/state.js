@@ -30,4 +30,6 @@ const state = {
   funcPopups: new Map(),
   funcPopupZCounter: 200,
   allScannedFiles: [],
+  hiddenFolders: new Set(),
+  onlyShowFolder: null,
 };

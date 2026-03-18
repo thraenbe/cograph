@@ -41,6 +41,10 @@ suite('collectTsFiles', () => {
     // myoutput/extra.ts → INCLUDED (name contains "out" but != "out")
     fs.mkdirSync(path.join(tmpDir, 'myoutput'));
     fs.writeFileSync(path.join(tmpDir, 'myoutput', 'extra.ts'), '');
+
+    // hidden dirs → excluded
+    fs.mkdirSync(path.join(tmpDir, '.vscode-test', 'vscode'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.vscode-test', 'vscode', 'index.ts'), '');
   });
 
   teardown(() => {
@@ -101,6 +105,14 @@ suite('collectTsFiles', () => {
     assert.ok(
       files.some(f => f.endsWith(path.join('myoutput', 'extra.ts'))),
       'myoutput/extra.ts should be included — "myoutput" != "out"'
+    );
+  });
+
+  test('excludes hidden directories (starting with ".")', () => {
+    const files: string[] = collectTsFiles(tmpDir);
+    assert.ok(
+      !files.some(f => f.includes('.vscode-test')),
+      '.vscode-test should be excluded'
     );
   });
 });

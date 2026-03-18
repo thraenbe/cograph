@@ -34,6 +34,12 @@ suite('collectJsFiles', () => {
     // myoutput dir — name contains "out" but is NOT equal to "out"
     fs.mkdirSync(path.join(tmpDir, 'myoutput'));
     fs.writeFileSync(path.join(tmpDir, 'myoutput', 'extra.js'), '');
+
+    // hidden dirs — should be excluded
+    fs.mkdirSync(path.join(tmpDir, '.vscode-test', 'vscode', 'resources'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.vscode-test', 'vscode', 'resources', 'index.js'), '// minified bundle');
+    fs.mkdirSync(path.join(tmpDir, '.git'));
+    fs.writeFileSync(path.join(tmpDir, '.git', 'hook.js'), '');
   });
 
   teardown(() => {
@@ -78,6 +84,12 @@ suite('collectJsFiles', () => {
   test('does NOT exclude directory whose name contains "out" but != "out"', () => {
     const files: string[] = collectJsFiles(tmpDir);
     assert.ok(files.some(f => f.endsWith(path.join('myoutput', 'extra.js'))));
+  });
+
+  test('excludes hidden directories (starting with ".")', () => {
+    const files: string[] = collectJsFiles(tmpDir);
+    assert.ok(!files.some(f => f.includes('.vscode-test')), '.vscode-test should be excluded');
+    assert.ok(!files.some(f => f.includes(path.sep + '.git' + path.sep)), '.git should be excluded');
   });
 });
 

@@ -1,6 +1,10 @@
 import * as cp from 'child_process';
 import * as path from 'path';
 
+function toFwdSlash(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 interface GraphNode {
   id: string;
   name: string;
@@ -23,7 +27,7 @@ export class GitService {
       for (const entry of out.split('\0').filter((e: string) => e.length >= 4 && /^[A-Z? ][A-Z? ] /.test(e))) {
         const X = entry[0], Y = entry[1];
         const rel = entry.slice(3);
-        const abs = path.join(workspaceRoot, rel);
+        const abs = toFwdSlash(path.join(workspaceRoot, rel));
         let unstaged: 'added'|'modified'|'deleted'|null = null;
         if (X === '?' && Y === '?') { unstaged = 'added'; }
         else if (Y === 'M') { unstaged = 'modified'; }
@@ -51,7 +55,7 @@ export class GitService {
       let currentFile: string | null = null;
       for (const line of out.split('\n')) {
         if (line.startsWith('+++ b/')) {
-          currentFile = path.join(workspaceRoot, line.slice(6).trimEnd());
+          currentFile = toFwdSlash(path.join(workspaceRoot, line.slice(6).trimEnd()));
           if (!map.has(currentFile)) { map.set(currentFile, []); }
         } else if (line.startsWith('@@') && currentFile) {
           const m = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
@@ -87,7 +91,7 @@ export class GitService {
 
     for (const node of nodes) {
       if (!node.file) continue;
-      const fileStatus = gitMap.get(node.file);
+      const fileStatus = gitMap.get(toFwdSlash(node.file));
       if (!fileStatus) { node.gitStatus = { unstaged: null, staged: null }; continue; }
       if (fileStatus.unstaged === 'added' || fileStatus.unstaged === 'deleted') {
         node.gitStatus = fileStatus; continue;
@@ -103,8 +107,8 @@ export class GitService {
         return defLineIsNew ? 'added' : 'modified';
       };
       node.gitStatus = {
-        unstaged: hunkStatus(unstagedDiff.get(node.file) ?? []),
-        staged:   hunkStatus(stagedDiff.get(node.file)   ?? []),
+        unstaged: hunkStatus(unstagedDiff.get(toFwdSlash(node.file)) ?? []),
+        staged:   hunkStatus(stagedDiff.get(toFwdSlash(node.file))   ?? []),
       };
     }
     return true;

@@ -12,7 +12,7 @@ interface GraphNode {
   className?: string; classExtends?: string; classImplements?: string[];
 }
 interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; }
-interface GraphData { nodes: GraphNode[]; edges: GraphEdge[]; }
+interface GraphData { nodes: GraphNode[]; edges: GraphEdge[]; files?: string[]; }
 
 export class AnalyzerRunner {
   private activeProcs: cp.ChildProcess[] = [];
@@ -58,6 +58,7 @@ export class AnalyzerRunner {
       const merged: GraphData = {
         nodes: [...pyGraph.nodes, ...tsGraph.nodes, ...jsGraph.nodes],
         edges: [...pyGraph.edges, ...tsGraph.edges, ...jsGraph.edges],
+        files: [...(pyGraph.files ?? []), ...(tsGraph.files ?? []), ...(jsGraph.files ?? [])],
       };
       this.onResult(JSON.stringify(merged), workspaceRoot);
     });
@@ -123,7 +124,7 @@ export class AnalyzerRunner {
   }
 
   private spawnAnalyzerProcess(bin: string, args: string[], fatal: boolean): Promise<GraphData> {
-    const empty: GraphData = { nodes: [], edges: [] };
+    const empty: GraphData = { nodes: [], edges: [], files: [] };
     return new Promise((resolve) => {
       let proc: cp.ChildProcess;
       try {

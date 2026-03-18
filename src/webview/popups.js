@@ -203,6 +203,14 @@ function createFuncPopupInstance(d) {
   saveBtn.addEventListener('click', () => {
     const node = inst.node;
     if (!node || textarea.readOnly) return;
+
+    // Optimistically mark as modified so the node color updates immediately
+    if (state.gitMode && node.gitStatus?.unstaged !== 'added') {
+      if (!node.gitStatus) { node.gitStatus = { unstaged: null, staged: null }; }
+      node.gitStatus = { unstaged: 'modified', staged: node.gitStatus.staged ?? null };
+      applyGitColors();
+    }
+
     vscode.postMessage({ type: 'save-func-source', file: node.file, line: node.line, newSource: textarea.value });
     closeFuncPopupInstance(inst);
   });

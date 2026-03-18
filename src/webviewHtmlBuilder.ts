@@ -81,7 +81,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
   const controlsUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'controls.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
-  const nonce = crypto.randomUUID();
+  const nonce = crypto.randomBytes(16).toString('hex');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -158,6 +158,11 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     </div>
     <div id="panel-folder" class="tl-panel">
       <button id="btn-folder-mode" class="tl-btn active" title="Toggle folder/file structure overlay">Folder</button>
+      <div class="tl-legend-header" id="toggle-folder-filters">
+        <span>Filters</span>
+        <span class="tl-chevron collapsed">▾</span>
+      </div>
+      <div class="tl-legend" id="folder-filters-body" style="display:none"></div>
     </div>
     <div id="panel-class" class="tl-panel">
       <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
@@ -185,23 +190,10 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <span>Show Libraries</span>
         <label class="switch"><input type="checkbox" id="toggle-libraries" checked /><span class="pill"></span></label>
       </div>
-    </div>
-
-    <div class="panel-section">
-      <h4>Groups</h4>
-      <div class="toggle-row stub" title="Coming soon">
-        <span>Group by File Structure</span>
-        <label class="switch"><input type="checkbox" id="toggle-group-file" disabled /><span class="pill"></span></label>
+      <div class="toggle-row">
+        <span>Show Empty Files</span>
+        <label class="switch"><input type="checkbox" id="toggle-empty-files" /><span class="pill"></span></label>
       </div>
-      <div class="toggle-row stub" title="Coming soon">
-        <span>Group by Inheritance</span>
-        <label class="switch"><input type="checkbox" id="toggle-group-inherit" disabled /><span class="pill"></span></label>
-      </div>
-      <div class="toggle-row stub" title="Coming soon">
-        <span>Group by Flow (L&#8594;R)</span>
-        <label class="switch"><input type="checkbox" id="toggle-group-flow" disabled /><span class="pill"></span></label>
-      </div>
-      <button id="btn-new-group" class="stub" disabled>+ Create new Group</button>
     </div>
 
     <div class="panel-section">
@@ -245,6 +237,14 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
       <div class="slider-row">
         <div class="slider-header"><label for="slider-link-distance">Link Distance</label><span id="val-link-distance">40</span></div>
         <input type="range" id="slider-link-distance" min="10" max="80" step="5" value="40" />
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h4>Configuration</h4>
+      <div class="toggle-row">
+        <span>Open Function Popup</span>
+        <label class="switch"><input type="checkbox" id="toggle-func-popup" checked /><span class="pill"></span></label>
       </div>
     </div>
 

@@ -30,6 +30,16 @@ document.getElementById('toggle-libraries')?.addEventListener('change', (e) => {
   applyComplexity();
 });
 
+document.getElementById('toggle-empty-files')?.addEventListener('change', (e) => {
+  settings.showEmptyFiles = e.target.checked;
+  applyComplexity();
+});
+
+// ── Configuration controls ────────────────────────────────────────────────────
+document.getElementById('toggle-func-popup')?.addEventListener('change', (e) => {
+  settings.openFunctionPopup = e.target.checked;
+});
+
 // ── Display controls ──────────────────────────────────────────────────────────
 document.getElementById('toggle-arrows')?.addEventListener('change', (e) => {
   settings.arrows = e.target.checked;
@@ -69,6 +79,7 @@ function wireLegendToggle(headerId, bodyId) {
 }
 wireLegendToggle('toggle-detail-legend', 'detail-legend-body');
 wireLegendToggle('toggle-git-legend', 'git-legend-body');
+wireLegendToggle('toggle-folder-filters', 'folder-filters-body');
 
 // ── Git mode toggle ───────────────────────────────────────────────────────────
 function setGitLegendVisible(visible) {
@@ -111,6 +122,57 @@ document.getElementById('btn-folder-mode')?.addEventListener('click', () => {
   document.getElementById('btn-folder-mode')?.classList.toggle('active', state.folderMode);
   applyComplexity();
 });
+
+function updateFolderPanel() {
+  const body = document.getElementById('folder-filters-body');
+  if (!body) return;
+
+  const hasFilters = state.onlyShowFolder || state.hiddenFolders.size > 0;
+
+  if (hasFilters) {
+    body.style.display = '';
+    document.querySelector('#toggle-folder-filters .tl-chevron')?.classList.remove('collapsed');
+  }
+
+  if (!hasFilters) {
+    body.innerHTML = '<div class="folder-filter-empty">No active filters</div>';
+    return;
+  }
+
+  const rows = [];
+  if (state.onlyShowFolder) {
+    rows.push(`
+      <div class="folder-filter-row">
+        <span class="folder-filter-icon">◎</span>
+        <span class="folder-filter-label" title="${state.onlyShowFolder}">${pathBasename(state.onlyShowFolder)}</span>
+        <button class="folder-filter-clear" data-action="clear-only">✕</button>
+      </div>`);
+  }
+  state.hiddenFolders.forEach(fp => {
+    rows.push(`
+      <div class="folder-filter-row">
+        <span class="folder-filter-icon folder-filter-icon--hidden">⊘</span>
+        <span class="folder-filter-label" title="${fp}">${pathBasename(fp)}</span>
+        <button class="folder-filter-clear" data-action="unhide" data-path="${fp}">✕</button>
+      </div>`);
+  });
+  rows.push(`<button class="folder-filter-show-all" id="btn-folder-show-all">Show All</button>`);
+  body.innerHTML = rows.join('');
+
+  body.querySelector('#btn-folder-show-all')?.addEventListener('click', () => {
+    state.hiddenFolders.clear(); state.onlyShowFolder = null;
+    applyFilters(); ticked(); updateFolderPanel();
+  });
+  body.querySelectorAll('.folder-filter-clear').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.action === 'clear-only') { state.onlyShowFolder = null; }
+      else if (btn.dataset.action === 'unhide') { state.hiddenFolders.delete(btn.dataset.path); }
+      applyFilters(); ticked(); updateFolderPanel();
+    });
+  });
+}
+
+updateFolderPanel();
 
 // ── Class mode ─────────────────────────────────────────────────────────────────
 document.getElementById('btn-class-mode')?.classList.toggle('active', state.classMode);

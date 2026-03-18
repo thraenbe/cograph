@@ -782,3 +782,70 @@ body {
   background: var(--vscode-menu-selectionBackground, #094771);
   color: var(--vscode-menu-selectionForeground, #ffffff);
 }
+.ctx-menu-header {
+  padding: 6px 14px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground, #888888);
+  cursor: default;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--vscode-menu-border, #454545);
+  margin-bottom: 2px;
+}
+
+.folder-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+}
+.folder-filter-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+  color: var(--vscode-descriptionForeground, #858585);
+}
+.folder-filter-icon--hidden {
+  color: var(--vscode-errorForeground, #f48771);
+}
+.folder-filter-label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--vscode-foreground, #cccccc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.folder-filter-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #858585);
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.folder-filter-clear:hover {
+  color: var(--vscode-errorForeground, #f48771);
+}
+.folder-filter-empty {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #858585);
+  font-style: italic;
+  padding: 2px 0;
+}
+.folder-filter-show-all {
+  width: 100%;
+  margin-top: 5px;
+  padding: 3px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  background: var(--vscode-button-secondaryBackground, #3a3a3a);
+  color: var(--vscode-foreground, #cccccc);
+  border: 1px solid var(--vscode-widget-border, #555);
+  border-radius: 3px;
+}
+.folder-filter-show-all:hover {
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}

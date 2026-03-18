@@ -27,7 +27,7 @@ function collectJsFiles(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIP_DIR_NAMES.has(entry.name)) walk(full);
+        if (!SKIP_DIR_NAMES.has(entry.name) && !entry.name.startsWith('.')) walk(full);
       } else if (entry.isFile() && JS_EXTENSIONS.has(path.extname(entry.name))) {
         results.push(full);
       }
@@ -215,7 +215,7 @@ function collectImportMap(sourceFile) {
 }
 
 function collectCalls(files, definitions) {
-  const nameToIds = {};
+  const nameToIds = Object.create(null);
   for (const [qid, defn] of Object.entries(definitions)) {
     if (!nameToIds[defn.name]) nameToIds[defn.name] = [];
     nameToIds[defn.name].push(qid);
@@ -308,6 +308,9 @@ function collectCalls(files, definitions) {
           const prefix = ts.isGetAccessorDeclaration(node) ? 'get ' : 'set ';
           const line = getLine(sourceFile, node);
           callerId = `${filepath}::${prefix}${node.name.getText(sourceFile)}::${line}`;
+        } else if (ts.isConstructorDeclaration(node) && ts.isClassDeclaration(node.parent)) {
+          const line = getLine(sourceFile, node);
+          callerId = `${filepath}::constructor::${line}`;
         } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
                    (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
           const line = getLine(sourceFile, node);
@@ -334,7 +337,7 @@ function main() {
   const definitions = collectDefinitions(files);
   const { edges, libraryNodes } = collectCalls(files, definitions);
   const nodes = [...Object.values(definitions), ...libraryNodes];
-  process.stdout.write(JSON.stringify({ nodes, edges }) + '\n');
+  process.stdout.write(JSON.stringify({ nodes, edges, files }) + '\n');
 }
 
 main();

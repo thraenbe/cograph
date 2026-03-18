@@ -5,6 +5,7 @@ const settings = {
   existingFilesOnly: false,
   showOrphans: true,
   showLibraries: true,
+  showEmptyFiles: false,
   groupByFile: false,
   arrows: true,
   textFadeThreshold: 0.5,
@@ -15,6 +16,7 @@ const settings = {
   repelForce: 350,
   linkForce: 1,
   linkDistance: 40,
+  openFunctionPopup: true,
 };
 
 // ── Layout mode toggle ────────────────────────────────────────────────────────
@@ -52,6 +54,14 @@ function getVisibleNodeIds() {
       if (!n.file || !n.line || n.line <= 0) return;
     }
     if (!settings.showOrphans && !state.connectedNodeIds.has(n.id)) return;
+    if (n.file && !n.isLibrary && !n.isCluster && !n.isSynthetic) {
+      const nf = pathDirname(n.file);
+      const inside = (folder) => nf === folder || nf.startsWith(folder + '/') || nf.startsWith(folder + '\\');
+      if (state.onlyShowFolder && !inside(state.onlyShowFolder)) return;
+      for (const hf of state.hiddenFolders) {
+        if (inside(hf)) return;
+      }
+    }
     visible.add(n.id);
   });
   return visible;
@@ -244,6 +254,7 @@ window.addEventListener('message', (event) => {
     const gitPanel = document.getElementById('panel-git');
     if (gitPanel) gitPanel.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
+    state.allScannedFiles = message.data.files ?? [];
     renderGraph(message.data, message.isReanalysis);
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     return;

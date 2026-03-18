@@ -269,7 +269,7 @@ suite('GraphProvider', () => {
         assert.ok(fakePanel.webview.postMessage.calledOnce, 'postMessage called');
         const msg = fakePanel.webview.postMessage.firstCall.args[0];
         assert.strictEqual(msg.type, 'graph');
-        assert.deepStrictEqual(msg.data, graph);
+        assert.deepStrictEqual(msg.data, { ...graph, files: [] });
         done();
       }, 300);
     });
@@ -313,7 +313,7 @@ suite('GraphProvider', () => {
         assert.ok(fakePanel.webview.postMessage.calledOnce, 'postMessage called');
         const msg = fakePanel.webview.postMessage.firstCall.args[0];
         assert.strictEqual(msg.type, 'graph');
-        assert.deepStrictEqual(msg.data, graph);
+        assert.deepStrictEqual(msg.data, { ...graph, files: [] });
         done();
       }, 300);
     });

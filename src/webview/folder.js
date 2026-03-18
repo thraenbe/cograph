@@ -31,6 +31,8 @@ function boundingCircle(points) {
 // ── Grouping ──────────────────────────────────────────────────────────────────
 // Returns Map<filePath, node[]>
 // Skips library nodes, nodes without file, and any clustered/synthetic nodes (B2)
+const EMPTY_FILE_EXTS = new Set(['.py', '.js', '.ts']);
+
 function groupByFile(nodes) {
   const map = new Map();
   nodes.forEach(n => {
@@ -39,6 +41,13 @@ function groupByFile(nodes) {
     if (!map.has(n.file)) map.set(n.file, []);
     map.get(n.file).push(n);
   });
+  if (settings.showEmptyFiles && state.allScannedFiles?.length) {
+    state.allScannedFiles.forEach(fp => {
+      const dot = fp.lastIndexOf('.');
+      const ext = dot >= 0 ? fp.slice(dot) : '';
+      if (!map.has(fp) && EMPTY_FILE_EXTS.has(ext)) map.set(fp, []);
+    });
+  }
   return map;
 }
 
@@ -110,11 +119,27 @@ function folderTitlebarColor(depth) {
   return `rgba(${l},${l},${l + 8},0.88)`;
 }
 
+// ── Language inference helper ─────────────────────────────────────────────────
+function inferLangFromPath(fp) {
+  const dot = fp.lastIndexOf('.');
+  const ext = dot >= 0 ? fp.slice(dot) : '';
+  if (ext === '.py') return 'python';
+  if (ext === '.ts' || ext === '.tsx') return 'typescript';
+  if (ext === '.js' || ext === '.jsx' || ext === '.mjs' || ext === '.cjs') return 'javascript';
+  return null;
+}
+
 // ── D3 data joins ─────────────────────────────────────────────────────────────
 function renderFileCircles(fileG, nodesByFile) {
   const fileData = [];
   nodesByFile.forEach((nodes, filePath) => {
-    fileData.push({ filePath, shortName: pathBasename(filePath), lang: nodes[0]?.language ?? null, nodes });
+    fileData.push({
+      filePath,
+      shortName: pathBasename(filePath),
+      lang: nodes[0]?.language ?? inferLangFromPath(filePath),
+      nodes,
+      isEmpty: nodes.length === 0,
+    });
   });
   return fileG.selectAll('g.file-bubble')
     .data(fileData, d => d.filePath)
@@ -123,11 +148,16 @@ function renderFileCircles(fileG, nodesByFile) {
         const g = enter.append('g').attr('class', 'file-bubble');
         g.append('ellipse').attr('class', 'file-circle-shape');
         g.append('text').attr('class', 'file-circle-label');
+        g.append('text').attr('class', 'file-circle-subtitle');
         return g;
       },
       update => update,
       exit => exit.remove()
     )
+    .on('dblclick', (event, d) => {
+      event.stopPropagation();
+      vscode.postMessage({ type: 'navigate', file: d.filePath, line: 1 });
+    })
     .on('contextmenu', (event, d) => {
       event.preventDefault();
       event.stopPropagation();
@@ -180,11 +210,17 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
     .on('contextmenu', (event, d) => {
       event.preventDefault();
       event.stopPropagation();
-      showContextMenu(event, [
-        { label: 'Rename',           action: () => {} },
-        { label: 'New file',         action: () => {} },
-        { label: 'Only show Folder', action: () => {} },
-      ]);
+      const items = [
+        { label: `${d.shortName} (Folder)`, isHeader: true },
+        { label: 'Rename',           action: () => vscode.postMessage({ type: 'request-rename-folder', folderPath: d.folderPath }) },
+        { label: 'New File',         action: () => vscode.postMessage({ type: 'request-new-file',      folderPath: d.folderPath }) },
+        { label: 'Hide Folder',      action: () => { state.hiddenFolders.add(d.folderPath); applyFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Only Show Folder', action: () => { state.onlyShowFolder = d.folderPath; applyFilters(); ticked(); updateFolderPanel(); } },
+      ];
+      if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
+        items.push({ label: 'Show All Folders', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); ticked(); updateFolderPanel(); } });
+      }
+      showContextMenu(event, items);
     });
 }
 
@@ -197,16 +233,65 @@ function tickFolderOverlay() {
   const fileCircleMap = new Map();          // filePath -> { cx, cy, r }
 
   state.svgFileCircles.each(function(d) {
+    // ── guard: hide this file circle if its folder is hidden ──────────────────
+    const _ffp = pathDirname(d.filePath);
+    const _inHidden = (folder) => _ffp === folder || _ffp.startsWith(folder + '/') || _ffp.startsWith(folder + '\\');
+    if (state.onlyShowFolder && !_inHidden(state.onlyShowFolder)) { d3.select(this).style('display', 'none'); return; }
+    for (const hf of state.hiddenFolders) { if (_inHidden(hf)) { d3.select(this).style('display', 'none'); return; } }
+    // ─────────────────────────────────────────────────────────────────────────
     const langColor = getLanguageColor(d.lang) ?? '#888888';   // global from colors.js
     const points = d.nodes
       .filter(n => visibleIds.has(n.id) && n.x != null && n.y != null)
       .map(n => ({ x: n.x, y: n.y, r: nodeRadius(n) }));       // global from rendering.js
 
     if (!points.length) {
-      d3.select(this).style('display', 'none');
+      if (!d.isEmpty) { d3.select(this).style('display', 'none'); return; }
+      // Empty file: initialise position near SVG centre on first tick
+      if (d._cx == null) {
+        const svgEl = svg.node();
+        d._cx = (svgEl.clientWidth  || 800) / 2 + (Math.random() - 0.5) * 300;
+        d._cy = (svgEl.clientHeight || 600) / 2 + (Math.random() - 0.5) * 300;
+      }
+      const bc = { cx: d._cx, cy: d._cy, r: 30 };
+      fileCircleMap.set(d.filePath, bc);
+      d3.select(this).style('display', null)
+        .select('.file-circle-shape')
+          .attr('cx', bc.cx).attr('cy', bc.cy)
+          .attr('rx', bc.r).attr('ry', bc.r * 0.92)
+          .attr('fill', langColor).attr('fill-opacity', 0.03)
+          .attr('stroke', langColor).attr('stroke-opacity', 0.35)
+          .attr('stroke-dasharray', '4 3');
+      d3.select(this).select('.file-circle-label')
+        .attr('x', bc.cx).attr('y', bc.cy)
+        .attr('fill', langColor).text(d.shortName);
+      d3.select(this).select('.file-circle-subtitle')
+        .attr('x', bc.cx).attr('y', bc.cy + 14)
+        .attr('fill', langColor).attr('font-size', '9px').attr('opacity', 0.6)
+        .text('empty');
       return;
     }
     d3.select(this).style('display', null);
+
+    if (state.classMode) {
+      const CLASS_PAD = 20; // matches CLASS_PADDING in class.js
+      const classPtsMap = new Map();
+      d.nodes
+        .filter(n => visibleIds.has(n.id) && n.x != null && n.y != null && n.className)
+        .forEach(n => {
+          if (!classPtsMap.has(n.className)) classPtsMap.set(n.className, []);
+          classPtsMap.get(n.className).push({ x: n.x, y: n.y, r: nodeRadius(n) });
+        });
+      classPtsMap.forEach(cPts => {
+        const cbc = boundingCircle(cPts);
+        const hw = cbc.r + CLASS_PAD;
+        points.push(
+          { x: cbc.cx - hw, y: cbc.cy - hw },
+          { x: cbc.cx + hw, y: cbc.cy - hw },
+          { x: cbc.cx + hw, y: cbc.cy + hw },
+          { x: cbc.cx - hw, y: cbc.cy + hw },
+        );
+      });
+    }
 
     const bc = boundingCircle(points);
     bc.r = Math.max(bc.r + FILE_PADDING, 30);                  // B6: minimum radius
@@ -216,12 +301,18 @@ function tickFolderOverlay() {
       .attr('cx', bc.cx).attr('cy', bc.cy)
       .attr('rx', bc.r).attr('ry', bc.r * 0.92)
       .attr('fill', langColor).attr('fill-opacity', 0.07)       // B3: separate opacity attrs
-      .attr('stroke', langColor).attr('stroke-opacity', 0.9);
+      .attr('stroke', langColor).attr('stroke-opacity', 0.9)
+      .attr('stroke-dasharray', null);
 
     d3.select(this).select('.file-circle-label')
       .attr('x', bc.cx).attr('y', bc.cy - bc.r * 0.92 + 16)   // inside, near top edge
       .attr('fill', langColor)
       .text(d.shortName);
+
+    d3.select(this).select('.file-circle-subtitle')
+      .attr('x', bc.cx).attr('y', bc.cy - bc.r * 0.92 + 28)
+      .attr('fill', langColor).attr('font-size', '9px').attr('opacity', 0.5)
+      .text(`+${d.nodes.length} fn${d.nodes.length === 1 ? '' : 's'}`);
   });
 
   // Bottom-up rect computation: deepest folders first so parents can union children
@@ -418,6 +509,10 @@ function onFolderHoverMove(event, d) {
 function createFileDrag() {
   return d3.drag()
     .on('start', function(event, d) {
+      if (d.nodes.length === 0) {
+        d._emptyStart = { cx: d._cx ?? event.x, cy: d._cy ?? event.y, ex: event.x, ey: event.y };
+        return;
+      }
       const shape = d3.select(this).select('.file-circle-shape');
       const cx = +shape.attr('cx'), cy = +shape.attr('cy');
       const rx = +shape.attr('rx'), ry = +shape.attr('ry');
@@ -439,6 +534,13 @@ function createFileDrag() {
       d.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; });
     })
     .on('drag', function(event, d) {
+      if (d.nodes.length === 0) {
+        if (!d._emptyStart) return;
+        d._cx = d._emptyStart.cx + (event.x - d._emptyStart.ex);
+        d._cy = d._emptyStart.cy + (event.y - d._emptyStart.ey);
+        if (state.layoutMode === 'static') ticked();
+        return;
+      }
       if (d._dragMode === 'resize') {
         const { x: cx, y: cy } = d._resizeCenter;
         const scale = (Math.hypot(event.x - cx, event.y - cy) || 1) / d._resizeStartDist;
@@ -456,6 +558,7 @@ function createFileDrag() {
       if (state.layoutMode === 'static') ticked();
     })
     .on('end', function(event, d) {
+      if (d.nodes.length === 0) { delete d._emptyStart; return; }
       delete d._dragStart; delete d._nodeStarts; delete d._dragMode;
       delete d._resizeCenter; delete d._resizeStartDist;
       if (state.layoutMode === 'dynamic') {
@@ -495,10 +598,16 @@ function createFolderDrag() {
 // Resize drag — attached to the shape; activates only on border zone
 function createFolderResizeDrag() {
   return d3.drag()
+    .filter(function(event) {
+      const el = d3.select(this);
+      const x = +el.attr('x'), y = +el.attr('y');
+      const w = +el.attr('width'), h = +el.attr('height');
+      const [mx, my] = d3.pointer(event, this);
+      return Math.min(mx - x, (x + w) - mx, my - y, (y + h) - my) < INTERACT_EDGE_PX;
+    })
     .on('start', function(event, d) {
       const x = +d3.select(this).attr('x'), y = +d3.select(this).attr('y');
       const w = +d3.select(this).attr('width'), h = +d3.select(this).attr('height');
-      if (Math.min(event.x - x, (x + w) - event.x, event.y - y, (y + h) - event.y) >= INTERACT_EDGE_PX) return;
       const cx = x + w / 2, cy = y + h / 2;
       d._resizeCenter = { x: cx, y: cy };
       d._resizeStartDist = Math.hypot(event.x - cx, event.y - cy) || 1;
@@ -532,11 +641,15 @@ function showContextMenu(event, items) {
   const menu = document.getElementById('ctx-menu');
   const list = document.getElementById('ctx-menu-list');
   if (!menu || !list) return;
+  const actionItems = items.filter(item => !item.isHeader);
+  let actionIdx = 0;
   list.innerHTML = items
-    .map((item, i) => `<li class="ctx-menu-item" data-idx="${i}">${item.label}</li>`)
+    .map(item => item.isHeader
+      ? `<li class="ctx-menu-header">${item.label}</li>`
+      : `<li class="ctx-menu-item" data-idx="${actionIdx++}">${item.label}</li>`)
     .join('');
   list.querySelectorAll('.ctx-menu-item').forEach((li, i) => {
-    li.addEventListener('click', e => { e.stopPropagation(); items[i].action(); hideContextMenu(); });
+    li.addEventListener('click', e => { e.stopPropagation(); actionItems[i].action(); hideContextMenu(); });
   });
   menu.style.left    = event.pageX + 'px';
   menu.style.top     = event.pageY + 'px';
@@ -562,6 +675,7 @@ if (typeof module !== 'undefined') {
     onFileHoverMove, onFolderHoverMove,
     getAllFolderNodes, unionRect,
     showContextMenu, hideContextMenu, boundingCircle,
-    pathDirname, pathBasename,
+    pathDirname, pathBasename, inferLangFromPath,
+    EMPTY_FILE_EXTS,
   };
 }

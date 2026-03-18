@@ -177,7 +177,7 @@ function collectImportMap(sourceFile) {
 }
 
 function collectCalls(files, definitions) {
-  const nameToIds = {};
+  const nameToIds = Object.create(null);
   for (const [qid, defn] of Object.entries(definitions)) {
     if (!nameToIds[defn.name]) nameToIds[defn.name] = [];
     nameToIds[defn.name].push(qid);
@@ -270,6 +270,9 @@ function collectCalls(files, definitions) {
           const prefix = ts.isGetAccessorDeclaration(node) ? 'get ' : 'set ';
           const line = getLine(sourceFile, node);
           callerId = `${filepath}::${prefix}${node.name.getText(sourceFile)}::${line}`;
+        } else if (ts.isConstructorDeclaration(node) && ts.isClassDeclaration(node.parent)) {
+          const line = getLine(sourceFile, node);
+          callerId = `${filepath}::constructor::${line}`;
         } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
                    (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
           const line = getLine(sourceFile, node);

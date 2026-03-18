@@ -10,6 +10,8 @@ Scope: workspace .py files only. Best-effort static analysis.
 Dynamic dispatch, getattr, and monkey-patching are not resolved.
 """
 
+from __future__ import annotations
+
 import ast
 import json
 import os

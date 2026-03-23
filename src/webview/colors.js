@@ -19,7 +19,9 @@ function resolveNodeFill(d) {
     const status = d.gitStatus.unstaged ?? d.gitStatus.staged;
     if (status === 'added')    return '#4caf50';
     if (status === 'modified') return '#ff9800';
-    if (status === 'deleted')  return '#555';
+    if (status === 'deleted')  return typeof getComputedStyle !== 'undefined'
+      ? (getComputedStyle(document.documentElement).getPropertyValue('--cograph-git-deleted').trim() || '#777777')
+      : '#777777';
   }
   if (state.languageMode && !d.isCluster && !d.isSynthetic && !d.isOrphanCluster && d.language) {
     return getLanguageColor(d.language);

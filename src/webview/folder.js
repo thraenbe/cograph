@@ -106,15 +106,31 @@ function buildFolderTree(nodesByFile) {
 }
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
+function isLightTheme() {
+  return document.body.classList.contains('vscode-light');
+}
+
 function folderFillColor(depth) {
+  if (isLightTheme()) {
+    const l = Math.min(230, 215 + depth * 5);
+    return `rgba(${l},${l},${l},0.70)`;
+  }
   const l = Math.max(18, 38 - depth * 5);
   return `rgba(${l + 10},${l + 10},${l + 10},0.55)`;
 }
 function folderStrokeColor(depth) {
+  if (isLightTheme()) {
+    const l = Math.max(140, 180 - depth * 12);
+    return `rgba(${l},${l},${l},0.60)`;
+  }
   const l = Math.max(60, 90 - depth * 8);
   return `rgba(${l},${l},${l},0.35)`;
 }
 function folderTitlebarColor(depth) {
+  if (isLightTheme()) {
+    const l = Math.max(170, 200 - depth * 8);
+    return `rgba(${l},${l},${l + 8},0.92)`;
+  }
   const l = Math.max(30, 55 - depth * 6);
   return `rgba(${l},${l},${l + 8},0.88)`;
 }

@@ -12,6 +12,57 @@ body {
   overflow: hidden;
 }
 
+/* ── Graph colour tokens ── */
+:root {
+  --cograph-node-default:  #d4d4d4;
+  --cograph-node-library:  #c8a84b;
+  --cograph-node-orphan:   #666666;
+  --cograph-node-cluster:  #7c4dbb;
+  --cograph-node-entry:    #e8734a;
+  --cograph-label-default: #d4d4d4;
+  --cograph-label-cluster: #ffffff;
+  --cograph-label-hover:   #ffffff;
+  --cograph-lib-accent:    #c8a84b;
+  --cograph-link-default:  rgba(160,160,160,0.25);
+  --cograph-link-library:  rgba(200,168,75,0.3);
+  --cograph-link-hover:    #5aabff;
+  --cograph-node-hover:    #7eb9ff;
+  --cograph-git-deleted:   #777777;
+  /* syntax highlight */
+  --hl-string:   #ce9178;
+  --hl-comment:  #6a9955;
+  --hl-keyword:  #569cd6;
+  --hl-number:   #b5cea8;
+  --hl-fn-name:  #dcdcaa;
+  --hl-cls-name: #4ec9b0;
+  --hl-deco:     #c586c0;
+}
+
+body.vscode-light {
+  --cograph-node-default:  #4a4a4a;
+  --cograph-node-library:  #7a5900;
+  --cograph-node-orphan:   #888888;
+  --cograph-node-cluster:  #6a3dab;
+  --cograph-node-entry:    #c45c2a;
+  --cograph-label-default: #333333;
+  --cograph-label-cluster: #111111;
+  --cograph-label-hover:   #000000;
+  --cograph-lib-accent:    #7a5900;
+  --cograph-link-default:  rgba(80,80,80,0.35);
+  --cograph-link-library:  rgba(120,90,0,0.4);
+  --cograph-link-hover:    #0062cc;
+  --cograph-node-hover:    #0062cc;
+  --cograph-git-deleted:   #aaaaaa;
+  /* syntax highlight – VS Code Light+ palette */
+  --hl-string:   #a31515;
+  --hl-comment:  #008000;
+  --hl-keyword:  #0000ff;
+  --hl-number:   #09885a;
+  --hl-fn-name:  #795e26;
+  --hl-cls-name: #267f99;
+  --hl-deco:     #811f3f;
+}
+
 #graph {
   position: fixed;
   inset: 0;
@@ -419,7 +470,7 @@ body {
   font-family: var(--vscode-editor-font-family, monospace);
 }
 
-.lib-labels text { fill: #c8a84b; font-style: italic; }
+.lib-labels text { fill: var(--cograph-lib-accent); font-style: italic; }
 
 /* ── Library doc popup ── */
 #lib-doc-popup {
@@ -455,7 +506,7 @@ body {
 #lib-doc-title {
   font-size: 13px;
   font-weight: 600;
-  color: #c8a84b;
+  color: var(--cograph-lib-accent);
   word-break: break-all;
 }
 

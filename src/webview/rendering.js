@@ -73,17 +73,21 @@ svg.on('dblclick', (event) => {
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+function getCSSVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function nodeRadius(d) {
   return ((d._size ?? 6) / 2) * settings.nodeSize;
 }
 
 function nodeColor(d) {
-  if (d.isLibrary) return '#c8a84b';
-  if (d.isSynthetic) return 'var(--vscode-button-background, #0e639c)';
-  if (d.isOrphanCluster) return '#555';
-  if (d.isCluster) return '#7c4dbb';
-  if (d.isEntryPoint) return '#e8734a';
-  return '#d4d4d4';
+  if (d.isLibrary)       return getCSSVar('--cograph-node-library');
+  if (d.isSynthetic)     return 'var(--vscode-button-background, #0e639c)';
+  if (d.isOrphanCluster) return getCSSVar('--cograph-node-orphan');
+  if (d.isCluster)       return getCSSVar('--cograph-node-cluster');
+  if (d.isEntryPoint)    return getCSSVar('--cograph-node-entry');
+  return getCSSVar('--cograph-node-default');
 }
 
 function fileColor(file) {
@@ -193,12 +197,15 @@ function ticked() {
 // ── Node event handlers ───────────────────────────────────────────────────────
 function onNodeMouseOver(event, d) {
   d3.select(event.currentTarget)
-    .style('fill', '#7eb9ff')
+    .style('fill', getCSSVar('--cograph-node-hover'))
     .attr('r', nodeRadius(d) * 1.15)
     .attr('filter', 'url(#glow-hover)');
+  const linkHover   = getCSSVar('--cograph-link-hover');
+  const linkLibrary = getCSSVar('--cograph-link-library');
+  const linkDefault = getCSSVar('--cograph-link-default');
   state.svgLinks
     ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-      ? '#5aabff' : l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
+      ? linkHover : l.isLibraryEdge ? linkLibrary : linkDefault)
     .attr('stroke-width', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
       ? Math.max(1.5, settings.linkThickness) : settings.linkThickness)
     .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
@@ -206,7 +213,7 @@ function onNodeMouseOver(event, d) {
   state.svgLabels?.filter(l => l.id === d.id)
     .style('opacity', 1)
     .attr('font-size', `${11.5 * settings.textSize}px`)
-    .attr('fill', '#ffffff');
+    .attr('fill', getCSSVar('--cograph-label-hover'));
 }
 
 function onNodeMouseOut(event, d) {
@@ -214,14 +221,16 @@ function onNodeMouseOut(event, d) {
     .style('fill', resolveNodeFill(d))
     .attr('r', nodeRadius(d))
     .attr('filter', 'url(#glow)');
+  const linkLibrary = getCSSVar('--cograph-link-library');
+  const linkDefault = getCSSVar('--cograph-link-default');
   state.svgLinks
-    ?.attr('stroke', l => l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
+    ?.attr('stroke', l => l.isLibraryEdge ? linkLibrary : linkDefault)
     .attr('stroke-width', settings.linkThickness)
     .attr('opacity', 0.7);
   state.svgLabels?.filter(l => l.id === d.id)
     .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
     .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
-    .attr('fill', (d.isCluster || d.isSynthetic) ? '#ffffff' : '#d4d4d4');
+    .attr('fill', (d.isCluster || d.isSynthetic) ? getCSSVar('--cograph-label-cluster') : getCSSVar('--cograph-label-default'));
 }
 
 // ── Render sub-functions ──────────────────────────────────────────────────────
@@ -255,7 +264,7 @@ function renderLinks(allLinks, visibleSet) {
   return linkG.selectAll('line')
     .data(allLinks)
     .join('line')
-    .attr('stroke', d => d.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
+    .attr('stroke', d => d.isLibraryEdge ? getCSSVar('--cograph-link-library') : getCSSVar('--cograph-link-default'))
     .attr('stroke-dasharray', d => d.isLibraryEdge ? '6,3' : null)
     .attr('stroke-width', settings.linkThickness)
     .attr('opacity', 0.7)
@@ -299,7 +308,7 @@ function renderLabels(visibleSet) {
     .join('text')
     .text(d => d.label)
     .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
-    .attr('fill', d => (d.isCluster || d.isSynthetic) ? '#ffffff' : '#d4d4d4')
+    .attr('fill', d => (d.isCluster || d.isSynthetic) ? getCSSVar('--cograph-label-cluster') : getCSSVar('--cograph-label-default'))
     .attr('text-anchor', 'middle')
     .attr('dominant-baseline', d => (d.isCluster || d.isSynthetic) ? 'middle' : 'auto')
     .attr('pointer-events', 'none')
@@ -354,7 +363,7 @@ function renderLibraryNodes(libNodeData, visibleSet) {
     )
     .attr('width', d => nodeRadius(d) * 2)
     .attr('height', d => nodeRadius(d) * 2)
-    .attr('fill', '#c8a84b')
+    .attr('fill', () => getCSSVar('--cograph-node-library'))
     .attr('cursor', 'pointer')
     .style('display', d => visibleSet.has(d.id) ? null : 'none')
     .on('click', (event, d) => {
@@ -367,17 +376,22 @@ function renderLibraryNodes(libNodeData, visibleSet) {
       }
     })
     .on('mouseover', (event, d) => {
-      d3.select(event.currentTarget).attr('fill', '#f0d080');
+      d3.select(event.currentTarget).attr('fill', getCSSVar('--cograph-node-hover'));
+      const linkHover   = getCSSVar('--cograph-link-hover');
+      const linkLibrary = getCSSVar('--cograph-link-library');
+      const linkDefault = getCSSVar('--cograph-link-default');
       state.svgLinks
         ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-          ? '#f0d080' : l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
+          ? linkHover : l.isLibraryEdge ? linkLibrary : linkDefault)
         .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
           ? 1 : 0.15);
     })
     .on('mouseout', (event, d) => {
-      d3.select(event.currentTarget).attr('fill', '#c8a84b');
+      d3.select(event.currentTarget).attr('fill', getCSSVar('--cograph-node-library'));
+      const linkLibrary = getCSSVar('--cograph-link-library');
+      const linkDefault = getCSSVar('--cograph-link-default');
       state.svgLinks
-        ?.attr('stroke', l => l.isLibraryEdge ? 'rgba(200,168,75,0.3)' : 'rgba(160,160,160,0.25)')
+        ?.attr('stroke', l => l.isLibraryEdge ? linkLibrary : linkDefault)
         .attr('opacity', 0.7);
     });
 }

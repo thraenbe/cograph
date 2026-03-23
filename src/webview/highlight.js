@@ -13,6 +13,17 @@ function highlightCode(source, lang) {
   const isPy = lang === 'python';
 
   function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  const cs = typeof getComputedStyle !== 'undefined' ? getComputedStyle(document.documentElement) : null;
+  const C = {
+    str:  (cs?.getPropertyValue('--hl-string').trim())   || '#ce9178',
+    cmt:  (cs?.getPropertyValue('--hl-comment').trim())  || '#6a9955',
+    kw:   (cs?.getPropertyValue('--hl-keyword').trim())  || '#569cd6',
+    num:  (cs?.getPropertyValue('--hl-number').trim())   || '#b5cea8',
+    fn:   (cs?.getPropertyValue('--hl-fn-name').trim())  || '#dcdcaa',
+    cls:  (cs?.getPropertyValue('--hl-cls-name').trim()) || '#4ec9b0',
+    deco: (cs?.getPropertyValue('--hl-deco').trim())     || '#c586c0',
+  };
   function span(color, t) { return `<span style="color:${color}">${esc(t)}</span>`; }
 
   let out = '';
@@ -27,20 +38,20 @@ function highlightCode(source, lang) {
       let j = i + 3;
       while (j < n && !s.startsWith(q, j)) j++;
       j = Math.min(j + 3, n);
-      out += span('#ce9178', s.slice(i, j)); i = j; continue;
+      out += span(C.str, s.slice(i, j)); i = j; continue;
     }
     // Line comment
     if ((isPy && s[i] === '#') || (!isPy && s.startsWith('//', i))) {
       let j = i;
       while (j < n && s[j] !== '\n') j++;
-      out += span('#6a9955', s.slice(i, j)); i = j; continue;
+      out += span(C.cmt, s.slice(i, j)); i = j; continue;
     }
     // Block comment (TS/JS only)
     if (!isPy && s.startsWith('/*', i)) {
       let j = i + 2;
       while (j < n && !s.startsWith('*/', j)) j++;
       j = Math.min(j + 2, n);
-      out += span('#6a9955', s.slice(i, j)); i = j; continue;
+      out += span(C.cmt, s.slice(i, j)); i = j; continue;
     }
     // String literal
     if (s[i] === '"' || s[i] === "'" || (s[i] === '`' && !isPy)) {
@@ -48,19 +59,19 @@ function highlightCode(source, lang) {
       let j = i + 1;
       while (j < n && s[j] !== q && s[j] !== '\n') { if (s[j] === '\\') j++; j++; }
       if (j < n && s[j] === q) j++;
-      out += span('#ce9178', s.slice(i, j)); i = j; continue;
+      out += span(C.str, s.slice(i, j)); i = j; continue;
     }
     // Decorator (Python only)
     if (isPy && s[i] === '@') {
       let j = i + 1;
       while (j < n && /[\w.]/.test(s[j])) j++;
-      if (j > i + 1) { out += span('#c586c0', s.slice(i, j)); i = j; continue; }
+      if (j > i + 1) { out += span(C.deco, s.slice(i, j)); i = j; continue; }
     }
     // Number
     if (/[0-9]/.test(s[i]) || (s[i] === '.' && i + 1 < n && /[0-9]/.test(s[i + 1]))) {
       let j = i;
       while (j < n && /[0-9a-fA-FxXoObB._eE]/.test(s[j])) j++;
-      out += span('#b5cea8', s.slice(i, j)); i = j; continue;
+      out += span(C.num, s.slice(i, j)); i = j; continue;
     }
     // Identifier / keyword
     if (/[a-zA-Z_$]/.test(s[i])) {
@@ -69,24 +80,24 @@ function highlightCode(source, lang) {
       const word = s.slice(i, j);
       if (kws.has(word)) {
         if (word === 'def' || word === 'function') {
-          out += span('#569cd6', word); i = j;
+          out += span(C.kw, word); i = j;
           while (i < n && s[i] === ' ') out += s[i++];
           if (i < n && /[a-zA-Z_$]/.test(s[i])) {
             j = i; while (j < n && /[\w$]/.test(s[j])) j++;
-            out += span('#dcdcaa', s.slice(i, j)); i = j;
+            out += span(C.fn, s.slice(i, j)); i = j;
           }
           continue;
         }
         if (word === 'class') {
-          out += span('#569cd6', word); i = j;
+          out += span(C.kw, word); i = j;
           while (i < n && s[i] === ' ') out += s[i++];
           if (i < n && /[a-zA-Z_$]/.test(s[i])) {
             j = i; while (j < n && /[\w$]/.test(s[j])) j++;
-            out += span('#4ec9b0', s.slice(i, j)); i = j;
+            out += span(C.cls, s.slice(i, j)); i = j;
           }
           continue;
         }
-        out += span('#569cd6', word);
+        out += span(C.kw, word);
       } else {
         out += esc(word);
       }

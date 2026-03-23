@@ -252,10 +252,10 @@ suite('resolveNodeFill', () => {
     assert.strictEqual(resolveNodeFill(node), '#ff9800');
   });
 
-  test('gitMode=true, unstaged=deleted → returns dark gray #555', () => {
+  test('gitMode=true, unstaged=deleted → returns dark gray #777777', () => {
     (global as any).state.gitMode = true;
     const node = { gitStatus: { unstaged: 'deleted', staged: null } };
-    assert.strictEqual(resolveNodeFill(node), '#555');
+    assert.strictEqual(resolveNodeFill(node), '#777777');
   });
 
   test('gitMode=true, unstaged=null, staged=modified → staged used as fallback', () => {

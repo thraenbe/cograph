@@ -102,6 +102,12 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   <div id="graph"></div>
   <div id="flow-notice">Dagre layout not available in D3 mode</div>
   <div id="top-left-controls">
+    <div id="panel-layout" class="tl-panel">
+      <div class="layout-toggle">
+        <button id="btn-layout-dynamic" class="layout-btn active">&#9889; Dynamic</button>
+        <button id="btn-layout-static" class="layout-btn">&#9679; Static</button>
+      </div>
+    </div>
     <div id="panel-detail" class="tl-panel">
       <div class="tl-slider-header">
         <label for="slider-complexity">Detail</label>
@@ -172,14 +178,6 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   <div id="settings-panel">
 
     <div class="panel-section">
-      <h4>Layout Mode</h4>
-      <div class="layout-toggle">
-        <button id="btn-layout-dynamic" class="layout-btn active">&#9889; Dynamic</button>
-        <button id="btn-layout-static" class="layout-btn">&#9679; Static</button>
-      </div>
-    </div>
-
-    <div class="panel-section">
       <h4>Filters</h4>
       <input id="search" type="text" placeholder="Filter functions..." />
       <div class="toggle-row">
@@ -227,8 +225,8 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <input type="range" id="slider-center-force" min="0" max="5" step="0.05" value="1" />
       </div>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">350</span></div>
-        <input type="range" id="slider-repel-force" min="0" max="8192" step="50" value="350" />
+        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">50</span></div>
+        <input type="range" id="slider-repel-force" min="0" max="300" step="50" value="50" />
       </div>
       <div class="slider-row">
         <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">1</span></div>

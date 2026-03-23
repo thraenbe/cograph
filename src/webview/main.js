@@ -13,7 +13,7 @@ const settings = {
   textSize: 1.0,
   linkThickness: 4,
   centerForce: 1,
-  repelForce: 350,
+  repelForce: 50,
   linkForce: 1,
   linkDistance: 40,
   openFunctionPopup: true,

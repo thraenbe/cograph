@@ -11,6 +11,14 @@
   <div id="graph"></div>
   <div id="flow-notice">Dagre layout not available in D3 mode</div>
   <div id="top-left-controls">
+    <!-- Layout mode toggle -->
+    <div id="panel-layout" class="tl-panel">
+      <div class="layout-toggle">
+        <button id="btn-layout-dynamic" class="layout-btn active">&#9889; Dynamic</button>
+        <button id="btn-layout-static" class="layout-btn">&#9679; Static</button>
+      </div>
+    </div>
+
     <!-- Detail panel: slider + node-type legend -->
     <div id="panel-detail" class="tl-panel">
       <div class="tl-slider-header">
@@ -79,14 +87,6 @@
   </div>
   <button id="settings-btn" title="Settings">&#9881;</button>
   <div id="settings-panel">
-
-    <div class="panel-section">
-      <h4>Layout Mode</h4>
-      <div class="layout-toggle">
-        <button id="btn-layout-dynamic" class="layout-btn active">&#9889; Dynamic</button>
-        <button id="btn-layout-static" class="layout-btn">&#9679; Static</button>
-      </div>
-    </div>
 
     <div class="panel-section">
       <h4>Filters</h4>

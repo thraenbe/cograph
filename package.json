@@ -2,7 +2,7 @@
   "name": "cograph",
   "displayName": "CoGraph",
   "description": "Interactive call graph visualization for Python, TypeScript, and JavaScript projects",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "publisher": "thraenbe",
   "icon": "media/icon.png",
   "repository": {

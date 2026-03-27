@@ -421,6 +421,7 @@ function renderElements(elements) {
   if (state.folderMode) {
     const nodesByFile    = groupByFile(state.currentNodes);
     const folderTree     = buildFolderTree(nodesByFile);
+    computeFolderHues(folderTree);
 
     state.svgFileCircles   = renderFileCircles(fileG, nodesByFile);
     state.svgFolderBubbles = renderFolderBubbles(folderG, folderTree, nodesByFile);
@@ -445,7 +446,7 @@ function renderElements(elements) {
         .attr('font-size', `${(12 + 6 / (d.depth + 1)) * settings.textSize}px`)
         .attr('text-anchor', 'middle').attr('font-weight', '600')
         .attr('dominant-baseline', 'central')
-        .attr('fill', '#cccccc').attr('pointer-events', 'none');
+        .attr('fill', isLightTheme() ? '#333333' : '#cccccc').attr('pointer-events', 'none');
     });
 
     state.svgFileCircles.call(createFileDrag()).on('mousemove', onFileHoverMove);

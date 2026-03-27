@@ -1,6 +1,7 @@
 .vscode/**
 .ai/**
 .claude/**
+.github/**
 prompts/**
 src/**
 !src/webview/**
@@ -13,6 +14,7 @@ out/test/**
 out/**/*.test.js
 out/**/*.test.js.map
 node_modules/**
+!node_modules/typescript/**
 .eslintrc.json
 tsconfig.json
 .pytest_cache/**
@@ -20,3 +22,6 @@ requirements-dev.txt
 CLAUDE.md
 test/**
 *.vsix
+linkedin.txt
+project.txt
+Screenshot*

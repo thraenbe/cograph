@@ -2,10 +2,10 @@
 const FILE_PADDING               = 28;
 const FOLDER_PADDING             = 40;
 const CLUSTER_STRENGTH           = 0.04;
-const FOLDER_SEPARATION_STRENGTH = 0.12;
+const FOLDER_SEPARATION_STRENGTH = 0.25;
 const PATH_SEP_RE                = /[\\/]+/;       // handles both / and \ (B1)
 const INTERACT_EDGE_PX           = 12;             // px-width of resize hit zone on bubble border
-const FOLDER_TITLEBAR_HEIGHT     = 22;             // px height of the draggable title bar
+const FOLDER_TITLEBAR_HEIGHT     = 30;             // px height of the draggable title bar
 
 // ── Path utilities ────────────────────────────────────────────────────────────
 function pathDirname(fp) {
@@ -105,34 +105,58 @@ function buildFolderTree(nodesByFile) {
   return tree;
 }
 
+// ── Hue assignment ───────────────────────────────────────────────────────────
+const GOLDEN_ANGLE = 137.508;
+
+function computeFolderHues(folderTree) {
+  const roots = [];
+  folderTree.forEach((info, fp) => { if (!info.parent) roots.push(fp); });
+  roots.sort();
+
+  function assignHue(folderPath, baseHue) {
+    const info = folderTree.get(folderPath);
+    info.hue = baseHue;
+    const children = [...info.childFolders].sort();
+    children.forEach(child => assignHue(child, baseHue));
+  }
+
+  roots.forEach((fp, i) => assignHue(fp, (i * GOLDEN_ANGLE) % 360));
+}
+
 // ── Color helpers ─────────────────────────────────────────────────────────────
 function isLightTheme() {
   return document.body.classList.contains('vscode-light');
 }
 
-function folderFillColor(depth) {
+function folderFillColor(depth, hue) {
   if (isLightTheme()) {
-    const l = Math.min(230, 215 + depth * 5);
-    return `rgba(${l},${l},${l},0.70)`;
+    const s = Math.min(25, 12 + depth * 3);
+    const l = Math.min(95, 88 + depth * 2);
+    return `hsla(${hue}, ${s}%, ${l}%, 0.70)`;
   }
-  const l = Math.max(18, 38 - depth * 5);
-  return `rgba(${l + 10},${l + 10},${l + 10},0.55)`;
+  const s = Math.min(20, 8 + depth * 3);
+  const l = Math.max(10, 18 - depth * 2);
+  return `hsla(${hue}, ${s}%, ${l}%, 0.55)`;
 }
-function folderStrokeColor(depth) {
+function folderStrokeColor(depth, hue) {
   if (isLightTheme()) {
-    const l = Math.max(140, 180 - depth * 12);
-    return `rgba(${l},${l},${l},0.60)`;
+    const s = Math.min(30, 15 + depth * 4);
+    const l = Math.max(55, 72 - depth * 5);
+    return `hsla(${hue}, ${s}%, ${l}%, 0.60)`;
   }
-  const l = Math.max(60, 90 - depth * 8);
-  return `rgba(${l},${l},${l},0.35)`;
+  const s = Math.min(25, 10 + depth * 4);
+  const l = Math.max(25, 38 - depth * 4);
+  return `hsla(${hue}, ${s}%, ${l}%, 0.35)`;
 }
-function folderTitlebarColor(depth) {
+function folderTitlebarColor(depth, hue) {
   if (isLightTheme()) {
-    const l = Math.max(170, 200 - depth * 8);
-    return `rgba(${l},${l},${l + 8},0.92)`;
+    const s = Math.min(35, 18 + depth * 4);
+    const l = Math.max(68, 82 - depth * 4);
+    return `hsla(${hue}, ${s}%, ${l}%, 0.92)`;
   }
-  const l = Math.max(30, 55 - depth * 6);
-  return `rgba(${l},${l},${l + 8},0.88)`;
+  const s = Math.min(25, 12 + depth * 4);
+  const l = Math.max(14, 24 - depth * 3);
+  return `hsla(${hue}, ${s}%, ${l}%, 0.88)`;
 }
 
 // ── Language inference helper ─────────────────────────────────────────────────
@@ -201,6 +225,7 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
       folderPath,
       shortName: pathBasename(folderPath) || folderPath,
       depth: info.depth,
+      hue: info.hue ?? 0,
       parent: info.parent,
       childFolderPaths: [...info.childFolders],
       files: info.files,
@@ -373,14 +398,14 @@ function tickFolderOverlay() {
       .attr('x', padded.minX).attr('y', padded.minY)
       .attr('width',  padded.maxX - padded.minX)
       .attr('height', padded.maxY - padded.minY)
-      .attr('fill',   folderFillColor(d.depth))
-      .attr('stroke', folderStrokeColor(d.depth));
+      .attr('fill',   folderFillColor(d.depth, d.hue))
+      .attr('stroke', folderStrokeColor(d.depth, d.hue));
 
     d3.select(el).select('.folder-bubble-titlebar')
       .attr('x', padded.minX).attr('y', padded.minY)
       .attr('width',  padded.maxX - padded.minX)
       .attr('height', FOLDER_TITLEBAR_HEIGHT)
-      .attr('fill',   folderTitlebarColor(d.depth))
+      .attr('fill',   folderTitlebarColor(d.depth, d.hue))
       .attr('rx', 8);
 
     d3.select(el).select('.folder-bubble-label')
@@ -420,12 +445,10 @@ function unionRect(acc, r) {
 // ── Folder separation force ───────────────────────────────────────────────────
 // Pushes sibling-folder nodes apart so their bubbles don't overlap
 function createFolderSeparationForce(folderTree, nodesByFile) {
-  // Build folderPath -> nodes[] (direct files only — immediate parent)
-  const folderNodes = new Map();
-  nodesByFile.forEach((nodes, filePath) => {
-    const folder = pathDirname(filePath);
-    if (!folderNodes.has(folder)) folderNodes.set(folder, []);
-    folderNodes.get(folder).push(...nodes);
+  // Build folderPath -> all descendant nodes (not just direct children)
+  const folderAllNodes = new Map();
+  folderTree.forEach((_, folderPath) => {
+    folderAllNodes.set(folderPath, getAllFolderNodes(folderPath, folderTree, nodesByFile));
   });
 
   // Collect sibling pairs (same parent, each pair listed once)
@@ -440,8 +463,8 @@ function createFolderSeparationForce(folderTree, nodesByFile) {
 
   return function(alpha) {
     siblingPairs.forEach(([pathA, pathB]) => {
-      const nodesA = (folderNodes.get(pathA) ?? []).filter(n => n.x != null && n.fx == null);
-      const nodesB = (folderNodes.get(pathB) ?? []).filter(n => n.x != null && n.fx == null);
+      const nodesA = (folderAllNodes.get(pathA) ?? []).filter(n => n.x != null && n.fx == null);
+      const nodesB = (folderAllNodes.get(pathB) ?? []).filter(n => n.x != null && n.fx == null);
       if (!nodesA.length || !nodesB.length) return;
 
       const cxA = nodesA.reduce((s, n) => s + n.x, 0) / nodesA.length;
@@ -449,10 +472,30 @@ function createFolderSeparationForce(folderTree, nodesByFile) {
       const cxB = nodesB.reduce((s, n) => s + n.x, 0) / nodesB.length;
       const cyB = nodesB.reduce((s, n) => s + n.y, 0) / nodesB.length;
 
-      const dx = cxA - cxB || 0.01;   // avoid zero
+      // Compute bounding extents for overlap detection
+      const extA = nodesA.reduce((e, n) => {
+        const r = n._r ?? 5;
+        return { minX: Math.min(e.minX, n.x - r), maxX: Math.max(e.maxX, n.x + r),
+                 minY: Math.min(e.minY, n.y - r), maxY: Math.max(e.maxY, n.y + r) };
+      }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+      const extB = nodesB.reduce((e, n) => {
+        const r = n._r ?? 5;
+        return { minX: Math.min(e.minX, n.x - r), maxX: Math.max(e.maxX, n.x + r),
+                 minY: Math.min(e.minY, n.y - r), maxY: Math.max(e.maxY, n.y + r) };
+      }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+
+      const pad = FOLDER_PADDING * 2;
+      const overlapX = (extA.maxX + pad) - (extB.minX - pad);
+      const overlapY = (extA.maxY + pad) - (extB.minY - pad);
+      const overlapping = overlapX > 0 && overlapY > 0
+        && (extB.maxX + pad) - (extA.minX - pad) > 0
+        && (extB.maxY + pad) - (extA.minY - pad) > 0;
+
+      const dx = cxA - cxB || 0.01;
       const dy = cyA - cyB || 0.01;
       const dist = Math.hypot(dx, dy);
-      const strength = FOLDER_SEPARATION_STRENGTH * alpha / dist;
+      const boost = overlapping ? 3.0 : 1.0;
+      const strength = FOLDER_SEPARATION_STRENGTH * alpha * boost / dist;
 
       nodesA.forEach(n => { n.vx += dx * strength; n.vy += dy * strength; });
       nodesB.forEach(n => { n.vx -= dx * strength; n.vy -= dy * strength; });
@@ -684,7 +727,7 @@ function hideContextMenu() {
 // ── Module export guard (for Node.js tests) ───────────────────────────────────
 if (typeof module !== 'undefined') {
   module.exports = {
-    tickFolderOverlay, groupByFile, buildFolderTree,
+    tickFolderOverlay, groupByFile, buildFolderTree, computeFolderHues,
     folderFillColor, folderStrokeColor, folderTitlebarColor,
     renderFileCircles, renderFolderBubbles, createFileClusterForce,
     createFolderSeparationForce, createFileDrag, createFolderDrag, createFolderResizeDrag,

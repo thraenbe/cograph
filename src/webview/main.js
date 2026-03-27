@@ -4,7 +4,7 @@ const vscode = acquireVsCodeApi();
 const settings = {
   existingFilesOnly: false,
   showOrphans: true,
-  showLibraries: true,
+  showLibraries: false,
   showEmptyFiles: false,
   groupByFile: false,
   arrows: true,

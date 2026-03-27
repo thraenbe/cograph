@@ -86,7 +86,6 @@ function nodeRadius(d) {
 function nodeColor(d) {
   if (d.isLibrary)       return getCSSVar('--cograph-node-library');
   if (d.isSynthetic)     return 'var(--vscode-button-background, #0e639c)';
-  if (d.isOrphanCluster) return getCSSVar('--cograph-node-orphan');
   if (d.isCluster)       return getCSSVar('--cograph-node-cluster');
   if (d.isEntryPoint)    return getCSSVar('--cograph-node-entry');
   return getCSSVar('--cograph-node-default');
@@ -144,7 +143,6 @@ function ensureClusterGradient(d) {
 
 // Language colors on clusters are always shown regardless of languageMode toggle.
 function resolveClusterFill(d) {
-  if (d.isOrphanCluster) return getCSSVar('--cograph-node-orphan');
   if (d.isSynthetic)     return getCSSVar('--cograph-node-cluster');
   if (d.languageBreakdown?.length > 1) return ensureClusterGradient(d);
   if (d.languageBreakdown?.length === 1) return getLanguageColor(d.languageBreakdown[0].lang) ?? getCSSVar('--cograph-node-cluster');

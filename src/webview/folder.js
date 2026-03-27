@@ -37,7 +37,7 @@ function groupByFile(nodes) {
   const map = new Map();
   nodes.forEach(n => {
     if (n.isLibrary || !n.file) return;
-    if (n.isCluster || n.isSynthetic || n.isOrphanCluster) return;  // B2
+    if (n.isCluster || n.isSynthetic) return;  // B2
     if (!map.has(n.file)) map.set(n.file, []);
     map.get(n.file).push(n);
   });

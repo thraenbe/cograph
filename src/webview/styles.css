@@ -16,7 +16,6 @@ body {
 :root {
   --cograph-node-default:  #d4d4d4;
   --cograph-node-library:  #c8a84b;
-  --cograph-node-orphan:   #666666;
   --cograph-node-cluster:  #7c4dbb;
   --cograph-node-entry:    #e8734a;
   --cograph-label-default: #d4d4d4;
@@ -41,7 +40,6 @@ body {
 body.vscode-light {
   --cograph-node-default:  #4a4a4a;
   --cograph-node-library:  #7a5900;
-  --cograph-node-orphan:   #888888;
   --cograph-node-cluster:  #6a3dab;
   --cograph-node-entry:    #c45c2a;
   --cograph-label-default: #333333;

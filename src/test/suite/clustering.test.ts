@@ -197,26 +197,6 @@ suite('computeClusters', () => {
     assert.strictEqual(result.clusterMembers.size, 3, 'no merges at level 1.0');
   });
 
-  test('level = 0.999 (orphan phase only) → orphans grouped, connected nodes untouched', () => {
-    const data = {
-      // orphan1, orphan2 have no edges; 'connected' appears in an edge
-      nodes: [{ id: 'orphan1' }, { id: 'orphan2' }, { id: 'connected' }],
-      edges: [{ source: 'connected', target: 'connected' }],
-    };
-    const scores = new Map();
-    const result = computeClusters(data, scores, 0.999);
-    assert.strictEqual(
-      result.nodeToCluster.get('orphan1'),
-      result.nodeToCluster.get('orphan2'),
-      'orphans should be in the same cluster'
-    );
-    assert.notStrictEqual(
-      result.nodeToCluster.get('connected'),
-      result.nodeToCluster.get('orphan1'),
-      'connected node should remain separate'
-    );
-  });
-
   test('level = 0.5 → neighbour-merge phase produces fewer clusters than nodes', () => {
     const data = {
       nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
@@ -282,31 +262,12 @@ suite('buildClusteredElements', () => {
     // Manually construct a cluster that groups a and b under representative 'a'
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
     const clusterMembers = new Map([['a', ['a', 'b']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
     const el = elements.find((e: any) => e.data.id === 'a');
     assert.ok(el, 'cluster element should exist');
     assert.strictEqual(el.data.label, 'alpha +1');
-  });
-
-  test('orphan cluster → label is "Orphans (N)"', () => {
-    const data = {
-      nodes: [
-        { id: 'a', name: 'alpha', file: 'a.py', line: 1 },
-        { id: 'b', name: 'beta', file: 'b.py', line: 1 },
-      ],
-      edges: [],
-    };
-    const scores = new Map([['a', 0], ['b', 0]]);
-    const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
-    const clusterMembers = new Map([['a', ['a', 'b']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: 'a' };
-
-    const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
-    const el = elements.find((e: any) => e.data.id === 'a');
-    assert.ok(el, 'orphan cluster element should exist');
-    assert.strictEqual(el.data.label, 'Orphans (2)');
   });
 
   test('project-level cluster (level ≤ 0.001) → label uses inferProjectName', () => {
@@ -320,7 +281,7 @@ suite('buildClusteredElements', () => {
     const scores = new Map([['a', 0.5], ['b', 0.5]]);
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
     const clusterMembers = new Map([['a', ['a', 'b']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const elements = buildClusteredElements(data, clusterResult, 0.001, scores);
     const el = elements.find((e: any) => e.data.id === 'a');
@@ -344,7 +305,7 @@ suite('buildClusteredElements', () => {
     // a and b share cluster 'a'; c is alone
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a'], ['c', 'c']]);
     const clusterMembers = new Map([['a', ['a', 'b']], ['c', ['c']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
     const edges = elements.filter((e: any) => e.data.source !== undefined);
@@ -368,7 +329,7 @@ suite('buildClusteredElements', () => {
     const scores = new Map([['a', 0.9], ['b', 0.5], ['c', 0.1]]);
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a'], ['c', 'c']]);
     const clusterMembers = new Map([['a', ['a', 'b']], ['c', ['c']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
     const edges = elements.filter((e: any) => e.data.source !== undefined);
@@ -386,7 +347,7 @@ suite('buildClusteredElements', () => {
     const scores = new Map([['a', 0.9], ['b', 0.1]]);
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
     const clusterMembers = new Map([['a', ['a', 'b']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
     const el = elements.find((e: any) => e.data.id === 'a');
@@ -407,7 +368,7 @@ suite('buildClusteredElements', () => {
     const scores = new Map([['a', 0.9], ['b', 0.1]]);
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
     const clusterMembers = new Map([['a', ['a', 'b']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
     const el = elements.find((e: any) => e.data.id === 'a');
@@ -474,7 +435,7 @@ suite('buildClusteredElements', () => {
     const scores = new Map([['a', 0.9], ['b', 0.1]]);
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
     const clusterMembers = new Map([['a', ['a', 'b']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const expandedClusters = new Set(['a']);
     const elements = buildClusteredElements(data, clusterResult, 0.5, scores, expandedClusters);

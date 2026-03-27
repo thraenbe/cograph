@@ -104,22 +104,7 @@ function computeClusters(data, importanceScores, level) {
   const nodeIds = data.nodes.filter((n) => n.id !== '::MAIN::0').map((n) => n.id);
   const realEdges = data.edges.filter((e) => e.source !== '::MAIN::0');
 
-  const edgeSet = new Set();
-  realEdges.forEach((e) => {
-    edgeSet.add(e.source);
-    edgeSet.add(e.target);
-  });
-
-  const orphanIds = nodeIds.filter((id) => !edgeSet.has(id));
-
   const uf = new UnionFind(nodeIds);
-
-  // Orphan phase: kicks in as soon as level < 1.0
-  if (level < 1.0 && orphanIds.length > 1) {
-    for (let i = 1; i < orphanIds.length; i++) {
-      uf.union(orphanIds[0], orphanIds[i]);
-    }
-  }
 
   // Neighbor-merge phase
   if (level > 0.001 && level < 0.999) {
@@ -133,8 +118,7 @@ function computeClusters(data, importanceScores, level) {
       return scoreA - scoreB;
     });
 
-    const nonOrphanCount = nodeIds.length - orphanIds.length;
-    const maxMerges = Math.max(0, nonOrphanCount - 1);
+    const maxMerges = Math.max(0, nodeIds.length - 1);
     const fraction = (0.999 - level) / 0.998; // 0 at level=0.999, 1 at level=0.001
     const mergeCount = Math.floor(fraction * maxMerges);
 
@@ -162,15 +146,12 @@ function computeClusters(data, importanceScores, level) {
     clusterMembers.get(rep).push(id);
   }
 
-  const orphanClusterId = orphanIds.length > 0 ? uf.find(orphanIds[0]) : null;
-
-  return { nodeToCluster, clusterMembers, orphanClusterId };
+  return { nodeToCluster, clusterMembers };
 }
 
-function inferClusterLabel(clusterId, members, level, importanceScores, orphanClusterId, nodeById, data) {
+function inferClusterLabel(clusterId, members, level, importanceScores, nodeById, data) {
   const memberCount = members.length;
   if (level <= 0.001) return inferProjectName(data);
-  if (orphanClusterId === clusterId && memberCount > 1) return `Orphans (${memberCount})`;
   const sortedMembers = [...members].sort(
     (a, b) => (importanceScores.get(b) ?? 0) - (importanceScores.get(a) ?? 0)
   );
@@ -180,7 +161,7 @@ function inferClusterLabel(clusterId, members, level, importanceScores, orphanCl
 }
 
 function buildClusterNodes(data, clusterResult, level, importanceScores, expandedClusters, degreeMap, entryPointIds, nodeById) {
-  const { clusterMembers, orphanClusterId } = clusterResult;
+  const { clusterMembers } = clusterResult;
   const elements = [];
 
   for (const [clusterId, members] of clusterMembers) {
@@ -202,7 +183,6 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
             line: n.line,
             isEntryPoint: entryPointIds.has(memberId),
             isCluster: false,
-            isOrphanCluster: false,
             isSynthetic: false,
             memberCount: 1,
             gitStatus: n.gitStatus,
@@ -214,12 +194,11 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
         });
       }
     } else {
-      const label = inferClusterLabel(clusterId, members, level, importanceScores, orphanClusterId, nodeById, data);
+      const label = inferClusterLabel(clusterId, members, level, importanceScores, nodeById, data);
       const deg = memberCount === 1 ? (degreeMap.get(clusterId) ?? 0) : 0;
       const _size = memberCount === 1
         ? Math.max(6, 6 + Math.sqrt(deg) * 2.5)
         : 36 * Math.max(1, Math.log2(memberCount + 1));
-      const isOrphanCluster = orphanClusterId === clusterId && memberCount > 1;
       const isSynthetic = level <= 0.001;
       const isCluster = memberCount > 1 && level > 0.001;
 
@@ -245,7 +224,6 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
           line: memberCount === 1 && rep ? rep.line : null,
           isEntryPoint: memberCount === 1 && entryPointIds.has(clusterId),
           isCluster,
-          isOrphanCluster,
           isSynthetic,
           memberCount,
           languageBreakdown,

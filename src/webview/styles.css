@@ -339,6 +339,25 @@ body.vscode-light {
   margin-bottom: 8px;
 }
 
+.tl-section-label {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.btn-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.btn-group .tl-btn {
+  width: auto;
+  flex: 1;
+}
+
 .tl-panel {
   margin-top: 4px;
   padding: 8px 10px;

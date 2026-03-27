@@ -81,6 +81,19 @@ wireLegendToggle('toggle-detail-legend', 'detail-legend-body');
 wireLegendToggle('toggle-git-legend', 'git-legend-body');
 wireLegendToggle('toggle-folder-filters', 'folder-filters-body');
 
+// ── Cluster group-by controls ─────────────────────────────────────────────────
+const GROUP_BY_MODES = ['connectivity', 'class', 'file', 'folder'];
+GROUP_BY_MODES.forEach(mode => {
+  document.getElementById(`btn-group-${mode}`)?.addEventListener('click', () => {
+    state.clusterGroupBy = mode;
+    state.expandedClusters = new Set();
+    GROUP_BY_MODES.forEach(m =>
+      document.getElementById(`btn-group-${m}`)?.classList.toggle('active', m === mode)
+    );
+    applyComplexity();
+  });
+});
+
 // ── Git mode toggle ───────────────────────────────────────────────────────────
 function setGitLegendVisible(visible) {
   const display = visible ? '' : 'none';

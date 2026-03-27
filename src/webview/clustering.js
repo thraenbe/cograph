@@ -149,6 +149,59 @@ function computeClusters(data, importanceScores, level) {
   return { nodeToCluster, clusterMembers };
 }
 
+function computeStructuralClusters(data, groupBy, level) {
+  const nodeIds = data.nodes.filter(n => n.id !== '::MAIN::0').map(n => n.id);
+
+  // Project phase: collapse all into one synthetic node
+  if (level <= 0.001 && nodeIds.length > 1) {
+    const nodeToCluster = new Map(nodeIds.map(id => [id, nodeIds[0]]));
+    const clusterMembers = new Map([[nodeIds[0], [...nodeIds]]]);
+    return { nodeToCluster, clusterMembers, clusterLabels: null };
+  }
+
+  // Full detail: every node is its own singleton cluster
+  if (level >= 0.999) {
+    const nodeToCluster = new Map(nodeIds.map(id => [id, id]));
+    const clusterMembers = new Map(nodeIds.map(id => [id, [id]]));
+    return { nodeToCluster, clusterMembers, clusterLabels: null };
+  }
+
+  // Structural grouping phase
+  const nodeToCluster = new Map();
+  const clusterMembers = new Map();
+  const clusterLabels = new Map();
+  const nodeById = new Map(data.nodes.map(n => [n.id, n]));
+
+  for (const id of nodeIds) {
+    const n = nodeById.get(id);
+    let groupKey, label;
+
+    if (groupBy === 'class' && n.className) {
+      groupKey = `${n.file ?? ''}::${n.className}`;
+      label = n.className;
+    } else if (groupBy === 'file' && n.file) {
+      groupKey = n.file;
+      label = n.file.split(/[\\/]/).pop();
+    } else if (groupBy === 'folder' && n.file) {
+      const parts = n.file.split(/[\\/]/);
+      parts.pop();
+      groupKey = parts.join('/') || '/';
+      label = parts[parts.length - 1] || 'root';
+    }
+
+    if (!groupKey) groupKey = id;   // ungrouped → own singleton
+
+    nodeToCluster.set(id, groupKey);
+    if (!clusterMembers.has(groupKey)) {
+      clusterMembers.set(groupKey, []);
+      if (label && groupKey !== id) clusterLabels.set(groupKey, label);
+    }
+    clusterMembers.get(groupKey).push(id);
+  }
+
+  return { nodeToCluster, clusterMembers, clusterLabels };
+}
+
 function inferClusterLabel(clusterId, members, level, importanceScores, nodeById, data) {
   const memberCount = members.length;
   if (level <= 0.001) return inferProjectName(data);
@@ -194,7 +247,8 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
         });
       }
     } else {
-      const label = inferClusterLabel(clusterId, members, level, importanceScores, nodeById, data);
+      const label = clusterResult.clusterLabels?.get(clusterId)
+        ?? inferClusterLabel(clusterId, members, level, importanceScores, nodeById, data);
       const deg = memberCount === 1 ? (degreeMap.get(clusterId) ?? 0) : 0;
       const _size = memberCount === 1
         ? Math.max(6, 6 + Math.sqrt(deg) * 2.5)
@@ -277,5 +331,5 @@ function buildClusteredElements(data, clusterResult, level, importanceScores, ex
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 if (typeof module !== 'undefined') {
-  module.exports = { UnionFind, computeImportanceScores, computeClusters, buildClusteredElements, inferProjectName };
+  module.exports = { UnionFind, computeImportanceScores, computeClusters, computeStructuralClusters, buildClusteredElements, inferProjectName };
 }

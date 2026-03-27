@@ -138,7 +138,9 @@ function applyComplexity() {
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
-  const clusterResult = computeClusters(projectData, state.importanceScores, state.complexityLevel);
+  const clusterResult = state.clusterGroupBy === 'connectivity'
+    ? computeClusters(projectData, state.importanceScores, state.complexityLevel)
+    : computeStructuralClusters(projectData, state.clusterGroupBy, state.complexityLevel);
   const elements = buildClusteredElements(projectData, clusterResult, state.complexityLevel, state.importanceScores, state.expandedClusters, degreeMap);
   const nodeToRendered = buildRenderedNodeMap(clusterResult.nodeToCluster, state.expandedClusters);
   if (settings.showLibraries) {
@@ -158,7 +160,7 @@ function applyComplexity() {
       const expanded = state.complexityLevel >= 0.999 || state.expandedLibClusters.has(pkgName);
       if (expanded) {
         nodes.forEach(n => {
-          elements.push({ data: { ...n, label: n.name, _size: 6, isCluster: false, isSynthetic: false, isOrphanCluster: false } });
+          elements.push({ data: { ...n, label: n.name, _size: 6, isCluster: false, isSynthetic: false } });
         });
       } else {
         elements.push({ data: {
@@ -175,7 +177,6 @@ function applyComplexity() {
           line: 0,
           isCluster: false,
           isSynthetic: false,
-          isOrphanCluster: false,
         }});
       }
     });
@@ -196,7 +197,25 @@ function applyComplexity() {
       }
     });
   }
-  renderElements(elements);
+  // For structural modes, seed each cluster at the centroid of its members'
+  // current on-screen positions so the layout starts compact instead of random.
+  const positionHints = new Map();
+  if (state.clusterGroupBy !== 'connectivity' && state.currentNodes.length > 0) {
+    const currentById = new Map(state.currentNodes.map(n => [n.id, n]));
+    for (const [clusterId, members] of clusterResult.clusterMembers) {
+      const pts = members
+        .map(id => currentById.get(id))
+        .filter(n => n?.x != null && n?.y != null);
+      if (pts.length > 0) {
+        positionHints.set(clusterId, {
+          x: pts.reduce((s, n) => s + n.x, 0) / pts.length,
+          y: pts.reduce((s, n) => s + n.y, 0) / pts.length,
+        });
+      }
+    }
+  }
+
+  renderElements(elements, positionHints);
 }
 
 // ── Main entry ────────────────────────────────────────────────────────────────

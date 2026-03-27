@@ -8,6 +8,7 @@ const {
   UnionFind,
   computeImportanceScores,
   computeClusters,
+  computeStructuralClusters,
   buildClusteredElements,
   inferProjectName,
 } = require('../../../src/webview/clustering.js');
@@ -445,5 +446,157 @@ suite('buildClusteredElements', () => {
     assert.ok(nodeIds.includes('a'), 'individual node a should be visible');
     assert.ok(nodeIds.includes('b'), 'individual node b should be visible');
     assert.strictEqual(nodeIds.length, 2, 'should show 2 individual nodes, not a cluster node');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeStructuralClusters
+// ---------------------------------------------------------------------------
+
+function makeStructuralData(nodes: { id: string; file?: string; className?: string }[]) {
+  return { nodes: nodes.map(n => ({ ...n })), edges: [] };
+}
+
+suite('computeStructuralClusters', () => {
+
+  // ── class mode ─────────────────────────────────────────────────────────────
+
+  test('class mode: same file+class → same cluster', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts', className: 'Dog' },
+      { id: 'b', file: '/p/f.ts', className: 'Dog' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'class', 0.5);
+    assert.strictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('class mode: different class → different cluster', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts', className: 'Dog' },
+      { id: 'b', file: '/p/f.ts', className: 'Cat' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'class', 0.5);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('class mode: no className → own singleton (different from class cluster)', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts', className: 'Dog' },
+      { id: 'b', file: '/p/f.ts' },
+    ]);
+    const { nodeToCluster, clusterMembers } = computeStructuralClusters(data, 'class', 0.5);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+    assert.strictEqual(clusterMembers.get(nodeToCluster.get('b'))!.length, 1);
+  });
+
+  test('class mode: clusterLabels has class name for multi-member group', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts', className: 'Dog' },
+      { id: 'b', file: '/p/f.ts', className: 'Dog' },
+    ]);
+    const { nodeToCluster, clusterLabels } = computeStructuralClusters(data, 'class', 0.5);
+    const key = nodeToCluster.get('a')!;
+    assert.strictEqual(clusterLabels!.get(key), 'Dog');
+  });
+
+  // ── file mode ──────────────────────────────────────────────────────────────
+
+  test('file mode: same file → same cluster', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/utils.ts' },
+      { id: 'b', file: '/p/utils.ts' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'file', 0.5);
+    assert.strictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('file mode: different files → different clusters', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/a.ts' },
+      { id: 'b', file: '/p/b.ts' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'file', 0.5);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('file mode: no file → own singleton', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts' },
+      { id: 'b' },
+    ]);
+    const { nodeToCluster, clusterMembers } = computeStructuralClusters(data, 'file', 0.5);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+    assert.strictEqual(clusterMembers.get(nodeToCluster.get('b'))!.length, 1);
+  });
+
+  test('file mode: clusterLabels has basename for multi-member group', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/proj/src/utils.ts' },
+      { id: 'b', file: '/proj/src/utils.ts' },
+    ]);
+    const { nodeToCluster, clusterLabels } = computeStructuralClusters(data, 'file', 0.5);
+    const key = nodeToCluster.get('a')!;
+    assert.strictEqual(clusterLabels!.get(key), 'utils.ts');
+  });
+
+  // ── folder mode ────────────────────────────────────────────────────────────
+
+  test('folder mode: same directory → same cluster', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/src/a.ts' },
+      { id: 'b', file: '/p/src/b.ts' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'folder', 0.5);
+    assert.strictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('folder mode: different directories → different clusters', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/src/a.ts' },
+      { id: 'b', file: '/p/lib/b.ts' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'folder', 0.5);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('folder mode: clusterLabels has folder name for multi-member group', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/proj/src/a.ts' },
+      { id: 'b', file: '/proj/src/b.ts' },
+    ]);
+    const { nodeToCluster, clusterLabels } = computeStructuralClusters(data, 'folder', 0.5);
+    const key = nodeToCluster.get('a')!;
+    assert.strictEqual(clusterLabels!.get(key), 'src');
+  });
+
+  // ── level boundary conditions ───────────────────────────────────────────────
+
+  test('level >= 0.999 → all individual singletons', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts', className: 'Dog' },
+      { id: 'b', file: '/p/f.ts', className: 'Dog' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'class', 0.999);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('level <= 0.001 → single cluster for all nodes', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/a.ts' },
+      { id: 'b', file: '/p/b.ts' },
+      { id: 'c', file: '/p/c.ts' },
+    ]);
+    const { clusterMembers } = computeStructuralClusters(data, 'file', 0.001);
+    assert.strictEqual(clusterMembers.size, 1, 'all nodes in one cluster at level 0');
+    assert.strictEqual([...clusterMembers.values()][0].length, 3);
+  });
+
+  test('level <= 0.001 → clusterLabels is null', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/a.ts' },
+      { id: 'b', file: '/p/b.ts' },
+    ]);
+    const { clusterLabels } = computeStructuralClusters(data, 'file', 0.0);
+    assert.strictEqual(clusterLabels, null);
   });
 });

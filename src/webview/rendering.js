@@ -326,7 +326,7 @@ function onCloudMouseOut(event, d) {
 }
 
 // ── Render sub-functions ──────────────────────────────────────────────────────
-function prepareRenderData(elements) {
+function prepareRenderData(elements, positionHints = new Map()) {
   const nodeData = elements.filter(e => e.data.source === undefined);
   const edgeData = elements.filter(e => e.data.source !== undefined);
 
@@ -343,8 +343,8 @@ function prepareRenderData(elements) {
 
   state.currentNodes = nodeData.map(e => ({
     ...e.data,
-    x: oldPositions.get(e.data.id)?.x ?? W / 2 + (Math.random() - 0.5) * 200,
-    y: oldPositions.get(e.data.id)?.y ?? H / 2 + (Math.random() - 0.5) * 200,
+    x: oldPositions.get(e.data.id)?.x ?? positionHints.get(e.data.id)?.x ?? W / 2 + (Math.random() - 0.5) * 200,
+    y: oldPositions.get(e.data.id)?.y ?? positionHints.get(e.data.id)?.y ?? H / 2 + (Math.random() - 0.5) * 200,
   }));
 
   const allLinks = edgeData.map(e => ({ source: e.data.source, target: e.data.target, isLibraryEdge: e.data.isLibraryEdge ?? false }));
@@ -537,8 +537,8 @@ function renderLibraryLabels(libNodeData, visibleSet) {
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
-function renderElements(elements) {
-  const { allLinks, visibleSet } = prepareRenderData(elements);
+function renderElements(elements, positionHints = new Map()) {
+  const { allLinks, visibleSet } = prepareRenderData(elements, positionHints);
   state.svgLinks = renderLinks(allLinks, visibleSet);
   state.svgNodes = renderNodes(visibleSet);
   state.svgCloudNodes = renderCloudNodes(visibleSet);

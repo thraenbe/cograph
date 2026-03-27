@@ -123,9 +123,13 @@ function computeClusters(data, importanceScores, level) {
 
   // Neighbor-merge phase
   if (level > 0.001 && level < 0.999) {
+    const fileById = new Map(data.nodes.map(n => [n.id, n.file]));
+    const FILE_AFFINITY = 0.05;
     const sortedEdges = [...realEdges].sort((a, b) => {
-      const scoreA = (importanceScores.get(a.source) ?? 0) + (importanceScores.get(a.target) ?? 0);
-      const scoreB = (importanceScores.get(b.source) ?? 0) + (importanceScores.get(b.target) ?? 0);
+      const sameFileA = fileById.get(a.source) && fileById.get(a.source) === fileById.get(a.target);
+      const sameFileB = fileById.get(b.source) && fileById.get(b.source) === fileById.get(b.target);
+      const scoreA = (importanceScores.get(a.source) ?? 0) + (importanceScores.get(a.target) ?? 0) - (sameFileA ? FILE_AFFINITY : 0);
+      const scoreB = (importanceScores.get(b.source) ?? 0) + (importanceScores.get(b.target) ?? 0) - (sameFileB ? FILE_AFFINITY : 0);
       return scoreA - scoreB;
     });
 
@@ -219,6 +223,19 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
       const isSynthetic = level <= 0.001;
       const isCluster = memberCount > 1 && level > 0.001;
 
+      let languageBreakdown = null;
+      if (memberCount > 1) {
+        const langCounts = {};
+        for (const memberId of members) {
+          const n = nodeById.get(memberId);
+          const lang = n?.language ?? 'unknown';
+          langCounts[lang] = (langCounts[lang] ?? 0) + 1;
+        }
+        languageBreakdown = Object.entries(langCounts)
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .map(([lang, count]) => ({ lang, fraction: count / memberCount }));
+      }
+
       elements.push({
         data: {
           id: clusterId,
@@ -231,6 +248,7 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
           isOrphanCluster,
           isSynthetic,
           memberCount,
+          languageBreakdown,
           gitStatus: memberCount === 1 && rep ? rep.gitStatus : undefined,
           language: memberCount === 1 && rep ? rep.language : undefined,
           className: memberCount === 1 && rep ? rep.className : undefined,

@@ -71,6 +71,7 @@ function applyFilters() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
   const visibleSet = getVisibleNodeIds();
   state.svgNodes.style('display', d => visibleSet.has(d.id) ? null : 'none');
+  state.svgCloudNodes?.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgLabels.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgLibNodes?.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgLibLabels?.style('display', d => visibleSet.has(d.id) ? null : 'none');
@@ -88,6 +89,7 @@ function applyDisplaySettings() {
     .attr('r', d => nodeRadius(d))
     .attr('stroke', d => resolveNodeStroke(d))
     .attr('stroke-width', d => resolveNodeStrokeWidth(d));
+  state.svgCloudNodes?.attr('d', d => generateCloudPath(nodeRadius(d), bumpCountFor(d)));
   state.svgLinks
     .attr('stroke-width', settings.linkThickness)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);

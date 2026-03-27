@@ -375,6 +375,94 @@ suite('buildClusteredElements', () => {
     assert.strictEqual(edges.length, 1, 'duplicate edges must be deduplicated');
   });
 
+  test('multi-member cluster has languageBreakdown array with fractions summing to 1', () => {
+    const data = {
+      nodes: [
+        { id: 'a', name: 'alpha', file: 'a.py', line: 1, language: 'python' },
+        { id: 'b', name: 'beta', file: 'b.ts', line: 1, language: 'typescript' },
+      ],
+      edges: [{ source: 'a', target: 'b' }],
+    };
+    const scores = new Map([['a', 0.9], ['b', 0.1]]);
+    const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
+    const clusterMembers = new Map([['a', ['a', 'b']]]);
+    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+
+    const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
+    const el = elements.find((e: any) => e.data.id === 'a');
+    assert.ok(el, 'cluster element should exist');
+    assert.ok(Array.isArray(el.data.languageBreakdown), 'languageBreakdown should be an array');
+    const total = el.data.languageBreakdown.reduce((s: number, x: any) => s + x.fraction, 0);
+    assert.ok(Math.abs(total - 1) < 0.001, 'fractions should sum to 1');
+  });
+
+  test('single-language cluster has one-entry languageBreakdown', () => {
+    const data = {
+      nodes: [
+        { id: 'a', name: 'alpha', file: 'a.py', line: 1, language: 'python' },
+        { id: 'b', name: 'beta', file: 'b.py', line: 1, language: 'python' },
+      ],
+      edges: [{ source: 'a', target: 'b' }],
+    };
+    const scores = new Map([['a', 0.9], ['b', 0.1]]);
+    const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
+    const clusterMembers = new Map([['a', ['a', 'b']]]);
+    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+
+    const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
+    const el = elements.find((e: any) => e.data.id === 'a');
+    assert.ok(el, 'cluster element should exist');
+    assert.strictEqual(el.data.languageBreakdown.length, 1, 'should have one language entry');
+    assert.strictEqual(el.data.languageBreakdown[0].lang, 'python');
+    assert.strictEqual(el.data.languageBreakdown[0].fraction, 1);
+  });
+
+  test('single-member cluster has null languageBreakdown', () => {
+    const data = {
+      nodes: [{ id: 'a', name: 'alpha', file: 'a.py', line: 1, language: 'python' }],
+      edges: [],
+    };
+    const scores = computeImportanceScores(data);
+    const clusterResult = computeClusters(data, scores, 1.0);
+    const elements = buildClusteredElements(data, clusterResult, 1.0, scores);
+    const el = elements.find((e: any) => e.data.id === 'a');
+    assert.ok(el, 'element should exist');
+    assert.strictEqual(el.data.languageBreakdown, null, 'single-member cluster should have null languageBreakdown');
+  });
+
+  test('file-affinity: same-file pair merges before cross-file pair at equal importance', () => {
+    // A and B are in the same file; C and D are in different files.
+    // All importance scores are equal so sort order is driven by file-affinity only.
+    // At mergeCount=1, A-B should merge first.
+    const data = {
+      nodes: [
+        { id: 'A', name: 'A', file: 'same.py', line: 1 },
+        { id: 'B', name: 'B', file: 'same.py', line: 2 },
+        { id: 'C', name: 'C', file: 'c.py',    line: 1 },
+        { id: 'D', name: 'D', file: 'd.py',    line: 1 },
+      ],
+      edges: [
+        { source: 'A', target: 'B' }, // same file
+        { source: 'C', target: 'D' }, // different files
+      ],
+    };
+    // Equal importance scores — file-affinity is the only differentiator.
+    const scores = new Map([['A', 0.5], ['B', 0.5], ['C', 0.5], ['D', 0.5]]);
+    // level 0.8 → fraction ≈ 0.199/0.998 ≈ 0.199, maxMerges=3, mergeCount=floor(0.199*3)=0
+    // We need mergeCount=1 exactly: fraction = 1/3, level = 0.999 - 0.998*(1/3) ≈ 0.6657
+    const result = computeClusters(data, scores, 0.666);
+    assert.strictEqual(
+      result.nodeToCluster.get('A'),
+      result.nodeToCluster.get('B'),
+      'A and B (same file) should be merged first'
+    );
+    assert.notStrictEqual(
+      result.nodeToCluster.get('C'),
+      result.nodeToCluster.get('D'),
+      'C and D (different files) should not be merged when only one merge occurs'
+    );
+  });
+
   test('expanded cluster shows individual member nodes instead of cluster node', () => {
     const data = {
       nodes: [

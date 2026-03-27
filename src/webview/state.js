@@ -8,6 +8,7 @@ const state = {
   connectedNodeIds: new Set(),
   simulation: null,
   svgNodes: null,
+  svgCloudNodes: null,
   svgLinks: null,
   svgLabels: null,
   svgLibNodes: null,

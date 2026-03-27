@@ -77,6 +77,7 @@ function applyGitColors() {
     .style('fill', d => resolveNodeFill(d))
     .attr('stroke', d => resolveNodeStroke(d))
     .attr('stroke-width', d => resolveNodeStrokeWidth(d));
+  state.svgCloudNodes?.style('fill', d => resolveClusterFill(d));
   state.svgLabels?.style('text-decoration', d =>
     state.gitMode && (d.gitStatus?.unstaged === 'deleted' || d.gitStatus?.staged === 'deleted') ? 'line-through' : null
   );

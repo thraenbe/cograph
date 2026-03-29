@@ -599,4 +599,61 @@ suite('computeStructuralClusters', () => {
     const { clusterLabels } = computeStructuralClusters(data, 'file', 0.0);
     assert.strictEqual(clusterLabels, null);
   });
+
+  // ── progressive merging ─────────────────────────────────────────────────────
+
+  test('file mode: low detail merges multiple file groups into fewer clusters', () => {
+    // 5 nodes in 5 different files; at level=0.1, formula: N=5, fraction≈0.9,
+    // mergeCount=floor(0.9*4)=3, targetCount=2 → must collapse to 2 clusters
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/a.ts' },
+      { id: 'b', file: '/p/b.ts' },
+      { id: 'c', file: '/p/c.ts' },
+      { id: 'd', file: '/p/d.ts' },
+      { id: 'e', file: '/p/e.ts' },
+    ]);
+    const { clusterMembers } = computeStructuralClusters(data, 'file', 0.1);
+    assert.ok(clusterMembers.size < 5, `expected fewer than 5 clusters at level 0.1, got ${clusterMembers.size}`);
+  });
+
+  test('file mode: path-prefix similarity drives merge order (same folder merges first)', () => {
+    // 3 nodes: two in /a/b/ and one in /x/; at level=0.3, exactly 1 merge happens (N=3,
+    // fraction≈0.7, mergeCount=floor(0.7*2)=1). The /a/b/ pair shares a longer common
+    // prefix than either does with /x/, so they merge first.
+    const data = makeStructuralData([
+      { id: 'c', file: '/a/b/c.ts' },
+      { id: 'd', file: '/a/b/d.ts' },
+      { id: 'x', file: '/x/y.ts' },
+    ]);
+    const { nodeToCluster, clusterMembers } = computeStructuralClusters(data, 'file', 0.3);
+    assert.strictEqual(clusterMembers.size, 2, 'exactly 2 clusters after 1 merge');
+    assert.strictEqual(nodeToCluster.get('c'), nodeToCluster.get('d'), '/a/b/ siblings should be merged');
+    assert.notStrictEqual(nodeToCluster.get('c'), nodeToCluster.get('x'), '/x/ node should remain separate');
+  });
+
+  test('file mode: merged cluster label is the common parent folder name', () => {
+    // Same setup as above: /a/b/c.ts and /a/b/d.ts merge; common prefix ["","a","b"],
+    // label = last common segment = "b"
+    const data = makeStructuralData([
+      { id: 'c', file: '/a/b/c.ts' },
+      { id: 'd', file: '/a/b/d.ts' },
+      { id: 'x', file: '/x/y.ts' },
+    ]);
+    const { nodeToCluster, clusterLabels } = computeStructuralClusters(data, 'file', 0.3);
+    const mergedId = nodeToCluster.get('c')!;
+    assert.strictEqual(clusterLabels!.get(mergedId), 'b', 'merged label should be the common parent folder');
+  });
+
+  test('folder mode: low detail merges folder groups progressively', () => {
+    // 4 nodes in 4 different folders under /proj; at level=0.1, N=4, fraction≈0.9,
+    // mergeCount=floor(0.9*3)=2, targetCount=2
+    const data = makeStructuralData([
+      { id: 'a', file: '/proj/src/a.ts' },
+      { id: 'b', file: '/proj/lib/b.ts' },
+      { id: 'c', file: '/proj/utils/c.ts' },
+      { id: 'd', file: '/proj/test/d.ts' },
+    ]);
+    const { clusterMembers } = computeStructuralClusters(data, 'folder', 0.1);
+    assert.ok(clusterMembers.size < 4, `expected fewer than 4 clusters at level 0.1, got ${clusterMembers.size}`);
+  });
 });

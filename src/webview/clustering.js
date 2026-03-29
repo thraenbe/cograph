@@ -152,30 +152,26 @@ function computeClusters(data, importanceScores, level) {
 function computeStructuralClusters(data, groupBy, level) {
   const nodeIds = data.nodes.filter(n => n.id !== '::MAIN::0').map(n => n.id);
 
-  // Project phase: collapse all into one synthetic node
   if (level <= 0.001 && nodeIds.length > 1) {
     const nodeToCluster = new Map(nodeIds.map(id => [id, nodeIds[0]]));
     const clusterMembers = new Map([[nodeIds[0], [...nodeIds]]]);
     return { nodeToCluster, clusterMembers, clusterLabels: null };
   }
 
-  // Full detail: every node is its own singleton cluster
   if (level >= 0.999) {
     const nodeToCluster = new Map(nodeIds.map(id => [id, id]));
     const clusterMembers = new Map(nodeIds.map(id => [id, [id]]));
     return { nodeToCluster, clusterMembers, clusterLabels: null };
   }
 
-  // Structural grouping phase
-  const nodeToCluster = new Map();
-  const clusterMembers = new Map();
-  const clusterLabels = new Map();
+  // Step 1: compute base structural groups
+  const nodeToGroup = new Map();
+  const baseLabels = new Map();
   const nodeById = new Map(data.nodes.map(n => [n.id, n]));
 
   for (const id of nodeIds) {
     const n = nodeById.get(id);
     let groupKey, label;
-
     if (groupBy === 'class' && n.className) {
       groupKey = `${n.file ?? ''}::${n.className}`;
       label = n.className;
@@ -188,15 +184,72 @@ function computeStructuralClusters(data, groupBy, level) {
       groupKey = parts.join('/') || '/';
       label = parts[parts.length - 1] || 'root';
     }
-
-    if (!groupKey) groupKey = id;   // ungrouped → own singleton
-
-    nodeToCluster.set(id, groupKey);
-    if (!clusterMembers.has(groupKey)) {
-      clusterMembers.set(groupKey, []);
-      if (label && groupKey !== id) clusterLabels.set(groupKey, label);
+    if (!groupKey) groupKey = id;
+    nodeToGroup.set(id, groupKey);
+    if (!baseLabels.has(groupKey) && label && groupKey !== id) {
+      baseLabels.set(groupKey, label);
     }
-    clusterMembers.get(groupKey).push(id);
+  }
+
+  // Step 2: compute target cluster count (same aggressiveness as connectivity mode)
+  const allGroupIds = [...new Set(nodeToGroup.values())];
+  const N = allGroupIds.length;
+  const fraction = (0.999 - level) / 0.998;
+  const mergeCount = Math.floor(fraction * Math.max(0, N - 1));
+  const targetCount = Math.max(1, N - mergeCount);
+
+  // Step 3: merge groups by path-prefix similarity (Kruskal-style)
+  const groupPathSegs = new Map(allGroupIds.map(g => {
+    const pathKey = (groupBy === 'class' && g.includes('::')) ? g.split('::')[0] : g;
+    return [g, pathKey.split(/[\\/]/)];
+  }));
+
+  const uf = new UnionFind(allGroupIds);
+  const mergedLabels = new Map(baseLabels);
+
+  if (targetCount < N) {
+    const pairs = [];
+    for (let i = 0; i < allGroupIds.length; i++) {
+      for (let j = i + 1; j < allGroupIds.length; j++) {
+        const p1 = groupPathSegs.get(allGroupIds[i]);
+        const p2 = groupPathSegs.get(allGroupIds[j]);
+        let sim = 0;
+        const minLen = Math.min(p1.length, p2.length);
+        while (sim < minLen && p1[sim] === p2[sim]) sim++;
+        pairs.push([sim, allGroupIds[i], allGroupIds[j], p1]);
+      }
+    }
+    pairs.sort((a, b) => b[0] - a[0]);
+
+    let currentCount = N;
+    for (const [sim, g1, g2, p1] of pairs) {
+      if (currentCount <= targetCount) break;
+      const r1 = uf.find(g1);
+      const r2 = uf.find(g2);
+      if (r1 === r2) continue;
+      uf.union(r1, r2);
+      currentCount--;
+      const merged = uf.find(r1);
+      if (sim > 0) {
+        mergedLabels.set(merged, p1[sim - 1]);
+      }
+    }
+  }
+
+  // Step 4: build output maps
+  const nodeToCluster = new Map();
+  const clusterMembers = new Map();
+  const clusterLabels = new Map();
+
+  for (const id of nodeIds) {
+    const group = nodeToGroup.get(id);
+    const clusterId = uf.find(group);
+    nodeToCluster.set(id, clusterId);
+    if (!clusterMembers.has(clusterId)) {
+      clusterMembers.set(clusterId, []);
+      if (mergedLabels.has(clusterId)) clusterLabels.set(clusterId, mergedLabels.get(clusterId));
+    }
+    clusterMembers.get(clusterId).push(id);
   }
 
   return { nodeToCluster, clusterMembers, clusterLabels };

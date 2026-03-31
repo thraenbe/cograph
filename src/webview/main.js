@@ -12,9 +12,9 @@ const settings = {
   nodeSize: 2.5,
   textSize: 1.0,
   linkThickness: 4,
-  centerForce: 1,
-  repelForce: 50,
-  linkForce: 1,
+  centerForce: 0.7,
+  repelForce: 30,
+  linkForce: 0.2,
   linkDistance: 40,
   openFunctionPopup: true,
 };
@@ -118,7 +118,9 @@ function rerunLayout() {
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;
   const H = svgEl.clientHeight || window.innerHeight;
-  state.simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce));
+  state.simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(0.05));
+  state.simulation.force('x', d3.forceX(W / 2).strength(settings.centerForce));
+  state.simulation.force('y', d3.forceY(H / 2).strength(settings.centerForce));
   state.simulation.force('charge').strength(-settings.repelForce);
   state.simulation.force('link').strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1).distance(settings.linkDistance);
   state.simulation.alpha(0.5).restart();

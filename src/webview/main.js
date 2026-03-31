@@ -288,4 +288,19 @@ window.addEventListener('message', (event) => {
     if (state.gitMode) { applyGitColors(); }
     return;
   }
+  if (message.type === 'reload-layout') {
+    const svgEl = svg.node();
+    const W = svgEl?.clientWidth || window.innerWidth;
+    const H = svgEl?.clientHeight || window.innerHeight;
+    state.currentNodes.forEach(d => {
+      d.fx = null;
+      d.fy = null;
+      d.x = W / 2 + (Math.random() - 0.5) * 200;
+      d.y = H / 2 + (Math.random() - 0.5) * 200;
+      d.vx = 0;
+      d.vy = 0;
+    });
+    rerunLayout();
+    return;
+  }
 });

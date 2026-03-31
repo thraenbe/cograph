@@ -24,14 +24,15 @@
     "graph"
   ],
   "engines": {
-    "vscode": "^1.64.0"
+    "vscode": "^1.75.0"
   },
   "categories": [
     "Visualization",
     "Programming Languages"
   ],
   "activationEvents": [
-    "onCommand:cograph.visualize"
+    "onCommand:cograph.visualize",
+    "onCommand:cograph.openOrReload"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -39,8 +40,25 @@
       {
         "command": "cograph.visualize",
         "title": "CoGraph: Visualize Project"
+      },
+      {
+        "command": "cograph.openOrReload",
+        "title": "CoGraph: Open or Reload Layout",
+        "icon": {
+          "light": "./media/icon-light.svg",
+          "dark": "./media/icon-dark.svg"
+        }
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "cograph.openOrReload",
+          "group": "navigation",
+          "when": "true"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

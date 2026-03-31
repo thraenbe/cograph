@@ -8,7 +8,15 @@ export function activate(context: vscode.ExtensionContext) {
     provider.show();
   });
 
-  context.subscriptions.push(command);
+  const openOrReloadCommand = vscode.commands.registerCommand('cograph.openOrReload', () => {
+    if (provider.isOpen()) {
+      provider.reloadLayout();
+    } else {
+      provider.show();
+    }
+  });
+
+  context.subscriptions.push(command, openOrReloadCommand);
 }
 
 export function deactivate() {}

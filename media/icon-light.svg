@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- Pentagon edges -->
+  <line x1="8" y1="2.5" x2="13.2" y2="6.3"  stroke="#3d4fa0" stroke-width="0.9" stroke-linecap="round"/>
+  <line x1="13.2" y1="6.3" x2="11.2" y2="12.5" stroke="#3d4fa0" stroke-width="0.9" stroke-linecap="round"/>
+  <line x1="11.2" y1="12.5" x2="4.8" y2="12.5" stroke="#3d4fa0" stroke-width="0.9" stroke-linecap="round"/>
+  <line x1="4.8" y1="12.5" x2="2.8" y2="6.3"  stroke="#3d4fa0" stroke-width="0.9" stroke-linecap="round"/>
+  <line x1="2.8" y1="6.3"  x2="8" y2="2.5"     stroke="#3d4fa0" stroke-width="0.9" stroke-linecap="round"/>
+  <!-- Inner star diagonals -->
+  <line x1="8" y1="2.5"   x2="11.2" y2="12.5" stroke="#3d4fa0" stroke-width="0.9" stroke-linecap="round"/>
+  <line x1="8" y1="2.5"   x2="4.8"  y2="12.5" stroke="#3d4fa0" stroke-width="0.9" stroke-linecap="round"/>
+  <line x1="13.2" y1="6.3" x2="4.8" y2="12.5" stroke="#3d4fa0" stroke-width="0.9" stroke-linecap="round"/>
+  <line x1="13.2" y1="6.3" x2="2.8" y2="6.3"  stroke="#3d4fa0" stroke-width="0.9" stroke-linecap="round"/>
+  <line x1="11.2" y1="12.5" x2="2.8" y2="6.3" stroke="#3d4fa0" stroke-width="0.9" stroke-linecap="round"/>
+  <!-- Colored nodes -->
+  <circle cx="8"    cy="2.5"  r="1.6" fill="#4a9eff"/>
+  <circle cx="13.2" cy="6.3"  r="1.6" fill="#4dde6e"/>
+  <circle cx="11.2" cy="12.5" r="1.6" fill="#f5e642"/>
+  <circle cx="4.8"  cy="12.5" r="1.6" fill="#ff8c42"/>
+  <circle cx="2.8"  cy="6.3"  r="1.6" fill="#ff4da6"/>
+</svg>

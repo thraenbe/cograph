@@ -10,12 +10,11 @@ const settings = {
   arrows: true,
   textFadeThreshold: 0.5,
   nodeSize: 2.5,
-  textSize: 1.0,
+  textSize: 1.5,
   linkThickness: 4,
-  centerForce: 0.7,
-  repelForce: 30,
-  linkForce: 0.2,
-  linkDistance: 40,
+  centerForce: 0.05,
+  repelForce: 250,
+  linkForce: 1,
   openFunctionPopup: true,
 };
 
@@ -122,7 +121,7 @@ function rerunLayout() {
   state.simulation.force('x', d3.forceX(W / 2).strength(settings.centerForce));
   state.simulation.force('y', d3.forceY(H / 2).strength(settings.centerForce));
   state.simulation.force('charge').strength(-settings.repelForce);
-  state.simulation.force('link').strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1).distance(settings.linkDistance);
+  state.simulation.force('link').strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1).distance(40);
   state.simulation.alpha(0.5).restart();
 }
 

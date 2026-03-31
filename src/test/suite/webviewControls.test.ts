@@ -25,7 +25,6 @@ function makeDOM() {
     <input id="slider-center-force" type="range" value="1" /><span id="val-center-force">1</span>
     <input id="slider-repel-force" type="range" value="50" /><span id="val-repel-force">50</span>
     <input id="slider-link-force" type="range" value="1" /><span id="val-link-force">1</span>
-    <input id="slider-link-distance" type="range" value="40" /><span id="val-link-distance">40</span>
     <div id="toggle-detail-legend"><span class="tl-chevron">▾</span></div>
     <div id="detail-legend-body"></div>
     <div id="toggle-git-legend"><span class="tl-chevron">▾</span></div>

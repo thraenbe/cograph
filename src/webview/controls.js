@@ -64,7 +64,6 @@ wireSlider('slider-link-thickness', 'val-link-thickness', 'linkThickness', apply
 wireSlider('slider-center-force', 'val-center-force', 'centerForce', rerunLayout);
 wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);
 wireSlider('slider-link-force', 'val-link-force', 'linkForce', rerunLayout);
-wireSlider('slider-link-distance', 'val-link-distance', 'linkDistance', rerunLayout);
 
 // ── Collapsible legend headers ────────────────────────────────────────────────
 function wireLegendToggle(headerId, bodyId) {

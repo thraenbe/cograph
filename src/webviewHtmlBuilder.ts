@@ -218,8 +218,8 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <input type="range" id="slider-node-size" min="0.1" max="5" step="0.1" value="2.5" />
       </div>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-text-size">Text Size</label><span id="val-text-size">1</span></div>
-        <input type="range" id="slider-text-size" min="0.5" max="2" step="0.1" value="1" />
+        <div class="slider-header"><label for="slider-text-size">Text Size</label><span id="val-text-size">1.5</span></div>
+        <input type="range" id="slider-text-size" min="0" max="3" step="0.1" value="1.5" />
       </div>
       <div class="slider-row">
         <div class="slider-header"><label for="slider-link-thickness">Link Thickness</label><span id="val-link-thickness">4</span></div>
@@ -230,20 +230,16 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     <div class="panel-section" id="forces-section">
       <h4>Forces</h4>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">0.7</span></div>
-        <input type="range" id="slider-center-force" min="0" max="1" step="0.01" value="0.7" />
+        <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">0.05</span></div>
+        <input type="range" id="slider-center-force" min="0" max="1" step="0.005" value="0.05" />
       </div>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">30</span></div>
-        <input type="range" id="slider-repel-force" min="0" max="300" step="1" value="30" />
+        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">250</span></div>
+        <input type="range" id="slider-repel-force" min="0" max="1000" step="1" value="250" />
       </div>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">0.2</span></div>
-        <input type="range" id="slider-link-force" min="0.01" max="3" step="0.01" value="0.2" />
-      </div>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-link-distance">Link Distance</label><span id="val-link-distance">40</span></div>
-        <input type="range" id="slider-link-distance" min="10" max="80" step="5" value="40" />
+        <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">1</span></div>
+        <input type="range" id="slider-link-force" min="0" max="10" step="0.1" value="1" />
       </div>
     </div>
 

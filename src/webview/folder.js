@@ -1,8 +1,6 @@
 // ── Constants ────────────────────────────────────────────────────────────────
 const FILE_PADDING               = 28;
 const FOLDER_PADDING             = 40;
-const CLUSTER_STRENGTH           = 0.04;
-const FOLDER_SEPARATION_STRENGTH = 0.25;
 const PATH_SEP_RE                = /[\\/]+/;       // handles both / and \ (B1)
 const INTERACT_EDGE_PX           = 12;             // px-width of resize hit zone on bubble border
 const FOLDER_TITLEBAR_HEIGHT     = 30;             // px height of the draggable title bar
@@ -426,8 +424,8 @@ function createFileClusterForce(nodesByFile) {
       const cy = valid.reduce((s, n) => s + n.y, 0) / valid.length;
       valid.forEach(n => {
         if (n.fx != null) return;   // don't disturb pinned nodes
-        n.vx = (n.vx ?? 0) + (cx - n.x) * CLUSTER_STRENGTH * alpha;
-        n.vy = (n.vy ?? 0) + (cy - n.y) * CLUSTER_STRENGTH * alpha;
+        n.vx = (n.vx ?? 0) + (cx - n.x) * settings.fileClusterForce * alpha;
+        n.vy = (n.vy ?? 0) + (cy - n.y) * settings.fileClusterForce * alpha;
       });
     });
   };
@@ -495,7 +493,7 @@ function createFolderSeparationForce(folderTree, nodesByFile) {
       const dy = cyA - cyB || 0.01;
       const dist = Math.hypot(dx, dy);
       const boost = overlapping ? 3.0 : 1.0;
-      const strength = FOLDER_SEPARATION_STRENGTH * alpha * boost / dist;
+      const strength = 0.25 * alpha * boost / dist;
 
       nodesA.forEach(n => { n.vx += dx * strength; n.vy += dy * strength; });
       nodesB.forEach(n => { n.vx -= dx * strength; n.vy -= dy * strength; });

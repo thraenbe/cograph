@@ -229,8 +229,8 @@ function renderGraph(data, isReanalysis = false) {
   if (!isReanalysis) { state.hasFitted = false; }
 
   const nodeCount = projectData.nodes.length;
-  if (nodeCount > 200) {
-    state.complexityLevel = Math.max(0.1, Math.min(0.9, 200 / nodeCount));
+  if (nodeCount >= 500) {
+    state.complexityLevel = Math.max(0.1, Math.min(0.9, 500 / nodeCount));
     const slider = document.getElementById('slider-complexity');
     const valEl = document.getElementById('val-complexity');
     if (slider) slider.value = String(state.complexityLevel);

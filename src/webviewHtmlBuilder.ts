@@ -139,7 +139,6 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <button id="btn-group-connectivity" class="tl-btn active" title="Cluster by connection importance">Auto</button>
         <button id="btn-group-class"        class="tl-btn"        title="Cluster by class">Class</button>
         <button id="btn-group-file"         class="tl-btn"        title="Cluster by file">File</button>
-        <button id="btn-group-folder"       class="tl-btn"        title="Cluster by folder">Folder</button>
       </div>
     </div>
     <div id="panel-git" class="tl-panel" style="display:none">

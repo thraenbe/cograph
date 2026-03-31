@@ -81,7 +81,7 @@ wireLegendToggle('toggle-git-legend', 'git-legend-body');
 wireLegendToggle('toggle-folder-filters', 'folder-filters-body');
 
 // ── Cluster group-by controls ─────────────────────────────────────────────────
-const GROUP_BY_MODES = ['connectivity', 'class', 'file', 'folder'];
+const GROUP_BY_MODES = ['connectivity', 'class', 'file'];
 GROUP_BY_MODES.forEach(mode => {
   document.getElementById(`btn-group-${mode}`)?.addEventListener('click', () => {
     state.clusterGroupBy = mode;

@@ -178,11 +178,6 @@ function computeStructuralClusters(data, groupBy, level) {
     } else if (groupBy === 'file' && n.file) {
       groupKey = n.file;
       label = n.file.split(/[\\/]/).pop();
-    } else if (groupBy === 'folder' && n.file) {
-      const parts = n.file.split(/[\\/]/);
-      parts.pop();
-      groupKey = parts.join('/') || '/';
-      label = parts[parts.length - 1] || 'root';
     }
     if (!groupKey) groupKey = id;
     nodeToGroup.set(id, groupKey);

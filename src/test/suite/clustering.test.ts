@@ -539,36 +539,6 @@ suite('computeStructuralClusters', () => {
     assert.strictEqual(clusterLabels!.get(key), 'utils.ts');
   });
 
-  // ── folder mode ────────────────────────────────────────────────────────────
-
-  test('folder mode: same directory → same cluster', () => {
-    const data = makeStructuralData([
-      { id: 'a', file: '/p/src/a.ts' },
-      { id: 'b', file: '/p/src/b.ts' },
-    ]);
-    const { nodeToCluster } = computeStructuralClusters(data, 'folder', 0.5);
-    assert.strictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
-  });
-
-  test('folder mode: different directories → different clusters', () => {
-    const data = makeStructuralData([
-      { id: 'a', file: '/p/src/a.ts' },
-      { id: 'b', file: '/p/lib/b.ts' },
-    ]);
-    const { nodeToCluster } = computeStructuralClusters(data, 'folder', 0.5);
-    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
-  });
-
-  test('folder mode: clusterLabels has folder name for multi-member group', () => {
-    const data = makeStructuralData([
-      { id: 'a', file: '/proj/src/a.ts' },
-      { id: 'b', file: '/proj/src/b.ts' },
-    ]);
-    const { nodeToCluster, clusterLabels } = computeStructuralClusters(data, 'folder', 0.5);
-    const key = nodeToCluster.get('a')!;
-    assert.strictEqual(clusterLabels!.get(key), 'src');
-  });
-
   // ── level boundary conditions ───────────────────────────────────────────────
 
   test('level >= 0.999 → all individual singletons', () => {
@@ -644,16 +614,4 @@ suite('computeStructuralClusters', () => {
     assert.strictEqual(clusterLabels!.get(mergedId), 'b', 'merged label should be the common parent folder');
   });
 
-  test('folder mode: low detail merges folder groups progressively', () => {
-    // 4 nodes in 4 different folders under /proj; at level=0.1, N=4, fraction≈0.9,
-    // mergeCount=floor(0.9*3)=2, targetCount=2
-    const data = makeStructuralData([
-      { id: 'a', file: '/proj/src/a.ts' },
-      { id: 'b', file: '/proj/lib/b.ts' },
-      { id: 'c', file: '/proj/utils/c.ts' },
-      { id: 'd', file: '/proj/test/d.ts' },
-    ]);
-    const { clusterMembers } = computeStructuralClusters(data, 'folder', 0.1);
-    assert.ok(clusterMembers.size < 4, `expected fewer than 4 clusters at level 0.1, got ${clusterMembers.size}`);
-  });
 });

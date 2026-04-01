@@ -1,6 +1,7 @@
 const state = {
   graphData: null,
   complexityLevel: 1,
+  clusterGroupBy: 'connectivity',  // 'connectivity' | 'class' | 'file' | 'folder'
   importanceScores: null,
   clusterTimer: null,
   expandedClusters: new Set(),
@@ -8,6 +9,7 @@ const state = {
   connectedNodeIds: new Set(),
   simulation: null,
   svgNodes: null,
+  svgCloudNodes: null,
   svgLinks: null,
   svgLabels: null,
   svgLibNodes: null,

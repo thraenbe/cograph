@@ -25,7 +25,6 @@ function makeDOM() {
     <input id="slider-center-force" type="range" value="1" /><span id="val-center-force">1</span>
     <input id="slider-repel-force" type="range" value="50" /><span id="val-repel-force">50</span>
     <input id="slider-link-force" type="range" value="1" /><span id="val-link-force">1</span>
-    <input id="slider-link-distance" type="range" value="40" /><span id="val-link-distance">40</span>
     <div id="toggle-detail-legend"><span class="tl-chevron">▾</span></div>
     <div id="detail-legend-body"></div>
     <div id="toggle-git-legend"><span class="tl-chevron">▾</span></div>
@@ -77,7 +76,7 @@ const dom = makeDOM();
 (global as any).settings = {
   showOrphans: true, showLibraries: false, arrows: true,
   textFadeThreshold: 0.5, nodeSize: 2.5, textSize: 1.0, linkThickness: 4,
-  centerForce: 1, repelForce: 50, linkForce: 1, linkDistance: 40,
+  centerForce: 1, repelForce: 50, linkForce: 1,
 };
 (global as any).vscode = { postMessage: () => {} };
 
@@ -355,5 +354,42 @@ suite('Textarea keyboard handlers', () => {
     const evt = dispatchKey(inst.textarea, 'keydown', 's', { ctrlKey: true });
     assert.ok(saveCalled || evt.defaultPrevented,
       'Ctrl+S should trigger save or prevent default');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: Link Distance removal regression
+// Regression for bug where settings.linkDistance was removed but rendering.js
+// still read it, causing undefined → NaN distance and all nodes collapsing.
+// ---------------------------------------------------------------------------
+
+suite('Link Distance removal regression', () => {
+  test('settings object has no linkDistance property', () => {
+    assert.strictEqual(
+      (global as any).settings.linkDistance,
+      undefined,
+      'linkDistance was removed — rendering must use a hardcoded value, not settings.linkDistance',
+    );
+  });
+
+  test('slider-link-distance element does not exist in DOM', () => {
+    const slider = dom.window.document.getElementById('slider-link-distance');
+    assert.strictEqual(slider, null, 'slider-link-distance should not be present in the webview HTML');
+  });
+
+  test('wireSlider input event does not create settings.linkDistance', () => {
+    // Trigger every wired slider — none should write linkDistance onto settings
+    const sliderIds = [
+      'slider-text-size', 'slider-center-force', 'slider-repel-force', 'slider-link-force',
+    ];
+    for (const id of sliderIds) {
+      const slider = dom.window.document.getElementById(id) as any;
+      if (slider) dispatch(slider, 'input');
+    }
+    assert.strictEqual(
+      (global as any).settings.linkDistance,
+      undefined,
+      'no slider should write settings.linkDistance',
+    );
   });
 });

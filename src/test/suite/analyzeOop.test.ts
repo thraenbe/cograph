@@ -198,7 +198,6 @@ suite('groupByClass', () => {
       isLibrary: false,
       isCluster: false,
       isSynthetic: false,
-      isOrphanCluster: false,
       ...overrides,
     };
   }
@@ -253,12 +252,4 @@ suite('groupByClass', () => {
     assert.strictEqual(map.size, 1);
   });
 
-  test('excludes orphan cluster nodes', () => {
-    const nodes = [
-      makeNode({ name: 'orphan', className: 'OrpClass', isOrphanCluster: true }),
-      makeNode({ name: 'real', className: 'RealClass' }),
-    ];
-    const map = groupByClass(nodes);
-    assert.strictEqual(map.size, 1);
-  });
 });

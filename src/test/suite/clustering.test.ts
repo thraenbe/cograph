@@ -8,6 +8,7 @@ const {
   UnionFind,
   computeImportanceScores,
   computeClusters,
+  computeStructuralClusters,
   buildClusteredElements,
   inferProjectName,
 } = require('../../../src/webview/clustering.js');
@@ -197,26 +198,6 @@ suite('computeClusters', () => {
     assert.strictEqual(result.clusterMembers.size, 3, 'no merges at level 1.0');
   });
 
-  test('level = 0.999 (orphan phase only) → orphans grouped, connected nodes untouched', () => {
-    const data = {
-      // orphan1, orphan2 have no edges; 'connected' appears in an edge
-      nodes: [{ id: 'orphan1' }, { id: 'orphan2' }, { id: 'connected' }],
-      edges: [{ source: 'connected', target: 'connected' }],
-    };
-    const scores = new Map();
-    const result = computeClusters(data, scores, 0.999);
-    assert.strictEqual(
-      result.nodeToCluster.get('orphan1'),
-      result.nodeToCluster.get('orphan2'),
-      'orphans should be in the same cluster'
-    );
-    assert.notStrictEqual(
-      result.nodeToCluster.get('connected'),
-      result.nodeToCluster.get('orphan1'),
-      'connected node should remain separate'
-    );
-  });
-
   test('level = 0.5 → neighbour-merge phase produces fewer clusters than nodes', () => {
     const data = {
       nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
@@ -282,31 +263,12 @@ suite('buildClusteredElements', () => {
     // Manually construct a cluster that groups a and b under representative 'a'
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
     const clusterMembers = new Map([['a', ['a', 'b']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
     const el = elements.find((e: any) => e.data.id === 'a');
     assert.ok(el, 'cluster element should exist');
     assert.strictEqual(el.data.label, 'alpha +1');
-  });
-
-  test('orphan cluster → label is "Orphans (N)"', () => {
-    const data = {
-      nodes: [
-        { id: 'a', name: 'alpha', file: 'a.py', line: 1 },
-        { id: 'b', name: 'beta', file: 'b.py', line: 1 },
-      ],
-      edges: [],
-    };
-    const scores = new Map([['a', 0], ['b', 0]]);
-    const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
-    const clusterMembers = new Map([['a', ['a', 'b']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: 'a' };
-
-    const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
-    const el = elements.find((e: any) => e.data.id === 'a');
-    assert.ok(el, 'orphan cluster element should exist');
-    assert.strictEqual(el.data.label, 'Orphans (2)');
   });
 
   test('project-level cluster (level ≤ 0.001) → label uses inferProjectName', () => {
@@ -320,7 +282,7 @@ suite('buildClusteredElements', () => {
     const scores = new Map([['a', 0.5], ['b', 0.5]]);
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
     const clusterMembers = new Map([['a', ['a', 'b']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const elements = buildClusteredElements(data, clusterResult, 0.001, scores);
     const el = elements.find((e: any) => e.data.id === 'a');
@@ -344,7 +306,7 @@ suite('buildClusteredElements', () => {
     // a and b share cluster 'a'; c is alone
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a'], ['c', 'c']]);
     const clusterMembers = new Map([['a', ['a', 'b']], ['c', ['c']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
     const edges = elements.filter((e: any) => e.data.source !== undefined);
@@ -368,11 +330,99 @@ suite('buildClusteredElements', () => {
     const scores = new Map([['a', 0.9], ['b', 0.5], ['c', 0.1]]);
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a'], ['c', 'c']]);
     const clusterMembers = new Map([['a', ['a', 'b']], ['c', ['c']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
     const edges = elements.filter((e: any) => e.data.source !== undefined);
     assert.strictEqual(edges.length, 1, 'duplicate edges must be deduplicated');
+  });
+
+  test('multi-member cluster has languageBreakdown array with fractions summing to 1', () => {
+    const data = {
+      nodes: [
+        { id: 'a', name: 'alpha', file: 'a.py', line: 1, language: 'python' },
+        { id: 'b', name: 'beta', file: 'b.ts', line: 1, language: 'typescript' },
+      ],
+      edges: [{ source: 'a', target: 'b' }],
+    };
+    const scores = new Map([['a', 0.9], ['b', 0.1]]);
+    const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
+    const clusterMembers = new Map([['a', ['a', 'b']]]);
+    const clusterResult = { nodeToCluster, clusterMembers };
+
+    const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
+    const el = elements.find((e: any) => e.data.id === 'a');
+    assert.ok(el, 'cluster element should exist');
+    assert.ok(Array.isArray(el.data.languageBreakdown), 'languageBreakdown should be an array');
+    const total = el.data.languageBreakdown.reduce((s: number, x: any) => s + x.fraction, 0);
+    assert.ok(Math.abs(total - 1) < 0.001, 'fractions should sum to 1');
+  });
+
+  test('single-language cluster has one-entry languageBreakdown', () => {
+    const data = {
+      nodes: [
+        { id: 'a', name: 'alpha', file: 'a.py', line: 1, language: 'python' },
+        { id: 'b', name: 'beta', file: 'b.py', line: 1, language: 'python' },
+      ],
+      edges: [{ source: 'a', target: 'b' }],
+    };
+    const scores = new Map([['a', 0.9], ['b', 0.1]]);
+    const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
+    const clusterMembers = new Map([['a', ['a', 'b']]]);
+    const clusterResult = { nodeToCluster, clusterMembers };
+
+    const elements = buildClusteredElements(data, clusterResult, 0.5, scores);
+    const el = elements.find((e: any) => e.data.id === 'a');
+    assert.ok(el, 'cluster element should exist');
+    assert.strictEqual(el.data.languageBreakdown.length, 1, 'should have one language entry');
+    assert.strictEqual(el.data.languageBreakdown[0].lang, 'python');
+    assert.strictEqual(el.data.languageBreakdown[0].fraction, 1);
+  });
+
+  test('single-member cluster has null languageBreakdown', () => {
+    const data = {
+      nodes: [{ id: 'a', name: 'alpha', file: 'a.py', line: 1, language: 'python' }],
+      edges: [],
+    };
+    const scores = computeImportanceScores(data);
+    const clusterResult = computeClusters(data, scores, 1.0);
+    const elements = buildClusteredElements(data, clusterResult, 1.0, scores);
+    const el = elements.find((e: any) => e.data.id === 'a');
+    assert.ok(el, 'element should exist');
+    assert.strictEqual(el.data.languageBreakdown, null, 'single-member cluster should have null languageBreakdown');
+  });
+
+  test('file-affinity: same-file pair merges before cross-file pair at equal importance', () => {
+    // A and B are in the same file; C and D are in different files.
+    // All importance scores are equal so sort order is driven by file-affinity only.
+    // At mergeCount=1, A-B should merge first.
+    const data = {
+      nodes: [
+        { id: 'A', name: 'A', file: 'same.py', line: 1 },
+        { id: 'B', name: 'B', file: 'same.py', line: 2 },
+        { id: 'C', name: 'C', file: 'c.py',    line: 1 },
+        { id: 'D', name: 'D', file: 'd.py',    line: 1 },
+      ],
+      edges: [
+        { source: 'A', target: 'B' }, // same file
+        { source: 'C', target: 'D' }, // different files
+      ],
+    };
+    // Equal importance scores — file-affinity is the only differentiator.
+    const scores = new Map([['A', 0.5], ['B', 0.5], ['C', 0.5], ['D', 0.5]]);
+    // level 0.8 → fraction ≈ 0.199/0.998 ≈ 0.199, maxMerges=3, mergeCount=floor(0.199*3)=0
+    // We need mergeCount=1 exactly: fraction = 1/3, level = 0.999 - 0.998*(1/3) ≈ 0.6657
+    const result = computeClusters(data, scores, 0.666);
+    assert.strictEqual(
+      result.nodeToCluster.get('A'),
+      result.nodeToCluster.get('B'),
+      'A and B (same file) should be merged first'
+    );
+    assert.notStrictEqual(
+      result.nodeToCluster.get('C'),
+      result.nodeToCluster.get('D'),
+      'C and D (different files) should not be merged when only one merge occurs'
+    );
   });
 
   test('expanded cluster shows individual member nodes instead of cluster node', () => {
@@ -386,7 +436,7 @@ suite('buildClusteredElements', () => {
     const scores = new Map([['a', 0.9], ['b', 0.1]]);
     const nodeToCluster = new Map([['a', 'a'], ['b', 'a']]);
     const clusterMembers = new Map([['a', ['a', 'b']]]);
-    const clusterResult = { nodeToCluster, clusterMembers, orphanClusterId: null };
+    const clusterResult = { nodeToCluster, clusterMembers };
 
     const expandedClusters = new Set(['a']);
     const elements = buildClusteredElements(data, clusterResult, 0.5, scores, expandedClusters);
@@ -397,4 +447,171 @@ suite('buildClusteredElements', () => {
     assert.ok(nodeIds.includes('b'), 'individual node b should be visible');
     assert.strictEqual(nodeIds.length, 2, 'should show 2 individual nodes, not a cluster node');
   });
+});
+
+// ---------------------------------------------------------------------------
+// computeStructuralClusters
+// ---------------------------------------------------------------------------
+
+function makeStructuralData(nodes: { id: string; file?: string; className?: string }[]) {
+  return { nodes: nodes.map(n => ({ ...n })), edges: [] };
+}
+
+suite('computeStructuralClusters', () => {
+
+  // ── class mode ─────────────────────────────────────────────────────────────
+
+  test('class mode: same file+class → same cluster', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts', className: 'Dog' },
+      { id: 'b', file: '/p/f.ts', className: 'Dog' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'class', 0.5);
+    assert.strictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('class mode: different class → different cluster', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts', className: 'Dog' },
+      { id: 'b', file: '/p/f.ts', className: 'Cat' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'class', 0.5);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('class mode: no className → own singleton (different from class cluster)', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts', className: 'Dog' },
+      { id: 'b', file: '/p/f.ts' },
+    ]);
+    const { nodeToCluster, clusterMembers } = computeStructuralClusters(data, 'class', 0.5);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+    assert.strictEqual(clusterMembers.get(nodeToCluster.get('b'))!.length, 1);
+  });
+
+  test('class mode: clusterLabels has class name for multi-member group', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts', className: 'Dog' },
+      { id: 'b', file: '/p/f.ts', className: 'Dog' },
+    ]);
+    const { nodeToCluster, clusterLabels } = computeStructuralClusters(data, 'class', 0.5);
+    const key = nodeToCluster.get('a')!;
+    assert.strictEqual(clusterLabels!.get(key), 'Dog');
+  });
+
+  // ── file mode ──────────────────────────────────────────────────────────────
+
+  test('file mode: same file → same cluster', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/utils.ts' },
+      { id: 'b', file: '/p/utils.ts' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'file', 0.5);
+    assert.strictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('file mode: different files → different clusters', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/a.ts' },
+      { id: 'b', file: '/p/b.ts' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'file', 0.5);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('file mode: no file → own singleton', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts' },
+      { id: 'b' },
+    ]);
+    const { nodeToCluster, clusterMembers } = computeStructuralClusters(data, 'file', 0.5);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+    assert.strictEqual(clusterMembers.get(nodeToCluster.get('b'))!.length, 1);
+  });
+
+  test('file mode: clusterLabels has basename for multi-member group', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/proj/src/utils.ts' },
+      { id: 'b', file: '/proj/src/utils.ts' },
+    ]);
+    const { nodeToCluster, clusterLabels } = computeStructuralClusters(data, 'file', 0.5);
+    const key = nodeToCluster.get('a')!;
+    assert.strictEqual(clusterLabels!.get(key), 'utils.ts');
+  });
+
+  // ── level boundary conditions ───────────────────────────────────────────────
+
+  test('level >= 0.999 → all individual singletons', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/f.ts', className: 'Dog' },
+      { id: 'b', file: '/p/f.ts', className: 'Dog' },
+    ]);
+    const { nodeToCluster } = computeStructuralClusters(data, 'class', 0.999);
+    assert.notStrictEqual(nodeToCluster.get('a'), nodeToCluster.get('b'));
+  });
+
+  test('level <= 0.001 → single cluster for all nodes', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/a.ts' },
+      { id: 'b', file: '/p/b.ts' },
+      { id: 'c', file: '/p/c.ts' },
+    ]);
+    const { clusterMembers } = computeStructuralClusters(data, 'file', 0.001);
+    assert.strictEqual(clusterMembers.size, 1, 'all nodes in one cluster at level 0');
+    assert.strictEqual([...clusterMembers.values()][0].length, 3);
+  });
+
+  test('level <= 0.001 → clusterLabels is null', () => {
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/a.ts' },
+      { id: 'b', file: '/p/b.ts' },
+    ]);
+    const { clusterLabels } = computeStructuralClusters(data, 'file', 0.0);
+    assert.strictEqual(clusterLabels, null);
+  });
+
+  // ── progressive merging ─────────────────────────────────────────────────────
+
+  test('file mode: low detail merges multiple file groups into fewer clusters', () => {
+    // 5 nodes in 5 different files; at level=0.1, formula: N=5, fraction≈0.9,
+    // mergeCount=floor(0.9*4)=3, targetCount=2 → must collapse to 2 clusters
+    const data = makeStructuralData([
+      { id: 'a', file: '/p/a.ts' },
+      { id: 'b', file: '/p/b.ts' },
+      { id: 'c', file: '/p/c.ts' },
+      { id: 'd', file: '/p/d.ts' },
+      { id: 'e', file: '/p/e.ts' },
+    ]);
+    const { clusterMembers } = computeStructuralClusters(data, 'file', 0.1);
+    assert.ok(clusterMembers.size < 5, `expected fewer than 5 clusters at level 0.1, got ${clusterMembers.size}`);
+  });
+
+  test('file mode: path-prefix similarity drives merge order (same folder merges first)', () => {
+    // 3 nodes: two in /a/b/ and one in /x/; at level=0.3, exactly 1 merge happens (N=3,
+    // fraction≈0.7, mergeCount=floor(0.7*2)=1). The /a/b/ pair shares a longer common
+    // prefix than either does with /x/, so they merge first.
+    const data = makeStructuralData([
+      { id: 'c', file: '/a/b/c.ts' },
+      { id: 'd', file: '/a/b/d.ts' },
+      { id: 'x', file: '/x/y.ts' },
+    ]);
+    const { nodeToCluster, clusterMembers } = computeStructuralClusters(data, 'file', 0.3);
+    assert.strictEqual(clusterMembers.size, 2, 'exactly 2 clusters after 1 merge');
+    assert.strictEqual(nodeToCluster.get('c'), nodeToCluster.get('d'), '/a/b/ siblings should be merged');
+    assert.notStrictEqual(nodeToCluster.get('c'), nodeToCluster.get('x'), '/x/ node should remain separate');
+  });
+
+  test('file mode: merged cluster label is the common parent folder name', () => {
+    // Same setup as above: /a/b/c.ts and /a/b/d.ts merge; common prefix ["","a","b"],
+    // label = last common segment = "b"
+    const data = makeStructuralData([
+      { id: 'c', file: '/a/b/c.ts' },
+      { id: 'd', file: '/a/b/d.ts' },
+      { id: 'x', file: '/x/y.ts' },
+    ]);
+    const { nodeToCluster, clusterLabels } = computeStructuralClusters(data, 'file', 0.3);
+    const mergedId = nodeToCluster.get('c')!;
+    assert.strictEqual(clusterLabels!.get(mergedId), 'b', 'merged label should be the common parent folder');
+  });
+
 });

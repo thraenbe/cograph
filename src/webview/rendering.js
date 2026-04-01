@@ -69,7 +69,9 @@ const zoomBehavior = d3.zoom()
 svg.call(zoomBehavior);
 svg.on('dblclick.zoom', null); // Remove D3's default dblclick-to-zoom
 svg.on('dblclick', (event) => {
-  if (event.target.tagName !== 'circle') fitToView();
+  const t = event.target;
+  if (t.tagName === 'circle' || t.classList.contains('cloud-node')) return;
+  fitToView();
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -84,7 +86,6 @@ function nodeRadius(d) {
 function nodeColor(d) {
   if (d.isLibrary)       return getCSSVar('--cograph-node-library');
   if (d.isSynthetic)     return 'var(--vscode-button-background, #0e639c)';
-  if (d.isOrphanCluster) return getCSSVar('--cograph-node-orphan');
   if (d.isCluster)       return getCSSVar('--cograph-node-cluster');
   if (d.isEntryPoint)    return getCSSVar('--cograph-node-entry');
   return getCSSVar('--cograph-node-default');
@@ -98,6 +99,54 @@ function fileColor(file) {
     hash |= 0;
   }
   return `hsl(${((hash % 360) + 360) % 360}, 70%, 65%)`;
+}
+
+function bumpCountFor(d) {
+  return Math.max(5, Math.min(12, Math.round(4 + Math.log2((d.memberCount ?? 1) + 1))));
+}
+
+// Returns an SVG path string centered at (0,0) with effective radius R.
+// Draws bumpCount convex arcs to create a cloud silhouette.
+function generateCloudPath(R, bumpCount) {
+  const bumpR = R * 0.38;
+  const innerR = R - bumpR * 0.45;
+  const pts = Array.from({ length: bumpCount }, (_, i) => {
+    const a = (i / bumpCount) * 2 * Math.PI - Math.PI / 2;
+    return { x: innerR * Math.cos(a), y: innerR * Math.sin(a) };
+  });
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < bumpCount; i++) {
+    const next = pts[(i + 1) % bumpCount];
+    d += ` A ${bumpR} ${bumpR} 0 0 1 ${next.x} ${next.y}`;
+  }
+  return d + ' Z';
+}
+
+// Creates (or recreates) a per-cluster hard-stop linearGradient in <defs>.
+// Returns the fill string e.g. 'url(#cograph-lang-grad-...)'.
+function ensureClusterGradient(d) {
+  const safeId = 'cograph-lang-grad-' + d.id.replace(/[^a-zA-Z0-9]/g, '_');
+  defs.select('#' + safeId).remove();
+  const grad = defs.append('linearGradient')
+    .attr('id', safeId)
+    .attr('x1', '0%').attr('x2', '100%')
+    .attr('y1', '0%').attr('y2', '0%');
+  let offset = 0;
+  for (const { lang, fraction } of d.languageBreakdown) {
+    const color = getLanguageColor(lang);
+    grad.append('stop').attr('offset', `${(offset * 100).toFixed(1)}%`).attr('stop-color', color);
+    grad.append('stop').attr('offset', `${((offset + fraction) * 100).toFixed(1)}%`).attr('stop-color', color);
+    offset += fraction;
+  }
+  return `url(#${safeId})`;
+}
+
+// Language colors on clusters are always shown regardless of languageMode toggle.
+function resolveClusterFill(d) {
+  if (d.isSynthetic)     return getCSSVar('--cograph-node-cluster');
+  if (d.languageBreakdown?.length > 1) return ensureClusterGradient(d);
+  if (d.languageBreakdown?.length === 1) return getLanguageColor(d.languageBreakdown[0].lang) ?? getCSSVar('--cograph-node-cluster');
+  return getCSSVar('--cograph-node-cluster');
 }
 
 function updateTextVisibility() {
@@ -171,6 +220,9 @@ function ticked() {
     this.setAttribute('cx', d.x);
     this.setAttribute('cy', d.y);
   });
+  state.svgCloudNodes?.each(function (d) {
+    this.setAttribute('transform', `translate(${d.x},${d.y})`);
+  });
   state.svgLabels?.each(function (d) {
     this.setAttribute('x', d.x);
     this.setAttribute('y', (d.isCluster || d.isSynthetic) ? d.y : d.y + nodeRadius(d) + 10);
@@ -233,8 +285,48 @@ function onNodeMouseOut(event, d) {
     .attr('fill', (d.isCluster || d.isSynthetic) ? getCSSVar('--cograph-label-cluster') : getCSSVar('--cograph-label-default'));
 }
 
+function onCloudMouseOver(event, d) {
+  d3.select(event.currentTarget)
+    .style('fill', getCSSVar('--cograph-node-hover'))
+    .attr('filter', 'url(#glow-hover)')
+    .transition().duration(120)
+    .attr('d', generateCloudPath(nodeRadius(d) * 1.15, bumpCountFor(d)));
+  const linkHover   = getCSSVar('--cograph-link-hover');
+  const linkLibrary = getCSSVar('--cograph-link-library');
+  const linkDefault = getCSSVar('--cograph-link-default');
+  state.svgLinks
+    ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+      ? linkHover : l.isLibraryEdge ? linkLibrary : linkDefault)
+    .attr('stroke-width', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+      ? Math.max(1.5, settings.linkThickness) : settings.linkThickness)
+    .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
+      ? 1 : 0.15);
+  state.svgLabels?.filter(l => l.id === d.id)
+    .style('opacity', 1)
+    .attr('font-size', `${11.5 * settings.textSize}px`)
+    .attr('fill', getCSSVar('--cograph-label-hover'));
+}
+
+function onCloudMouseOut(event, d) {
+  d3.select(event.currentTarget)
+    .style('fill', resolveClusterFill(d))
+    .attr('filter', 'url(#glow)')
+    .transition().duration(120)
+    .attr('d', generateCloudPath(nodeRadius(d), bumpCountFor(d)));
+  const linkLibrary = getCSSVar('--cograph-link-library');
+  const linkDefault = getCSSVar('--cograph-link-default');
+  state.svgLinks
+    ?.attr('stroke', l => l.isLibraryEdge ? linkLibrary : linkDefault)
+    .attr('stroke-width', settings.linkThickness)
+    .attr('opacity', 0.7);
+  state.svgLabels?.filter(l => l.id === d.id)
+    .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
+    .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
+    .attr('fill', getCSSVar('--cograph-label-cluster'));
+}
+
 // ── Render sub-functions ──────────────────────────────────────────────────────
-function prepareRenderData(elements) {
+function prepareRenderData(elements, positionHints = new Map()) {
   const nodeData = elements.filter(e => e.data.source === undefined);
   const edgeData = elements.filter(e => e.data.source !== undefined);
 
@@ -251,8 +343,8 @@ function prepareRenderData(elements) {
 
   state.currentNodes = nodeData.map(e => ({
     ...e.data,
-    x: oldPositions.get(e.data.id)?.x ?? W / 2 + (Math.random() - 0.5) * 200,
-    y: oldPositions.get(e.data.id)?.y ?? H / 2 + (Math.random() - 0.5) * 200,
+    x: oldPositions.get(e.data.id)?.x ?? positionHints.get(e.data.id)?.x ?? W / 2 + (Math.random() - 0.5) * 200,
+    y: oldPositions.get(e.data.id)?.y ?? positionHints.get(e.data.id)?.y ?? H / 2 + (Math.random() - 0.5) * 200,
   }));
 
   const allLinks = edgeData.map(e => ({ source: e.data.source, target: e.data.target, isLibraryEdge: e.data.isLibraryEdge ?? false }));
@@ -273,9 +365,13 @@ function renderLinks(allLinks, visibleSet) {
 }
 
 function renderNodes(visibleSet) {
-  return nodeG.selectAll('circle')
-    .data(state.currentNodes.filter(n => !n.isLibrary), d => d.id)
-    .join('circle')
+  return nodeG.selectAll('circle.regular-node')
+    .data(state.currentNodes.filter(n => !n.isLibrary && !n.isCluster && !n.isSynthetic), d => d.id)
+    .join(
+      enter => enter.append('circle').attr('class', 'regular-node'),
+      update => update,
+      exit => exit.remove()
+    )
     .attr('r', d => nodeRadius(d))
     .style('fill', d => resolveNodeFill(d))
     .attr('stroke', d => resolveNodeStroke(d))
@@ -286,12 +382,6 @@ function renderNodes(visibleSet) {
     .call(drag)
     .on('click', (event, d) => {
       event.stopPropagation();
-      if (d.isSynthetic) return;
-      if (d.isCluster) {
-        state.expandedClusters.add(d.id);
-        applyComplexity();
-        return;
-      }
       if (settings.openFunctionPopup) {
         showFuncPopup(d);
       } else if (d.file && d.line > 0) {
@@ -300,6 +390,44 @@ function renderNodes(visibleSet) {
     })
     .on('mouseover', onNodeMouseOver)
     .on('mouseout', onNodeMouseOut);
+}
+
+function renderCloudNodes(visibleSet) {
+  return nodeG.selectAll('path.cloud-node')
+    .data(state.currentNodes.filter(n => (n.isCluster || n.isSynthetic) && !n.isLibrary), d => d.id)
+    .join(
+      enter => enter.append('path').attr('class', 'cloud-node')
+        .attr('d', d => generateCloudPath(nodeRadius(d), bumpCountFor(d)))
+        .style('fill', d => resolveClusterFill(d))
+        .attr('stroke', 'none')
+        .attr('filter', 'url(#glow)')
+        .attr('cursor', 'pointer')
+        .style('display', d => visibleSet.has(d.id) ? null : 'none')
+        .style('opacity', 0)
+        .call(sel => sel.transition().duration(350).style('opacity', 1)),
+      update => update
+        .attr('stroke', 'none')
+        .attr('filter', 'url(#glow)')
+        .style('display', d => visibleSet.has(d.id) ? null : 'none')
+        .style('fill', d => resolveClusterFill(d))
+        .call(sel => sel.transition().duration(350)
+          .attr('d', d => generateCloudPath(nodeRadius(d), bumpCountFor(d)))
+          .style('opacity', 1)),
+      exit => exit
+        .each(function(d) {
+          defs.select('#cograph-lang-grad-' + d.id.replace(/[^a-zA-Z0-9]/g, '_')).remove();
+        })
+        .call(sel => sel.transition().duration(200).style('opacity', 0).remove())
+    )
+    .call(drag)
+    .on('click', (event, d) => {
+      event.stopPropagation();
+      if (d.isSynthetic) return;
+      state.expandedClusters.add(d.id);
+      applyComplexity();
+    })
+    .on('mouseover', onCloudMouseOver)
+    .on('mouseout', onCloudMouseOut);
 }
 
 function renderLabels(visibleSet) {
@@ -333,10 +461,12 @@ function startSimulation(allLinks) {
   const H = svgEl.clientHeight || window.innerHeight;
   state.simulation = d3.forceSimulation(state.currentNodes)
     .force('link', d3.forceLink(allLinks).id(d => d.id)
-      .distance(() => settings.linkDistance)
+      .distance(40)
       .strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1))
     .force('charge', d3.forceManyBody().strength(-settings.repelForce))
-    .force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce))
+    .force('center', d3.forceCenter(W / 2, H / 2).strength(0.05))
+    .force('x', d3.forceX(W / 2).strength(settings.centerForce))
+    .force('y', d3.forceY(H / 2).strength(settings.centerForce))
     .force('collision', d3.forceCollide(d => nodeRadius(d) + 1))
     .velocityDecay(0.3)
     .alphaDecay(0.02)
@@ -409,10 +539,11 @@ function renderLibraryLabels(libNodeData, visibleSet) {
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
-function renderElements(elements) {
-  const { allLinks, visibleSet } = prepareRenderData(elements);
+function renderElements(elements, positionHints = new Map()) {
+  const { allLinks, visibleSet } = prepareRenderData(elements, positionHints);
   state.svgLinks = renderLinks(allLinks, visibleSet);
   state.svgNodes = renderNodes(visibleSet);
+  state.svgCloudNodes = renderCloudNodes(visibleSet);
   state.svgLabels = renderLabels(visibleSet);
   const libNodeData = state.currentNodes.filter(n => n.isLibrary);
   state.svgLibNodes = renderLibraryNodes(libNodeData, visibleSet);
@@ -421,6 +552,7 @@ function renderElements(elements) {
   if (state.folderMode) {
     const nodesByFile    = groupByFile(state.currentNodes);
     const folderTree     = buildFolderTree(nodesByFile);
+    computeFolderHues(folderTree);
 
     state.svgFileCircles   = renderFileCircles(fileG, nodesByFile);
     state.svgFolderBubbles = renderFolderBubbles(folderG, folderTree, nodesByFile);
@@ -445,7 +577,7 @@ function renderElements(elements) {
         .attr('font-size', `${(12 + 6 / (d.depth + 1)) * settings.textSize}px`)
         .attr('text-anchor', 'middle').attr('font-weight', '600')
         .attr('dominant-baseline', 'central')
-        .attr('fill', '#cccccc').attr('pointer-events', 'none');
+        .attr('fill', isLightTheme() ? '#333333' : '#cccccc').attr('pointer-events', 'none');
     });
 
     state.svgFileCircles.call(createFileDrag()).on('mousemove', onFileHoverMove);

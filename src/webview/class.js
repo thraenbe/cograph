@@ -17,7 +17,7 @@ function hexToRgba(hex, alpha) {
 function groupByClass(nodes) {
   const map = new Map();
   nodes.forEach(n => {
-    if (n.isLibrary || n.isCluster || n.isSynthetic || n.isOrphanCluster) return;
+    if (n.isLibrary || n.isCluster || n.isSynthetic) return;
     if (!n.className) return;
     const key = `${n.file ?? ''}::${n.className}`;
     if (!map.has(key)) {

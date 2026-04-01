@@ -16,7 +16,6 @@ body {
 :root {
   --cograph-node-default:  #d4d4d4;
   --cograph-node-library:  #c8a84b;
-  --cograph-node-orphan:   #666666;
   --cograph-node-cluster:  #7c4dbb;
   --cograph-node-entry:    #e8734a;
   --cograph-label-default: #d4d4d4;
@@ -41,7 +40,6 @@ body {
 body.vscode-light {
   --cograph-node-default:  #4a4a4a;
   --cograph-node-library:  #7a5900;
-  --cograph-node-orphan:   #888888;
   --cograph-node-cluster:  #6a3dab;
   --cograph-node-entry:    #c45c2a;
   --cograph-label-default: #333333;
@@ -339,6 +337,25 @@ body.vscode-light {
 
 .tl-panel > .tl-btn {
   margin-bottom: 8px;
+}
+
+.tl-section-label {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.btn-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.btn-group .tl-btn {
+  width: auto;
+  flex: 1;
 }
 
 .tl-panel {

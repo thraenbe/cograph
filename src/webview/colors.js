@@ -15,7 +15,7 @@ function getLanguageColor(lang) {
 
 // ── Git color resolvers ───────────────────────────────────────────────────────
 function resolveNodeFill(d) {
-  if (state.gitMode && !d.isCluster && !d.isSynthetic && !d.isOrphanCluster && d.gitStatus) {
+  if (state.gitMode && !d.isCluster && !d.isSynthetic && d.gitStatus) {
     const status = d.gitStatus.unstaged ?? d.gitStatus.staged;
     if (status === 'added')    return '#4caf50';
     if (status === 'modified') return '#ff9800';
@@ -23,7 +23,7 @@ function resolveNodeFill(d) {
       ? (getComputedStyle(document.documentElement).getPropertyValue('--cograph-git-deleted').trim() || '#777777')
       : '#777777';
   }
-  if (state.languageMode && !d.isCluster && !d.isSynthetic && !d.isOrphanCluster && d.language) {
+  if (state.languageMode && !d.isCluster && !d.isSynthetic && d.language) {
     return getLanguageColor(d.language);
   }
   return nodeColor(d);
@@ -77,6 +77,7 @@ function applyGitColors() {
     .style('fill', d => resolveNodeFill(d))
     .attr('stroke', d => resolveNodeStroke(d))
     .attr('stroke-width', d => resolveNodeStrokeWidth(d));
+  state.svgCloudNodes?.style('fill', d => resolveClusterFill(d));
   state.svgLabels?.style('text-decoration', d =>
     state.gitMode && (d.gitStatus?.unstaged === 'deleted' || d.gitStatus?.staged === 'deleted') ? 'line-through' : null
   );

@@ -104,33 +104,21 @@ function computeClusters(data, importanceScores, level) {
   const nodeIds = data.nodes.filter((n) => n.id !== '::MAIN::0').map((n) => n.id);
   const realEdges = data.edges.filter((e) => e.source !== '::MAIN::0');
 
-  const edgeSet = new Set();
-  realEdges.forEach((e) => {
-    edgeSet.add(e.source);
-    edgeSet.add(e.target);
-  });
-
-  const orphanIds = nodeIds.filter((id) => !edgeSet.has(id));
-
   const uf = new UnionFind(nodeIds);
-
-  // Orphan phase: kicks in as soon as level < 1.0
-  if (level < 1.0 && orphanIds.length > 1) {
-    for (let i = 1; i < orphanIds.length; i++) {
-      uf.union(orphanIds[0], orphanIds[i]);
-    }
-  }
 
   // Neighbor-merge phase
   if (level > 0.001 && level < 0.999) {
+    const fileById = new Map(data.nodes.map(n => [n.id, n.file]));
+    const FILE_AFFINITY = 0.05;
     const sortedEdges = [...realEdges].sort((a, b) => {
-      const scoreA = (importanceScores.get(a.source) ?? 0) + (importanceScores.get(a.target) ?? 0);
-      const scoreB = (importanceScores.get(b.source) ?? 0) + (importanceScores.get(b.target) ?? 0);
+      const sameFileA = fileById.get(a.source) && fileById.get(a.source) === fileById.get(a.target);
+      const sameFileB = fileById.get(b.source) && fileById.get(b.source) === fileById.get(b.target);
+      const scoreA = (importanceScores.get(a.source) ?? 0) + (importanceScores.get(a.target) ?? 0) - (sameFileA ? FILE_AFFINITY : 0);
+      const scoreB = (importanceScores.get(b.source) ?? 0) + (importanceScores.get(b.target) ?? 0) - (sameFileB ? FILE_AFFINITY : 0);
       return scoreA - scoreB;
     });
 
-    const nonOrphanCount = nodeIds.length - orphanIds.length;
-    const maxMerges = Math.max(0, nonOrphanCount - 1);
+    const maxMerges = Math.max(0, nodeIds.length - 1);
     const fraction = (0.999 - level) / 0.998; // 0 at level=0.999, 1 at level=0.001
     const mergeCount = Math.floor(fraction * maxMerges);
 
@@ -158,15 +146,113 @@ function computeClusters(data, importanceScores, level) {
     clusterMembers.get(rep).push(id);
   }
 
-  const orphanClusterId = orphanIds.length > 0 ? uf.find(orphanIds[0]) : null;
-
-  return { nodeToCluster, clusterMembers, orphanClusterId };
+  return { nodeToCluster, clusterMembers };
 }
 
-function inferClusterLabel(clusterId, members, level, importanceScores, orphanClusterId, nodeById, data) {
+function computeStructuralClusters(data, groupBy, level) {
+  const nodeIds = data.nodes.filter(n => n.id !== '::MAIN::0').map(n => n.id);
+
+  if (level <= 0.001 && nodeIds.length > 1) {
+    const nodeToCluster = new Map(nodeIds.map(id => [id, nodeIds[0]]));
+    const clusterMembers = new Map([[nodeIds[0], [...nodeIds]]]);
+    return { nodeToCluster, clusterMembers, clusterLabels: null };
+  }
+
+  if (level >= 0.999) {
+    const nodeToCluster = new Map(nodeIds.map(id => [id, id]));
+    const clusterMembers = new Map(nodeIds.map(id => [id, [id]]));
+    return { nodeToCluster, clusterMembers, clusterLabels: null };
+  }
+
+  // Step 1: compute base structural groups
+  const nodeToGroup = new Map();
+  const baseLabels = new Map();
+  const nodeById = new Map(data.nodes.map(n => [n.id, n]));
+
+  for (const id of nodeIds) {
+    const n = nodeById.get(id);
+    let groupKey, label;
+    if (groupBy === 'class' && n.className) {
+      groupKey = `${n.file ?? ''}::${n.className}`;
+      label = n.className;
+    } else if (groupBy === 'file' && n.file) {
+      groupKey = n.file;
+      label = n.file.split(/[\\/]/).pop();
+    }
+    if (!groupKey) groupKey = id;
+    nodeToGroup.set(id, groupKey);
+    if (!baseLabels.has(groupKey) && label && groupKey !== id) {
+      baseLabels.set(groupKey, label);
+    }
+  }
+
+  // Step 2: compute target cluster count (same aggressiveness as connectivity mode)
+  const allGroupIds = [...new Set(nodeToGroup.values())];
+  const N = allGroupIds.length;
+  const fraction = (0.999 - level) / 0.998;
+  const mergeCount = Math.floor(fraction * Math.max(0, N - 1));
+  const targetCount = Math.max(1, N - mergeCount);
+
+  // Step 3: merge groups by path-prefix similarity (Kruskal-style)
+  const groupPathSegs = new Map(allGroupIds.map(g => {
+    const pathKey = (groupBy === 'class' && g.includes('::')) ? g.split('::')[0] : g;
+    return [g, pathKey.split(/[\\/]/)];
+  }));
+
+  const uf = new UnionFind(allGroupIds);
+  const mergedLabels = new Map(baseLabels);
+
+  if (targetCount < N) {
+    const pairs = [];
+    for (let i = 0; i < allGroupIds.length; i++) {
+      for (let j = i + 1; j < allGroupIds.length; j++) {
+        const p1 = groupPathSegs.get(allGroupIds[i]);
+        const p2 = groupPathSegs.get(allGroupIds[j]);
+        let sim = 0;
+        const minLen = Math.min(p1.length, p2.length);
+        while (sim < minLen && p1[sim] === p2[sim]) sim++;
+        pairs.push([sim, allGroupIds[i], allGroupIds[j], p1]);
+      }
+    }
+    pairs.sort((a, b) => b[0] - a[0]);
+
+    let currentCount = N;
+    for (const [sim, g1, g2, p1] of pairs) {
+      if (currentCount <= targetCount) break;
+      const r1 = uf.find(g1);
+      const r2 = uf.find(g2);
+      if (r1 === r2) continue;
+      uf.union(r1, r2);
+      currentCount--;
+      const merged = uf.find(r1);
+      if (sim > 0) {
+        mergedLabels.set(merged, p1[sim - 1]);
+      }
+    }
+  }
+
+  // Step 4: build output maps
+  const nodeToCluster = new Map();
+  const clusterMembers = new Map();
+  const clusterLabels = new Map();
+
+  for (const id of nodeIds) {
+    const group = nodeToGroup.get(id);
+    const clusterId = uf.find(group);
+    nodeToCluster.set(id, clusterId);
+    if (!clusterMembers.has(clusterId)) {
+      clusterMembers.set(clusterId, []);
+      if (mergedLabels.has(clusterId)) clusterLabels.set(clusterId, mergedLabels.get(clusterId));
+    }
+    clusterMembers.get(clusterId).push(id);
+  }
+
+  return { nodeToCluster, clusterMembers, clusterLabels };
+}
+
+function inferClusterLabel(clusterId, members, level, importanceScores, nodeById, data) {
   const memberCount = members.length;
   if (level <= 0.001) return inferProjectName(data);
-  if (orphanClusterId === clusterId && memberCount > 1) return `Orphans (${memberCount})`;
   const sortedMembers = [...members].sort(
     (a, b) => (importanceScores.get(b) ?? 0) - (importanceScores.get(a) ?? 0)
   );
@@ -176,7 +262,7 @@ function inferClusterLabel(clusterId, members, level, importanceScores, orphanCl
 }
 
 function buildClusterNodes(data, clusterResult, level, importanceScores, expandedClusters, degreeMap, entryPointIds, nodeById) {
-  const { clusterMembers, orphanClusterId } = clusterResult;
+  const { clusterMembers } = clusterResult;
   const elements = [];
 
   for (const [clusterId, members] of clusterMembers) {
@@ -198,7 +284,6 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
             line: n.line,
             isEntryPoint: entryPointIds.has(memberId),
             isCluster: false,
-            isOrphanCluster: false,
             isSynthetic: false,
             memberCount: 1,
             gitStatus: n.gitStatus,
@@ -210,14 +295,27 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
         });
       }
     } else {
-      const label = inferClusterLabel(clusterId, members, level, importanceScores, orphanClusterId, nodeById, data);
+      const label = clusterResult.clusterLabels?.get(clusterId)
+        ?? inferClusterLabel(clusterId, members, level, importanceScores, nodeById, data);
       const deg = memberCount === 1 ? (degreeMap.get(clusterId) ?? 0) : 0;
       const _size = memberCount === 1
         ? Math.max(6, 6 + Math.sqrt(deg) * 2.5)
         : 36 * Math.max(1, Math.log2(memberCount + 1));
-      const isOrphanCluster = orphanClusterId === clusterId && memberCount > 1;
       const isSynthetic = level <= 0.001;
       const isCluster = memberCount > 1 && level > 0.001;
+
+      let languageBreakdown = null;
+      if (memberCount > 1) {
+        const langCounts = {};
+        for (const memberId of members) {
+          const n = nodeById.get(memberId);
+          const lang = n?.language ?? 'unknown';
+          langCounts[lang] = (langCounts[lang] ?? 0) + 1;
+        }
+        languageBreakdown = Object.entries(langCounts)
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .map(([lang, count]) => ({ lang, fraction: count / memberCount }));
+      }
 
       elements.push({
         data: {
@@ -228,9 +326,9 @@ function buildClusterNodes(data, clusterResult, level, importanceScores, expande
           line: memberCount === 1 && rep ? rep.line : null,
           isEntryPoint: memberCount === 1 && entryPointIds.has(clusterId),
           isCluster,
-          isOrphanCluster,
           isSynthetic,
           memberCount,
+          languageBreakdown,
           gitStatus: memberCount === 1 && rep ? rep.gitStatus : undefined,
           language: memberCount === 1 && rep ? rep.language : undefined,
           className: memberCount === 1 && rep ? rep.className : undefined,
@@ -281,5 +379,5 @@ function buildClusteredElements(data, clusterResult, level, importanceScores, ex
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 if (typeof module !== 'undefined') {
-  module.exports = { UnionFind, computeImportanceScores, computeClusters, buildClusteredElements, inferProjectName };
+  module.exports = { UnionFind, computeImportanceScores, computeClusters, computeStructuralClusters, buildClusteredElements, inferProjectName };
 }

@@ -197,6 +197,14 @@ export class GraphProvider {
     this.analyzerRunner.run(workspaceRoot);
   }
 
+  isOpen(): boolean {
+    return !!this.panel;
+  }
+
+  reloadLayout(): void {
+    this.panel?.webview.postMessage({ type: 'reload-layout' });
+  }
+
   /** Show error in the panel (if alive) and as a VS Code notification. */
   private showError(message: string): void {
     if (this.panel) {

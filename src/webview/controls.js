@@ -64,7 +64,7 @@ wireSlider('slider-link-thickness', 'val-link-thickness', 'linkThickness', apply
 wireSlider('slider-center-force', 'val-center-force', 'centerForce', rerunLayout);
 wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);
 wireSlider('slider-link-force', 'val-link-force', 'linkForce', rerunLayout);
-wireSlider('slider-link-distance', 'val-link-distance', 'linkDistance', rerunLayout);
+wireSlider('slider-file-cluster', 'val-file-cluster', 'fileClusterForce', rerunLayout);
 
 // ── Collapsible legend headers ────────────────────────────────────────────────
 function wireLegendToggle(headerId, bodyId) {
@@ -80,6 +80,19 @@ function wireLegendToggle(headerId, bodyId) {
 wireLegendToggle('toggle-detail-legend', 'detail-legend-body');
 wireLegendToggle('toggle-git-legend', 'git-legend-body');
 wireLegendToggle('toggle-folder-filters', 'folder-filters-body');
+
+// ── Cluster group-by controls ─────────────────────────────────────────────────
+const GROUP_BY_MODES = ['connectivity', 'class', 'file'];
+GROUP_BY_MODES.forEach(mode => {
+  document.getElementById(`btn-group-${mode}`)?.addEventListener('click', () => {
+    state.clusterGroupBy = mode;
+    state.expandedClusters = new Set();
+    GROUP_BY_MODES.forEach(m =>
+      document.getElementById(`btn-group-${m}`)?.classList.toggle('active', m === mode)
+    );
+    applyComplexity();
+  });
+});
 
 // ── Git mode toggle ───────────────────────────────────────────────────────────
 function setGitLegendVisible(visible) {

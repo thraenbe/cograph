@@ -133,6 +133,14 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         </div>
       </div>
     </div>
+    <div id="panel-cluster-group" class="tl-panel">
+      <div class="tl-section-label">Group by</div>
+      <div class="btn-group">
+        <button id="btn-group-connectivity" class="tl-btn active" title="Cluster by connection importance">Auto</button>
+        <button id="btn-group-class"        class="tl-btn"        title="Cluster by class">Class</button>
+        <button id="btn-group-file"         class="tl-btn"        title="Cluster by file">File</button>
+      </div>
+    </div>
     <div id="panel-git" class="tl-panel" style="display:none">
       <button id="btn-git-mode" class="tl-btn" title="Toggle git diff colors">Git</button>
       <div class="tl-legend-header" id="toggle-git-legend">
@@ -164,6 +172,10 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     </div>
     <div id="panel-folder" class="tl-panel">
       <button id="btn-folder-mode" class="tl-btn active" title="Toggle folder/file structure overlay">Folder</button>
+      <div class="slider-row">
+        <div class="slider-header"><label for="slider-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.04</span></div>
+        <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.04" />
+      </div>
       <div class="tl-legend-header" id="toggle-folder-filters">
         <span>Filters</span>
         <span class="tl-chevron collapsed">▾</span>
@@ -186,7 +198,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
       </div>
       <div class="toggle-row">
         <span>Show Libraries</span>
-        <label class="switch"><input type="checkbox" id="toggle-libraries" checked /><span class="pill"></span></label>
+        <label class="switch"><input type="checkbox" id="toggle-libraries" /><span class="pill"></span></label>
       </div>
       <div class="toggle-row">
         <span>Show Empty Files</span>
@@ -209,8 +221,8 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <input type="range" id="slider-node-size" min="0.1" max="5" step="0.1" value="2.5" />
       </div>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-text-size">Text Size</label><span id="val-text-size">1</span></div>
-        <input type="range" id="slider-text-size" min="0.5" max="2" step="0.1" value="1" />
+        <div class="slider-header"><label for="slider-text-size">Text Size</label><span id="val-text-size">1.5</span></div>
+        <input type="range" id="slider-text-size" min="0" max="3" step="0.1" value="1.5" />
       </div>
       <div class="slider-row">
         <div class="slider-header"><label for="slider-link-thickness">Link Thickness</label><span id="val-link-thickness">4</span></div>
@@ -221,20 +233,16 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     <div class="panel-section" id="forces-section">
       <h4>Forces</h4>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">1</span></div>
-        <input type="range" id="slider-center-force" min="0" max="5" step="0.05" value="1" />
+        <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">0.05</span></div>
+        <input type="range" id="slider-center-force" min="0" max="1" step="0.005" value="0.05" />
       </div>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">50</span></div>
-        <input type="range" id="slider-repel-force" min="0" max="300" step="50" value="50" />
+        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">250</span></div>
+        <input type="range" id="slider-repel-force" min="0" max="1000" step="1" value="250" />
       </div>
       <div class="slider-row">
         <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">1</span></div>
-        <input type="range" id="slider-link-force" min="0.1" max="2" step="0.1" value="1" />
-      </div>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-link-distance">Link Distance</label><span id="val-link-distance">40</span></div>
-        <input type="range" id="slider-link-distance" min="10" max="80" step="5" value="40" />
+        <input type="range" id="slider-link-force" min="0" max="10" step="0.1" value="1" />
       </div>
     </div>
 

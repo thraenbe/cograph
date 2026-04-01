@@ -4,18 +4,18 @@ const vscode = acquireVsCodeApi();
 const settings = {
   existingFilesOnly: false,
   showOrphans: true,
-  showLibraries: true,
+  showLibraries: false,
   showEmptyFiles: false,
   groupByFile: false,
   arrows: true,
   textFadeThreshold: 0.5,
   nodeSize: 2.5,
-  textSize: 1.0,
+  textSize: 1.5,
   linkThickness: 4,
-  centerForce: 1,
-  repelForce: 50,
+  centerForce: 0.025,
+  repelForce: 250,
   linkForce: 1,
-  linkDistance: 40,
+  fileClusterForce: 0.04,
   openFunctionPopup: true,
 };
 
@@ -71,6 +71,7 @@ function applyFilters() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
   const visibleSet = getVisibleNodeIds();
   state.svgNodes.style('display', d => visibleSet.has(d.id) ? null : 'none');
+  state.svgCloudNodes?.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgLabels.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgLibNodes?.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgLibLabels?.style('display', d => visibleSet.has(d.id) ? null : 'none');
@@ -88,6 +89,7 @@ function applyDisplaySettings() {
     .attr('r', d => nodeRadius(d))
     .attr('stroke', d => resolveNodeStroke(d))
     .attr('stroke-width', d => resolveNodeStrokeWidth(d));
+  state.svgCloudNodes?.attr('d', d => generateCloudPath(nodeRadius(d), bumpCountFor(d)));
   state.svgLinks
     .attr('stroke-width', settings.linkThickness)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);
@@ -116,9 +118,11 @@ function rerunLayout() {
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;
   const H = svgEl.clientHeight || window.innerHeight;
-  state.simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(settings.centerForce));
+  state.simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(0.05));
+  state.simulation.force('x', d3.forceX(W / 2).strength(settings.centerForce));
+  state.simulation.force('y', d3.forceY(H / 2).strength(settings.centerForce));
   state.simulation.force('charge').strength(-settings.repelForce);
-  state.simulation.force('link').strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1).distance(settings.linkDistance);
+  state.simulation.force('link').strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1).distance(40);
   state.simulation.alpha(0.5).restart();
 }
 
@@ -136,7 +140,9 @@ function applyComplexity() {
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
-  const clusterResult = computeClusters(projectData, state.importanceScores, state.complexityLevel);
+  const clusterResult = state.clusterGroupBy === 'connectivity'
+    ? computeClusters(projectData, state.importanceScores, state.complexityLevel)
+    : computeStructuralClusters(projectData, state.clusterGroupBy, state.complexityLevel);
   const elements = buildClusteredElements(projectData, clusterResult, state.complexityLevel, state.importanceScores, state.expandedClusters, degreeMap);
   const nodeToRendered = buildRenderedNodeMap(clusterResult.nodeToCluster, state.expandedClusters);
   if (settings.showLibraries) {
@@ -156,7 +162,7 @@ function applyComplexity() {
       const expanded = state.complexityLevel >= 0.999 || state.expandedLibClusters.has(pkgName);
       if (expanded) {
         nodes.forEach(n => {
-          elements.push({ data: { ...n, label: n.name, _size: 6, isCluster: false, isSynthetic: false, isOrphanCluster: false } });
+          elements.push({ data: { ...n, label: n.name, _size: 6, isCluster: false, isSynthetic: false } });
         });
       } else {
         elements.push({ data: {
@@ -173,7 +179,6 @@ function applyComplexity() {
           line: 0,
           isCluster: false,
           isSynthetic: false,
-          isOrphanCluster: false,
         }});
       }
     });
@@ -194,7 +199,25 @@ function applyComplexity() {
       }
     });
   }
-  renderElements(elements);
+  // For structural modes, seed each cluster at the centroid of its members'
+  // current on-screen positions so the layout starts compact instead of random.
+  const positionHints = new Map();
+  if (state.clusterGroupBy !== 'connectivity' && state.currentNodes.length > 0) {
+    const currentById = new Map(state.currentNodes.map(n => [n.id, n]));
+    for (const [clusterId, members] of clusterResult.clusterMembers) {
+      const pts = members
+        .map(id => currentById.get(id))
+        .filter(n => n?.x != null && n?.y != null);
+      if (pts.length > 0) {
+        positionHints.set(clusterId, {
+          x: pts.reduce((s, n) => s + n.x, 0) / pts.length,
+          y: pts.reduce((s, n) => s + n.y, 0) / pts.length,
+        });
+      }
+    }
+  }
+
+  renderElements(elements, positionHints);
 }
 
 // ── Main entry ────────────────────────────────────────────────────────────────
@@ -207,8 +230,8 @@ function renderGraph(data, isReanalysis = false) {
   if (!isReanalysis) { state.hasFitted = false; }
 
   const nodeCount = projectData.nodes.length;
-  if (nodeCount > 200) {
-    state.complexityLevel = Math.max(0.1, Math.min(0.9, 200 / nodeCount));
+  if (nodeCount >= 500) {
+    state.complexityLevel = Math.max(0.1, Math.min(0.9, 500 / nodeCount));
     const slider = document.getElementById('slider-complexity');
     const valEl = document.getElementById('val-complexity');
     if (slider) slider.value = String(state.complexityLevel);
@@ -263,6 +286,21 @@ window.addEventListener('message', (event) => {
     const byId = new Map(message.nodes.map(n => [n.id, n.gitStatus]));
     state.currentNodes.forEach(n => { if (byId.has(n.id)) { n.gitStatus = byId.get(n.id); } });
     if (state.gitMode) { applyGitColors(); }
+    return;
+  }
+  if (message.type === 'reload-layout') {
+    const svgEl = svg.node();
+    const W = svgEl?.clientWidth || window.innerWidth;
+    const H = svgEl?.clientHeight || window.innerHeight;
+    state.currentNodes.forEach(d => {
+      d.fx = null;
+      d.fy = null;
+      d.x = W / 2 + (Math.random() - 0.5) * 200;
+      d.y = H / 2 + (Math.random() - 0.5) * 200;
+      d.vx = 0;
+      d.vy = 0;
+    });
+    rerunLayout();
     return;
   }
 });

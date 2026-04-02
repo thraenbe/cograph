@@ -77,7 +77,6 @@ function wireLegendToggle(headerId, bodyId) {
     header.querySelector('.tl-chevron').classList.toggle('collapsed', !collapsed);
   });
 }
-wireLegendToggle('toggle-detail-legend', 'detail-legend-body');
 wireLegendToggle('toggle-git-legend', 'git-legend-body');
 wireLegendToggle('toggle-folder-filters', 'folder-filters-body');
 

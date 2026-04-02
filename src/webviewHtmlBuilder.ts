@@ -114,26 +114,6 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
         <span id="val-complexity">1</span>
       </div>
       <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
-      <div class="tl-legend-header" id="toggle-detail-legend">
-        <span>Legend</span>
-        <span class="tl-chevron">▾</span>
-      </div>
-      <div class="tl-legend" id="detail-legend-body">
-        <div class="tl-legend-row">
-          <span class="tl-legend-dot" style="background:#d4d4d4"></span>
-          <span class="tl-legend-label">Function Node</span>
-        </div>
-        <div class="tl-legend-row">
-          <span class="tl-legend-dot" style="background:#7c4dbb"></span>
-          <span class="tl-legend-label">Clustered Node</span>
-        </div>
-        <div class="tl-legend-row">
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="#c8a84b" style="flex-shrink:0"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zM2.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11zM3 5.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm0 2a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z"/></svg>
-          <span class="tl-legend-label">Library Node</span>
-        </div>
-      </div>
-    </div>
-    <div id="panel-cluster-group" class="tl-panel">
       <div class="tl-section-label">Group by</div>
       <div class="btn-group">
         <button id="btn-group-connectivity" class="tl-btn active" title="Cluster by connection importance">Auto</button>

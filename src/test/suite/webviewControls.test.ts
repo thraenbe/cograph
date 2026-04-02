@@ -25,10 +25,10 @@ function makeDOM() {
     <input id="slider-center-force" type="range" value="1" /><span id="val-center-force">1</span>
     <input id="slider-repel-force" type="range" value="50" /><span id="val-repel-force">50</span>
     <input id="slider-link-force" type="range" value="1" /><span id="val-link-force">1</span>
-    <div id="toggle-detail-legend"><span class="tl-chevron">▾</span></div>
-    <div id="detail-legend-body"></div>
     <div id="toggle-git-legend"><span class="tl-chevron">▾</span></div>
     <div id="git-legend-body"></div>
+    <div id="toggle-folder-filters"><span class="tl-chevron">▾</span></div>
+    <div id="folder-filters-body"></div>
     <button id="btn-git-mode"></button>
     <button id="btn-language-mode"></button>
     <div id="language-legend"></div>
@@ -70,6 +70,8 @@ const dom = makeDOM();
   expandedClusters: new Set(),
   clusterTimer: null,
   activeLibNode: null,
+  hiddenFolders: new Set(),
+  onlyShowFolder: null,
   funcPopups: new Map(),
   funcPopupZCounter: 200,
 };
@@ -193,9 +195,9 @@ suite('applyResizeDelta()', () => {
 // ---------------------------------------------------------------------------
 
 suite('Legend toggle (wireLegendToggle)', () => {
-  test('click toggle-detail-legend header → body collapses (display:none)', () => {
-    const header = dom.window.document.getElementById('toggle-detail-legend')!;
-    const body = dom.window.document.getElementById('detail-legend-body')!;
+  test('click toggle-folder-filters header → body collapses (display:none)', () => {
+    const header = dom.window.document.getElementById('toggle-folder-filters')!;
+    const body = dom.window.document.getElementById('folder-filters-body')!;
     body.style.display = '';  // start expanded
 
     header.click();
@@ -203,9 +205,9 @@ suite('Legend toggle (wireLegendToggle)', () => {
     assert.strictEqual(body.style.display, 'none', 'body should be hidden after click');
   });
 
-  test('second click on toggle-detail-legend header → body expands again', () => {
-    const header = dom.window.document.getElementById('toggle-detail-legend')!;
-    const body = dom.window.document.getElementById('detail-legend-body')!;
+  test('second click on toggle-folder-filters header → body expands again', () => {
+    const header = dom.window.document.getElementById('toggle-folder-filters')!;
+    const body = dom.window.document.getElementById('folder-filters-body')!;
     body.style.display = 'none';  // start collapsed
 
     header.click();
@@ -214,8 +216,8 @@ suite('Legend toggle (wireLegendToggle)', () => {
   });
 
   test('click collapses → chevron gets "collapsed" class', () => {
-    const header = dom.window.document.getElementById('toggle-detail-legend')!;
-    const body = dom.window.document.getElementById('detail-legend-body')!;
+    const header = dom.window.document.getElementById('toggle-folder-filters')!;
+    const body = dom.window.document.getElementById('folder-filters-body')!;
     const chevron = header.querySelector('.tl-chevron')!;
     body.style.display = '';
 
@@ -225,8 +227,8 @@ suite('Legend toggle (wireLegendToggle)', () => {
   });
 
   test('second click expands → chevron loses "collapsed" class', () => {
-    const header = dom.window.document.getElementById('toggle-detail-legend')!;
-    const body = dom.window.document.getElementById('detail-legend-body')!;
+    const header = dom.window.document.getElementById('toggle-folder-filters')!;
+    const body = dom.window.document.getElementById('folder-filters-body')!;
     const chevron = header.querySelector('.tl-chevron')!;
     body.style.display = 'none';
     chevron.classList.add('collapsed');

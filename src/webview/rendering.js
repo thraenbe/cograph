@@ -101,6 +101,7 @@ function fileColor(file) {
   return `hsl(${((hash % 360) + 360) % 360}, 70%, 65%)`;
 }
 
+
 function bumpCountFor(d) {
   return Math.max(5, Math.min(12, Math.round(4 + Math.log2((d.memberCount ?? 1) + 1))));
 }
@@ -143,7 +144,6 @@ function ensureClusterGradient(d) {
 
 // Language colors on clusters are always shown regardless of languageMode toggle.
 function resolveClusterFill(d) {
-  if (d.isSynthetic)     return getCSSVar('--cograph-node-cluster');
   if (d.languageBreakdown?.length > 1) return ensureClusterGradient(d);
   if (d.languageBreakdown?.length === 1) return getLanguageColor(d.languageBreakdown[0].lang) ?? getCSSVar('--cograph-node-cluster');
   return getCSSVar('--cograph-node-cluster');

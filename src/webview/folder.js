@@ -279,6 +279,16 @@ function tickFolderOverlay() {
     for (const hf of state.hiddenFolders) { if (_inHidden(hf)) { d3.select(this).style('display', 'none'); return; } }
     // ─────────────────────────────────────────────────────────────────────────
     const langColor = getLanguageColor(d.lang) ?? '#888888';   // global from colors.js
+    let displayColor = langColor;
+    let fileChanged = false;
+    if (state.gitMode) {
+      for (const n of d.nodes) {
+        const s = n.gitStatus?.unstaged ?? n.gitStatus?.staged;
+        if (s === 'added')    { displayColor = '#4caf50'; fileChanged = true; break; }
+        if (s === 'modified') { displayColor = '#ff9800'; fileChanged = true; }
+      }
+    }
+    const strokeWidth = fileChanged ? 12 : 1.5;
     const points = d.nodes
       .filter(n => visibleIds.has(n.id) && n.x != null && n.y != null)
       .map(n => ({ x: n.x, y: n.y, r: nodeRadius(n) }));       // global from rendering.js
@@ -297,15 +307,16 @@ function tickFolderOverlay() {
         .select('.file-circle-shape')
           .attr('cx', bc.cx).attr('cy', bc.cy)
           .attr('rx', bc.r).attr('ry', bc.r * 0.92)
-          .attr('fill', langColor).attr('fill-opacity', 0.03)
-          .attr('stroke', langColor).attr('stroke-opacity', 0.35)
+          .attr('fill', displayColor).attr('fill-opacity', 0.03)
+          .attr('stroke', displayColor).attr('stroke-opacity', 0.35)
+          .attr('stroke-width', strokeWidth)
           .attr('stroke-dasharray', '4 3');
       d3.select(this).select('.file-circle-label')
         .attr('x', bc.cx).attr('y', bc.cy)
-        .attr('fill', langColor).text(d.shortName);
+        .attr('fill', displayColor).text(d.shortName);
       d3.select(this).select('.file-circle-subtitle')
         .attr('x', bc.cx).attr('y', bc.cy + 14)
-        .attr('fill', langColor).attr('font-size', '9px').attr('opacity', 0.6)
+        .attr('fill', displayColor).attr('font-size', '9px').attr('opacity', 0.6)
         .text('empty');
       return;
     }
@@ -339,18 +350,19 @@ function tickFolderOverlay() {
     d3.select(this).select('.file-circle-shape')
       .attr('cx', bc.cx).attr('cy', bc.cy)
       .attr('rx', bc.r).attr('ry', bc.r * 0.92)
-      .attr('fill', langColor).attr('fill-opacity', 0.07)       // B3: separate opacity attrs
-      .attr('stroke', langColor).attr('stroke-opacity', 0.9)
+      .attr('fill', displayColor).attr('fill-opacity', 0.07)       // B3: separate opacity attrs
+      .attr('stroke', displayColor).attr('stroke-opacity', 0.9)
+      .attr('stroke-width', strokeWidth)
       .attr('stroke-dasharray', null);
 
     d3.select(this).select('.file-circle-label')
       .attr('x', bc.cx).attr('y', bc.cy - bc.r * 0.92 + 16)   // inside, near top edge
-      .attr('fill', langColor)
+      .attr('fill', displayColor)
       .text(d.shortName);
 
     d3.select(this).select('.file-circle-subtitle')
       .attr('x', bc.cx).attr('y', bc.cy - bc.r * 0.92 + 28)
-      .attr('fill', langColor).attr('font-size', '9px').attr('opacity', 0.5)
+      .attr('fill', displayColor).attr('font-size', '9px').attr('opacity', 0.5)
       .text(`+${d.nodes.length} fn${d.nodes.length === 1 ? '' : 's'}`);
   });
 

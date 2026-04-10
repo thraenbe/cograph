@@ -81,5 +81,6 @@ function applyGitColors() {
   state.svgLabels?.style('text-decoration', d =>
     state.gitMode && (d.gitStatus?.unstaged === 'deleted' || d.gitStatus?.staged === 'deleted') ? 'line-through' : null
   );
+  if (typeof tickFolderOverlay === 'function') tickFolderOverlay();
   renderLanguageLegend();
 }

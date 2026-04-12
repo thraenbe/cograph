@@ -303,4 +303,62 @@ window.addEventListener('message', (event) => {
     rerunLayout();
     return;
   }
+  if (message.type === 'graph-loaded') {
+    const { settings: saved, nodePositions } = message.payload;
+    if (!state.currentNodes.length || !nodePositions) { return; }
+
+    // Apply saved display state
+    if (saved.complexityLevel !== undefined) {
+      state.complexityLevel = saved.complexityLevel;
+      const slider = document.getElementById('slider-complexity');
+      const valEl = document.getElementById('val-complexity');
+      if (slider) { slider.value = String(saved.complexityLevel); }
+      if (valEl) { valEl.textContent = Number(saved.complexityLevel).toFixed(2); }
+    }
+    if (saved.clusterGroupBy !== undefined) { state.clusterGroupBy = saved.clusterGroupBy; }
+    if (saved.gitMode !== undefined) {
+      state.gitMode = saved.gitMode;
+      document.getElementById('btn-git-mode')?.classList.toggle('active', saved.gitMode);
+    }
+    if (saved.languageMode !== undefined) {
+      state.languageMode = saved.languageMode;
+      document.getElementById('btn-language-mode')?.classList.toggle('active', saved.languageMode);
+    }
+    if (saved.folderMode !== undefined) {
+      state.folderMode = saved.folderMode;
+      document.getElementById('btn-folder-mode')?.classList.toggle('active', saved.folderMode);
+    }
+    if (saved.classMode !== undefined) {
+      state.classMode = saved.classMode;
+      document.getElementById('btn-class-mode')?.classList.toggle('active', saved.classMode);
+    }
+
+    // Apply saved node positions
+    for (const n of state.currentNodes) {
+      const pos = nodePositions[n.id];
+      if (pos) {
+        n.x = pos.x;
+        n.y = pos.y;
+        n.fx = pos.x;
+        n.fy = pos.y;
+      }
+    }
+
+    if (saved.layoutMode === 'static') {
+      setLayoutMode('static');
+    } else {
+      // Use positions as starting points, then release into dynamic simulation
+      if (state.simulation) {
+        state.simulation.alpha(0.1).restart();
+        setTimeout(() => {
+          state.currentNodes.forEach(n => { n.fx = null; n.fy = null; });
+        }, 300);
+      }
+    }
+
+    // Re-apply clustering and colors so the restored state renders correctly
+    applyComplexity();
+    if (state.gitMode && state.gitAvailable) { applyGitColors(); }
+    return;
+  }
 });

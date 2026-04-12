@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 
 export { MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from './analyzerRunner';
 
@@ -8,6 +9,7 @@ import { AnalyzerRunner } from './analyzerRunner';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml } from './webviewHtmlBuilder';
+import type { SidebarProvider } from './sidebarProvider';
 
 interface GraphNode {
   id: string;
@@ -34,6 +36,7 @@ export class GraphProvider {
   private readonly analyzerRunner: AnalyzerRunner;
   private readonly libraryDescriber: LibraryDescriber;
   private _outputChannel?: vscode.OutputChannel;
+  private _sidebar?: SidebarProvider;
 
   private get outputChannel() {
     if (!this._outputChannel) {
@@ -190,6 +193,27 @@ export class GraphProvider {
           await vscode.window.showTextDocument(fileUri);
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
+      } else if (message.type === 'save-graph') {
+        const name = await vscode.window.showInputBox({
+          prompt: 'Name this graph layout',
+          value: 'My Layout',
+          validateInput: v => v.trim() ? null : 'Name cannot be empty',
+        });
+        if (!name?.trim()) { return; }
+        const dir = path.join(workspaceRoot, '.cograph');
+        if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+        const filename = name.trim().replace(/[^a-zA-Z0-9_\- ]/g, '_') + '.json';
+        const data = {
+          version: 1,
+          name: name.trim(),
+          description: '',
+          savedAt: new Date().toISOString(),
+          ...message.payload,
+        };
+        fs.writeFileSync(path.join(dir, filename), JSON.stringify(data, null, 2), 'utf8');
+        if (this.panel) { this.panel.title = name.trim(); }
+        this._sidebar?.refresh();
+        vscode.window.showInformationMessage(`CoGraph: Layout saved as "${name.trim()}".`);
       }
     });
 
@@ -203,6 +227,36 @@ export class GraphProvider {
 
   reloadLayout(): void {
     this.panel?.webview.postMessage({ type: 'reload-layout' });
+  }
+
+  setSidebarProvider(sidebar: SidebarProvider): void {
+    this._sidebar = sidebar;
+  }
+
+  /** Load a previously saved graph layout into the open (or freshly opened) panel. */
+  async loadGraph(data: unknown): Promise<void> {
+    if (!this.panel) {
+      this.show();
+      // Wait for the panel to finish loading the graph before applying positions
+      await new Promise<void>(resolve => {
+        const disposable = (this.panel as vscode.WebviewPanel).webview.onDidReceiveMessage((msg) => {
+          if (msg.type === 'graph-ready') {
+            disposable.dispose();
+            resolve();
+          }
+        });
+        // Fallback: proceed after 2 s even if we never receive graph-ready
+        setTimeout(resolve, 2000);
+      });
+    } else {
+      this.panel.reveal();
+    }
+    // Update panel title to the saved graph's name
+    const name = (data as { name?: string })?.name;
+    if (this.panel && name) {
+      this.panel.title = name;
+    }
+    this.panel?.webview.postMessage({ type: 'graph-loaded', payload: data });
   }
 
   /** Show error in the panel (if alive) and as a VS Code notification. */

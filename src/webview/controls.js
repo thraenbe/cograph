@@ -194,6 +194,29 @@ document.getElementById('btn-class-mode')?.addEventListener('click', () => {
   applyComplexity();
 });
 
+// ── Save Graph Layout ─────────────────────────────────────────────────────────
+document.getElementById('btn-save-graph')?.addEventListener('click', () => {
+  const nodePositions = {};
+  for (const n of state.currentNodes) {
+    nodePositions[n.id] = { x: n.x ?? n.fx ?? 0, y: n.y ?? n.fy ?? 0 };
+  }
+  vscode.postMessage({
+    type: 'save-graph',
+    payload: {
+      settings: {
+        complexityLevel: state.complexityLevel,
+        clusterGroupBy: state.clusterGroupBy,
+        layoutMode: state.layoutMode,
+        gitMode: state.gitMode,
+        languageMode: state.languageMode,
+        folderMode: state.folderMode,
+        classMode: state.classMode,
+      },
+      nodePositions,
+    },
+  });
+});
+
 // ── Context menu global dismiss ────────────────────────────────────────────────
 document.addEventListener('mousedown', e => {
   const menu = document.getElementById('ctx-menu');

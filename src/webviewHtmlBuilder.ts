@@ -167,6 +167,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     </div>
   </div>
   <button id="settings-btn" title="Settings">&#9881;</button>
+  <button id="btn-save-graph" title="Save graph layout">Save Layout</button>
   <div id="settings-panel">
 
     <div class="panel-section">

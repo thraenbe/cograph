@@ -32,10 +32,29 @@
   ],
   "activationEvents": [
     "onCommand:cograph.visualize",
-    "onCommand:cograph.openOrReload"
+    "onCommand:cograph.openOrReload",
+    "onView:cograph.savedGraphs"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cograph-sidebar",
+          "title": "Cograph",
+          "icon": "./media/cograph-sidebar.svg"
+        }
+      ]
+    },
+    "views": {
+      "cograph-sidebar": [
+        {
+          "type": "webview",
+          "id": "cograph.savedGraphs",
+          "name": "Cograph"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "cograph.visualize",

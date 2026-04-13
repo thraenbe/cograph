@@ -53,6 +53,7 @@ function makeDOM() {
     <div class="func-resize-handle" data-dir="sw"></div>
     <input id="slider-complexity" type="range" value="0.99" />
     <span id="val-complexity">0.99</span>
+    <button id="btn-save-graph"></button>
   </body></html>`;
   return new JSDOM(html);
 }
@@ -393,5 +394,103 @@ suite('Link Distance removal regression', () => {
       undefined,
       'no slider should write settings.linkDistance',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: Save Graph Layout button (btn-save-graph click handler)
+// ---------------------------------------------------------------------------
+
+suite('Save Graph Layout button', () => {
+  const originalVscode = (global as any).vscode;
+  const posted: any[] = [];
+
+  setup(() => {
+    posted.length = 0;
+    (global as any).vscode = { postMessage: (msg: any) => posted.push(msg) };
+    // controls.js reads these at click time from the global state object
+    (global as any).state.currentNodes = [];
+    (global as any).state.complexityLevel = 0.5;
+    (global as any).state.clusterGroupBy = 'connectivity';
+    (global as any).state.layoutMode = 'dynamic';
+    (global as any).state.gitMode = false;
+    (global as any).state.languageMode = false;
+    (global as any).state.folderMode = true;
+    (global as any).state.classMode = false;
+  });
+
+  teardown(() => {
+    (global as any).vscode = originalVscode;
+  });
+
+  test('click → postMessage with type save-graph, settings, and nodePositions', () => {
+    (global as any).state.currentNodes = [
+      { id: 'a::fn::1', x: 10, y: 20 },
+      { id: 'b::fn::2', x: 30, y: 40 },
+    ];
+    (global as any).state.complexityLevel = 0.8;
+    (global as any).state.clusterGroupBy = 'class';
+    (global as any).state.layoutMode = 'static';
+    (global as any).state.gitMode = true;
+    (global as any).state.folderMode = true;
+    (global as any).state.classMode = false;
+
+    dom.window.document.getElementById('btn-save-graph')!.click();
+
+    assert.strictEqual(posted.length, 1, 'postMessage should be called exactly once');
+    const msg = posted[0];
+    assert.strictEqual(msg.type, 'save-graph');
+    assert.deepStrictEqual(msg.payload.settings, {
+      complexityLevel: 0.8,
+      clusterGroupBy: 'class',
+      layoutMode: 'static',
+      gitMode: true,
+      languageMode: false,
+      folderMode: true,
+      classMode: false,
+    });
+    assert.deepStrictEqual(msg.payload.nodePositions, {
+      'a::fn::1': { x: 10, y: 20 },
+      'b::fn::2': { x: 30, y: 40 },
+    });
+  });
+
+  test('falls back to fx/fy when x/y are nullish', () => {
+    (global as any).state.currentNodes = [
+      { id: 'pinned::1', x: null, y: null, fx: 5, fy: 6 },
+      { id: 'pinned::2', fx: 100, fy: 200 },
+    ];
+
+    dom.window.document.getElementById('btn-save-graph')!.click();
+
+    assert.strictEqual(posted.length, 1);
+    assert.deepStrictEqual(posted[0].payload.nodePositions, {
+      'pinned::1': { x: 5, y: 6 },
+      'pinned::2': { x: 100, y: 200 },
+    });
+  });
+
+  test('zero as x/y is preserved (not replaced by fx/fy fallback)', () => {
+    (global as any).state.currentNodes = [
+      { id: 'origin::1', x: 0, y: 0, fx: 99, fy: 99 },
+    ];
+
+    dom.window.document.getElementById('btn-save-graph')!.click();
+
+    assert.strictEqual(posted.length, 1);
+    assert.deepStrictEqual(posted[0].payload.nodePositions, {
+      'origin::1': { x: 0, y: 0 },
+    });
+  });
+
+  test('empty currentNodes → empty nodePositions object', () => {
+    (global as any).state.currentNodes = [];
+
+    dom.window.document.getElementById('btn-save-graph')!.click();
+
+    assert.strictEqual(posted.length, 1);
+    assert.deepStrictEqual(posted[0].payload.nodePositions, {});
+    // settings payload should still be populated
+    assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'connectivity');
   });
 });

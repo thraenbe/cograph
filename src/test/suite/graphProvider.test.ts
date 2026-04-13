@@ -646,3 +646,312 @@ suite('resolvePythonBin() - venv path selection', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// save-graph message handler + loadGraph() + setSidebarProvider()
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a fake panel whose webview captures all onDidReceiveMessage callbacks
+ * so tests can invoke them directly. Also stubs spawn/execFileSync so
+ * provider.show() doesn't actually run the analyzer.
+ */
+function setupPanelWithCapturedMessages(sandbox: sinon.SinonSandbox) {
+  sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
+  const fakeProc = makeFakeProc();
+  const fakeTsProc = makeFakeProc();
+  const fakeJsProc = makeFakeProc();
+  sandbox.stub(rawCp, 'spawn')
+    .onFirstCall().returns(fakeProc)
+    .onSecondCall().returns(fakeTsProc)
+    .onThirdCall().returns(fakeJsProc);
+
+  const msgCallbacks: Array<(msg: unknown) => void | Promise<void>> = [];
+  const webview = {
+    html: '',
+    cspSource: 'vscode-resource:',
+    onDidReceiveMessage: sinon.stub().callsFake((cb: (m: unknown) => void) => {
+      msgCallbacks.push(cb);
+      return { dispose: () => {} };
+    }),
+    postMessage: sinon.stub().resolves(true),
+    asWebviewUri: sinon.stub().callsFake((uri: vscode.Uri) => uri),
+  };
+  const panel = {
+    webview,
+    title: 'CoGraph',
+    reveal: sinon.stub(),
+    onDidDispose: sinon.stub().callsFake((cb: () => void) => {
+      (panel as unknown as { _disposeCallback: () => void })._disposeCallback = cb;
+      return { dispose: () => {} };
+    }),
+    dispose: sinon.stub(),
+  };
+  sandbox.stub(vscode.window, 'createWebviewPanel').returns(panel as unknown as vscode.WebviewPanel);
+
+  return { panel, webview, msgCallbacks };
+}
+
+suite('save-graph message handler', () => {
+  let sandbox: sinon.SinonSandbox;
+  let tmpDir: string;
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-save-test-'));
+  });
+
+  teardown(() => {
+    sandbox.restore();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('happy path: writes JSON file, sets panel title, refreshes sidebar, shows info', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    sandbox.stub(vscode.window, 'showInputBox').resolves('My Layout');
+    const showInfo = sandbox.stub(vscode.window, 'showInformationMessage');
+
+    const { panel, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    const sidebarRefresh = sinon.stub();
+    provider.setSidebarProvider({ refresh: sidebarRefresh } as unknown as import('../../sidebarProvider').SidebarProvider);
+    provider.show();
+
+    assert.ok(msgCallbacks.length >= 1, 'message callback should be registered');
+    await msgCallbacks[0]({
+      type: 'save-graph',
+      payload: {
+        settings: {
+          complexityLevel: 0.8,
+          clusterGroupBy: 'class',
+          layoutMode: 'static',
+          gitMode: true,
+          languageMode: false,
+          folderMode: true,
+          classMode: false,
+        },
+        nodePositions: { 'a::b::1': { x: 10, y: 20 } },
+      },
+    });
+
+    // File created at .cograph/My Layout.json
+    const writtenPath = path.join(tmpDir, '.cograph', 'My Layout.json');
+    assert.ok(fs.existsSync(writtenPath), `file should exist at ${writtenPath}`);
+    const written = JSON.parse(fs.readFileSync(writtenPath, 'utf8'));
+    assert.strictEqual(written.version, 1);
+    assert.strictEqual(written.name, 'My Layout');
+    assert.strictEqual(written.description, '');
+    assert.ok(typeof written.savedAt === 'string' && written.savedAt.length > 0);
+    assert.ok(!Number.isNaN(new Date(written.savedAt).getTime()), 'savedAt should parse as a date');
+    assert.deepStrictEqual(written.settings, {
+      complexityLevel: 0.8,
+      clusterGroupBy: 'class',
+      layoutMode: 'static',
+      gitMode: true,
+      languageMode: false,
+      folderMode: true,
+      classMode: false,
+    });
+    assert.deepStrictEqual(written.nodePositions, { 'a::b::1': { x: 10, y: 20 } });
+
+    // Panel title updated
+    assert.strictEqual(panel.title, 'My Layout');
+    // Sidebar refreshed
+    assert.ok(sidebarRefresh.calledOnce, 'sidebar.refresh() should be called');
+    // Info notification shown
+    assert.ok(showInfo.calledOnce);
+    assert.ok(String(showInfo.firstCall.args[0]).includes('My Layout'));
+  });
+
+  test('user cancels input → no file written, title unchanged, no refresh', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    sandbox.stub(vscode.window, 'showInputBox').resolves(undefined);
+    sandbox.stub(vscode.window, 'showInformationMessage');
+
+    const { panel, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    const sidebarRefresh = sinon.stub();
+    provider.setSidebarProvider({ refresh: sidebarRefresh } as unknown as import('../../sidebarProvider').SidebarProvider);
+    provider.show();
+
+    await msgCallbacks[0]({ type: 'save-graph', payload: { settings: {}, nodePositions: {} } });
+
+    assert.strictEqual(fs.existsSync(path.join(tmpDir, '.cograph')), false, '.cograph dir should not be created');
+    assert.strictEqual(panel.title, 'CoGraph', 'title should not change');
+    assert.strictEqual(sidebarRefresh.callCount, 0);
+  });
+
+  test('whitespace-only name → no file written', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    sandbox.stub(vscode.window, 'showInputBox').resolves('   ');
+    sandbox.stub(vscode.window, 'showInformationMessage');
+
+    const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+
+    await msgCallbacks[0]({ type: 'save-graph', payload: { settings: {}, nodePositions: {} } });
+
+    assert.strictEqual(fs.existsSync(path.join(tmpDir, '.cograph')), false);
+  });
+
+  test('creates .cograph directory when missing', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    sandbox.stub(vscode.window, 'showInputBox').resolves('Fresh');
+    sandbox.stub(vscode.window, 'showInformationMessage');
+
+    const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+
+    assert.strictEqual(fs.existsSync(path.join(tmpDir, '.cograph')), false, 'precondition: dir missing');
+    await msgCallbacks[0]({ type: 'save-graph', payload: { settings: {}, nodePositions: {} } });
+    assert.strictEqual(fs.existsSync(path.join(tmpDir, '.cograph')), true, '.cograph dir should be created');
+    assert.strictEqual(fs.existsSync(path.join(tmpDir, '.cograph', 'Fresh.json')), true);
+  });
+
+  test('filename sanitation: replaces invalid characters with _', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    sandbox.stub(vscode.window, 'showInputBox').resolves('My/Weird:Layout*');
+    sandbox.stub(vscode.window, 'showInformationMessage');
+
+    const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+
+    await msgCallbacks[0]({ type: 'save-graph', payload: { settings: {}, nodePositions: {} } });
+
+    // /, :, * should all be replaced; alphanumerics, _, - and space preserved
+    const files = fs.readdirSync(path.join(tmpDir, '.cograph'));
+    assert.strictEqual(files.length, 1);
+    assert.strictEqual(files[0], 'My_Weird_Layout_.json');
+    // But the stored name inside the JSON keeps the trimmed original
+    const data = JSON.parse(fs.readFileSync(path.join(tmpDir, '.cograph', files[0]), 'utf8'));
+    assert.strictEqual(data.name, 'My/Weird:Layout*');
+  });
+});
+
+suite('loadGraph()', () => {
+  let sandbox: sinon.SinonSandbox;
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+  });
+
+  teardown(() => {
+    sandbox.restore();
+  });
+
+  test('with open panel: sets title, reveals, posts graph-loaded', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+    const { panel, webview } = setupPanelWithCapturedMessages(sandbox);
+
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show(); // opens the panel
+
+    const data = { name: 'Saved Snapshot', nodePositions: { 'a::1': { x: 5, y: 6 } } };
+    await provider.loadGraph(data);
+
+    assert.strictEqual(panel.title, 'Saved Snapshot', 'panel title should reflect graph name');
+    assert.ok(panel.reveal.calledOnce, 'reveal should be called on the existing panel');
+    // postMessage may have other unrelated calls (none in this test path); assert ours is present
+    const loadedCalls = webview.postMessage.getCalls().filter(c => c.args[0]?.type === 'graph-loaded');
+    assert.strictEqual(loadedCalls.length, 1, 'exactly one graph-loaded message should be posted');
+    assert.deepStrictEqual(loadedCalls[0].args[0], { type: 'graph-loaded', payload: data });
+  });
+
+  test('data without name → does not overwrite existing panel title', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+    const { panel } = setupPanelWithCapturedMessages(sandbox);
+
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+    panel.title = 'Original Title';
+
+    await provider.loadGraph({ nodePositions: {} });
+
+    assert.strictEqual(panel.title, 'Original Title');
+  });
+
+  test('closed panel: show() is called, graph-ready short-circuits the wait', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+    const { panel, webview, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+
+    // Avoid the 2s fallback — patch setTimeout so the analysis timeout stays real
+    // but the loadGraph fallback fires quickly. Capture the real one first to
+    // prevent infinite recursion (see memory: setTimeout stub pitfall).
+    const realSetTimeout = setTimeout;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    sandbox.stub(global, 'setTimeout').callsFake((fn: any, ms?: number) => {
+      // Shorten the 2000 ms fallback only; pass everything else through.
+      return realSetTimeout(fn, ms === 2000 ? 20 : (ms as number));
+    });
+
+    const provider = new GraphProvider(makeFakeContext());
+    // Fire graph-ready from a microtask after loadGraph() subscribes,
+    // so the awaited promise resolves before the 20 ms fallback.
+    const loadPromise = provider.loadGraph({ name: 'Restored', nodePositions: {} });
+
+    // Allow show() to run synchronously and register the message callback
+    await new Promise<void>(r => realSetTimeout(r, 5));
+    // The loadGraph() promise subscribes a SECOND callback (index 1)
+    if (msgCallbacks.length > 1) {
+      msgCallbacks[1]({ type: 'graph-ready' });
+    }
+
+    await loadPromise;
+
+    assert.strictEqual(panel.title, 'Restored', 'title set after load');
+    const loadedCalls = webview.postMessage.getCalls().filter(c => c.args[0]?.type === 'graph-loaded');
+    assert.strictEqual(loadedCalls.length, 1);
+  });
+});
+
+suite('setSidebarProvider()', () => {
+  let sandbox: sinon.SinonSandbox;
+
+  setup(() => { sandbox = sinon.createSandbox(); });
+  teardown(() => { sandbox.restore(); });
+
+  test('stored sidebar is invoked by save-graph refresh', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-sidebar-inject-'));
+    try {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+      sandbox.stub(vscode.window, 'showInputBox').resolves('Layout');
+      sandbox.stub(vscode.window, 'showInformationMessage');
+
+      const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+      const provider = new GraphProvider(makeFakeContext());
+
+      const refresh = sinon.stub();
+      provider.setSidebarProvider({ refresh } as unknown as import('../../sidebarProvider').SidebarProvider);
+
+      provider.show();
+      await msgCallbacks[0]({ type: 'save-graph', payload: { settings: {}, nodePositions: {} } });
+
+      assert.ok(refresh.calledOnce, 'sidebar.refresh() should fire after successful save');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('no sidebar set → save-graph still succeeds without throwing', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-no-sidebar-'));
+    try {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+      sandbox.stub(vscode.window, 'showInputBox').resolves('NoSidebar');
+      sandbox.stub(vscode.window, 'showInformationMessage');
+
+      const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+      const provider = new GraphProvider(makeFakeContext());
+      provider.show();
+
+      await assert.doesNotReject(
+        msgCallbacks[0]({ type: 'save-graph', payload: { settings: {}, nodePositions: {} } }) as Promise<void>,
+      );
+      assert.strictEqual(fs.existsSync(path.join(tmpDir, '.cograph', 'NoSidebar.json')), true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});

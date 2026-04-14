@@ -33,6 +33,8 @@
   "activationEvents": [
     "onCommand:cograph.visualize",
     "onCommand:cograph.openOrReload",
+    "onCommand:cograph.saveGraph",
+    "onCommand:cograph.saveGraphAs",
     "onView:cograph.savedGraphs"
   ],
   "main": "./out/extension.js",
@@ -67,6 +69,28 @@
           "light": "./media/icon-light.svg",
           "dark": "./media/icon-dark.svg"
         }
+      },
+      {
+        "command": "cograph.saveGraph",
+        "title": "CoGraph: Save Graph"
+      },
+      {
+        "command": "cograph.saveGraphAs",
+        "title": "CoGraph: Save Graph As…"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "cograph.saveGraph",
+        "key": "ctrl+s",
+        "mac": "cmd+s",
+        "when": "activeWebviewPanelId == 'cograph'"
+      },
+      {
+        "command": "cograph.saveGraphAs",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "activeWebviewPanelId == 'cograph'"
       }
     ],
     "menus": {

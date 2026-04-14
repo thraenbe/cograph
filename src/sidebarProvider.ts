@@ -15,7 +15,7 @@ export interface GraphController {
   show(): void;
   isOpen(): boolean;
   reloadLayout(): void;
-  loadGraph(data: unknown): Promise<void>;
+  loadGraph(data: unknown, filePath?: string): Promise<void>;
 }
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
@@ -45,9 +45,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           try {
             const raw = fs.readFileSync(msg.file, 'utf8');
             const data = JSON.parse(raw);
-            await this._graphController.loadGraph(data);
+            await this._graphController.loadGraph(data, msg.file);
           } catch (err) {
             vscode.window.showErrorMessage(`CoGraph: Failed to load graph — ${(err as Error).message}`);
+          }
+          break;
+        }
+        case 'export-graph': {
+          try {
+            const uri = await vscode.window.showSaveDialog({
+              defaultUri: vscode.Uri.file(`${msg.name}.json`),
+              filters: { 'CoGraph Layout': ['json'] },
+              saveLabel: 'Export',
+            });
+            if (!uri) { break; }
+            fs.copyFileSync(msg.file, uri.fsPath);
+            vscode.window.showInformationMessage(`CoGraph: Exported "${msg.name}".`);
+          } catch (err) {
+            vscode.window.showErrorMessage(`CoGraph: Failed to export — ${(err as Error).message}`);
           }
           break;
         }
@@ -216,6 +231,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       display: grid;
       grid-template-rows: auto auto;
       gap: 4px;
+      cursor: pointer;
+    }
+    .graph-card:hover {
+      background: var(--vscode-list-hoverBackground, #2a2d2e);
+      border-color: var(--vscode-focusBorder, #007fd4);
     }
 
     .card-name {
@@ -243,7 +263,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       flex: 1;
     }
 
-    .btn-open {
+    .btn-export {
       flex-shrink: 0;
       padding: 3px 10px;
       font-size: 11px;
@@ -254,7 +274,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       border-radius: 4px;
       cursor: pointer;
     }
-    .btn-open:hover {
+    .btn-export:hover {
       background: var(--vscode-button-background, #0e639c);
       color: var(--vscode-button-foreground, #fff);
       border-color: var(--vscode-button-background, #0e639c);
@@ -351,18 +371,25 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         const safeFile = g.file.replace(/"/g, '&quot;');
         const safeName = g.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const safeDesc = desc.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return \`<div class="graph-card">
+        return \`<div class="graph-card" data-file="\${safeFile}" data-name="\${safeName}">
           <div class="card-name">\${safeName}</div>
           <div class="card-bottom">
             <span class="card-desc">\${safeDesc}</span>
-            <button class="btn-open" data-file="\${safeFile}" data-name="\${safeName}">open</button>
+            <button class="btn-export" data-file="\${safeFile}" data-name="\${safeName}">export</button>
           </div>
         </div>\`;
       }).join('');
 
-      list.querySelectorAll('.btn-open').forEach(btn => {
-        btn.addEventListener('click', () => {
-          vscode.postMessage({ type: 'open-graph', file: btn.dataset.file, name: btn.dataset.name });
+      list.querySelectorAll('.graph-card').forEach(card => {
+        card.addEventListener('click', () => {
+          vscode.postMessage({ type: 'open-graph', file: card.dataset.file, name: card.dataset.name });
+        });
+      });
+
+      list.querySelectorAll('.btn-export').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          vscode.postMessage({ type: 'export-graph', file: btn.dataset.file, name: btn.dataset.name });
         });
       });
     }

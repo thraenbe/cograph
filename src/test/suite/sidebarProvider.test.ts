@@ -244,6 +244,7 @@ suite('SidebarProvider', () => {
       assert.deepStrictEqual(loadGraph.firstCall.args[0], {
         name: 'Layout', nodePositions: { 'a::1': { x: 10, y: 20 } },
       });
+      assert.strictEqual(loadGraph.firstCall.args[1], filePath, 'file path should be passed as 2nd arg');
     });
 
     test('open-graph with unreadable file → shows error, does not call loadGraph', async () => {
@@ -345,6 +346,65 @@ suite('SidebarProvider', () => {
 
       assert.ok(showErr.calledOnce);
       assert.ok(String(showErr.firstCall.args[0]).includes('Failed to delete'));
+    });
+
+    test('export-graph: user picks target → copies source file and shows info', async () => {
+      const cographDir = path.join(tmpDir, '.cograph');
+      fs.mkdirSync(cographDir);
+      const srcPath = writeJsonFile(cographDir, 'exported.json', { name: 'Exported', v: 1 });
+      const destPath = path.join(tmpDir, 'copy.json');
+
+      sandbox.stub(vscode.window, 'showSaveDialog').resolves(vscode.Uri.file(destPath));
+      const showInfo = sandbox.stub(vscode.window, 'showInformationMessage');
+
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
+      const { view, received } = makeFakeWebviewView();
+      provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+
+      await received[0]({ type: 'export-graph', file: srcPath, name: 'Exported' });
+
+      assert.strictEqual(fs.existsSync(destPath), true, 'dest file should exist');
+      assert.deepStrictEqual(
+        JSON.parse(fs.readFileSync(destPath, 'utf8')),
+        JSON.parse(fs.readFileSync(srcPath, 'utf8')),
+        'dest content should equal source',
+      );
+      assert.ok(showInfo.calledOnce);
+      assert.ok(String(showInfo.firstCall.args[0]).includes('Exported'));
+    });
+
+    test('export-graph: user cancels dialog → nothing written, no info toast', async () => {
+      const cographDir = path.join(tmpDir, '.cograph');
+      fs.mkdirSync(cographDir);
+      const srcPath = writeJsonFile(cographDir, 'source.json', { name: 'S' });
+
+      sandbox.stub(vscode.window, 'showSaveDialog').resolves(undefined);
+      const showInfo = sandbox.stub(vscode.window, 'showInformationMessage');
+      const copySync = sandbox.stub(rawFs, 'copyFileSync');
+
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
+      const { view, received } = makeFakeWebviewView();
+      provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+
+      await received[0]({ type: 'export-graph', file: srcPath, name: 'S' });
+
+      assert.strictEqual(copySync.callCount, 0);
+      assert.strictEqual(showInfo.callCount, 0);
+    });
+
+    test('export-graph: copy throws → shows error message', async () => {
+      sandbox.stub(vscode.window, 'showSaveDialog').resolves(vscode.Uri.file('/nope/dest.json'));
+      sandbox.stub(rawFs, 'copyFileSync').throws(new Error('EACCES'));
+      const showErr = sandbox.stub(vscode.window, 'showErrorMessage');
+
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
+      const { view, received } = makeFakeWebviewView();
+      provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+
+      await received[0]({ type: 'export-graph', file: '/some/src.json', name: 'X' });
+
+      assert.ok(showErr.calledOnce);
+      assert.ok(String(showErr.firstCall.args[0]).includes('Failed to export'));
     });
   });
 

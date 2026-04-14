@@ -423,7 +423,7 @@ suite('Save Graph Layout button', () => {
     (global as any).vscode = originalVscode;
   });
 
-  test('click → postMessage with type save-graph, settings, and nodePositions', () => {
+  test('click → postMessage with type save-graph, mode save-as, settings, and nodePositions', () => {
     (global as any).state.currentNodes = [
       { id: 'a::fn::1', x: 10, y: 20 },
       { id: 'b::fn::2', x: 30, y: 40 },
@@ -440,6 +440,7 @@ suite('Save Graph Layout button', () => {
     assert.strictEqual(posted.length, 1, 'postMessage should be called exactly once');
     const msg = posted[0];
     assert.strictEqual(msg.type, 'save-graph');
+    assert.strictEqual(msg.mode, 'save-as', 'button always triggers save-as (prompt)');
     assert.deepStrictEqual(msg.payload.settings, {
       complexityLevel: 0.8,
       clusterGroupBy: 'class',
@@ -453,6 +454,38 @@ suite('Save Graph Layout button', () => {
       'a::fn::1': { x: 10, y: 20 },
       'b::fn::2': { x: 30, y: 40 },
     });
+  });
+
+  test('save-request message → postMessage with save-graph and forwarded mode', () => {
+    (global as any).state.currentNodes = [{ id: 'x::1', x: 1, y: 2 }];
+
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
+      data: { type: 'save-request', mode: 'save' },
+    }));
+
+    assert.strictEqual(posted.length, 1, 'postMessage should fire once');
+    assert.strictEqual(posted[0].type, 'save-graph');
+    assert.strictEqual(posted[0].mode, 'save');
+    assert.deepStrictEqual(posted[0].payload.nodePositions, { 'x::1': { x: 1, y: 2 } });
+  });
+
+  test('save-request with mode save-as → forwards save-as', () => {
+    (global as any).state.currentNodes = [];
+
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
+      data: { type: 'save-request', mode: 'save-as' },
+    }));
+
+    assert.strictEqual(posted.length, 1);
+    assert.strictEqual(posted[0].mode, 'save-as');
+  });
+
+  test('unrelated message → no save-graph postMessage', () => {
+    dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
+      data: { type: 'something-else' },
+    }));
+
+    assert.strictEqual(posted.length, 0);
   });
 
   test('falls back to fx/fy when x/y are nullish', () => {

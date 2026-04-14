@@ -23,7 +23,15 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  context.subscriptions.push(command, openOrReloadCommand);
+  const saveGraphCommand = vscode.commands.registerCommand('cograph.saveGraph', () => {
+    provider.requestSave('save');
+  });
+
+  const saveGraphAsCommand = vscode.commands.registerCommand('cograph.saveGraphAs', () => {
+    provider.requestSave('save-as');
+  });
+
+  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand);
 }
 
 export function deactivate() {}

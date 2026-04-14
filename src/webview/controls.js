@@ -195,26 +195,42 @@ document.getElementById('btn-class-mode')?.addEventListener('click', () => {
 });
 
 // ── Save Graph Layout ─────────────────────────────────────────────────────────
-document.getElementById('btn-save-graph')?.addEventListener('click', () => {
+function buildSavePayload() {
   const nodePositions = {};
   for (const n of state.currentNodes) {
     nodePositions[n.id] = { x: n.x ?? n.fx ?? 0, y: n.y ?? n.fy ?? 0 };
   }
+  return {
+    settings: {
+      complexityLevel: state.complexityLevel,
+      clusterGroupBy: state.clusterGroupBy,
+      layoutMode: state.layoutMode,
+      gitMode: state.gitMode,
+      languageMode: state.languageMode,
+      folderMode: state.folderMode,
+      classMode: state.classMode,
+    },
+    nodePositions,
+  };
+}
+
+document.getElementById('btn-save-graph')?.addEventListener('click', () => {
   vscode.postMessage({
     type: 'save-graph',
-    payload: {
-      settings: {
-        complexityLevel: state.complexityLevel,
-        clusterGroupBy: state.clusterGroupBy,
-        layoutMode: state.layoutMode,
-        gitMode: state.gitMode,
-        languageMode: state.languageMode,
-        folderMode: state.folderMode,
-        classMode: state.classMode,
-      },
-      nodePositions,
-    },
+    mode: 'save-as',
+    payload: buildSavePayload(),
   });
+});
+
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+  if (msg && msg.type === 'save-request') {
+    vscode.postMessage({
+      type: 'save-graph',
+      mode: msg.mode,
+      payload: buildSavePayload(),
+    });
+  }
 });
 
 // ── Context menu global dismiss ────────────────────────────────────────────────

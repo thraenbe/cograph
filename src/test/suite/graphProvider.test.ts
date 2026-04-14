@@ -829,6 +829,85 @@ suite('save-graph message handler', () => {
     const data = JSON.parse(fs.readFileSync(path.join(tmpDir, '.cograph', files[0]), 'utf8'));
     assert.strictEqual(data.name, 'My/Weird:Layout*');
   });
+
+  test('mode=save after loadGraph(data, filePath) overwrites silently, no prompt', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    const showInputBox = sandbox.stub(vscode.window, 'showInputBox');
+    sandbox.stub(vscode.window, 'showInformationMessage');
+
+    // Prepare an existing saved file to "load" from
+    const cographDir = path.join(tmpDir, '.cograph');
+    fs.mkdirSync(cographDir);
+    const existingPath = path.join(cographDir, 'Existing.json');
+    fs.writeFileSync(existingPath, JSON.stringify({
+      version: 1, name: 'Existing', savedAt: '2020-01-01T00:00:00.000Z',
+      settings: {}, nodePositions: { 'old::1': { x: 0, y: 0 } },
+    }), 'utf8');
+
+    const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+
+    await provider.loadGraph({ name: 'Existing', nodePositions: {} }, existingPath);
+
+    await msgCallbacks[0]({
+      type: 'save-graph',
+      mode: 'save',
+      payload: { settings: { layoutMode: 'static' }, nodePositions: { 'new::1': { x: 9, y: 9 } } },
+    });
+
+    assert.strictEqual(showInputBox.callCount, 0, 'save mode must NOT prompt');
+    const written = JSON.parse(fs.readFileSync(existingPath, 'utf8'));
+    assert.strictEqual(written.name, 'Existing', 'name preserved from existing file');
+    assert.deepStrictEqual(written.nodePositions, { 'new::1': { x: 9, y: 9 } }, 'positions overwritten');
+    // Only one file — no new file created
+    assert.deepStrictEqual(fs.readdirSync(cographDir).sort(), ['Existing.json']);
+  });
+
+  test('mode=save with no current path falls back to prompt (save-as)', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    const showInputBox = sandbox.stub(vscode.window, 'showInputBox').resolves('Named');
+    sandbox.stub(vscode.window, 'showInformationMessage');
+
+    const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+
+    await msgCallbacks[0]({
+      type: 'save-graph',
+      mode: 'save',
+      payload: { settings: {}, nodePositions: {} },
+    });
+
+    assert.strictEqual(showInputBox.callCount, 1, 'must prompt when no current path');
+    assert.strictEqual(fs.existsSync(path.join(tmpDir, '.cograph', 'Named.json')), true);
+  });
+
+  test('mode=save-as always prompts even after loadGraph', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    const showInputBox = sandbox.stub(vscode.window, 'showInputBox').resolves('Renamed');
+    sandbox.stub(vscode.window, 'showInformationMessage');
+
+    const cographDir = path.join(tmpDir, '.cograph');
+    fs.mkdirSync(cographDir);
+    const existingPath = path.join(cographDir, 'Existing.json');
+    fs.writeFileSync(existingPath, JSON.stringify({ name: 'Existing', settings: {}, nodePositions: {} }), 'utf8');
+
+    const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+    await provider.loadGraph({ name: 'Existing', nodePositions: {} }, existingPath);
+
+    await msgCallbacks[0]({
+      type: 'save-graph',
+      mode: 'save-as',
+      payload: { settings: {}, nodePositions: {} },
+    });
+
+    assert.strictEqual(showInputBox.callCount, 1, 'save-as must always prompt');
+    assert.strictEqual(fs.existsSync(path.join(cographDir, 'Renamed.json')), true, 'new file created');
+    assert.strictEqual(fs.existsSync(existingPath), true, 'original file untouched');
+  });
 });
 
 suite('loadGraph()', () => {

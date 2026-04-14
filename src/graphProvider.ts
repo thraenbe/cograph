@@ -37,6 +37,7 @@ export class GraphProvider {
   private readonly libraryDescriber: LibraryDescriber;
   private _outputChannel?: vscode.OutputChannel;
   private _sidebar?: SidebarProvider;
+  private currentSavedGraphPath: string | undefined;
 
   private get outputChannel() {
     if (!this._outputChannel) {
@@ -118,6 +119,7 @@ export class GraphProvider {
       this.analyzerRunner.clearReanalysisTimer();
       this.analyzerRunner.killAll();
       this.cachedNodes = [];
+      this.currentSavedGraphPath = undefined;
     });
 
     this.panel.webview.onDidReceiveMessage(async (message) => {
@@ -194,26 +196,54 @@ export class GraphProvider {
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
       } else if (message.type === 'save-graph') {
-        const name = await vscode.window.showInputBox({
-          prompt: 'Name this graph layout',
-          value: 'My Layout',
-          validateInput: v => v.trim() ? null : 'Name cannot be empty',
-        });
-        if (!name?.trim()) { return; }
-        const dir = path.join(workspaceRoot, '.cograph');
-        if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-        const filename = name.trim().replace(/[^a-zA-Z0-9_\- ]/g, '_') + '.json';
+        const isSaveAs = message.mode === 'save-as' || !this.currentSavedGraphPath;
+        let targetPath: string;
+        let name: string;
+
+        if (isSaveAs) {
+          const defaultName = this.panel?.title && this.panel.title !== 'CoGraph'
+            ? this.panel.title
+            : 'My Layout';
+          const input = await vscode.window.showInputBox({
+            prompt: 'Name this graph layout',
+            value: defaultName,
+            validateInput: v => v.trim() ? null : 'Name cannot be empty',
+          });
+          if (!input?.trim()) { return; }
+          name = input.trim();
+          const dir = path.join(workspaceRoot, '.cograph');
+          if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+          const filename = name.replace(/[^a-zA-Z0-9_\- ]/g, '_') + '.json';
+          targetPath = path.join(dir, filename);
+        } else {
+          targetPath = this.currentSavedGraphPath!;
+          try {
+            const existing = JSON.parse(fs.readFileSync(targetPath, 'utf8'));
+            name = existing.name ?? path.basename(targetPath, '.json');
+          } catch {
+            name = path.basename(targetPath, '.json');
+          }
+        }
+
         const data = {
           version: 1,
-          name: name.trim(),
+          name,
           description: '',
           savedAt: new Date().toISOString(),
           ...message.payload,
         };
-        fs.writeFileSync(path.join(dir, filename), JSON.stringify(data, null, 2), 'utf8');
-        if (this.panel) { this.panel.title = name.trim(); }
+        try {
+          fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), 'utf8');
+        } catch (err: unknown) {
+          vscode.window.showErrorMessage(`CoGraph: Failed to save — ${(err as Error).message}`);
+          return;
+        }
+        this.currentSavedGraphPath = targetPath;
+        if (this.panel) { this.panel.title = name; }
         this._sidebar?.refresh();
-        vscode.window.showInformationMessage(`CoGraph: Layout saved as "${name.trim()}".`);
+        vscode.window.showInformationMessage(
+          isSaveAs ? `CoGraph: Layout saved as "${name}".` : `CoGraph: Saved "${name}".`,
+        );
       }
     });
 
@@ -234,7 +264,7 @@ export class GraphProvider {
   }
 
   /** Load a previously saved graph layout into the open (or freshly opened) panel. */
-  async loadGraph(data: unknown): Promise<void> {
+  async loadGraph(data: unknown, filePath?: string): Promise<void> {
     if (!this.panel) {
       this.show();
       // Wait for the panel to finish loading the graph before applying positions
@@ -256,7 +286,14 @@ export class GraphProvider {
     if (this.panel && name) {
       this.panel.title = name;
     }
+    this.currentSavedGraphPath = filePath;
     this.panel?.webview.postMessage({ type: 'graph-loaded', payload: data });
+  }
+
+  /** Ask the webview to post a `save-graph` message back with the current state. */
+  requestSave(mode: 'save' | 'save-as'): void {
+    if (!this.panel) { return; }
+    this.panel.webview.postMessage({ type: 'save-request', mode });
   }
 
   /** Show error in the panel (if alive) and as a VS Code notification. */

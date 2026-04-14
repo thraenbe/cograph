@@ -274,6 +274,7 @@ window.addEventListener('message', (event) => {
   }
   if (message.type === 'graph') {
     state.gitAvailable = message.gitAvailable ?? false;
+    state.fileGitStatus = message.fileGitStatus ?? {};
     const gitPanel = document.getElementById('panel-git');
     if (gitPanel) gitPanel.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
@@ -285,6 +286,7 @@ window.addEventListener('message', (event) => {
   if (message.type === 'git-update') {
     const byId = new Map(message.nodes.map(n => [n.id, n.gitStatus]));
     state.currentNodes.forEach(n => { if (byId.has(n.id)) { n.gitStatus = byId.get(n.id); } });
+    if (message.fileGitStatus) { state.fileGitStatus = message.fileGitStatus; }
     if (state.gitMode) { applyGitColors(); }
     return;
   }

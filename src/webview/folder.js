@@ -282,11 +282,10 @@ function tickFolderOverlay() {
     let displayColor = langColor;
     let fileChanged = false;
     if (state.gitMode) {
-      for (const n of d.nodes) {
-        const s = n.gitStatus?.unstaged ?? n.gitStatus?.staged;
-        if (s === 'added')    { displayColor = '#4caf50'; fileChanged = true; break; }
-        if (s === 'modified') { displayColor = '#ff9800'; fileChanged = true; }
-      }
+      const fgs = state.fileGitStatus?.[d.filePath.replace(/\\/g, '/')];
+      const s = fgs ? (fgs.unstaged ?? fgs.staged) : null;
+      if (s === 'added')    { displayColor = '#4caf50'; fileChanged = true; }
+      else if (s === 'modified') { displayColor = '#ff9800'; fileChanged = true; }
     }
     const strokeWidth = fileChanged ? 12 : 1.5;
     const points = d.nodes

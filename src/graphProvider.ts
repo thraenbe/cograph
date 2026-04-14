@@ -273,6 +273,7 @@ export class GraphProvider {
     this.panel.webview.postMessage({
       type: 'git-update',
       nodes: this.cachedNodes.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
+      fileGitStatus: this.gitService.fileStatuses,
     });
   }
 
@@ -295,14 +296,15 @@ export class GraphProvider {
 
     const isReanalysis = this.cachedNodes.length > 0;
     const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, workspaceRoot);
+    const fileGitStatus = this.gitService.fileStatuses;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
 
     if (isReanalysis) {
-      this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, isReanalysis: true });
+      this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: true });
     } else {
       this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
       setTimeout(() => {
-        this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, isReanalysis: false });
+        this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
       }, 150);
     }
   }

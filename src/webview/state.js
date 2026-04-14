@@ -27,6 +27,7 @@ const state = {
   svgFolderBubbles: null,
   svgClassBubbles: null,
   gitAvailable: false,
+  fileGitStatus: {},
   activeLibNode: null,
   libDescRequestId: 0,
   funcPopups: new Map(),

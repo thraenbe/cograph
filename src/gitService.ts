@@ -16,7 +16,12 @@ interface GraphNode {
   libraryName?: string;
 }
 
+type FileStatus = { unstaged: 'added'|'modified'|'deleted'|null; staged: 'added'|'modified'|'deleted'|null };
+
 export class GitService {
+  /** File-level git status from the most recent applyGitStatuses() call, keyed by forward-slash absolute path. */
+  fileStatuses: Record<string, FileStatus> = {};
+
   parseGitStatus(workspaceRoot: string): Map<string, { unstaged: 'added'|'modified'|'deleted'|null; staged: 'added'|'modified'|'deleted'|null }> | null {
     try {
       const out = cp.execFileSync('git', ['status', '--porcelain', '-z'], {
@@ -74,7 +79,9 @@ export class GitService {
 
   applyGitStatuses(nodes: GraphNode[], workspaceRoot: string): boolean {
     const gitMap = this.parseGitStatus(workspaceRoot);
-    if (gitMap === null) { return false; }
+    if (gitMap === null) { this.fileStatuses = {}; return false; }
+
+    this.fileStatuses = Object.fromEntries(gitMap);
 
     const nodesByFile = new Map<string, GraphNode[]>();
     for (const node of nodes) {

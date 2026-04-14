@@ -356,12 +356,12 @@ function tickFolderOverlay() {
       .attr('stroke-dasharray', null);
 
     d3.select(this).select('.file-circle-label')
-      .attr('x', bc.cx).attr('y', bc.cy - bc.r * 0.92 + 16)   // inside, near top edge
+      .attr('x', bc.cx).attr('y', bc.cy - bc.r * 0.92 + strokeWidth / 2 + 16)   // inside, below inner stroke edge
       .attr('fill', displayColor)
       .text(d.shortName);
 
     d3.select(this).select('.file-circle-subtitle')
-      .attr('x', bc.cx).attr('y', bc.cy - bc.r * 0.92 + 28)
+      .attr('x', bc.cx).attr('y', bc.cy - bc.r * 0.92 + strokeWidth / 2 + 28)
       .attr('fill', displayColor).attr('font-size', '9px').attr('opacity', 0.5)
       .text(`+${d.nodes.length} fn${d.nodes.length === 1 ? '' : 's'}`);
   });

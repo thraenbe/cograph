@@ -1,5 +1,18 @@
 const vscode = acquireVsCodeApi();
 
+// ── Dirty state (unsaved-changes indicator) ───────────────────────────────────
+let __isDirty = false;
+window.markDirty = function markDirty() {
+  if (__isDirty) { return; }
+  __isDirty = true;
+  vscode.postMessage({ type: 'dirty-state', dirty: true });
+};
+window.clearDirty = function clearDirty() {
+  if (!__isDirty) { return; }
+  __isDirty = false;
+  vscode.postMessage({ type: 'dirty-state', dirty: false });
+};
+
 // ── State ─────────────────────────────────────────────────────────────────────
 const settings = {
   existingFilesOnly: false,
@@ -281,6 +294,7 @@ window.addEventListener('message', (event) => {
     state.allScannedFiles = message.data.files ?? [];
     renderGraph(message.data, message.isReanalysis);
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
+    if (!message.isReanalysis) { window.clearDirty?.(); }
     return;
   }
   if (message.type === 'git-update') {
@@ -303,6 +317,11 @@ window.addEventListener('message', (event) => {
       d.vy = 0;
     });
     rerunLayout();
+    window.clearDirty?.();
+    return;
+  }
+  if (message.type === 'clear-dirty') {
+    __isDirty = false;
     return;
   }
   if (message.type === 'graph-loaded') {
@@ -361,6 +380,8 @@ window.addEventListener('message', (event) => {
     // Re-apply clustering and colors so the restored state renders correctly
     applyComplexity();
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
+    // Restoring a saved graph is not a dirty change — sync local flag with extension
+    __isDirty = false;
     return;
   }
 });

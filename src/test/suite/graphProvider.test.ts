@@ -883,6 +883,65 @@ suite('save-graph message handler', () => {
     assert.strictEqual(fs.existsSync(path.join(tmpDir, '.cograph', 'Named.json')), true);
   });
 
+  test('dirty-state message adds ● prefix to panel title', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+
+    const { panel, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+    panel.title = 'My Layout';
+
+    await msgCallbacks[0]({ type: 'dirty-state', dirty: true });
+    assert.strictEqual(panel.title, '● My Layout', 'dirty prefix applied');
+
+    await msgCallbacks[0]({ type: 'dirty-state', dirty: false });
+    assert.strictEqual(panel.title, 'My Layout', 'dirty prefix removed');
+  });
+
+  test('successful save clears dirty and strips ● prefix', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    sandbox.stub(vscode.window, 'showInputBox').resolves('Clean');
+    sandbox.stub(vscode.window, 'showInformationMessage');
+
+    const { panel, webview, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+
+    // Mark dirty first
+    await msgCallbacks[0]({ type: 'dirty-state', dirty: true });
+    assert.ok(panel.title.startsWith('● '), 'precondition: panel is dirty');
+
+    // Save
+    await msgCallbacks[0]({ type: 'save-graph', payload: { settings: {}, nodePositions: {} } });
+
+    assert.strictEqual(panel.title, 'Clean', 'title has no dirty prefix after save');
+    const clearMsgs = webview.postMessage.getCalls().filter(c => c.args[0]?.type === 'clear-dirty');
+    assert.strictEqual(clearMsgs.length, 1, 'clear-dirty message posted to webview');
+  });
+
+  test('save-as default name uses clean title (strips ● prefix)', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    const showInputBox = sandbox.stub(vscode.window, 'showInputBox').resolves('Renamed');
+    sandbox.stub(vscode.window, 'showInformationMessage');
+
+    const { panel, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+    panel.title = 'My Layout';
+    await msgCallbacks[0]({ type: 'dirty-state', dirty: true });
+    assert.strictEqual(panel.title, '● My Layout');
+
+    await msgCallbacks[0]({
+      type: 'save-graph',
+      mode: 'save-as',
+      payload: { settings: {}, nodePositions: {} },
+    });
+
+    assert.strictEqual(showInputBox.callCount, 1);
+    const call = showInputBox.firstCall.args[0] as { value?: string };
+    assert.strictEqual(call.value, 'My Layout', 'default value strips dirty prefix');
+  });
+
   test('mode=save-as always prompts even after loadGraph', async () => {
     sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
     const showInputBox = sandbox.stub(vscode.window, 'showInputBox').resolves('Renamed');
@@ -937,6 +996,28 @@ suite('loadGraph()', () => {
     const loadedCalls = webview.postMessage.getCalls().filter(c => c.args[0]?.type === 'graph-loaded');
     assert.strictEqual(loadedCalls.length, 1, 'exactly one graph-loaded message should be posted');
     assert.deepStrictEqual(loadedCalls[0].args[0], { type: 'graph-loaded', payload: data });
+  });
+
+  test('loadGraph clears dirty prefix on the title', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+    const { panel, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+
+    // Dirty the panel first
+    panel.title = 'Old';
+    await msgCallbacks[0]({ type: 'dirty-state', dirty: true });
+    assert.strictEqual(panel.title, '● Old');
+
+    // Load a new graph with a name
+    await provider.loadGraph({ name: 'Fresh', nodePositions: {} }, '/fake/fresh.json');
+
+    assert.strictEqual(panel.title, 'Fresh', 'title clean after load');
+
+    // A subsequent dirty message should apply cleanly to the new title
+    await msgCallbacks[0]({ type: 'dirty-state', dirty: true });
+    assert.strictEqual(panel.title, '● Fresh');
   });
 
   test('data without name → does not overwrite existing panel title', async () => {

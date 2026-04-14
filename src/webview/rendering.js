@@ -201,6 +201,7 @@ const drag = d3.drag()
       d.fy = null; // release — node rejoins simulation
     }
     // static: keep fx/fy pinned so node stays exactly where dropped
+    window.markDirty?.();
   });
 
 // ── Tick ──────────────────────────────────────────────────────────────────────

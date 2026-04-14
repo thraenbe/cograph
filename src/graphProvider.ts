@@ -38,6 +38,8 @@ export class GraphProvider {
   private _outputChannel?: vscode.OutputChannel;
   private _sidebar?: SidebarProvider;
   private currentSavedGraphPath: string | undefined;
+  private isDirty = false;
+  private static readonly DIRTY_PREFIX = '● ';
 
   private get outputChannel() {
     if (!this._outputChannel) {
@@ -195,14 +197,17 @@ export class GraphProvider {
           await vscode.window.showTextDocument(fileUri);
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
+      } else if (message.type === 'dirty-state') {
+        this.setDirty(!!message.dirty);
       } else if (message.type === 'save-graph') {
         const isSaveAs = message.mode === 'save-as' || !this.currentSavedGraphPath;
         let targetPath: string;
         let name: string;
 
         if (isSaveAs) {
-          const defaultName = this.panel?.title && this.panel.title !== 'CoGraph'
-            ? this.panel.title
+          const currentClean = this.getCleanTitle();
+          const defaultName = currentClean && currentClean !== 'CoGraph'
+            ? currentClean
             : 'My Layout';
           const input = await vscode.window.showInputBox({
             prompt: 'Name this graph layout',
@@ -239,7 +244,9 @@ export class GraphProvider {
           return;
         }
         this.currentSavedGraphPath = targetPath;
-        if (this.panel) { this.panel.title = name; }
+        this.isDirty = false;
+        this.setPanelTitle(name);
+        this.panel?.webview.postMessage({ type: 'clear-dirty' });
         this._sidebar?.refresh();
         vscode.window.showInformationMessage(
           isSaveAs ? `CoGraph: Layout saved as "${name}".` : `CoGraph: Saved "${name}".`,
@@ -263,6 +270,30 @@ export class GraphProvider {
     this._sidebar = sidebar;
   }
 
+  /** Set a panel title, preserving the dirty-indicator prefix if dirty. */
+  private setPanelTitle(baseTitle: string): void {
+    if (!this.panel) { return; }
+    this.panel.title = this.isDirty
+      ? `${GraphProvider.DIRTY_PREFIX}${baseTitle}`
+      : baseTitle;
+  }
+
+  /** Get the current title with any dirty prefix stripped. */
+  private getCleanTitle(): string {
+    if (!this.panel) { return 'CoGraph'; }
+    return this.panel.title.startsWith(GraphProvider.DIRTY_PREFIX)
+      ? this.panel.title.slice(GraphProvider.DIRTY_PREFIX.length)
+      : this.panel.title;
+  }
+
+  /** Toggle the dirty indicator — prefixes `● ` onto the panel title. */
+  private setDirty(dirty: boolean): void {
+    if (this.isDirty === dirty) { return; }
+    this.isDirty = dirty;
+    if (!this.panel) { return; }
+    this.setPanelTitle(this.getCleanTitle());
+  }
+
   /** Load a previously saved graph layout into the open (or freshly opened) panel. */
   async loadGraph(data: unknown, filePath?: string): Promise<void> {
     if (!this.panel) {
@@ -281,10 +312,15 @@ export class GraphProvider {
     } else {
       this.panel.reveal();
     }
+    // Loading a saved graph resets the dirty state
+    this.isDirty = false;
     // Update panel title to the saved graph's name
     const name = (data as { name?: string })?.name;
     if (this.panel && name) {
-      this.panel.title = name;
+      this.setPanelTitle(name);
+    } else if (this.panel) {
+      // Re-render existing title without any stale dirty prefix
+      this.setPanelTitle(this.getCleanTitle());
     }
     this.currentSavedGraphPath = filePath;
     this.panel?.webview.postMessage({ type: 'graph-loaded', payload: data });

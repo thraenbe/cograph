@@ -14,8 +14,14 @@ document.addEventListener('click', (e) => {
 });
 
 // ── Layout mode controls ──────────────────────────────────────────────────────
-document.getElementById('btn-layout-dynamic')?.addEventListener('click', () => setLayoutMode('dynamic'));
-document.getElementById('btn-layout-static')?.addEventListener('click', () => setLayoutMode('static'));
+document.getElementById('btn-layout-dynamic')?.addEventListener('click', () => {
+  setLayoutMode('dynamic');
+  window.markDirty?.();
+});
+document.getElementById('btn-layout-static')?.addEventListener('click', () => {
+  setLayoutMode('static');
+  window.markDirty?.();
+});
 
 // ── Filter controls ───────────────────────────────────────────────────────────
 document.getElementById('search')?.addEventListener('input', applyFilters);
@@ -90,6 +96,7 @@ GROUP_BY_MODES.forEach(mode => {
       document.getElementById(`btn-group-${m}`)?.classList.toggle('active', m === mode)
     );
     applyComplexity();
+    window.markDirty?.();
   });
 });
 
@@ -111,6 +118,7 @@ document.getElementById('btn-git-mode')?.addEventListener('click', () => {
     state.hasFitted = true;
     fitToView();
   }
+  window.markDirty?.();
 });
 
 // ── Language mode toggle ──────────────────────────────────────────────────────
@@ -125,6 +133,7 @@ document.getElementById('btn-language-mode')?.addEventListener('click', () => {
   document.getElementById('btn-language-mode')?.classList.toggle('active', state.languageMode);
   setLangLegendVisible(state.languageMode);
   applyGitColors();
+  window.markDirty?.();
 });
 
 // ── Folder mode ────────────────────────────────────────────────────────────────
@@ -133,6 +142,7 @@ document.getElementById('btn-folder-mode')?.addEventListener('click', () => {
   state.folderMode = !state.folderMode;
   document.getElementById('btn-folder-mode')?.classList.toggle('active', state.folderMode);
   applyComplexity();
+  window.markDirty?.();
 });
 
 function updateFolderPanel() {
@@ -192,6 +202,7 @@ document.getElementById('btn-class-mode')?.addEventListener('click', () => {
   state.classMode = !state.classMode;
   document.getElementById('btn-class-mode')?.classList.toggle('active', state.classMode);
   applyComplexity();
+  window.markDirty?.();
 });
 
 // ── Save Graph Layout ─────────────────────────────────────────────────────────
@@ -296,5 +307,6 @@ if (complexitySlider) {
     state.expandedClusters = new Set();
     clearTimeout(state.clusterTimer);
     state.clusterTimer = setTimeout(applyComplexity, 80);
+    window.markDirty?.();
   });
 }

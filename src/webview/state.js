@@ -35,4 +35,14 @@ const state = {
   allScannedFiles: [],
   hiddenFolders: new Set(),
   onlyShowFolder: null,
+  timeline: {
+    order: [],
+    libOrder: new Map(),
+    isPlaying: false,
+    currentIdx: 0,
+    rafHandle: null,
+    lastFrameMs: 0,
+    nodesPerSec: 5,
+    filterPredicate: null,
+  },
 };

@@ -54,6 +54,9 @@ function makeFakeController(overrides: Partial<GraphController> = {}): GraphCont
     isOpen: sinon.stub().callsFake(function (this: { _openState: boolean }) { return this._openState; }),
     reloadLayout: sinon.stub().callsFake(() => { calls.push('reload'); }),
     loadGraph: sinon.stub().resolves(),
+    openTimeline: sinon.stub().callsFake((file: string, name: string) => {
+      calls.push(`openTimeline:${name}:${file}`);
+    }),
     ...overrides,
   };
   return ctrl as unknown as GraphController & { _calls: string[]; _openState: boolean };
@@ -405,6 +408,59 @@ suite('SidebarProvider', () => {
 
       assert.ok(showErr.calledOnce);
       assert.ok(String(showErr.firstCall.args[0]).includes('Failed to export'));
+    });
+
+    test('open-timeline: delegates to graphController.openTimeline', async () => {
+      const ctrl = makeFakeController();
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), ctrl);
+      const { view, received } = makeFakeWebviewView();
+      provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+
+      await received[0]({ type: 'open-timeline', file: '/ws/.cograph/MyGraph.json', name: 'MyGraph' });
+
+      assert.ok((ctrl.openTimeline as sinon.SinonStub).calledOnce);
+      assert.deepStrictEqual(
+        (ctrl.openTimeline as sinon.SinonStub).firstCall.args,
+        ['/ws/.cograph/MyGraph.json', 'MyGraph'],
+      );
+    });
+
+    test('open-timeline: openTimeline throws → shows error message', async () => {
+      const ctrl = makeFakeController({
+        openTimeline: sinon.stub().throws(new Error('boom')) as unknown as GraphController['openTimeline'],
+      });
+      const showErr = sandbox.stub(vscode.window, 'showErrorMessage');
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), ctrl);
+      const { view, received } = makeFakeWebviewView();
+      provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+
+      await received[0]({ type: 'open-timeline', file: '/x.json', name: 'x' });
+
+      assert.ok(showErr.calledOnce);
+      assert.ok(String(showErr.firstCall.args[0]).includes('Failed to open timeline'));
+    });
+  });
+
+  // ── HTML rendering ───────────────────────────────────────────────────────
+
+  suite('webview HTML', () => {
+    test('contains Timeline button (not export) on graph cards', () => {
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
+      const { view } = makeFakeWebviewView();
+      provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+      const html = (view.webview as { html: string }).html;
+      assert.ok(html.includes('btn-timeline'), 'btn-timeline class should be present in template');
+      assert.ok(html.includes('open-timeline'), 'open-timeline message type should be wired');
+    });
+
+    test('contains right-click context menu scaffold', () => {
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
+      const { view } = makeFakeWebviewView();
+      provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+      const html = (view.webview as { html: string }).html;
+      assert.ok(html.includes('id="ctx-menu"'), 'ctx-menu element present');
+      assert.ok(html.includes('contextmenu'), 'contextmenu listener wired');
+      assert.ok(html.includes("data-action=\"export\""), 'export context item wired');
     });
   });
 

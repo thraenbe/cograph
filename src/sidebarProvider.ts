@@ -16,6 +16,7 @@ export interface GraphController {
   isOpen(): boolean;
   reloadLayout(): void;
   loadGraph(data: unknown, filePath?: string): Promise<void>;
+  openTimeline(savedGraphFile: string, name: string): void;
 }
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
@@ -63,6 +64,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`CoGraph: Exported "${msg.name}".`);
           } catch (err) {
             vscode.window.showErrorMessage(`CoGraph: Failed to export — ${(err as Error).message}`);
+          }
+          break;
+        }
+        case 'open-timeline': {
+          try {
+            this._graphController.openTimeline(msg.file, msg.name);
+          } catch (err) {
+            vscode.window.showErrorMessage(`CoGraph: Failed to open timeline — ${(err as Error).message}`);
           }
           break;
         }
@@ -263,7 +272,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       flex: 1;
     }
 
-    .btn-export {
+    .btn-timeline {
       flex-shrink: 0;
       padding: 3px 10px;
       font-size: 11px;
@@ -274,10 +283,35 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       border-radius: 4px;
       cursor: pointer;
     }
-    .btn-export:hover {
+    .btn-timeline:hover {
       background: var(--vscode-button-background, #0e639c);
       color: var(--vscode-button-foreground, #fff);
       border-color: var(--vscode-button-background, #0e639c);
+    }
+
+    /* ── Right-click context menu for graph cards ───────────────────────── */
+    #ctx-menu {
+      position: fixed;
+      z-index: 1000;
+      min-width: 140px;
+      background: var(--vscode-menu-background, #252526);
+      color: var(--vscode-menu-foreground, #cccccc);
+      border: 1px solid var(--vscode-menu-border, #454545);
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      padding: 4px 0;
+      font-size: 12px;
+      user-select: none;
+    }
+    #ctx-menu.hidden { display: none; }
+    #ctx-menu .ctx-item {
+      padding: 5px 14px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #ctx-menu .ctx-item:hover {
+      background: var(--vscode-menu-selectionBackground, #094771);
+      color: var(--vscode-menu-selectionForeground, #ffffff);
     }
 
     /* ── Empty / placeholder ───────────────────────────────────────────── */
@@ -319,6 +353,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       <div class="empty-state">No saved graphs yet.</div>
     </div>
   </div>
+
+  <div id="ctx-menu" class="hidden"></div>
 
   <script>
     const vscode = acquireVsCodeApi();
@@ -375,7 +411,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           <div class="card-name">\${safeName}</div>
           <div class="card-bottom">
             <span class="card-desc">\${safeDesc}</span>
-            <button class="btn-export" data-file="\${safeFile}" data-name="\${safeName}">export</button>
+            <button class="btn-timeline" data-file="\${safeFile}" data-name="\${safeName}" title="Open timeline view for this graph">Timeline</button>
           </div>
         </div>\`;
       }).join('');
@@ -384,15 +420,47 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         card.addEventListener('click', () => {
           vscode.postMessage({ type: 'open-graph', file: card.dataset.file, name: card.dataset.name });
         });
+        card.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          showContextMenu(e.clientX, e.clientY, card.dataset.file, card.dataset.name);
+        });
       });
 
-      list.querySelectorAll('.btn-export').forEach(btn => {
+      list.querySelectorAll('.btn-timeline').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
-          vscode.postMessage({ type: 'export-graph', file: btn.dataset.file, name: btn.dataset.name });
+          vscode.postMessage({ type: 'open-timeline', file: btn.dataset.file, name: btn.dataset.name });
         });
       });
     }
+
+    // ── Context menu ───────────────────────────────────────────────────
+    const ctxMenu = document.getElementById('ctx-menu');
+    function showContextMenu(x, y, file, name) {
+      ctxMenu.innerHTML = '<div class="ctx-item" data-action="export">Export…</div>';
+      ctxMenu.classList.remove('hidden');
+      // Clamp to viewport
+      const vw = window.innerWidth, vh = window.innerHeight;
+      ctxMenu.style.left = '0px';
+      ctxMenu.style.top = '0px';
+      const rect = ctxMenu.getBoundingClientRect();
+      ctxMenu.style.left = Math.min(x, vw - rect.width - 4) + 'px';
+      ctxMenu.style.top  = Math.min(y, vh - rect.height - 4) + 'px';
+      ctxMenu.querySelector('[data-action="export"]').addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        hideContextMenu();
+        vscode.postMessage({ type: 'export-graph', file, name });
+      });
+    }
+    function hideContextMenu() {
+      ctxMenu.classList.add('hidden');
+      ctxMenu.innerHTML = '';
+    }
+    document.addEventListener('click', hideContextMenu);
+    document.addEventListener('contextmenu', (e) => {
+      if (!e.target.closest('.graph-card')) { hideContextMenu(); }
+    });
+    window.addEventListener('blur', hideContextMenu);
 
     // ── Message handler ────────────────────────────────────────────────
     window.addEventListener('message', (event) => {

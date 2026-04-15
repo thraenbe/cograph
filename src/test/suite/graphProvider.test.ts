@@ -266,8 +266,11 @@ suite('GraphProvider', () => {
 
       // postMessage is delayed by 150 ms
       setTimeout(() => {
-        assert.ok(fakePanel.webview.postMessage.calledOnce, 'postMessage called');
-        const msg = fakePanel.webview.postMessage.firstCall.args[0];
+        const graphCall = fakePanel.webview.postMessage.getCalls().find(
+          c => c.args[0]?.type === 'graph'
+        );
+        assert.ok(graphCall, 'graph postMessage called');
+        const msg = graphCall!.args[0];
         assert.strictEqual(msg.type, 'graph');
         assert.deepStrictEqual(msg.data, { ...graph, files: [] });
         done();
@@ -310,8 +313,11 @@ suite('GraphProvider', () => {
 
       // postMessage is delayed by 150 ms
       setTimeout(() => {
-        assert.ok(fakePanel.webview.postMessage.calledOnce, 'postMessage called');
-        const msg = fakePanel.webview.postMessage.firstCall.args[0];
+        const graphCall = fakePanel.webview.postMessage.getCalls().find(
+          c => c.args[0]?.type === 'graph'
+        );
+        assert.ok(graphCall, 'graph postMessage called');
+        const msg = graphCall!.args[0];
         assert.strictEqual(msg.type, 'graph');
         assert.deepStrictEqual(msg.data, { ...graph, files: [] });
         done();

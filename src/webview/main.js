@@ -54,11 +54,13 @@ function setLayoutMode(mode) {
 // ── Filters ───────────────────────────────────────────────────────────────────
 function getVisibleNodeIds() {
   const query = document.getElementById('search')?.value.toLowerCase() ?? '';
+  const tlPredicate = state.timeline?.filterPredicate;
   const visible = new Set();
   state.currentNodes.forEach(n => {
     if (n.isLibrary) {
       if (!settings.showLibraries) return;
       if (query && !n.label.toLowerCase().includes(query)) return;
+      if (tlPredicate && !tlPredicate(n)) return;
       visible.add(n.id);
       return;
     }
@@ -75,6 +77,7 @@ function getVisibleNodeIds() {
         if (inside(hf)) return;
       }
     }
+    if (tlPredicate && !tlPredicate(n)) return;
     visible.add(n.id);
   });
   return visible;
@@ -292,9 +295,14 @@ window.addEventListener('message', (event) => {
     if (gitPanel) gitPanel.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     state.allScannedFiles = message.data.files ?? [];
+    window.resetTimelineState?.();
     renderGraph(message.data, message.isReanalysis);
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     if (!message.isReanalysis) { window.clearDirty?.(); }
+    return;
+  }
+  if (message.type === 'timeline-data') {
+    window.receiveTimelineData?.(message.nodes);
     return;
   }
   if (message.type === 'git-update') {

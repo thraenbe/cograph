@@ -77,6 +77,85 @@ export class GitService {
     } catch { return new Map(); }
   }
 
+  /**
+   * For each node with a file + line, return a Unix timestamp (seconds) for the commit
+   * that last touched the definition line, via one `git blame --porcelain` call per file.
+   * Nodes whose file is untracked, missing, or outside the repo are omitted.
+   */
+  getIntroductionTimes(nodes: GraphNode[], workspaceRoot: string): Map<string, number> {
+    const result = new Map<string, number>();
+    const nodesByFile = new Map<string, GraphNode[]>();
+    for (const node of nodes) {
+      if (!node.file || !node.line || node.line <= 0) { continue; }
+      const key = toFwdSlash(node.file);
+      if (!nodesByFile.has(key)) { nodesByFile.set(key, []); }
+      nodesByFile.get(key)!.push(node);
+    }
+
+    const rootFwd = toFwdSlash(workspaceRoot);
+    for (const [absFile, fileNodes] of nodesByFile) {
+      let rel: string;
+      if (absFile.startsWith(rootFwd + '/')) {
+        rel = absFile.slice(rootFwd.length + 1);
+      } else {
+        rel = path.relative(workspaceRoot, absFile).replace(/\\/g, '/');
+        if (rel.startsWith('..')) { continue; }
+      }
+
+      let out: string;
+      try {
+        out = cp.execFileSync('git', ['blame', '--porcelain', '--', rel], {
+          cwd: workspaceRoot, timeout: 10000, encoding: 'utf8',
+          shell: process.platform === 'win32',
+          maxBuffer: 64 * 1024 * 1024,
+        });
+      } catch { continue; }
+
+      const lineTimes = this.parseBlamePorcelain(out);
+      for (const node of fileNodes) {
+        const ts = lineTimes.get(node.line);
+        if (typeof ts === 'number') { result.set(node.id, ts); }
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Parse `git blame --porcelain` output into a map of final-file line number -> author-time.
+   * Each source line produces an entry beginning with "<sha> <origLine> <finalLine> [<count>]",
+   * optional header fields (author-time appears only on the first occurrence of each sha),
+   * then a tab-prefixed content line. Subsequent lines reuse cached author-time by sha.
+   */
+  parseBlamePorcelain(out: string): Map<number, number> {
+    const lineTimes = new Map<number, number>();
+    const shaToTime = new Map<string, number>();
+    const lines = out.split('\n');
+    const header = /^([0-9a-f]{40}) (\d+) (\d+)(?: (\d+))?$/;
+    let i = 0;
+    while (i < lines.length) {
+      const m = header.exec(lines[i]);
+      if (!m) { i++; continue; }
+      const sha = m[1];
+      const finalLine = parseInt(m[3], 10);
+      i++;
+      let authorTime: number | undefined;
+      while (i < lines.length && lines[i].length > 0 && !lines[i].startsWith('\t')) {
+        if (lines[i].startsWith('author-time ')) {
+          authorTime = parseInt(lines[i].slice('author-time '.length), 10);
+        }
+        i++;
+      }
+      if (authorTime !== undefined) {
+        shaToTime.set(sha, authorTime);
+      } else {
+        authorTime = shaToTime.get(sha);
+      }
+      if (i < lines.length && lines[i].startsWith('\t')) { i++; }
+      if (authorTime !== undefined) { lineTimes.set(finalLine, authorTime); }
+    }
+    return lineTimes;
+  }
+
   applyGitStatuses(nodes: GraphNode[], workspaceRoot: string): boolean {
     const gitMap = this.parseGitStatus(workspaceRoot);
     if (gitMap === null) { this.fileStatuses = {}; return false; }

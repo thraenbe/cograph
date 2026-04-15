@@ -29,6 +29,7 @@ interface GraphData {
 
 export class GraphProvider {
   private panel: vscode.WebviewPanel | undefined;
+  private timelinePanel: vscode.WebviewPanel | undefined;
   private readonly context: vscode.ExtensionContext;
   private cachedNodes: GraphNode[] = [];
   private gitRefreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -324,6 +325,120 @@ export class GraphProvider {
     }
     this.currentSavedGraphPath = filePath;
     this.panel?.webview.postMessage({ type: 'graph-loaded', payload: data });
+  }
+
+  /**
+   * Open a dedicated timeline window for a saved graph. Creates a second webview panel
+   * (separate from the main graph) with timeline controls enabled. Runs a fresh analyzer
+   * on the current workspace, applies the saved layout's positions/settings, and posts
+   * per-node git-blame introduction timestamps once available.
+   */
+  openTimeline(savedGraphFile: string, name: string): void {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      vscode.window.showErrorMessage('CoGraph: No workspace folder open.');
+      return;
+    }
+
+    if (this.timelinePanel) {
+      this.timelinePanel.reveal();
+      return;
+    }
+
+    const panel = vscode.window.createWebviewPanel(
+      'cograph-timeline',
+      `Timeline: ${name}`,
+      vscode.ViewColumn.Beside,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [
+          vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview'),
+        ],
+      },
+    );
+    this.timelinePanel = panel;
+
+    let savedPayload: unknown = null;
+    try {
+      savedPayload = JSON.parse(fs.readFileSync(savedGraphFile, 'utf8'));
+    } catch (err: unknown) {
+      this.outputChannel.appendLine(`Timeline: could not read "${savedGraphFile}" — ${(err as Error).message}`);
+    }
+
+    panel.webview.html = getLoadingHtml();
+
+    panel.onDidDispose(() => {
+      if (this.timelinePanel === panel) {
+        this.timelinePanel = undefined;
+      }
+    });
+
+    panel.webview.onDidReceiveMessage((message) => {
+      if (message.type === 'navigate') {
+        this.navigateTo(message.file, message.line);
+      }
+    });
+
+    const runner = new AnalyzerRunner(
+      this.context,
+      (msg) => {
+        if (this.timelinePanel === panel) {
+          panel.webview.html = getErrorHtml(msg);
+        }
+      },
+      (stdout, wsRoot) => {
+        if (this.timelinePanel !== panel) { return; }
+        let graph: GraphData;
+        try {
+          graph = JSON.parse(stdout);
+        } catch {
+          panel.webview.html = getErrorHtml('CoGraph: Failed to parse graph data.');
+          return;
+        }
+        if (graph.nodes.length === 0) {
+          panel.webview.html = getEmptyStateHtml();
+          return;
+        }
+        const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, wsRoot);
+        const fileGitStatus = this.gitService.fileStatuses;
+        panel.webview.html = getWebviewHtml(
+          panel.webview,
+          this.context.extensionUri,
+          { timelineMode: true },
+        );
+        setTimeout(() => {
+          panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
+          if (savedPayload) {
+            panel.webview.postMessage({ type: 'graph-loaded', payload: savedPayload });
+          }
+          this.postTimelineData(panel, graph, wsRoot);
+        }, 150);
+      },
+    );
+    runner.run(workspaceRoot);
+  }
+
+  /**
+   * Compute per-node introduction timestamps via git blame and post them to the given panel.
+   * Runs async (setImmediate) so the initial graph render is not blocked.
+   */
+  private postTimelineData(
+    panel: vscode.WebviewPanel,
+    graph: GraphData,
+    workspaceRoot: string,
+  ): void {
+    setImmediate(() => {
+      if (this.timelinePanel !== panel) { return; }
+      try {
+        const intro = this.gitService.getIntroductionTimes(graph.nodes, workspaceRoot);
+        const entries: Array<{ id: string; ts: number }> = [];
+        for (const [id, ts] of intro) { entries.push({ id, ts }); }
+        panel.webview.postMessage({ type: 'timeline-data', nodes: entries });
+      } catch (err: unknown) {
+        this.outputChannel.appendLine(`Timeline: blame failed — ${(err as Error).message}`);
+      }
+    });
   }
 
   /** Ask the webview to post a `save-graph` message back with the current state. */

@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import { GraphProvider } from '../../graphProvider';
+import { GitService } from '../../gitService';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const rawCp = require('child_process');
@@ -531,5 +532,209 @@ suite('Message Handling', () => {
 
     assert.ok(showErr.calledOnce, 'showErrorMessage should be called on save failure');
     assert.ok(showErr.firstCall.args[0].includes('Failed to save'), 'message should mention failure');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseBlamePorcelain() + getIntroductionTimes()
+// ---------------------------------------------------------------------------
+
+function makeBlamePorcelain(
+  lines: Array<{ sha: string; finalLine: number; authorTime?: number; content: string }>,
+): string {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const l of lines) {
+    out.push(`${l.sha} ${l.finalLine} ${l.finalLine} 1`);
+    if (!seen.has(l.sha) && l.authorTime !== undefined) {
+      out.push('author Jane Doe');
+      out.push('author-mail <jane@example.com>');
+      out.push(`author-time ${l.authorTime}`);
+      out.push('author-tz +0000');
+      out.push('committer Jane Doe');
+      out.push('committer-mail <jane@example.com>');
+      out.push(`committer-time ${l.authorTime}`);
+      out.push('committer-tz +0000');
+      out.push('summary a commit');
+      out.push(`filename ${'fixture.py'}`);
+      seen.add(l.sha);
+    }
+    out.push(`\t${l.content}`);
+  }
+  return out.join('\n') + '\n';
+}
+
+suite('parseBlamePorcelain()', () => {
+  test('single line with author-time → mapped correctly', () => {
+    const svc = new GitService();
+    const out = makeBlamePorcelain([
+      { sha: 'a'.repeat(40), finalLine: 1, authorTime: 1700000000, content: 'def foo():' },
+    ]);
+    const map = svc.parseBlamePorcelain(out);
+    assert.strictEqual(map.get(1), 1700000000);
+  });
+
+  test('multiple lines same commit → author-time reused from cache', () => {
+    const svc = new GitService();
+    const out = makeBlamePorcelain([
+      { sha: 'a'.repeat(40), finalLine: 1, authorTime: 1700000000, content: 'def foo():' },
+      { sha: 'a'.repeat(40), finalLine: 2, content: '    return 1' },
+    ]);
+    const map = svc.parseBlamePorcelain(out);
+    assert.strictEqual(map.get(1), 1700000000);
+    assert.strictEqual(map.get(2), 1700000000);
+  });
+
+  test('lines from different commits → each gets its own author-time', () => {
+    const svc = new GitService();
+    const out = makeBlamePorcelain([
+      { sha: 'a'.repeat(40), finalLine: 1, authorTime: 1700000000, content: 'def foo():' },
+      { sha: 'b'.repeat(40), finalLine: 2, authorTime: 1800000000, content: '    return 1' },
+    ]);
+    const map = svc.parseBlamePorcelain(out);
+    assert.strictEqual(map.get(1), 1700000000);
+    assert.strictEqual(map.get(2), 1800000000);
+  });
+
+  test('empty input → empty map', () => {
+    const svc = new GitService();
+    const map = svc.parseBlamePorcelain('');
+    assert.strictEqual(map.size, 0);
+  });
+});
+
+suite('getIntroductionTimes()', () => {
+  let sandbox: sinon.SinonSandbox;
+  setup(() => { sandbox = sinon.createSandbox(); });
+  teardown(() => sandbox.restore());
+
+  test('maps node ids to author-time from blame output', () => {
+    const blame = makeBlamePorcelain([
+      { sha: 'a'.repeat(40), finalLine: 3, authorTime: 1700000000, content: 'def foo():' },
+      { sha: 'b'.repeat(40), finalLine: 10, authorTime: 1800000000, content: 'def bar():' },
+    ]);
+    sandbox.stub(rawCp, 'execFileSync').returns(blame);
+    const svc = new GitService();
+    const nodes: any[] = [
+      { id: 'n1', file: '/ws/foo.py', line: 3 },
+      { id: 'n2', file: '/ws/foo.py', line: 10 },
+    ];
+    const result = svc.getIntroductionTimes(nodes, '/ws');
+    assert.strictEqual(result.get('n1'), 1700000000);
+    assert.strictEqual(result.get('n2'), 1800000000);
+  });
+
+  test('nodes with no matching line in blame are omitted', () => {
+    const blame = makeBlamePorcelain([
+      { sha: 'a'.repeat(40), finalLine: 5, authorTime: 1700000000, content: 'def foo():' },
+    ]);
+    sandbox.stub(rawCp, 'execFileSync').returns(blame);
+    const svc = new GitService();
+    const nodes: any[] = [
+      { id: 'n1', file: '/ws/foo.py', line: 5 },
+      { id: 'n2', file: '/ws/foo.py', line: 99 },
+    ];
+    const result = svc.getIntroductionTimes(nodes, '/ws');
+    assert.strictEqual(result.get('n1'), 1700000000);
+    assert.strictEqual(result.has('n2'), false);
+  });
+
+  test('blame failure for one file → skips that file but processes others', () => {
+    const blameFoo = makeBlamePorcelain([
+      { sha: 'a'.repeat(40), finalLine: 1, authorTime: 1700000000, content: 'def foo():' },
+    ]);
+    sandbox.stub(rawCp, 'execFileSync').callsFake((...a: unknown[]) => {
+      const args = a[1] as string[];
+      if (args[args.length - 1] === 'bar.py') { throw new Error('untracked'); }
+      return blameFoo;
+    });
+    const svc = new GitService();
+    const nodes: any[] = [
+      { id: 'n1', file: '/ws/foo.py', line: 1 },
+      { id: 'n2', file: '/ws/bar.py', line: 1 },
+    ];
+    const result = svc.getIntroductionTimes(nodes, '/ws');
+    assert.strictEqual(result.get('n1'), 1700000000);
+    assert.strictEqual(result.has('n2'), false);
+  });
+
+  test('nodes with null file are skipped', () => {
+    const stub = sandbox.stub(rawCp, 'execFileSync').returns('');
+    const svc = new GitService();
+    const nodes: any[] = [{ id: 'n1', file: null, line: 1 }];
+    const result = svc.getIntroductionTimes(nodes, '/ws');
+    assert.strictEqual(result.size, 0);
+    assert.ok(stub.notCalled, 'execFileSync should not be called for file=null nodes');
+  });
+
+  test('nodes outside workspace root are skipped', () => {
+    const stub = sandbox.stub(rawCp, 'execFileSync').returns('');
+    const svc = new GitService();
+    const nodes: any[] = [{ id: 'n1', file: '/other/path/foo.py', line: 1 }];
+    const result = svc.getIntroductionTimes(nodes, '/ws');
+    assert.strictEqual(result.size, 0);
+    assert.ok(stub.notCalled, 'execFileSync should not be called for nodes outside workspace');
+  });
+
+  test('groups nodes by file → one blame call per file', () => {
+    const stub = sandbox.stub(rawCp, 'execFileSync').returns(makeBlamePorcelain([
+      { sha: 'a'.repeat(40), finalLine: 1, authorTime: 1700000000, content: 'x' },
+    ]));
+    const svc = new GitService();
+    const nodes: any[] = [
+      { id: 'n1', file: '/ws/foo.py', line: 1 },
+      { id: 'n2', file: '/ws/foo.py', line: 5 },
+      { id: 'n3', file: '/ws/bar.py', line: 1 },
+    ];
+    svc.getIntroductionTimes(nodes, '/ws');
+    assert.strictEqual(stub.callCount, 2, 'one blame call per unique file');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// timeline-data message posting (GraphProvider)
+// ---------------------------------------------------------------------------
+
+suite('postTimelineData()', () => {
+  let sandbox: sinon.SinonSandbox;
+  setup(() => { sandbox = sinon.createSandbox(); });
+  teardown(() => sandbox.restore());
+
+  test('posts timeline-data message with entries from gitService', (done) => {
+    const fakePanel = makeFakePanel();
+    const provider = new GraphProvider(makeFakeContext());
+    (provider as any).timelinePanel = fakePanel;
+    sandbox.stub((provider as any).gitService, 'getIntroductionTimes').returns(
+      new Map([['n1', 1700000000], ['n2', 1800000000]]),
+    );
+    const graph = { nodes: [{ id: 'n1' }, { id: 'n2' }], edges: [] };
+
+    (provider as any).postTimelineData(fakePanel, graph, '/ws');
+
+    setImmediate(() => {
+      const calls = fakePanel.webview.postMessage.getCalls();
+      const tlCall = calls.find(c => c.args[0]?.type === 'timeline-data');
+      assert.ok(tlCall, 'timeline-data message should be posted');
+      const msg = tlCall!.args[0];
+      assert.strictEqual(msg.nodes.length, 2);
+      assert.ok(msg.nodes.some((e: any) => e.id === 'n1' && e.ts === 1700000000));
+      assert.ok(msg.nodes.some((e: any) => e.id === 'n2' && e.ts === 1800000000));
+      done();
+    });
+  });
+
+  test('does not post if timeline panel no longer matches (was disposed)', (done) => {
+    const fakePanel = makeFakePanel();
+    const provider = new GraphProvider(makeFakeContext());
+    sandbox.stub((provider as any).gitService, 'getIntroductionTimes').returns(new Map());
+    const graph = { nodes: [], edges: [] };
+    (provider as any).timelinePanel = undefined; // disposed / never assigned
+    (provider as any).postTimelineData(fakePanel, graph, '/ws');
+    setImmediate(() => {
+      const calls = fakePanel.webview.postMessage.getCalls();
+      const tlCall = calls.find(c => c.args[0]?.type === 'timeline-data');
+      assert.strictEqual(tlCall, undefined, 'no timeline-data should be posted');
+      done();
+    });
   });
 });

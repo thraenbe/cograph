@@ -68,7 +68,12 @@ export function getErrorHtml(message: string): string {
 </html>`;
 }
 
-export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+export function getWebviewHtml(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+  opts: { timelineMode?: boolean } = {},
+): string {
+  const timelineMode = opts.timelineMode === true;
   const webviewDir = vscode.Uri.joinPath(extensionUri, 'src', 'webview');
   const stateUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'state.js'));
   const clusteringUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'clustering.js'));
@@ -80,8 +85,34 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   const popupsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'popups.js'));
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
   const controlsUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'controls.js'));
+  const timelineUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'timeline.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
+
+  const timelinePanelHtml = timelineMode ? `
+    <div id="tl-transport" role="toolbar" aria-label="Timeline playback" title="Replay graph construction from git history">
+      <div class="tl-tx-group">
+        <button id="btn-timeline-play" class="tl-tx-play" disabled title="Loading history…" aria-label="Play">
+          <span class="tl-tx-play-icon">&#9654;</span>
+        </button>
+        <button id="btn-timeline-reset" class="tl-tx-reset" disabled title="Reset to empty" aria-label="Reset">&#8634;</button>
+      </div>
+      <div class="tl-tx-divider"></div>
+      <div class="tl-tx-group tl-tx-group--progress">
+        <span class="tl-tx-label">Progress</span>
+        <input type="range" id="slider-timeline-pos" class="tl-tx-range tl-tx-range--progress" min="0" max="0" step="1" value="0" disabled />
+        <span class="tl-tx-counter" id="val-timeline-pos">0 / 0</span>
+      </div>
+      <div class="tl-tx-divider"></div>
+      <div class="tl-tx-group tl-tx-group--speed">
+        <span class="tl-tx-label">Speed</span>
+        <input type="range" id="slider-timeline-speed" class="tl-tx-range tl-tx-range--speed" min="0.5" max="50" step="0.5" value="5" />
+        <span class="tl-tx-value"><span id="val-timeline-speed">5</span>&#215;</span>
+      </div>
+    </div>` : '';
+  const timelineScriptTag = timelineMode
+    ? `<script nonce="${nonce}" src="${timelineUri}"></script>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -166,7 +197,9 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
       <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
     </div>
   </div>
+  ${timelinePanelHtml}
   <button id="settings-btn" title="Settings">&#9881;</button>
+  <button id="btn-save-graph" title="Save graph layout">Save Layout</button>
   <div id="settings-panel">
 
     <div class="panel-section">
@@ -279,6 +312,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   <script nonce="${nonce}" src="${popupsUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
   <script nonce="${nonce}" src="${controlsUri}"></script>
+  ${timelineScriptTag}
 </body>
 </html>`;
 }

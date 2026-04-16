@@ -27,6 +27,7 @@ const state = {
   svgFolderBubbles: null,
   svgClassBubbles: null,
   gitAvailable: false,
+  fileGitStatus: {},
   activeLibNode: null,
   libDescRequestId: 0,
   funcPopups: new Map(),
@@ -34,4 +35,14 @@ const state = {
   allScannedFiles: [],
   hiddenFolders: new Set(),
   onlyShowFolder: null,
+  timeline: {
+    order: [],
+    libOrder: new Map(),
+    isPlaying: false,
+    currentIdx: 0,
+    rafHandle: null,
+    lastFrameMs: null,
+    nodesPerSec: 5,
+    filterPredicate: null,
+  },
 };

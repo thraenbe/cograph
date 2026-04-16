@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 
 export { MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from './analyzerRunner';
 
@@ -8,6 +9,7 @@ import { AnalyzerRunner } from './analyzerRunner';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml } from './webviewHtmlBuilder';
+import type { SidebarProvider } from './sidebarProvider';
 
 interface GraphNode {
   id: string;
@@ -27,6 +29,7 @@ interface GraphData {
 
 export class GraphProvider {
   private panel: vscode.WebviewPanel | undefined;
+  private timelinePanel: vscode.WebviewPanel | undefined;
   private readonly context: vscode.ExtensionContext;
   private cachedNodes: GraphNode[] = [];
   private gitRefreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -34,6 +37,10 @@ export class GraphProvider {
   private readonly analyzerRunner: AnalyzerRunner;
   private readonly libraryDescriber: LibraryDescriber;
   private _outputChannel?: vscode.OutputChannel;
+  private _sidebar?: SidebarProvider;
+  private currentSavedGraphPath: string | undefined;
+  private isDirty = false;
+  private static readonly DIRTY_PREFIX = '● ';
 
   private get outputChannel() {
     if (!this._outputChannel) {
@@ -115,6 +122,7 @@ export class GraphProvider {
       this.analyzerRunner.clearReanalysisTimer();
       this.analyzerRunner.killAll();
       this.cachedNodes = [];
+      this.currentSavedGraphPath = undefined;
     });
 
     this.panel.webview.onDidReceiveMessage(async (message) => {
@@ -190,6 +198,60 @@ export class GraphProvider {
           await vscode.window.showTextDocument(fileUri);
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
+      } else if (message.type === 'dirty-state') {
+        this.setDirty(!!message.dirty);
+      } else if (message.type === 'save-graph') {
+        const isSaveAs = message.mode === 'save-as' || !this.currentSavedGraphPath;
+        let targetPath: string;
+        let name: string;
+
+        if (isSaveAs) {
+          const currentClean = this.getCleanTitle();
+          const defaultName = currentClean && currentClean !== 'CoGraph'
+            ? currentClean
+            : 'My Layout';
+          const input = await vscode.window.showInputBox({
+            prompt: 'Name this graph layout',
+            value: defaultName,
+            validateInput: v => v.trim() ? null : 'Name cannot be empty',
+          });
+          if (!input?.trim()) { return; }
+          name = input.trim();
+          const dir = path.join(workspaceRoot, '.cograph');
+          if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+          const filename = name.replace(/[^a-zA-Z0-9_\- ]/g, '_') + '.json';
+          targetPath = path.join(dir, filename);
+        } else {
+          targetPath = this.currentSavedGraphPath!;
+          try {
+            const existing = JSON.parse(fs.readFileSync(targetPath, 'utf8'));
+            name = existing.name ?? path.basename(targetPath, '.json');
+          } catch {
+            name = path.basename(targetPath, '.json');
+          }
+        }
+
+        const data = {
+          version: 1,
+          name,
+          description: '',
+          savedAt: new Date().toISOString(),
+          ...message.payload,
+        };
+        try {
+          fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), 'utf8');
+        } catch (err: unknown) {
+          vscode.window.showErrorMessage(`CoGraph: Failed to save — ${(err as Error).message}`);
+          return;
+        }
+        this.currentSavedGraphPath = targetPath;
+        this.isDirty = false;
+        this.setPanelTitle(name);
+        this.panel?.webview.postMessage({ type: 'clear-dirty' });
+        this._sidebar?.refresh();
+        vscode.window.showInformationMessage(
+          isSaveAs ? `CoGraph: Layout saved as "${name}".` : `CoGraph: Saved "${name}".`,
+        );
       }
     });
 
@@ -203,6 +265,186 @@ export class GraphProvider {
 
   reloadLayout(): void {
     this.panel?.webview.postMessage({ type: 'reload-layout' });
+  }
+
+  setSidebarProvider(sidebar: SidebarProvider): void {
+    this._sidebar = sidebar;
+  }
+
+  /** Set a panel title, preserving the dirty-indicator prefix if dirty. */
+  private setPanelTitle(baseTitle: string): void {
+    if (!this.panel) { return; }
+    this.panel.title = this.isDirty
+      ? `${GraphProvider.DIRTY_PREFIX}${baseTitle}`
+      : baseTitle;
+  }
+
+  /** Get the current title with any dirty prefix stripped. */
+  private getCleanTitle(): string {
+    if (!this.panel) { return 'CoGraph'; }
+    return this.panel.title.startsWith(GraphProvider.DIRTY_PREFIX)
+      ? this.panel.title.slice(GraphProvider.DIRTY_PREFIX.length)
+      : this.panel.title;
+  }
+
+  /** Toggle the dirty indicator — prefixes `● ` onto the panel title. */
+  private setDirty(dirty: boolean): void {
+    if (this.isDirty === dirty) { return; }
+    this.isDirty = dirty;
+    if (!this.panel) { return; }
+    this.setPanelTitle(this.getCleanTitle());
+  }
+
+  /** Load a previously saved graph layout into the open (or freshly opened) panel. */
+  async loadGraph(data: unknown, filePath?: string): Promise<void> {
+    if (!this.panel) {
+      this.show();
+      // Wait for the panel to finish loading the graph before applying positions
+      await new Promise<void>(resolve => {
+        const disposable = (this.panel as vscode.WebviewPanel).webview.onDidReceiveMessage((msg) => {
+          if (msg.type === 'graph-ready') {
+            disposable.dispose();
+            resolve();
+          }
+        });
+        // Fallback: proceed after 2 s even if we never receive graph-ready
+        setTimeout(resolve, 2000);
+      });
+    } else {
+      this.panel.reveal();
+    }
+    // Loading a saved graph resets the dirty state
+    this.isDirty = false;
+    // Update panel title to the saved graph's name
+    const name = (data as { name?: string })?.name;
+    if (this.panel && name) {
+      this.setPanelTitle(name);
+    } else if (this.panel) {
+      // Re-render existing title without any stale dirty prefix
+      this.setPanelTitle(this.getCleanTitle());
+    }
+    this.currentSavedGraphPath = filePath;
+    this.panel?.webview.postMessage({ type: 'graph-loaded', payload: data });
+  }
+
+  /**
+   * Open a dedicated timeline window for a saved graph. Creates a second webview panel
+   * (separate from the main graph) with timeline controls enabled. Runs a fresh analyzer
+   * on the current workspace, applies the saved layout's positions/settings, and posts
+   * per-node git-blame introduction timestamps once available.
+   */
+  openTimeline(savedGraphFile: string, name: string): void {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) {
+      vscode.window.showErrorMessage('CoGraph: No workspace folder open.');
+      return;
+    }
+
+    if (this.timelinePanel) {
+      this.timelinePanel.reveal();
+      return;
+    }
+
+    const panel = vscode.window.createWebviewPanel(
+      'cograph-timeline',
+      `Timeline: ${name}`,
+      vscode.ViewColumn.Beside,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [
+          vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview'),
+        ],
+      },
+    );
+    this.timelinePanel = panel;
+
+    let savedPayload: unknown = null;
+    try {
+      savedPayload = JSON.parse(fs.readFileSync(savedGraphFile, 'utf8'));
+    } catch (err: unknown) {
+      this.outputChannel.appendLine(`Timeline: could not read "${savedGraphFile}" — ${(err as Error).message}`);
+    }
+
+    panel.webview.html = getLoadingHtml();
+
+    panel.onDidDispose(() => {
+      if (this.timelinePanel === panel) {
+        this.timelinePanel = undefined;
+      }
+    });
+
+    panel.webview.onDidReceiveMessage((message) => {
+      if (message.type === 'navigate') {
+        this.navigateTo(message.file, message.line);
+      }
+    });
+
+    const runner = new AnalyzerRunner(
+      this.context,
+      (msg) => {
+        if (this.timelinePanel === panel) {
+          panel.webview.html = getErrorHtml(msg);
+        }
+      },
+      (stdout, wsRoot) => {
+        if (this.timelinePanel !== panel) { return; }
+        let graph: GraphData;
+        try {
+          graph = JSON.parse(stdout);
+        } catch {
+          panel.webview.html = getErrorHtml('CoGraph: Failed to parse graph data.');
+          return;
+        }
+        if (graph.nodes.length === 0) {
+          panel.webview.html = getEmptyStateHtml();
+          return;
+        }
+        const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, wsRoot);
+        const fileGitStatus = this.gitService.fileStatuses;
+        panel.webview.html = getWebviewHtml(
+          panel.webview,
+          this.context.extensionUri,
+          { timelineMode: true },
+        );
+        setTimeout(() => {
+          panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
+          if (savedPayload) {
+            panel.webview.postMessage({ type: 'graph-loaded', payload: savedPayload });
+          }
+          this.postTimelineData(panel, graph, wsRoot);
+        }, 150);
+      },
+    );
+    runner.run(workspaceRoot);
+  }
+
+  /**
+   * Compute per-node introduction timestamps via git blame and post them to the given panel.
+   * Runs async (setImmediate) so the initial graph render is not blocked.
+   */
+  private postTimelineData(
+    panel: vscode.WebviewPanel,
+    graph: GraphData,
+    workspaceRoot: string,
+  ): void {
+    setImmediate(() => {
+      if (this.timelinePanel !== panel) { return; }
+      try {
+        const intro = this.gitService.getIntroductionTimes(graph.nodes, workspaceRoot);
+        const entries: Array<{ id: string; ts: number }> = [];
+        for (const [id, ts] of intro) { entries.push({ id, ts }); }
+        panel.webview.postMessage({ type: 'timeline-data', nodes: entries });
+      } catch (err: unknown) {
+        this.outputChannel.appendLine(`Timeline: blame failed — ${(err as Error).message}`);
+      }
+    });
+  }
+
+  /** Ask the webview to post a `save-graph` message back with the current state. */
+  requestSave(mode: 'save' | 'save-as'): void {
+    if (!this.panel) { return; }
+    this.panel.webview.postMessage({ type: 'save-request', mode });
   }
 
   /** Show error in the panel (if alive) and as a VS Code notification. */
@@ -219,6 +461,7 @@ export class GraphProvider {
     this.panel.webview.postMessage({
       type: 'git-update',
       nodes: this.cachedNodes.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
+      fileGitStatus: this.gitService.fileStatuses,
     });
   }
 
@@ -241,14 +484,15 @@ export class GraphProvider {
 
     const isReanalysis = this.cachedNodes.length > 0;
     const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, workspaceRoot);
+    const fileGitStatus = this.gitService.fileStatuses;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
 
     if (isReanalysis) {
-      this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, isReanalysis: true });
+      this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: true });
     } else {
       this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
       setTimeout(() => {
-        this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, isReanalysis: false });
+        this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
       }, 150);
     }
   }

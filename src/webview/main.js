@@ -1,5 +1,18 @@
 const vscode = acquireVsCodeApi();
 
+// ── Dirty state (unsaved-changes indicator) ───────────────────────────────────
+let __isDirty = false;
+window.markDirty = function markDirty() {
+  if (__isDirty) { return; }
+  __isDirty = true;
+  vscode.postMessage({ type: 'dirty-state', dirty: true });
+};
+window.clearDirty = function clearDirty() {
+  if (!__isDirty) { return; }
+  __isDirty = false;
+  vscode.postMessage({ type: 'dirty-state', dirty: false });
+};
+
 // ── State ─────────────────────────────────────────────────────────────────────
 const settings = {
   existingFilesOnly: false,
@@ -41,11 +54,13 @@ function setLayoutMode(mode) {
 // ── Filters ───────────────────────────────────────────────────────────────────
 function getVisibleNodeIds() {
   const query = document.getElementById('search')?.value.toLowerCase() ?? '';
+  const tlPredicate = state.timeline?.filterPredicate;
   const visible = new Set();
   state.currentNodes.forEach(n => {
     if (n.isLibrary) {
       if (!settings.showLibraries) return;
       if (query && !n.label.toLowerCase().includes(query)) return;
+      if (tlPredicate && !tlPredicate(n)) return;
       visible.add(n.id);
       return;
     }
@@ -62,6 +77,7 @@ function getVisibleNodeIds() {
         if (inside(hf)) return;
       }
     }
+    if (tlPredicate && !tlPredicate(n)) return;
     visible.add(n.id);
   });
   return visible;
@@ -274,17 +290,25 @@ window.addEventListener('message', (event) => {
   }
   if (message.type === 'graph') {
     state.gitAvailable = message.gitAvailable ?? false;
+    state.fileGitStatus = message.fileGitStatus ?? {};
     const gitPanel = document.getElementById('panel-git');
     if (gitPanel) gitPanel.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     state.allScannedFiles = message.data.files ?? [];
+    window.resetTimelineState?.();
     renderGraph(message.data, message.isReanalysis);
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
+    if (!message.isReanalysis) { window.clearDirty?.(); }
+    return;
+  }
+  if (message.type === 'timeline-data') {
+    window.receiveTimelineData?.(message.nodes);
     return;
   }
   if (message.type === 'git-update') {
     const byId = new Map(message.nodes.map(n => [n.id, n.gitStatus]));
     state.currentNodes.forEach(n => { if (byId.has(n.id)) { n.gitStatus = byId.get(n.id); } });
+    if (message.fileGitStatus) { state.fileGitStatus = message.fileGitStatus; }
     if (state.gitMode) { applyGitColors(); }
     return;
   }
@@ -301,6 +325,71 @@ window.addEventListener('message', (event) => {
       d.vy = 0;
     });
     rerunLayout();
+    window.clearDirty?.();
+    return;
+  }
+  if (message.type === 'clear-dirty') {
+    __isDirty = false;
+    return;
+  }
+  if (message.type === 'graph-loaded') {
+    const { settings: saved, nodePositions } = message.payload;
+    if (!state.currentNodes.length || !nodePositions) { return; }
+
+    // Apply saved display state
+    if (saved.complexityLevel !== undefined) {
+      state.complexityLevel = saved.complexityLevel;
+      const slider = document.getElementById('slider-complexity');
+      const valEl = document.getElementById('val-complexity');
+      if (slider) { slider.value = String(saved.complexityLevel); }
+      if (valEl) { valEl.textContent = Number(saved.complexityLevel).toFixed(2); }
+    }
+    if (saved.clusterGroupBy !== undefined) { state.clusterGroupBy = saved.clusterGroupBy; }
+    if (saved.gitMode !== undefined) {
+      state.gitMode = saved.gitMode;
+      document.getElementById('btn-git-mode')?.classList.toggle('active', saved.gitMode);
+    }
+    if (saved.languageMode !== undefined) {
+      state.languageMode = saved.languageMode;
+      document.getElementById('btn-language-mode')?.classList.toggle('active', saved.languageMode);
+    }
+    if (saved.folderMode !== undefined) {
+      state.folderMode = saved.folderMode;
+      document.getElementById('btn-folder-mode')?.classList.toggle('active', saved.folderMode);
+    }
+    if (saved.classMode !== undefined) {
+      state.classMode = saved.classMode;
+      document.getElementById('btn-class-mode')?.classList.toggle('active', saved.classMode);
+    }
+
+    // Apply saved node positions
+    for (const n of state.currentNodes) {
+      const pos = nodePositions[n.id];
+      if (pos) {
+        n.x = pos.x;
+        n.y = pos.y;
+        n.fx = pos.x;
+        n.fy = pos.y;
+      }
+    }
+
+    if (saved.layoutMode === 'static') {
+      setLayoutMode('static');
+    } else {
+      // Use positions as starting points, then release into dynamic simulation
+      if (state.simulation) {
+        state.simulation.alpha(0.1).restart();
+        setTimeout(() => {
+          state.currentNodes.forEach(n => { n.fx = null; n.fy = null; });
+        }, 300);
+      }
+    }
+
+    // Re-apply clustering and colors so the restored state renders correctly
+    applyComplexity();
+    if (state.gitMode && state.gitAvailable) { applyGitColors(); }
+    // Restoring a saved graph is not a dirty change — sync local flag with extension
+    __isDirty = false;
     return;
   }
 });

@@ -410,7 +410,8 @@ suite('Message Handling', () => {
     sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
     const fakeProc = makeFakeProc();
     const fakeTsProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc);
+    const fakeJsProc = makeFakeProc();
+    sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
 
     const fakePanel = makeFakePanel();
     sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);

@@ -90,22 +90,25 @@ export function getWebviewHtml(
   const nonce = crypto.randomBytes(16).toString('hex');
 
   const timelinePanelHtml = timelineMode ? `
-    <div id="panel-timeline" class="tl-panel" title="Replay graph construction from git history">
-      <div class="tl-section-label">Timeline</div>
-      <div class="btn-group">
-        <button id="btn-timeline-play" class="tl-btn" disabled title="Loading history…">&#9654; Play</button>
-        <button id="btn-timeline-reset" class="tl-btn" disabled title="Reset to empty">&#8634;</button>
+    <div id="tl-transport" role="toolbar" aria-label="Timeline playback" title="Replay graph construction from git history">
+      <div class="tl-tx-group">
+        <button id="btn-timeline-play" class="tl-tx-play" disabled title="Loading history…" aria-label="Play">
+          <span class="tl-tx-play-icon">&#9654;</span>
+        </button>
+        <button id="btn-timeline-reset" class="tl-tx-reset" disabled title="Reset to empty" aria-label="Reset">&#8634;</button>
       </div>
-      <div class="tl-slider-header">
-        <label for="slider-timeline-speed">Speed</label>
-        <span id="val-timeline-speed">5</span>
+      <div class="tl-tx-divider"></div>
+      <div class="tl-tx-group tl-tx-group--progress">
+        <span class="tl-tx-label">Progress</span>
+        <input type="range" id="slider-timeline-pos" class="tl-tx-range tl-tx-range--progress" min="0" max="0" step="1" value="0" disabled />
+        <span class="tl-tx-counter" id="val-timeline-pos">0 / 0</span>
       </div>
-      <input type="range" id="slider-timeline-speed" min="0.5" max="50" step="0.5" value="5" />
-      <div class="tl-slider-header">
-        <label for="slider-timeline-pos">Progress</label>
-        <span id="val-timeline-pos">0 / 0</span>
+      <div class="tl-tx-divider"></div>
+      <div class="tl-tx-group tl-tx-group--speed">
+        <span class="tl-tx-label">Speed</span>
+        <input type="range" id="slider-timeline-speed" class="tl-tx-range tl-tx-range--speed" min="0.5" max="50" step="0.5" value="5" />
+        <span class="tl-tx-value"><span id="val-timeline-speed">5</span>&#215;</span>
       </div>
-      <input type="range" id="slider-timeline-pos" min="0" max="0" step="1" value="0" disabled />
     </div>` : '';
   const timelineScriptTag = timelineMode
     ? `<script nonce="${nonce}" src="${timelineUri}"></script>`
@@ -149,7 +152,6 @@ export function getWebviewHtml(
         <button id="btn-group-file"         class="tl-btn"        title="Cluster by file">File</button>
       </div>
     </div>
-    ${timelinePanelHtml}
     <div id="panel-git" class="tl-panel" style="display:none">
       <button id="btn-git-mode" class="tl-btn" title="Toggle git diff colors">Git</button>
       <div class="tl-legend-header" id="toggle-git-legend">
@@ -195,6 +197,7 @@ export function getWebviewHtml(
       <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
     </div>
   </div>
+  ${timelinePanelHtml}
   <button id="settings-btn" title="Settings">&#9881;</button>
   <button id="btn-save-graph" title="Save graph layout">Save Layout</button>
   <div id="settings-panel">

@@ -67,16 +67,35 @@
   }
 
   function setProgressLabel() {
+    const total = tl.order.length;
+    const cur = Math.floor(tl.currentIdx);
     const valEl = document.getElementById('val-timeline-pos');
-    if (valEl) { valEl.textContent = `${Math.floor(tl.currentIdx)} / ${tl.order.length}`; }
+    if (valEl) { valEl.textContent = `${cur} / ${total}`; }
     const slider = document.getElementById('slider-timeline-pos');
-    if (slider) { slider.value = String(Math.floor(tl.currentIdx)); }
+    if (slider) {
+      slider.value = String(cur);
+      const pct = total > 0 ? (cur / total) * 100 : 0;
+      if (slider.style && typeof slider.style.setProperty === 'function') {
+        slider.style.setProperty('--tl-fill', pct + '%');
+      }
+    }
   }
 
   function updateButtonLabels() {
     const playBtn = document.getElementById('btn-timeline-play');
-    if (playBtn) {
-      playBtn.innerHTML = tl.isPlaying ? '&#10074;&#10074; Pause' : '&#9654; Play';
+    if (!playBtn) { return; }
+    const iconHtml = tl.isPlaying ? '&#10074;&#10074;' : '&#9654;';
+    const iconEl = playBtn.querySelector && playBtn.querySelector('.tl-tx-play-icon');
+    if (iconEl) {
+      iconEl.innerHTML = iconHtml;
+    } else {
+      playBtn.innerHTML = iconHtml;
+    }
+    if (playBtn.classList && typeof playBtn.classList.toggle === 'function') {
+      playBtn.classList.toggle('is-playing', tl.isPlaying);
+    }
+    if (typeof playBtn.setAttribute === 'function') {
+      playBtn.setAttribute('aria-label', tl.isPlaying ? 'Pause' : 'Play');
     }
   }
 
@@ -118,7 +137,7 @@
     if (tl.order.length === 0) return;
     if (tl.currentIdx >= tl.order.length) { tl.currentIdx = 0; }
     tl.isPlaying = true;
-    tl.lastFrameMs = 0;
+    tl.lastFrameMs = null;
     updateButtonLabels();
     applyTimelineFilter();
     setProgressLabel();

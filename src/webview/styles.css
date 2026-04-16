@@ -941,3 +941,257 @@ body.vscode-light {
 .folder-filter-show-all:hover {
   background: var(--vscode-list-hoverBackground, #2a2d2e);
 }
+
+/* ── Timeline transport bar (replay window — cinematic amber glass) ── */
+#tl-transport {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 18px;
+  background:
+    linear-gradient(180deg, rgba(28,22,16,0.92) 0%, rgba(14,10,8,0.95) 100%);
+  border: 1px solid rgba(255, 170, 90, 0.22);
+  border-radius: 999px;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.35),
+    0 16px 44px -14px rgba(0,0,0,0.75),
+    0 1px 0 rgba(255, 180, 100, 0.1) inset,
+    0 -14px 30px -18px rgba(255, 140, 40, 0.4) inset;
+  font-family: var(--vscode-font-family);
+  color: rgba(255, 232, 210, 0.92);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.tl-tx-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tl-tx-divider {
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(255, 200, 140, 0.22) 50%,
+    transparent 100%);
+}
+
+/* Hero play button — circular amber-filled */
+.tl-tx-play {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 180, 100, 0.45);
+  background:
+    radial-gradient(circle at 32% 28%, #ffd097 0%, #ff8f2a 55%, #c75e12 100%);
+  color: #2a1a08;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.3),
+    0 4px 14px rgba(255, 140, 40, 0.4),
+    0 1px 0 rgba(255,255,255,0.28) inset;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+.tl-tx-play .tl-tx-play-icon {
+  display: inline-block;
+  line-height: 1;
+  transform: translateX(1px); /* optically center the play triangle */
+}
+.tl-tx-play.is-playing .tl-tx-play-icon {
+  transform: translateX(0);
+  letter-spacing: -2px;
+  font-size: 11px;
+}
+.tl-tx-play:hover:not(:disabled) {
+  transform: scale(1.06);
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.3),
+    0 6px 20px rgba(255, 140, 40, 0.6),
+    0 1px 0 rgba(255,255,255,0.35) inset;
+}
+.tl-tx-play:active:not(:disabled) { transform: scale(0.97); }
+.tl-tx-play:disabled {
+  background: radial-gradient(circle at 32% 28%, #4a3a28 0%, #241a10 100%);
+  color: rgba(255, 200, 150, 0.28);
+  border-color: rgba(255, 180, 100, 0.12);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* Reset button — ghost circle, rotates on hover */
+.tl-tx-reset {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 180, 100, 0.22);
+  background: transparent;
+  color: rgba(255, 220, 180, 0.72);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: transform 0.3s ease, background 0.15s ease,
+              color 0.15s ease, border-color 0.15s ease;
+}
+.tl-tx-reset:hover:not(:disabled) {
+  background: rgba(255, 180, 100, 0.08);
+  border-color: rgba(255, 180, 100, 0.48);
+  color: #ffc98a;
+  transform: rotate(-90deg);
+}
+.tl-tx-reset:active:not(:disabled) { transform: rotate(-90deg) scale(0.95); }
+.tl-tx-reset:disabled {
+  color: rgba(255, 200, 150, 0.2);
+  border-color: rgba(255, 180, 100, 0.08);
+  cursor: not-allowed;
+}
+
+/* Labels above each slider */
+.tl-tx-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: rgba(255, 215, 170, 0.52);
+}
+
+/* Custom range input */
+.tl-tx-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+}
+.tl-tx-range:focus { outline: none; }
+.tl-tx-range:disabled { cursor: not-allowed; }
+
+.tl-tx-range--progress { width: 220px; }
+.tl-tx-range--speed    { width: 90px; }
+
+/* Progress track — painted gradient driven by --tl-fill (JS-set %) */
+.tl-tx-range--progress::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg,
+    #ff8f2a 0%,
+    #ffb75e var(--tl-fill, 0%),
+    rgba(255, 200, 150, 0.12) var(--tl-fill, 0%),
+    rgba(255, 200, 150, 0.12) 100%);
+  border: none;
+}
+.tl-tx-range--progress::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 200, 150, 0.12);
+  border: none;
+}
+.tl-tx-range--progress::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #ff8f2a, #ffb75e);
+}
+
+/* Speed track — flat dim */
+.tl-tx-range--speed::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 200, 150, 0.14);
+  border: none;
+}
+.tl-tx-range--speed::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 200, 150, 0.14);
+  border: none;
+}
+
+/* Thumb — amber disc with glow halo */
+.tl-tx-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffd9a8;
+  border: 1px solid #ff8f2a;
+  margin-top: -5px;
+  box-shadow:
+    0 0 0 3px rgba(255, 140, 40, 0.18),
+    0 2px 6px rgba(255, 140, 40, 0.4);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.tl-tx-range::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+  box-shadow:
+    0 0 0 5px rgba(255, 140, 40, 0.28),
+    0 2px 10px rgba(255, 140, 40, 0.55);
+}
+.tl-tx-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffd9a8;
+  border: 1px solid #ff8f2a;
+  box-shadow:
+    0 0 0 3px rgba(255, 140, 40, 0.18),
+    0 2px 6px rgba(255, 140, 40, 0.4);
+  cursor: pointer;
+}
+.tl-tx-range:disabled::-webkit-slider-runnable-track {
+  background: rgba(255, 200, 150, 0.06);
+}
+.tl-tx-range:disabled::-webkit-slider-thumb {
+  background: rgba(255, 200, 150, 0.22);
+  border-color: rgba(255, 180, 100, 0.18);
+  box-shadow: none;
+}
+.tl-tx-range:disabled::-moz-range-thumb {
+  background: rgba(255, 200, 150, 0.22);
+  border-color: rgba(255, 180, 100, 0.18);
+  box-shadow: none;
+}
+
+/* Frame counter pill — tabular-numeric monospace */
+.tl-tx-counter {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #ffc98a;
+  padding: 3px 9px;
+  background: rgba(255, 140, 40, 0.09);
+  border: 1px solid rgba(255, 180, 100, 0.22);
+  border-radius: 4px;
+  min-width: 62px;
+  text-align: center;
+}
+
+.tl-tx-value {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 215, 170, 0.85);
+  min-width: 30px;
+  text-align: right;
+}

@@ -41,7 +41,7 @@ const state = {
     isPlaying: false,
     currentIdx: 0,
     rafHandle: null,
-    lastFrameMs: 0,
+    lastFrameMs: null,
     nodesPerSec: 5,
     filterPredicate: null,
   },

@@ -37,8 +37,13 @@ function makeFakeWebviewView(): FakeWebviewView {
       received.push(cb);
       return { dispose: () => {} };
     }),
+    asWebviewUri: sinon.stub().callsFake((uri: vscode.Uri) => uri),
+    cspSource: 'vscode-resource:',
   };
-  const view = { webview } as unknown as vscode.WebviewView;
+  const view = {
+    webview,
+    onDidDispose: sinon.stub().returns({ dispose: () => {} }),
+  } as unknown as vscode.WebviewView;
   return { view, webview, received };
 }
 
@@ -95,7 +100,7 @@ suite('SidebarProvider', () => {
 
       provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
 
-      assert.deepStrictEqual(webview.options, { enableScripts: true }, 'scripts must be enabled');
+      assert.strictEqual((webview.options as any).enableScripts, true, 'scripts must be enabled');
       assert.ok(webview.html.length > 0, 'html should be set');
       assert.ok(webview.html.includes('Saved Graphs'), 'html should include Saved Graphs section header');
       assert.ok(webview.html.includes('Chat'), 'html should include Chat section header');
@@ -220,11 +225,11 @@ suite('SidebarProvider', () => {
 
       await received[0]({ type: 'ready' });
 
-      assert.ok(webview.postMessage.calledOnce);
-      const sent = webview.postMessage.firstCall.args[0];
-      assert.strictEqual(sent.type, 'graph-list');
-      assert.strictEqual(sent.files.length, 1);
-      assert.strictEqual(sent.files[0].name, 'One');
+      const calls = webview.postMessage.getCalls().map((c: sinon.SinonSpyCall) => c.args[0]);
+      const graphList = calls.find((c: { type: string }) => c.type === 'graph-list');
+      assert.ok(graphList, 'should post graph-list');
+      assert.strictEqual(graphList.files.length, 1);
+      assert.strictEqual(graphList.files[0].name, 'One');
     });
 
     test('open-graph with valid file → loads JSON and calls controller.loadGraph', async () => {

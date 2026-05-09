@@ -5,14 +5,7 @@ import * as path from 'path';
 export const MAX_OUTPUT_BYTES = 500 * 1024 * 1024; // 500 MB guard
 export const ANALYSIS_TIMEOUT_MS = 300_000;         // 5 min
 
-interface GraphNode {
-  id: string; name: string; file: string | null; line: number;
-  language?: 'python' | 'typescript' | 'javascript'; gitStatus?: unknown;
-  isLibrary?: boolean; libraryName?: string;
-  className?: string; classExtends?: string; classImplements?: string[];
-}
-interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; }
-interface GraphData { nodes: GraphNode[]; edges: GraphEdge[]; files?: string[]; }
+import type { GraphNode, GraphEdge, GraphData } from './graphProvider';
 
 export class AnalyzerRunner {
   private activeProcs: cp.ChildProcess[] = [];

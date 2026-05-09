@@ -101,6 +101,54 @@
           "when": "true"
         }
       ]
+    },
+    "configuration": {
+      "title": "CoGraph",
+      "properties": {
+        "cograph.graphIntelligence.provider": {
+          "type": "string",
+          "enum": ["claude-code"],
+          "default": "claude-code",
+          "description": "Provider used for Graph Intelligence requests."
+        },
+        "cograph.graphIntelligence.model": {
+          "type": "string",
+          "enum": ["default", "opus", "sonnet", "haiku", "opusplan"],
+          "enumDescriptions": [
+            "Your Claude Code account default",
+            "Opus — deepest reasoning (slow, most expensive)",
+            "Sonnet — balanced speed and quality (recommended)",
+            "Haiku — fastest, cheapest, no extended thinking",
+            "Opus Plan — Opus for planning, Sonnet for execution"
+          ],
+          "default": "sonnet",
+          "description": "Claude model used for Graph Intelligence requests."
+        },
+        "cograph.graphIntelligence.effort": {
+          "type": "string",
+          "enum": ["auto", "low", "medium", "high", "xhigh", "max"],
+          "default": "auto",
+          "description": "Reasoning effort for Opus/Opus Plan. 'auto' lets the CLI choose; ignored for Sonnet/Haiku."
+        },
+        "cograph.graphIntelligence.maxTurns": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Hard cap on tool-use iterations per request."
+        },
+        "cograph.graphIntelligence.maxBudgetUsd": {
+          "type": "number",
+          "default": 2.0,
+          "minimum": 0.1,
+          "description": "Hard spend cap (USD) per request. Claude aborts if exceeded."
+        },
+        "cograph.graphIntelligence.timeoutMs": {
+          "type": "number",
+          "default": 300000,
+          "description": "Max milliseconds to wait for a Graph Intelligence response."
+        }
+      }
     }
   },
   "scripts": {

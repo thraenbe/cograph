@@ -1,11 +1,14 @@
 import * as vscode from 'vscode';
 import { GraphProvider } from './graphProvider';
 import { SidebarProvider } from './sidebarProvider';
+import { ChatStore } from './graphIntelligence/chatStore';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const chatStore = workspaceRoot ? new ChatStore(workspaceRoot) : null;
 
-  const sidebarProvider = new SidebarProvider(context.extensionUri, provider);
+  const sidebarProvider = new SidebarProvider(context.extensionUri, provider, chatStore);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
   );

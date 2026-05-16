@@ -10,8 +10,12 @@ import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml } from './webviewHtmlBuilder';
 import type { SidebarProvider } from './sidebarProvider';
+import { createProvider, getProviderInfo } from './graphIntelligence/provider';
+import type { GraphIntelligenceProvider, GraphIntelligenceResult } from './graphIntelligence/provider';
 
-interface GraphNode {
+export interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; }
+
+export interface GraphNode {
   id: string;
   name: string;
   file: string | null;
@@ -20,11 +24,15 @@ interface GraphNode {
   gitStatus?: { unstaged: 'added' | 'modified' | 'deleted' | null; staged: 'added' | 'modified' | 'deleted' | null };
   isLibrary?: boolean;
   libraryName?: string;
+  className?: string;
+  classExtends?: string;
+  classImplements?: string[];
 }
 
-interface GraphData {
+export interface GraphData {
   nodes: GraphNode[];
-  edges: Array<{ source: string; target: string; isLibraryEdge?: boolean }>;
+  edges: GraphEdge[];
+  files?: string[];
 }
 
 export class GraphProvider {
@@ -41,6 +49,11 @@ export class GraphProvider {
   private currentSavedGraphPath: string | undefined;
   private isDirty = false;
   private static readonly DIRTY_PREFIX = '● ';
+  private cachedGraph: GraphData | undefined;
+  private graphReadyResolve: (() => void) | undefined;
+  private graphReadyPromise: Promise<void> | undefined;
+  private intelController: AbortController | undefined;
+  private _providerFactory?: (id: string, ch: vscode.OutputChannel) => GraphIntelligenceProvider;
 
   private get outputChannel() {
     if (!this._outputChannel) {
@@ -122,6 +135,10 @@ export class GraphProvider {
       this.analyzerRunner.clearReanalysisTimer();
       this.analyzerRunner.killAll();
       this.cachedNodes = [];
+      this.cachedGraph = undefined;
+      this.graphReadyPromise = undefined;
+      this.graphReadyResolve = undefined;
+      this.intelController?.abort();
       this.currentSavedGraphPath = undefined;
     });
 
@@ -249,6 +266,8 @@ export class GraphProvider {
         this.setPanelTitle(name);
         this.panel?.webview.postMessage({ type: 'clear-dirty' });
         this._sidebar?.refresh();
+        this._sidebar?.setCurrentGraph({ name, file: targetPath });
+        this._sidebar?.appendSystem(`Graph: ${name} Updated`);
         vscode.window.showInformationMessage(
           isSaveAs ? `CoGraph: Layout saved as "${name}".` : `CoGraph: Saved "${name}".`,
         );
@@ -325,6 +344,9 @@ export class GraphProvider {
     }
     this.currentSavedGraphPath = filePath;
     this.panel?.webview.postMessage({ type: 'graph-loaded', payload: data });
+    if (name && filePath) {
+      this._sidebar?.setCurrentGraph({ name, file: filePath });
+    }
   }
 
   /**
@@ -486,6 +508,11 @@ export class GraphProvider {
     const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, workspaceRoot);
     const fileGitStatus = this.gitService.fileStatuses;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
+    this.cachedGraph = graph;
+    if (this.graphReadyResolve) {
+      this.graphReadyResolve();
+      this.graphReadyResolve = undefined;
+    }
 
     if (isReanalysis) {
       this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: true });
@@ -503,6 +530,80 @@ export class GraphProvider {
     const position = new vscode.Position(line - 1, 0);
     editor.selection = new vscode.Selection(position, position);
     editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+  }
+
+  // ── Graph Intelligence ────────────────────────────────────────────────────
+
+  setProviderFactoryForTesting(
+    fn: (id: string, ch: vscode.OutputChannel) => GraphIntelligenceProvider,
+  ): void {
+    this._providerFactory = fn;
+  }
+
+  private waitForGraphReady(): Promise<void> {
+    if (this.cachedGraph) { return Promise.resolve(); }
+    if (this.graphReadyPromise) { return this.graphReadyPromise; }
+
+    this.graphReadyPromise = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.graphReadyResolve = undefined;
+        reject(new Error('Graph analysis timed out after 30 seconds.'));
+      }, 30_000);
+      this.graphReadyResolve = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+    return this.graphReadyPromise;
+  }
+
+  async runGraphIntelligence(
+    prompt: string,
+    providerId: string,
+    sessionId: string | null,
+    onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
+  ): Promise<GraphIntelligenceResult> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) { throw new Error('No workspace folder open.'); }
+
+    if (!this.panel) { this.show(); }
+    if (!this.panel) { throw new Error('Failed to open graph panel.'); }
+    await this.waitForGraphReady();
+    if (!this.cachedGraph) { throw new Error('Graph not ready yet.'); }
+
+    this.intelController?.abort();
+    this.intelController = new AbortController();
+
+    const config = vscode.workspace.getConfiguration('cograph');
+    const info = getProviderInfo(providerId);
+    const modelKey = info?.modelSettingKey ?? 'graphIntelligence.model';
+    const model = config.get<string>(modelKey, info?.defaultModel ?? 'sonnet');
+    const effort = config.get<string>('graphIntelligence.effort', 'auto');
+    const maxTurns = config.get<number>('graphIntelligence.maxTurns', 15);
+    const maxBudgetUsd = config.get<number>('graphIntelligence.maxBudgetUsd', 2.0);
+    const factory = this._providerFactory ?? createProvider;
+    const provider = factory(providerId, this.outputChannel);
+
+    const result = await provider.run(
+      { prompt, graph: this.cachedGraph, workspaceRoot, sessionId, model, effort, maxTurns, maxBudgetUsd, onProgress },
+      this.intelController.signal,
+    );
+
+    this.cachedGraph = result.graph;
+    this.cachedNodes = result.graph.nodes.filter(n => !n.isLibrary);
+    this.panel?.webview.postMessage({
+      type: 'graph',
+      data: result.graph,
+      gitAvailable: this.gitService.applyGitStatuses(result.graph.nodes, workspaceRoot),
+      fileGitStatus: this.gitService.fileStatuses,
+      isReanalysis: true,
+    });
+
+    return result;
+  }
+
+  abortIntelligence(): void {
+    this.intelController?.abort();
   }
 
   // ── Thin delegates kept for test compatibility ────────────────────────────

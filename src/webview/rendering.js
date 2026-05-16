@@ -465,7 +465,7 @@ function startSimulation(allLinks) {
       .distance(40)
       .strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1))
     .force('charge', d3.forceManyBody().strength(-settings.repelForce))
-    .force('center', d3.forceCenter(W / 2, H / 2).strength(0.05))
+    .force('center', d3.forceCenter(W / 2, H / 2).strength(0.001))
     .force('x', d3.forceX(W / 2).strength(settings.centerForce))
     .force('y', d3.forceY(H / 2).strength(settings.centerForce))
     .force('collision', d3.forceCollide(d => nodeRadius(d) + 1))

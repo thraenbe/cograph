@@ -107,7 +107,11 @@
       "properties": {
         "cograph.graphIntelligence.provider": {
           "type": "string",
-          "enum": ["claude-code"],
+          "enum": ["claude-code", "codex"],
+          "enumDescriptions": [
+            "Claude Code CLI (Anthropic)",
+            "OpenAI Codex CLI"
+          ],
           "default": "claude-code",
           "description": "Provider used for Graph Intelligence requests."
         },
@@ -122,7 +126,18 @@
             "Opus Plan — Opus for planning, Sonnet for execution"
           ],
           "default": "sonnet",
-          "description": "Claude model used for Graph Intelligence requests."
+          "description": "Claude model used for Graph Intelligence requests (when provider is claude-code)."
+        },
+        "cograph.graphIntelligence.codex.model": {
+          "type": "string",
+          "enum": ["gpt-5-codex", "gpt-5", "gpt-5-mini"],
+          "enumDescriptions": [
+            "GPT-5 fine-tuned for code (recommended)",
+            "GPT-5 general purpose",
+            "Smaller, cheaper, faster"
+          ],
+          "default": "gpt-5-codex",
+          "description": "Codex model used for Graph Intelligence requests (when provider is codex)."
         },
         "cograph.graphIntelligence.effort": {
           "type": "string",

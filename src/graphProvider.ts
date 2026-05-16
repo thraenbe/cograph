@@ -10,7 +10,7 @@ import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml } from './webviewHtmlBuilder';
 import type { SidebarProvider } from './sidebarProvider';
-import { createProvider } from './graphIntelligence/provider';
+import { createProvider, getProviderInfo } from './graphIntelligence/provider';
 import type { GraphIntelligenceProvider, GraphIntelligenceResult } from './graphIntelligence/provider';
 
 export interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; }
@@ -266,6 +266,8 @@ export class GraphProvider {
         this.setPanelTitle(name);
         this.panel?.webview.postMessage({ type: 'clear-dirty' });
         this._sidebar?.refresh();
+        this._sidebar?.setCurrentGraph({ name, file: targetPath });
+        this._sidebar?.appendSystem(`Graph: ${name} Updated`);
         vscode.window.showInformationMessage(
           isSaveAs ? `CoGraph: Layout saved as "${name}".` : `CoGraph: Saved "${name}".`,
         );
@@ -342,6 +344,9 @@ export class GraphProvider {
     }
     this.currentSavedGraphPath = filePath;
     this.panel?.webview.postMessage({ type: 'graph-loaded', payload: data });
+    if (name && filePath) {
+      this._sidebar?.setCurrentGraph({ name, file: filePath });
+    }
   }
 
   /**
@@ -554,6 +559,8 @@ export class GraphProvider {
 
   async runGraphIntelligence(
     prompt: string,
+    providerId: string,
+    sessionId: string | null,
     onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
   ): Promise<GraphIntelligenceResult> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -568,8 +575,9 @@ export class GraphProvider {
     this.intelController = new AbortController();
 
     const config = vscode.workspace.getConfiguration('cograph');
-    const providerId = config.get<string>('graphIntelligence.provider', 'claude-code');
-    const model = config.get<string>('graphIntelligence.model', 'sonnet');
+    const info = getProviderInfo(providerId);
+    const modelKey = info?.modelSettingKey ?? 'graphIntelligence.model';
+    const model = config.get<string>(modelKey, info?.defaultModel ?? 'sonnet');
     const effort = config.get<string>('graphIntelligence.effort', 'auto');
     const maxTurns = config.get<number>('graphIntelligence.maxTurns', 15);
     const maxBudgetUsd = config.get<number>('graphIntelligence.maxBudgetUsd', 2.0);
@@ -577,7 +585,7 @@ export class GraphProvider {
     const provider = factory(providerId, this.outputChannel);
 
     const result = await provider.run(
-      { prompt, graph: this.cachedGraph, workspaceRoot, model, effort, maxTurns, maxBudgetUsd, onProgress },
+      { prompt, graph: this.cachedGraph, workspaceRoot, sessionId, model, effort, maxTurns, maxBudgetUsd, onProgress },
       this.intelController.signal,
     );
 

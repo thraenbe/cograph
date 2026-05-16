@@ -57,8 +57,10 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
 
     let finalEvent: (ProgressEvent & { kind: 'result' }) | null = null;
     let errorEvent: (ProgressEvent & { kind: 'error' }) | null = null;
+    let latestSessionId: string | null = req.sessionId ?? null;
 
     const parser = new StreamJsonParser((ev) => {
+      if (ev.kind === 'init' && ev.sessionId) { latestSessionId = ev.sessionId; }
       if (ev.kind === 'result') { finalEvent = ev; }
       else if (ev.kind === 'error') { errorEvent = ev; }
       req.onProgress?.(ev);
@@ -77,7 +79,8 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
     if (!finalEvent) {
       throw new Error('Claude Code closed without emitting a result.');
     }
-    return extractCographResult(finalEvent);
+    const base = extractCographResult(finalEvent);
+    return { ...base, sessionId: latestSessionId };
   }
 
   private ensureClaudeBinary(): void {
@@ -107,6 +110,9 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
       '--max-turns', String(maxTurns),
       '--max-budget-usd', String(maxBudgetUsd),
     ];
+    if (req.sessionId) {
+      args.push('--resume', req.sessionId);
+    }
     if ((model === 'opus' || model === 'opusplan') && effort && effort !== 'auto') {
       args.push('--effort', effort);
     }
@@ -146,7 +152,11 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
 
       const onAbort = () => {
         killed = true;
-        proc.kill('SIGTERM');
+        try { proc.kill('SIGTERM'); } catch { /* already exited */ }
+        // Escalate to SIGKILL if the process is still alive after a brief grace period.
+        setTimeout(() => {
+          try { proc.kill('SIGKILL'); } catch { /* gone */ }
+        }, 1000);
         reject(new Error('Request cancelled.'));
       };
       signal?.addEventListener('abort', onAbort, { once: true });

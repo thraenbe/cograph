@@ -1,7 +1,10 @@
 import type { GraphIntelligenceResult } from './provider';
 import type { ProgressEvent } from './progressParser';
 
-export function extractCographResult(ev: ProgressEvent & { kind: 'result' }): GraphIntelligenceResult {
+export function extractCographResult(
+  ev: ProgressEvent & { kind: 'result' },
+  providerName = 'Claude',
+): GraphIntelligenceResult {
   if (ev.structured && isGraphIntelligenceResult(ev.structured)) {
     return ev.structured;
   }
@@ -19,7 +22,7 @@ export function extractCographResult(ev: ProgressEvent & { kind: 'result' }): Gr
 
   const preview = text.slice(0, 300);
   throw new Error(
-    `Unable to extract graph/text from Claude response. First 300 chars: ${preview}`,
+    `Unable to extract graph/text from ${providerName} response. First 300 chars: ${preview}`,
   );
 }
 

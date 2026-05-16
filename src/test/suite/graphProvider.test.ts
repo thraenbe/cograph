@@ -720,7 +720,13 @@ suite('save-graph message handler', () => {
     const { panel, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
     const provider = new GraphProvider(makeFakeContext());
     const sidebarRefresh = sinon.stub();
-    provider.setSidebarProvider({ refresh: sidebarRefresh } as unknown as import('../../sidebarProvider').SidebarProvider);
+    const setCurrentGraph = sinon.stub();
+    const appendSystem = sinon.stub();
+    provider.setSidebarProvider({
+      refresh: sidebarRefresh,
+      setCurrentGraph,
+      appendSystem,
+    } as unknown as import('../../sidebarProvider').SidebarProvider);
     provider.show();
 
     assert.ok(msgCallbacks.length >= 1, 'message callback should be registered');
@@ -1090,12 +1096,21 @@ suite('setSidebarProvider()', () => {
       const provider = new GraphProvider(makeFakeContext());
 
       const refresh = sinon.stub();
-      provider.setSidebarProvider({ refresh } as unknown as import('../../sidebarProvider').SidebarProvider);
+      const setCurrentGraph = sinon.stub();
+      const appendSystem = sinon.stub();
+      provider.setSidebarProvider({
+        refresh,
+        setCurrentGraph,
+        appendSystem,
+      } as unknown as import('../../sidebarProvider').SidebarProvider);
 
       provider.show();
       await msgCallbacks[0]({ type: 'save-graph', payload: { settings: {}, nodePositions: {} } });
 
       assert.ok(refresh.calledOnce, 'sidebar.refresh() should fire after successful save');
+      assert.ok(setCurrentGraph.calledOnce, 'sidebar.setCurrentGraph() should be called with the saved graph');
+      assert.ok(appendSystem.calledOnce, 'sidebar.appendSystem() should append the "Graph: X Updated" message');
+      assert.match(appendSystem.firstCall.args[0] as string, /^Graph: .* Updated$/);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

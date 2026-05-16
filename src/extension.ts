@@ -8,7 +8,7 @@ export function activate(context: vscode.ExtensionContext) {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const chatStore = workspaceRoot ? new ChatStore(workspaceRoot) : null;
 
-  const sidebarProvider = new SidebarProvider(context.extensionUri, provider, chatStore);
+  const sidebarProvider = new SidebarProvider(context.extensionUri, provider, chatStore, context.workspaceState);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
   );

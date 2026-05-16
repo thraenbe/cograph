@@ -1,7 +1,7 @@
 import * as path from 'path';
 
 export type ProgressEvent =
-  | { kind: 'init'; model: string; tools: string[] }
+  | { kind: 'init'; model: string; tools: string[]; sessionId?: string }
   | { kind: 'thinking'; snippet: string }
   | { kind: 'tool-use'; name: string; summary: string }
   | { kind: 'text'; delta: string }
@@ -44,7 +44,8 @@ export class StreamJsonParser {
     const type = msg.type;
     if (type === 'system' && msg.subtype === 'init') {
       const tools = Array.isArray(msg.tools) ? (msg.tools as unknown[]).map(String) : [];
-      this.onEvent({ kind: 'init', model: String(msg.model ?? ''), tools });
+      const sessionId = typeof msg.session_id === 'string' ? msg.session_id : undefined;
+      this.onEvent({ kind: 'init', model: String(msg.model ?? ''), tools, sessionId });
       return;
     }
     if (type === 'assistant') {

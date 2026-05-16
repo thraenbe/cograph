@@ -7,25 +7,44 @@
   const sendBtn = document.getElementById('chat-send');
   const cancelBtn = document.getElementById('chat-cancel');
   const pill = document.getElementById('model-pill');
+  const pillGlyph = document.getElementById('model-glyph');
   const pillName = document.getElementById('model-name');
   const gear = document.getElementById('model-settings');
   const menu = document.getElementById('model-menu');
+  const slashMenu = document.getElementById('slash-menu');
+  const liveDot = document.querySelector('.chat-live-dot');
 
   if (!scroll || !form || !input || !sendBtn || !cancelBtn || !status) { return; }
 
-  const MODELS = [
-    { id: 'default',  label: 'default',  desc: 'Your Claude Code account default' },
-    { id: 'opus',     label: 'opus',     desc: 'Deepest reasoning · slowest · most expensive' },
-    { id: 'sonnet',   label: 'sonnet',   desc: 'Balanced speed & quality — recommended' },
-    { id: 'haiku',    label: 'haiku',    desc: 'Fastest, cheapest · no extended thinking' },
-    { id: 'opusplan', label: 'opusplan', desc: 'Opus plans, Sonnet executes' },
+  const SUGGESTED_PROMPTS = [
+    'What does this module depend on?',
+    'Show me the largest classes.',
+    'Which files have grown most recently?',
   ];
+
+  // Slash-command catalog — local UI shortcuts that route to extension handlers.
+  const SLASH_COMMANDS = [
+    { name: 'clear',    args: '',         desc: 'Clear chat history (keeps the session)' },
+    { name: 'new',      args: '',         desc: 'Start a fresh session for this graph' },
+    { name: 'resume',   args: '<id>',     desc: 'Attach an existing session id to this chat' },
+    { name: 'model',    args: '<name>',   desc: 'Switch model (sonnet | opus | gpt-5-codex …)' },
+    { name: 'provider', args: '<name>',   desc: 'Switch provider (claude-code | codex)' },
+    { name: 'graph',    args: '',         desc: 'Open the graph picker' },
+    { name: 'cost',     args: '',         desc: 'Show last-turn token + cost usage' },
+    { name: 'help',     args: '',         desc: 'List available slash commands' },
+  ];
+
+  // Populated from `provider-catalog` message; structure mirrors PROVIDER_CATALOG in provider.ts.
+  let providerCatalog = [];
   const MAX_LOG_ROWS = 3;
   let timerId = null;
   let timerStart = 0;
   let streamingBubble = null;
+  let activeProvider = 'claude-code';
   let activeModel = 'sonnet';
   let streamingText = '';
+  let slashSelection = 0;
+  let slashFiltered = [];
 
   // ── Bubbles ────────────────────────────────────────────────────────────
   function renderAssistantText(div, text) {
@@ -39,9 +58,14 @@
     }
   }
 
-  function appendBubble(msg) {
+  function appendBubble(msg, opts) {
+    removeEmptyPrompts();
     const div = document.createElement('div');
     div.className = 'bubble bubble--' + msg.role;
+    if (msg.role === 'system') {
+      const isDivider = (opts && opts.divider) || /^──.*──$/.test((msg.text || '').trim());
+      if (isDivider) { div.classList.add('bubble--divider'); }
+    }
     if (msg.role === 'assistant') {
       renderAssistantText(div, msg.text);
     } else {
@@ -54,7 +78,38 @@
 
   function renderHistory(messages) {
     scroll.innerHTML = '';
-    messages.forEach(appendBubble);
+    if (!messages || messages.length === 0) {
+      renderEmptyPrompts();
+      return;
+    }
+    messages.forEach((m) => appendBubble(m));
+  }
+
+  function renderEmptyPrompts() {
+    if (scroll.querySelector('.empty-prompts')) { return; }
+    const wrap = document.createElement('div');
+    wrap.className = 'empty-prompts';
+    const label = document.createElement('div');
+    label.className = 'empty-prompts-label';
+    label.textContent = 'Try asking';
+    wrap.appendChild(label);
+    SUGGESTED_PROMPTS.forEach((text) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'empty-prompt-chip';
+      btn.textContent = text;
+      btn.addEventListener('click', () => {
+        input.value = text;
+        form.dispatchEvent(new Event('submit'));
+      });
+      wrap.appendChild(btn);
+    });
+    scroll.appendChild(wrap);
+  }
+
+  function removeEmptyPrompts() {
+    const wrap = scroll.querySelector('.empty-prompts');
+    if (wrap) { wrap.remove(); }
   }
 
   function beginStreamingBubble() {
@@ -107,8 +162,9 @@
       status.querySelector('.status-stage').textContent = opts.stage;
     }
     if (opts.model) {
-      status.querySelector('.status-model').textContent = '◆ ' + opts.model;
+      status.querySelector('.status-model').textContent = providerGlyph(activeProvider) + ' ' + opts.model;
       pill.classList.add('streaming');
+      if (liveDot) { liveDot.classList.add('live'); }
     }
     if (opts.detail) { appendLogRow(opts.detail); }
     if (!timerId) { startTimer(); }
@@ -137,8 +193,9 @@
   function resetStatus() {
     clearLog();
     status.hidden = false;
-    status.querySelector('.status-model').textContent = '◆ ' + activeModel;
+    status.querySelector('.status-model').textContent = providerGlyph(activeProvider) + ' ' + activeModel;
     pill.classList.add('streaming');
+    if (liveDot) { liveDot.classList.add('live'); }
     startTimer();
   }
 
@@ -162,34 +219,52 @@
       timerId = null;
     }
     pill.classList.remove('streaming');
+    if (liveDot) { liveDot.classList.remove('live'); }
   }
 
-  // ── Model menu ─────────────────────────────────────────────────────────
-  function setModelLabel(id) {
-    activeModel = id;
-    if (pillName) { pillName.textContent = id; }
+  // ── Provider/model menu ────────────────────────────────────────────────
+  function providerGlyph(providerId) {
+    const p = providerCatalog.find((x) => x.id === providerId);
+    return p ? p.glyph : '◆';
+  }
+
+  function setModelLabel(provider, model) {
+    if (provider) { activeProvider = provider; }
+    if (model) { activeModel = model; }
+    if (pillGlyph) { pillGlyph.textContent = providerGlyph(activeProvider); }
+    if (pillName) { pillName.textContent = activeModel; }
     const sm = status.querySelector('.status-model');
-    if (sm) { sm.textContent = '◆ ' + id; }
+    if (sm) { sm.textContent = providerGlyph(activeProvider) + ' ' + activeModel; }
   }
 
   function renderModelMenu() {
-    const items = MODELS.map((m) => {
-      const checked = m.id === activeModel ? '✓' : '';
-      return (
-        '<div class="mm-item" data-model="' + m.id + '">' +
-          '<span class="mm-check">' + checked + '</span>' +
-          '<span class="mm-label">' + m.label + '</span>' +
-          '<span class="mm-desc">' + m.desc + '</span>' +
-        '</div>'
-      );
-    }).join('');
-    menu.innerHTML = items + '<div class="mm-footer" data-action="settings">CoGraph settings…</div>';
+    if (!providerCatalog || providerCatalog.length === 0) {
+      menu.innerHTML = '<div class="mm-footer" data-action="settings">CoGraph settings…</div>';
+    } else {
+      const parts = [];
+      providerCatalog.forEach((prov) => {
+        parts.push('<div class="mm-header">' + prov.glyph + '  ' + escapeHtml(prov.displayName) + '</div>');
+        prov.models.forEach((m) => {
+          const checked = (prov.id === activeProvider && m.id === activeModel) ? '✓' : '';
+          parts.push(
+            '<div class="mm-item" data-provider="' + prov.id + '" data-model="' + m.id + '">' +
+              '<span class="mm-check">' + checked + '</span>' +
+              '<span class="mm-label">' + escapeHtml(m.label) + '</span>' +
+              '<span class="mm-desc">' + escapeHtml(m.desc) + '</span>' +
+            '</div>'
+          );
+        });
+      });
+      parts.push('<div class="mm-footer" data-action="settings">CoGraph settings…</div>');
+      menu.innerHTML = parts.join('');
+    }
     menu.querySelectorAll('.mm-item').forEach((el) => {
       el.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        const id = el.dataset.model;
-        if (id && id !== activeModel) {
-          vscode.postMessage({ type: 'chat-model-change', model: id });
+        const provider = el.dataset.provider;
+        const model = el.dataset.model;
+        if (provider && model && (provider !== activeProvider || model !== activeModel)) {
+          vscode.postMessage({ type: 'chat-model-change', provider, model });
         }
         hideModelMenu();
       });
@@ -202,6 +277,10 @@
         hideModelMenu();
       });
     }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   function toggleModelMenu() {
@@ -241,9 +320,156 @@
     }).catch(() => { /* clipboard blocked; silent fail */ });
   });
 
+  // ── Slash commands ─────────────────────────────────────────────────────
+  function parseSlashInput(value) {
+    // Returns { isSlash, cmd, args } or null. Only triggers when input STARTS with `/`.
+    if (!value || value[0] !== '/') { return null; }
+    const stripped = value.slice(1);
+    const sp = stripped.indexOf(' ');
+    if (sp < 0) {
+      return { isSlash: true, cmd: stripped, args: '' };
+    }
+    return { isSlash: true, cmd: stripped.slice(0, sp), args: stripped.slice(sp + 1).trim() };
+  }
+
+  function refreshSlashMenu() {
+    if (!slashMenu) { return; }
+    const value = input.value;
+    const parsed = parseSlashInput(value);
+    if (!parsed) {
+      slashMenu.classList.add('hidden');
+      slashFiltered = [];
+      return;
+    }
+    const prefix = parsed.cmd.toLowerCase();
+    slashFiltered = SLASH_COMMANDS.filter((c) => c.name.startsWith(prefix));
+    if (slashFiltered.length === 0) {
+      slashMenu.classList.add('hidden');
+      return;
+    }
+    if (slashSelection >= slashFiltered.length) { slashSelection = 0; }
+    const rows = slashFiltered.map((c, i) => {
+      const sel = i === slashSelection ? ' selected' : '';
+      const fullName = '/' + c.name + (c.args ? ' ' + c.args : '');
+      return (
+        '<div class="slash-item' + sel + '" data-name="' + c.name + '">' +
+          '<span class="slash-name">' + escapeHtml(fullName) + '</span>' +
+          '<span class="slash-desc">' + escapeHtml(c.desc) + '</span>' +
+        '</div>'
+      );
+    });
+    slashMenu.innerHTML = rows.join('');
+    slashMenu.classList.remove('hidden');
+    slashMenu.querySelectorAll('.slash-item').forEach((el) => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const name = el.dataset.name;
+        completeSlash(name);
+      });
+    });
+  }
+
+  function completeSlash(name) {
+    const cmd = SLASH_COMMANDS.find((c) => c.name === name);
+    if (!cmd) { return; }
+    // If the command takes args, insert "/name " and stay in the input.
+    // Otherwise, run it immediately.
+    if (cmd.args) {
+      input.value = '/' + name + ' ';
+      slashSelection = 0;
+      slashMenu && slashMenu.classList.add('hidden');
+      input.focus();
+    } else {
+      input.value = '/' + name;
+      executeSlashIfApplicable();
+    }
+  }
+
+  function executeSlashIfApplicable() {
+    const parsed = parseSlashInput(input.value);
+    if (!parsed) { return false; }
+    const cmd = SLASH_COMMANDS.find((c) => c.name === parsed.cmd);
+    if (!cmd) {
+      appendBubble({ role: 'system', text: 'Unknown command: /' + parsed.cmd + ' — try /help', at: new Date().toISOString() });
+      input.value = '';
+      slashMenu && slashMenu.classList.add('hidden');
+      return true;
+    }
+    input.value = '';
+    slashMenu && slashMenu.classList.add('hidden');
+    dispatchSlash(parsed.cmd, parsed.args);
+    return true;
+  }
+
+  function dispatchSlash(name, args) {
+    switch (name) {
+      case 'help': {
+        const lines = SLASH_COMMANDS.map((c) => {
+          const left = '/' + c.name + (c.args ? ' ' + c.args : '');
+          return left.padEnd(22, ' ') + c.desc;
+        });
+        appendBubble({
+          role: 'system',
+          text: 'Available commands:\n' + lines.join('\n'),
+          at: new Date().toISOString(),
+        });
+        return;
+      }
+      case 'clear': {
+        scroll.innerHTML = '';
+        renderEmptyPrompts();
+        vscode.postMessage({ type: 'chat-clear' });
+        return;
+      }
+      case 'new': {
+        vscode.postMessage({ type: 'chat-new-session' });
+        return;
+      }
+      case 'resume': {
+        if (!args) {
+          appendBubble({ role: 'system', text: '/resume needs a session id — e.g. /resume 8c1f2e…', at: new Date().toISOString() });
+          return;
+        }
+        vscode.postMessage({ type: 'chat-set-session', sessionId: args });
+        return;
+      }
+      case 'model': {
+        if (!args) {
+          appendBubble({ role: 'system', text: '/model needs a model name — e.g. /model sonnet', at: new Date().toISOString() });
+          return;
+        }
+        vscode.postMessage({ type: 'chat-model-change', model: args });
+        return;
+      }
+      case 'provider': {
+        if (!args) {
+          appendBubble({ role: 'system', text: '/provider needs a provider id (claude-code | codex)', at: new Date().toISOString() });
+          return;
+        }
+        vscode.postMessage({ type: 'chat-provider-change', provider: args });
+        return;
+      }
+      case 'graph': {
+        vscode.postMessage({ type: 'chat-pick-graph' });
+        return;
+      }
+      case 'cost': {
+        vscode.postMessage({ type: 'chat-show-cost' });
+        return;
+      }
+    }
+  }
+
+  input.addEventListener('input', () => {
+    slashSelection = 0;
+    refreshSlashMenu();
+  });
+
   // ── Send / cancel ──────────────────────────────────────────────────────
   form.addEventListener('submit', (e) => {
     e.preventDefault();
+    // Slash commands intercept submit BEFORE we go to the backend.
+    if (executeSlashIfApplicable()) { return; }
     const prompt = input.value.trim();
     if (!prompt) { return; }
     input.value = '';
@@ -258,6 +484,31 @@
   });
 
   input.addEventListener('keydown', (e) => {
+    const menuOpen = slashMenu && !slashMenu.classList.contains('hidden') && slashFiltered.length > 0;
+    if (menuOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        slashSelection = (slashSelection + 1) % slashFiltered.length;
+        refreshSlashMenu();
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        slashSelection = (slashSelection - 1 + slashFiltered.length) % slashFiltered.length;
+        refreshSlashMenu();
+        return;
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        completeSlash(slashFiltered[slashSelection].name);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        slashMenu.classList.add('hidden');
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       form.dispatchEvent(new Event('submit'));
@@ -277,17 +528,17 @@
   }
 
   function formatUsage(u, model) {
-    if (!u) { return model; }
+    if (!u) { return providerGlyph(activeProvider) + ' ' + model; }
     const tokens = (n) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
-    const cost = typeof u.costUsd === 'number' ? ' · $' + u.costUsd.toFixed(3) : '';
-    return model + ' · ' + tokens(u.inputTokens) + ' in / ' + tokens(u.outputTokens) + ' out' + cost;
+    const cost = typeof u.costUsd === 'number' && u.costUsd > 0 ? ' · $' + u.costUsd.toFixed(3) : '';
+    return providerGlyph(activeProvider) + ' ' + model + ' · ' + tokens(u.inputTokens) + ' in / ' + tokens(u.outputTokens) + ' out' + cost;
   }
 
   function handleProgress(ev) {
     if (!ev || !ev.kind) { return; }
     switch (ev.kind) {
       case 'init': {
-        if (ev.model) { setModelLabel(ev.model); }
+        if (ev.model) { setModelLabel(activeProvider, ev.model); }
         setStatus({ active: true, stage: 'Connecting', model: ev.model || activeModel });
         break;
       }
@@ -327,7 +578,7 @@
         break;
       case 'chat-append': {
         discardStreamingBubble();
-        appendBubble(msg.message);
+        appendBubble(msg.message, { divider: !!msg.divider });
         break;
       }
       case 'chat-status': {
@@ -343,8 +594,19 @@
       case 'chat-progress':
         handleProgress(msg.event);
         break;
+      case 'provider-catalog':
+        providerCatalog = Array.isArray(msg.catalog) ? msg.catalog : [];
+        // Refresh display in case provider id is in the catalog already.
+        setModelLabel(activeProvider, activeModel);
+        break;
       case 'chat-model-set':
-        if (msg.model) { setModelLabel(msg.model); }
+        if (msg.provider || msg.model) { setModelLabel(msg.provider, msg.model); }
+        break;
+      case 'chat-input-restore':
+        input.value = typeof msg.text === 'string' ? msg.text : '';
+        sendBtn.disabled = false;
+        cancelBtn.style.display = 'none';
+        try { input.focus(); } catch (e) { /* ignore */ }
         break;
     }
   });

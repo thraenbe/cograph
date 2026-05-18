@@ -54,6 +54,7 @@ function makeDOM() {
     <input id="slider-complexity" type="range" value="0.99" />
     <span id="val-complexity">0.99</span>
     <button id="btn-save-graph"></button>
+    <button id="btn-open-chat"></button>
   </body></html>`;
   return new JSDOM(html);
 }
@@ -525,5 +526,35 @@ suite('Save Graph Layout button', () => {
     assert.deepStrictEqual(posted[0].payload.nodePositions, {});
     // settings payload should still be populated
     assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'connectivity');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: Open Chat button (btn-open-chat click handler)
+// ---------------------------------------------------------------------------
+
+suite('Open Chat button', () => {
+  const originalVscode = (global as any).vscode;
+  const posted: any[] = [];
+
+  setup(() => {
+    posted.length = 0;
+    (global as any).vscode = { postMessage: (msg: any) => posted.push(msg) };
+  });
+
+  teardown(() => {
+    (global as any).vscode = originalVscode;
+  });
+
+  test('click → postMessage with type open-chat', () => {
+    dom.window.document.getElementById('btn-open-chat')!.click();
+    assert.strictEqual(posted.length, 1);
+    assert.deepStrictEqual(posted[0], { type: 'open-chat' });
+  });
+
+  test('click does not carry any payload (focus-only signal)', () => {
+    dom.window.document.getElementById('btn-open-chat')!.click();
+    assert.strictEqual(posted.length, 1);
+    assert.strictEqual(Object.keys(posted[0]).length, 1, 'message has exactly one key');
   });
 });

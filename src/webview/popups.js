@@ -1,12 +1,25 @@
 // ── Library doc popup ─────────────────────────────────────────────────────────
 function showLibDocPopup(d) {
   state.activeLibNode = d;
-  const docsUrl = d.language === 'python'
-    ? `https://docs.python.org/3/library/${d.libraryName.split('.')[0]}`
-    : `https://www.npmjs.com/package/${d.libraryName}`;
+  let docsUrl;
+  if (d.language === 'python') {
+    docsUrl = `https://docs.python.org/3/library/${d.libraryName.split('.')[0]}`;
+  } else if (d.language === 'java') {
+    if (d.libraryName.startsWith('java.') || d.libraryName.startsWith('javax.')) {
+      const pkgPath = d.libraryName.replace(/\./g, '/');
+      docsUrl = `https://docs.oracle.com/en/java/javase/21/docs/api/java.base/${pkgPath}/package-summary.html`;
+    } else {
+      docsUrl = `https://javadoc.io/doc/${d.libraryName}`;
+    }
+  } else {
+    docsUrl = `https://www.npmjs.com/package/${d.libraryName}`;
+  }
 
   document.getElementById('lib-doc-title').textContent = `${d.libraryName}.${d.name}`;
-  document.getElementById('lib-doc-lang-badge').textContent = d.language === 'python' ? 'Python' : 'TypeScript';
+  document.getElementById('lib-doc-lang-badge').textContent =
+    d.language === 'python' ? 'Python'
+    : d.language === 'java' ? 'Java'
+    : 'TypeScript';
   document.getElementById('lib-doc-lang-badge').className = `lang-badge lang-badge-${d.language}`;
   document.getElementById('lib-doc-function').textContent = d.name;
   document.getElementById('lib-doc-package').textContent = d.libraryName;

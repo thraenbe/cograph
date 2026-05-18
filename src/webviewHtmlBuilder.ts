@@ -196,10 +196,13 @@ export function getWebviewHtml(
     <div id="panel-class" class="tl-panel">
       <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
     </div>
+    <div id="panel-actions" class="tl-panel">
+      <button id="btn-open-chat" class="tl-btn" title="Open chat with this graph selected">Open Chat</button>
+      <button id="btn-save-graph" class="tl-btn" title="Save graph layout">Save Layout</button>
+    </div>
   </div>
   ${timelinePanelHtml}
   <button id="settings-btn" title="Settings">&#9881;</button>
-  <button id="btn-save-graph" title="Save graph layout">Save Layout</button>
   <div id="settings-panel">
 
     <div class="panel-section">

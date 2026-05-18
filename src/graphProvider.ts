@@ -20,7 +20,7 @@ export interface GraphNode {
   name: string;
   file: string | null;
   line: number;
-  language?: 'python' | 'typescript' | 'javascript';
+  language?: 'python' | 'typescript' | 'javascript' | 'java';
   gitStatus?: { unstaged: 'added' | 'modified' | 'deleted' | null; staged: 'added' | 'modified' | 'deleted' | null };
   isLibrary?: boolean;
   libraryName?: string;
@@ -115,7 +115,8 @@ export class GraphProvider {
             doc.uri.fsPath.endsWith('.js') ||
             doc.uri.fsPath.endsWith('.jsx') ||
             doc.uri.fsPath.endsWith('.mjs') ||
-            doc.uri.fsPath.endsWith('.cjs')) {
+            doc.uri.fsPath.endsWith('.cjs') ||
+            doc.uri.fsPath.endsWith('.java')) {
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
       }
@@ -147,9 +148,19 @@ export class GraphProvider {
         this.navigateTo(message.file, message.line);
       } else if (message.type === 'open-docs') {
         const { libraryName, language } = message;
-        const url = language === 'python'
-          ? `https://docs.python.org/3/library/${libraryName.split('.')[0]}`
-          : `https://www.npmjs.com/package/${libraryName}`;
+        let url: string;
+        if (language === 'python') {
+          url = `https://docs.python.org/3/library/${libraryName.split('.')[0]}`;
+        } else if (language === 'java') {
+          if (libraryName.startsWith('java.') || libraryName.startsWith('javax.')) {
+            const pkgPath = libraryName.replace(/\./g, '/');
+            url = `https://docs.oracle.com/en/java/javase/21/docs/api/java.base/${pkgPath}/package-summary.html`;
+          } else {
+            url = `https://javadoc.io/doc/${libraryName}`;
+          }
+        } else {
+          url = `https://www.npmjs.com/package/${libraryName}`;
+        }
         vscode.env.openExternal(vscode.Uri.parse(url));
       } else if (message.type === 'get-lib-description') {
         const { libraryName, functionName, language, reqId } = message;
@@ -163,7 +174,10 @@ export class GraphProvider {
           const source = getFuncSource(file, line);
           const endLine = line + source.split('\n').length - 1;
           const ext = file.split('.').pop() ?? '';
-          const languageId = ext === 'py' ? 'python' : ext === 'js' ? 'javascript' : 'typescript';
+          const languageId = ext === 'py' ? 'python'
+            : ext === 'js' ? 'javascript'
+            : ext === 'java' ? 'java'
+            : 'typescript';
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const colorize = (vscode.languages as any).colorize;
           if (typeof colorize === 'function') {
@@ -217,6 +231,11 @@ export class GraphProvider {
         }
       } else if (message.type === 'dirty-state') {
         this.setDirty(!!message.dirty);
+      } else if (message.type === 'open-chat') {
+        // Focuses the Cograph activity-bar view. The current graph context is
+        // already up-to-date — setCurrentGraph is invoked from loadGraph and
+        // from the save-graph handler.
+        await vscode.commands.executeCommand('cograph.savedGraphs.focus');
       } else if (message.type === 'save-graph') {
         const isSaveAs = message.mode === 'save-as' || !this.currentSavedGraphPath;
         let targetPath: string;

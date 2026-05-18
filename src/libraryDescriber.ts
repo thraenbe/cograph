@@ -15,7 +15,18 @@ export class LibraryDescriber {
     if (language === 'python') {
       return this.fetchPythonDescription(libraryName, functionName);
     }
+    if (language === 'java') {
+      return Promise.resolve(this.fetchJavaDescription(libraryName, functionName));
+    }
     return Promise.resolve(this.fetchTsDescription(libraryName, functionName, workspaceRoot));
+  }
+
+  private fetchJavaDescription(libraryName: string, functionName: string): string {
+    if (libraryName.startsWith('java.') || libraryName.startsWith('javax.')) {
+      const pkgPath = libraryName.replace(/\./g, '/');
+      return `See JDK Javadoc: https://docs.oracle.com/en/java/javase/21/docs/api/java.base/${pkgPath}/${functionName}.html`;
+    }
+    return `See Javadoc: https://javadoc.io/doc/${libraryName}`;
   }
 
   private fetchPythonDescription(libraryName: string, functionName: string): Promise<string> {

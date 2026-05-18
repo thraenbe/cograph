@@ -3,6 +3,7 @@ const languageColors = {
   python:     '#3572A5',
   typescript: '#dd3b71',
   javascript: '#f7df1e',
+  java:       '#b07219',
 };
 
 function getLanguageColor(lang) {

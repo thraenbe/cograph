@@ -28,7 +28,7 @@ const settings = {
   centerForce: 0.025,
   repelForce: 250,
   linkForce: 1,
-  fileClusterForce: 0.04,
+  fileClusterForce: 0.2,
   openFunctionPopup: true,
 };
 

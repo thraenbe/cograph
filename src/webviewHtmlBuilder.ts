@@ -184,8 +184,8 @@ export function getWebviewHtml(
     <div id="panel-folder" class="tl-panel">
       <button id="btn-folder-mode" class="tl-btn active" title="Toggle folder/file structure overlay">Folder</button>
       <div class="slider-row">
-        <div class="slider-header"><label for="slider-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.04</span></div>
-        <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.04" />
+        <div class="slider-header"><label for="slider-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.2</span></div>
+        <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.2" />
       </div>
       <div class="tl-legend-header" id="toggle-folder-filters">
         <span>Filters</span>

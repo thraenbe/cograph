@@ -93,7 +93,8 @@ suite('GraphProvider', () => {
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
+      const fakeJavaProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
 
       const fakePanel = makeFakePanel();
       sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
@@ -137,7 +138,8 @@ suite('GraphProvider', () => {
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
+      const fakeJavaProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -160,7 +162,8 @@ suite('GraphProvider', () => {
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
+      const fakeJavaProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -185,7 +188,8 @@ suite('GraphProvider', () => {
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
+      const fakeJavaProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
 
       // Capture the real setTimeout BEFORE stubbing so the stub and the
       // test's own timer can call it without infinite recursion.
@@ -218,7 +222,8 @@ suite('GraphProvider', () => {
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
+      const fakeJavaProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -241,7 +246,8 @@ suite('GraphProvider', () => {
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
+      const fakeJavaProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -252,6 +258,9 @@ suite('GraphProvider', () => {
 
       fakeTsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeTsProc.emit('close', 0);
+
+      fakeJavaProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeJavaProc.emit('close', 0);
 
       const graph = {
         nodes: [{ id: 'a::b::1', name: 'b', file: 'a.py', line: 1 }],
@@ -290,7 +299,8 @@ suite('GraphProvider', () => {
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
+      const fakeJavaProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -307,6 +317,9 @@ suite('GraphProvider', () => {
 
       fakeTsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeTsProc.emit('close', 0);
+
+      fakeJavaProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeJavaProc.emit('close', 0);
 
       fakeProc.stdout.emit('data', Buffer.from(JSON.stringify(graph)));
       fakeProc.emit('close', 0);
@@ -333,18 +346,21 @@ suite('GraphProvider', () => {
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
+      const fakeJavaProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
 
-      // Both procs must close before Promise.all resolves
+      // All procs must close before Promise.all resolves
       fakeProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeProc.emit('close', 0);
       fakeTsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeTsProc.emit('close', 0);
       fakeJsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeJsProc.emit('close', 0);
+      fakeJavaProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeJavaProc.emit('close', 0);
 
       // Wait for Promise.all microtask to settle
       setTimeout(() => {
@@ -406,7 +422,8 @@ suite('GraphProvider', () => {
       const fakeProc = makeFakeProc();
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
+      const fakeJavaProc = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
 
       const fakePanel = makeFakePanel();
       const createPanel = sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
@@ -1134,5 +1151,50 @@ suite('setSidebarProvider()', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// open-chat message handler — focuses the activity-bar sidebar view
+// ---------------------------------------------------------------------------
+
+suite('open-chat message handler', () => {
+  let sandbox: sinon.SinonSandbox;
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+  });
+
+  teardown(() => {
+    sandbox.restore();
+  });
+
+  test('open-chat → executes cograph.savedGraphs.focus command', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/tmp/ws' } }]);
+    const execStub = sandbox.stub(vscode.commands, 'executeCommand').resolves();
+
+    const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+
+    assert.ok(msgCallbacks.length >= 1);
+    await msgCallbacks[0]({ type: 'open-chat' });
+
+    const focusCalls = execStub.getCalls().filter(c => c.args[0] === 'cograph.savedGraphs.focus');
+    assert.strictEqual(focusCalls.length, 1, 'should call cograph.savedGraphs.focus exactly once');
+  });
+
+  test('open-chat does not write any file or change panel title', async () => {
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/tmp/ws' } }]);
+    sandbox.stub(vscode.commands, 'executeCommand').resolves();
+
+    const { panel, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+    const titleBefore = panel.title;
+
+    await msgCallbacks[0]({ type: 'open-chat' });
+
+    assert.strictEqual(panel.title, titleBefore, 'panel title should be unchanged');
   });
 });

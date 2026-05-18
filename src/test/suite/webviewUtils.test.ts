@@ -198,6 +198,55 @@ suite('highlightCode — TypeScript', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Suite: highlightCode — Java
+// ---------------------------------------------------------------------------
+
+suite('highlightCode — Java', () => {
+  test('class keyword → blue, followed by class name in teal', () => {
+    const result = highlightCode('public class Foo {}', 'java');
+    assert.ok(result.includes('<span style="color:#569cd6">class</span>'), 'class should be highlighted');
+    assert.ok(result.includes('<span style="color:#4ec9b0">Foo</span>'), 'class name should be teal');
+  });
+
+  test('public, private, static keywords → highlighted', () => {
+    for (const kw of ['public', 'private', 'static']) {
+      const result = highlightCode(`${kw} void run() {}`, 'java');
+      assert.ok(result.includes(`<span style="color:#569cd6">${kw}</span>`), `${kw} should be highlighted`);
+    }
+  });
+
+  test('extends and implements keywords → highlighted', () => {
+    const result = highlightCode('class Foo extends Bar implements Runnable {}', 'java');
+    assert.ok(result.includes('<span style="color:#569cd6">extends</span>'));
+    assert.ok(result.includes('<span style="color:#569cd6">implements</span>'));
+  });
+
+  test('interface and enum keywords → highlighted', () => {
+    for (const kw of ['interface', 'enum']) {
+      const result = highlightCode(`${kw} X {}`, 'java');
+      assert.ok(result.includes(`<span style="color:#569cd6">${kw}</span>`), `${kw} should be highlighted`);
+    }
+  });
+
+  test('Java // line comment → green span', () => {
+    const result = highlightCode('// java comment', 'java');
+    assert.ok(result.includes('<span style="color:#6a9955">'));
+    assert.ok(result.includes('java comment'));
+  });
+
+  test('Java /* block comment */ → green span', () => {
+    const result = highlightCode('/* block */', 'java');
+    assert.ok(result.includes('<span style="color:#6a9955">'));
+    assert.ok(result.includes('block'));
+  });
+
+  test('Java string literal → orange span', () => {
+    const result = highlightCode('"hello"', 'java');
+    assert.ok(result.includes('<span style="color:#ce9178">"hello"</span>'));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Suite: highlightCode — Edge Cases
 // ---------------------------------------------------------------------------
 
@@ -318,6 +367,10 @@ suite('resolveNodeFill', () => {
 suite('getLanguageColor', () => {
   test('python → returns #3572A5', () => {
     assert.strictEqual(getLanguageColor('python'), '#3572A5');
+  });
+
+  test('java → returns #b07219', () => {
+    assert.strictEqual(getLanguageColor('java'), '#b07219');
   });
 
   test('typescript → returns the configured TS color', () => {

@@ -29,7 +29,10 @@ function boundingCircle(points) {
 // ── Grouping ──────────────────────────────────────────────────────────────────
 // Returns Map<filePath, node[]>
 // Skips library nodes, nodes without file, and any clustered/synthetic nodes (B2)
-const EMPTY_FILE_EXTS = new Set(['.py', '.js', '.ts', '.java']);
+const EMPTY_FILE_EXTS = new Set([
+  '.py', '.js', '.ts', '.java',
+  '.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hh', '.hxx', '.h++', '.h',
+]);
 
 function groupByFile(nodes) {
   const map = new Map();
@@ -165,6 +168,9 @@ function inferLangFromPath(fp) {
   if (ext === '.ts' || ext === '.tsx') return 'typescript';
   if (ext === '.js' || ext === '.jsx' || ext === '.mjs' || ext === '.cjs') return 'javascript';
   if (ext === '.java') return 'java';
+  if (ext === '.cpp' || ext === '.cc' || ext === '.cxx' || ext === '.c++'
+      || ext === '.hpp' || ext === '.hh' || ext === '.hxx' || ext === '.h++'
+      || ext === '.h') return 'cpp';
   return null;
 }
 

@@ -15,6 +15,12 @@ out/**/*.test.js
 out/**/*.test.js.map
 node_modules/**
 !node_modules/typescript/**
+!node_modules/web-tree-sitter/**
+# java-parser + its (hoisted) transitive deps — required by scripts/analyze_java.js
+!node_modules/java-parser/**
+!node_modules/chevrotain/**
+!node_modules/regexp-to-ast/**
+!node_modules/lodash/**
 .eslintrc.json
 tsconfig.json
 .pytest_cache/**

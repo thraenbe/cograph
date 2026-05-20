@@ -11,6 +11,8 @@ function showLibDocPopup(d) {
     } else {
       docsUrl = `https://javadoc.io/doc/${d.libraryName}`;
     }
+  } else if (d.language === 'cpp') {
+    docsUrl = `https://en.cppreference.com/mwiki/index.php?search=${encodeURIComponent(d.libraryName + '::' + d.name)}`;
   } else {
     docsUrl = `https://www.npmjs.com/package/${d.libraryName}`;
   }
@@ -19,6 +21,7 @@ function showLibDocPopup(d) {
   document.getElementById('lib-doc-lang-badge').textContent =
     d.language === 'python' ? 'Python'
     : d.language === 'java' ? 'Java'
+    : d.language === 'cpp' ? 'C++'
     : 'TypeScript';
   document.getElementById('lib-doc-lang-badge').className = `lang-badge lang-badge-${d.language}`;
   document.getElementById('lib-doc-function').textContent = d.name;

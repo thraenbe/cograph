@@ -18,6 +18,9 @@ export class LibraryDescriber {
     if (language === 'java') {
       return Promise.resolve(this.fetchJavaDescription(libraryName, functionName));
     }
+    if (language === 'cpp') {
+      return Promise.resolve(this.fetchCppDescription(libraryName, functionName));
+    }
     return Promise.resolve(this.fetchTsDescription(libraryName, functionName, workspaceRoot));
   }
 
@@ -27,6 +30,11 @@ export class LibraryDescriber {
       return `See JDK Javadoc: https://docs.oracle.com/en/java/javase/21/docs/api/java.base/${pkgPath}/${functionName}.html`;
     }
     return `See Javadoc: https://javadoc.io/doc/${libraryName}`;
+  }
+
+  private fetchCppDescription(libraryName: string, functionName: string): string {
+    const q = encodeURIComponent(`${libraryName}::${functionName}`);
+    return `See cppreference: https://en.cppreference.com/mwiki/index.php?search=${q}`;
   }
 
   private fetchPythonDescription(libraryName: string, functionName: string): Promise<string> {

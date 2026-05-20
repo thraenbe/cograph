@@ -271,10 +271,17 @@ document.getElementById('lib-doc-goto-btn')?.addEventListener('click', () => {
 
 // ── Function popup — Escape closes topmost ────────────────────────────────────
 document.addEventListener('keydown', (e) => {
+  // 1. Close topmost function popup on Escape
   if (e.key === 'Escape' && state.funcPopups.size > 0) {
     const top = [...state.funcPopups.values()].reduce((a, b) =>
       parseInt(b.element.style.zIndex) > parseInt(a.element.style.zIndex) ? b : a);
     closeFuncPopupInstance(top);
+  }
+
+  // 2. Focus search on Ctrl+F or Cmd+F
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    document.getElementById('search')?.focus();
   }
 });
 

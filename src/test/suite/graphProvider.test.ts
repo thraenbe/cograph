@@ -94,7 +94,8 @@ suite('GraphProvider', () => {
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
       const fakeJavaProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
+      const fakeCppProc  = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
 
       const fakePanel = makeFakePanel();
       sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
@@ -139,7 +140,8 @@ suite('GraphProvider', () => {
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
       const fakeJavaProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
+      const fakeCppProc  = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -163,7 +165,8 @@ suite('GraphProvider', () => {
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
       const fakeJavaProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
+      const fakeCppProc  = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -189,7 +192,8 @@ suite('GraphProvider', () => {
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
       const fakeJavaProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
+      const fakeCppProc  = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
 
       // Capture the real setTimeout BEFORE stubbing so the stub and the
       // test's own timer can call it without infinite recursion.
@@ -223,7 +227,8 @@ suite('GraphProvider', () => {
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
       const fakeJavaProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
+      const fakeCppProc  = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -247,7 +252,8 @@ suite('GraphProvider', () => {
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
       const fakeJavaProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
+      const fakeCppProc  = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -261,6 +267,8 @@ suite('GraphProvider', () => {
 
       fakeJavaProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeJavaProc.emit('close', 0);
+      fakeCppProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeCppProc.emit('close', 0);
 
       const graph = {
         nodes: [{ id: 'a::b::1', name: 'b', file: 'a.py', line: 1 }],
@@ -300,7 +308,8 @@ suite('GraphProvider', () => {
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
       const fakeJavaProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
+      const fakeCppProc  = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -320,6 +329,8 @@ suite('GraphProvider', () => {
 
       fakeJavaProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeJavaProc.emit('close', 0);
+      fakeCppProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeCppProc.emit('close', 0);
 
       fakeProc.stdout.emit('data', Buffer.from(JSON.stringify(graph)));
       fakeProc.emit('close', 0);
@@ -347,7 +358,8 @@ suite('GraphProvider', () => {
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
       const fakeJavaProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
+      const fakeCppProc  = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
@@ -361,6 +373,8 @@ suite('GraphProvider', () => {
       fakeJsProc.emit('close', 0);
       fakeJavaProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
       fakeJavaProc.emit('close', 0);
+      fakeCppProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
+      fakeCppProc.emit('close', 0);
 
       // Wait for Promise.all microtask to settle
       setTimeout(() => {
@@ -423,7 +437,8 @@ suite('GraphProvider', () => {
       const fakeTsProc = makeFakeProc();
       const fakeJsProc = makeFakeProc();
       const fakeJavaProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc);
+      const fakeCppProc  = makeFakeProc();
+      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
 
       const fakePanel = makeFakePanel();
       const createPanel = sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
@@ -684,10 +699,14 @@ function setupPanelWithCapturedMessages(sandbox: sinon.SinonSandbox) {
   const fakeProc = makeFakeProc();
   const fakeTsProc = makeFakeProc();
   const fakeJsProc = makeFakeProc();
+  const fakeJavaProc = makeFakeProc();
+  const fakeCppProc = makeFakeProc();
   sandbox.stub(rawCp, 'spawn')
     .onFirstCall().returns(fakeProc)
     .onSecondCall().returns(fakeTsProc)
-    .onThirdCall().returns(fakeJsProc);
+    .onThirdCall().returns(fakeJsProc)
+    .onCall(3).returns(fakeJavaProc)
+    .onCall(4).returns(fakeCppProc);
 
   const msgCallbacks: Array<(msg: unknown) => void | Promise<void>> = [];
   const webview = {

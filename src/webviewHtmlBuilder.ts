@@ -207,7 +207,10 @@ export function getWebviewHtml(
 
     <div class="panel-section">
       <h4>Filters</h4>
-      <input id="search" type="text" placeholder="Filter functions..." />
+      <div class="search-container">
+        <input id="search" type="text" placeholder="Filter functions..." />
+        <span id="btn-clear-search" class="clear-icon" title="Clear Search">&#x2715;</span>
+      </div>
       <div class="toggle-row">
         <span>Show Orphans</span>
         <label class="switch"><input type="checkbox" id="toggle-orphans" checked /><span class="pill"></span></label>
@@ -268,6 +271,7 @@ export function getWebviewHtml(
         <span>Open Function Popup</span>
         <label class="switch"><input type="checkbox" id="toggle-func-popup" checked /><span class="pill"></span></label>
       </div>
+      <button id="btn-reset-layout" class="tl-btn" style="width: 100%; margin-top: 10px;">Reset Layout</button>
     </div>
 
   </div>

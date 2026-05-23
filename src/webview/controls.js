@@ -24,7 +24,23 @@ document.getElementById('btn-layout-static')?.addEventListener('click', () => {
 });
 
 // ── Filter controls ───────────────────────────────────────────────────────────
-document.getElementById('search')?.addEventListener('input', applyFilters);
+const searchInput = document.getElementById('search');
+const btnClearSearch = document.getElementById('btn-clear-search');
+
+searchInput?.addEventListener('input', (e) => {
+  if (btnClearSearch) {
+    btnClearSearch.style.display = e.target.value.length > 0 ? 'block' : 'none';
+  }
+  applyFilters();
+});
+
+btnClearSearch?.addEventListener('click', () => {
+  if (searchInput) {
+    searchInput.value = '';
+    btnClearSearch.style.display = 'none';
+    applyFilters();
+  }
+});
 
 document.getElementById('toggle-orphans')?.addEventListener('change', (e) => {
   settings.showOrphans = e.target.checked;
@@ -44,6 +60,38 @@ document.getElementById('toggle-empty-files')?.addEventListener('change', (e) =>
 // ── Configuration controls ────────────────────────────────────────────────────
 document.getElementById('toggle-func-popup')?.addEventListener('change', (e) => {
   settings.openFunctionPopup = e.target.checked;
+});
+
+document.getElementById('btn-reset-layout')?.addEventListener('click', () => {
+  const defaults = {
+    textFadeThreshold: 0.5,
+    nodeSize: 2.5,
+    textSize: 1.5,
+    linkThickness: 4,
+    centerForce: 0.05,
+    repelForce: 250,
+    linkForce: 1
+  };
+
+  Object.assign(settings, defaults);
+
+  for (const [key, val] of Object.entries({
+    'slider-text-fade': { valId: 'val-text-fade', value: defaults.textFadeThreshold },
+    'slider-node-size': { valId: 'val-node-size', value: defaults.nodeSize },
+    'slider-text-size': { valId: 'val-text-size', value: defaults.textSize },
+    'slider-link-thickness': { valId: 'val-link-thickness', value: defaults.linkThickness },
+    'slider-center-force': { valId: 'val-center-force', value: defaults.centerForce },
+    'slider-repel-force': { valId: 'val-repel-force', value: defaults.repelForce },
+    'slider-link-force': { valId: 'val-link-force', value: defaults.linkForce }
+  })) {
+    const slider = document.getElementById(key);
+    const valEl = document.getElementById(val.valId);
+    if (slider) slider.value = val.value;
+    if (valEl) valEl.textContent = val.value;
+  }
+
+  applyDisplaySettings();
+  rerunLayout();
 });
 
 // ── Display controls ──────────────────────────────────────────────────────────

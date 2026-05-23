@@ -96,6 +96,9 @@ function applyFilters() {
     const tgt = d.target?.id ?? d.target;
     return (visibleSet.has(src) && visibleSet.has(tgt)) ? null : 'none';
   });
+
+  if (typeof tickFolderOverlay === 'function') tickFolderOverlay();
+  if (typeof tickClassOverlay === 'function') tickClassOverlay();
 }
 
 // ── Display settings ──────────────────────────────────────────────────────────

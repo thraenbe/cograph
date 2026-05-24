@@ -19,7 +19,11 @@ export class AnalyzerRunner {
   ) {}
 
   killAll(): void {
-    for (const proc of this.activeProcs) { proc.kill(); }
+    for (const proc of this.activeProcs) {
+      if (proc && typeof proc.kill === 'function') {
+        try { proc.kill(); } catch (e) {}
+      }
+    }
     this.activeProcs = [];
   }
 
@@ -131,6 +135,24 @@ export class AnalyzerRunner {
         resolve(empty);
         return;
       }
+      
+      if (!proc) {
+        if (fatal) {
+          this.showError(`CoGraph: Failed to start analyzer (spawn returned undefined).`);
+        }
+        resolve(empty);
+        return;
+      }
+
+      if (!proc.stdout || !proc.stderr) {
+        if (fatal) {
+          this.showError(`CoGraph: Failed to start analyzer (missing stdio streams).`);
+        }
+        if (typeof proc.kill === 'function') { try { proc.kill(); } catch (e) {} }
+        resolve(empty);
+        return;
+      }
+
       this.activeProcs.push(proc);
 
       let stdout = '';
@@ -140,17 +162,17 @@ export class AnalyzerRunner {
 
       const timer = setTimeout(() => {
         timedOut = true;
-        proc.kill();
+        if (proc && typeof proc.kill === 'function') { try { proc.kill(); } catch(e) {} }
         if (fatal) {
           this.showError(`CoGraph: Analysis timed out after ${ANALYSIS_TIMEOUT_MS / 1000}s.`);
         }
         resolve(empty);
       }, ANALYSIS_TIMEOUT_MS);
 
-      proc.stdout!.on('data', (chunk: Buffer) => {
+      proc.stdout.on('data', (chunk: Buffer) => {
         stdoutBytes += chunk.length;
         if (stdoutBytes > MAX_OUTPUT_BYTES) {
-          proc.kill();
+          if (proc && typeof proc.kill === 'function') { try { proc.kill(); } catch(e) {} }
           if (fatal) {
             this.showError('CoGraph: Analysis output too large (> 500 MB). Try a smaller workspace.');
           }
@@ -159,7 +181,7 @@ export class AnalyzerRunner {
         stdout += chunk.toString();
       });
 
-      proc.stderr!.on('data', (chunk: Buffer) => {
+      proc.stderr.on('data', (chunk: Buffer) => {
         stderr += chunk.toString();
       });
 

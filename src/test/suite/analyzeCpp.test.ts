@@ -429,3 +429,132 @@ suite('collectCalls (C++)', () => {
     assert.strictEqual(edgesToStart.length, 1, 'exactly one edge to the definition');
   });
 });
+
+// ---------------------------------------------------------------------------
+// using namespace — unqualified calls resolve to a library node (fix #2)
+// ---------------------------------------------------------------------------
+
+suite('collectCalls — using namespace resolution', () => {
+  let tmpDir: string;
+
+  suiteSetup(async () => { await cppAnalyzer.init(); });
+  setup(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-cpp-usingns-')); });
+  teardown(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  test('single `using namespace` → unqualified call becomes a library node', () => {
+    const file = path.join(tmpDir, 'UsingNs.cpp');
+    fs.writeFileSync(file, [
+      '#include <algorithm>',
+      '#include <vector>',
+      'using namespace std;',
+      'void run() { vector<int> v; sort(v.begin(), v.end()); }',
+    ].join('\n') + '\n');
+    const defs = collectDefinitions([file]);
+    const { libraryNodes, edges } = collectCalls([file], defs);
+    const lib = libraryNodes.find((n: any) => n.libraryName === 'std' && n.name === 'sort');
+    assert.ok(lib, 'sort should resolve to a std library node via the open namespace');
+    const runId = (Object.values(defs) as any[]).find((d: any) => d.name === 'run')?.id;
+    assert.ok(edges.some((e: any) => e.source === runId && e.target === lib.id && e.isLibraryEdge));
+  });
+
+  test('multiple `using namespace` → ambiguous unqualified call is dropped', () => {
+    const file = path.join(tmpDir, 'MultiNs.cpp');
+    fs.writeFileSync(file, [
+      'namespace a { void thing(); }',
+      'namespace b { void other(); }',
+      'using namespace a;',
+      'using namespace b;',
+      'void run() { mystery(); }',
+    ].join('\n') + '\n');
+    const defs = collectDefinitions([file]);
+    const { libraryNodes, edges } = collectCalls([file], defs);
+    assert.ok(!libraryNodes.some((n: any) => n.name === 'mystery'),
+      'unqualified call under multiple open namespaces must not be attributed');
+    const runId = (Object.values(defs) as any[]).find((d: any) => d.name === 'run')?.id;
+    assert.ok(!edges.some((e: any) => e.source === runId && e.isLibraryEdge));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// method resolution is receiver-aware (fix #3)
+// ---------------------------------------------------------------------------
+
+suite('collectCalls — receiver-aware method resolution', () => {
+  let tmpDir: string;
+
+  suiteSetup(async () => { await cppAnalyzer.init(); });
+  setup(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-cpp-recv-')); });
+  teardown(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  test('recv.method() links to the member, not a same-named free function', () => {
+    const file = path.join(tmpDir, 'Recv.cpp');
+    fs.writeFileSync(file, [
+      'void process() {}',               // free function — must NOT be a target
+      'class Worker {',
+      ' public:',
+      '  void process() {}',             // member — the correct target
+      '};',
+      'void run() { Worker w; w.process(); }',
+    ].join('\n') + '\n');
+    const defs = collectDefinitions([file]);
+    const { edges } = collectCalls([file], defs);
+    const list = Object.values(defs) as any[];
+    const runId    = list.find((d: any) => d.name === 'run')?.id;
+    const memberId = list.find((d: any) => d.name === 'process' && d.className === 'Worker')?.id;
+    const freeId   = list.find((d: any) => d.name === 'process' && !d.className)?.id;
+    assert.ok(runId && memberId && freeId);
+    assert.ok(edges.some((e: any) => e.source === runId && e.target === memberId),
+      'edge to the Worker::process member');
+    assert.ok(!edges.some((e: any) => e.source === runId && e.target === freeId),
+      'no edge to the free process() function');
+  });
+
+  test('this->method() resolves to the enclosing class only', () => {
+    const file = path.join(tmpDir, 'ThisOnly.cpp');
+    fs.writeFileSync(file, [
+      'class A { public: void foo() {} void run() { this->foo(); } };',
+      'class B { public: void foo() {} };',
+    ].join('\n') + '\n');
+    const defs = collectDefinitions([file]);
+    const { edges } = collectCalls([file], defs);
+    const list = Object.values(defs) as any[];
+    const runId = list.find((d: any) => d.name === 'run')?.id;
+    const aFoo  = list.find((d: any) => d.name === 'foo' && d.className === 'A')?.id;
+    const bFoo  = list.find((d: any) => d.name === 'foo' && d.className === 'B')?.id;
+    assert.ok(runId && aFoo && bFoo);
+    assert.ok(edges.some((e: any) => e.source === runId && e.target === aFoo),
+      'this->foo() links to A::foo');
+    assert.ok(!edges.some((e: any) => e.source === runId && e.target === bFoo),
+      'this->foo() must not link to B::foo');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parse cache — each file is parsed once per analysis run (fix #1)
+// ---------------------------------------------------------------------------
+
+suite('parse cache (single-parse)', () => {
+  let tmpDir: string;
+
+  suiteSetup(async () => { await cppAnalyzer.init(); });
+  setup(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-cpp-cache-')); });
+  teardown(() => {
+    cppAnalyzer.clearTreeCache();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('collectDefinitions + collectCalls parse each file once, not twice', () => {
+    const fileA = path.join(tmpDir, 'A.cpp');
+    const fileB = path.join(tmpDir, 'B.cpp');
+    fs.writeFileSync(fileA, 'int helper() { return 1; }\n');
+    fs.writeFileSync(fileB, 'void run() { helper(); }\n');
+    const files = [fileA, fileB];
+
+    cppAnalyzer.clearTreeCache();
+    cppAnalyzer._stats.parses = 0;
+    const defs = collectDefinitions(files);
+    collectCalls(files, defs);
+    assert.strictEqual(cppAnalyzer._stats.parses, files.length,
+      'two files → two parses across both passes (cache reused), not four');
+  });
+});

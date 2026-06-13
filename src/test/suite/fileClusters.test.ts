@@ -43,6 +43,23 @@ suite('fileClusters.buildSkeletonElements', () => {
     assert.strictEqual(file.data.language, 'python');
   });
 
+  test('folder/file nodes carry count sub-labels and glyph flags (design)', () => {
+    // Root folder: name + recursive file count, folder glyph.
+    const root = buildSkeletonElements(makeTree(), new Set(), new Set(), null)[0].data;
+    assert.strictEqual(root.label, 'p');
+    assert.strictEqual(root._sub, '3 files');
+    assert.strictEqual(root.isFolderCluster, true);
+    assert.ok(root._size > 0);
+
+    // A parsed file: name + function count, file glyph + language.
+    const graphData = { nodes: [{ id: 'f1', name: 'a', file: '/p/src/a.ts', line: 1, language: 'typescript' }], edges: [] };
+    const els = buildSkeletonElements(makeTree(), new Set(['/p', '/p/src']), new Set(['/p/src']), graphData);
+    const aFile = els.find((e: any) => e.data.id === 'file::/p/src/a.ts').data;
+    assert.strictEqual(aFile._sub, '1 fn');
+    assert.strictEqual(aFile.isFileCluster, true);
+    assert.strictEqual(aFile.language, 'typescript');
+  });
+
   test('expanding a sub-folder → reveals its files (descendant drill-down)', () => {
     const els = buildSkeletonElements(makeTree(), new Set(['/p', '/p/src']), new Set(), null);
     assert.deepStrictEqual(

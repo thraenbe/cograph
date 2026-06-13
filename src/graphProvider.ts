@@ -393,7 +393,7 @@ export class GraphProvider {
     const structure = scanStructure(workspaceRoot);
     this.currentStructure = structure;
     const cfg = vscode.workspace.getConfiguration('cograph');
-    const threshold = cfg.get<number>('largeRepo.fileThreshold', 2000);
+    const threshold = cfg.get<number>('largeRepo.fileThreshold', 400);
     const autoEngage = cfg.get<boolean>('largeRepo.autoEngage', true) && structure.totalFiles >= threshold;
     this.skeletonActive = autoEngage;
 

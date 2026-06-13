@@ -124,6 +124,29 @@ function generateCloudPath(R, bumpCount) {
   return d + ' Z';
 }
 
+// Rounded-square "folder" glyph centered at (0,0), sized to ~R.
+function roundedSquarePath(R) {
+  const s = R * 0.9;                  // half-side
+  const r = Math.min(s * 0.32, s);   // corner radius
+  return `M ${-s + r} ${-s} L ${s - r} ${-s} Q ${s} ${-s} ${s} ${-s + r}`
+    + ` L ${s} ${s - r} Q ${s} ${s} ${s - r} ${s}`
+    + ` L ${-s + r} ${s} Q ${-s} ${s} ${-s} ${s - r}`
+    + ` L ${-s} ${-s + r} Q ${-s} ${-s} ${-s + r} ${-s} Z`;
+}
+
+// Plain circle path (two arcs), centered at (0,0).
+function circlePath(R) {
+  return `M ${-R} 0 A ${R} ${R} 0 1 0 ${R} 0 A ${R} ${R} 0 1 0 ${-R} 0 Z`;
+}
+
+// Shape selector for the cloud-node layer: folders → rounded square, files →
+// circle, everything else (connectivity/structural clusters) → cloud silhouette.
+function generateNodeShapePath(d, R) {
+  if (d.isFolderCluster) { return roundedSquarePath(R); }
+  if (d.isFileCluster) { return circlePath(R); }
+  return generateCloudPath(R, bumpCountFor(d));
+}
+
 // Creates (or recreates) a per-cluster hard-stop linearGradient in <defs>.
 // Returns the fill string e.g. 'url(#cograph-lang-grad-...)'.
 function ensureClusterGradient(d) {
@@ -145,6 +168,8 @@ function ensureClusterGradient(d) {
 
 // Language colors on clusters are always shown regardless of languageMode toggle.
 function resolveClusterFill(d) {
+  if (d.isFolderCluster) return getFolderColor(d._folderPath || d.id);
+  if (d.isFileCluster) return getLanguageColor(d.language) || getCSSVar('--cograph-node-cluster');
   if (d.languageBreakdown?.length > 1) return ensureClusterGradient(d);
   if (d.languageBreakdown?.length === 1) return getLanguageColor(d.languageBreakdown[0].lang) ?? getCSSVar('--cograph-node-cluster');
   return getCSSVar('--cograph-node-cluster');
@@ -226,8 +251,16 @@ function ticked() {
     this.setAttribute('transform', `translate(${d.x},${d.y})`);
   });
   state.svgLabels?.each(function (d) {
+    const below = d.isFolderCluster || d.isFileCluster;
+    const y = below ? d.y + nodeRadius(d) + 6
+      : (d.isCluster || d.isSynthetic) ? d.y
+      : d.y + nodeRadius(d) + 10;
     this.setAttribute('x', d.x);
-    this.setAttribute('y', (d.isCluster || d.isSynthetic) ? d.y : d.y + nodeRadius(d) + 10);
+    this.setAttribute('y', y);
+    // Multi-line (name + count) labels: each tspan needs its own x to stay centered.
+    for (let i = 0; i < this.children.length; i++) {
+      this.children[i].setAttribute('x', d.x);
+    }
   });
   state.svgLibNodes?.each(function (d) {
     const r = nodeRadius(d);
@@ -421,21 +454,23 @@ function renderCloudNodes(visibleSet) {
     .data(state.currentNodes.filter(n => (n.isCluster || n.isSynthetic) && !n.isLibrary), d => d.id)
     .join(
       enter => enter.append('path').attr('class', 'cloud-node')
-        .attr('d', d => generateCloudPath(nodeRadius(d), bumpCountFor(d)))
+        .attr('d', d => generateNodeShapePath(d, nodeRadius(d)))
         .style('fill', d => resolveClusterFill(d))
-        .attr('stroke', 'none')
+        .attr('stroke', d => d.isFolderCluster ? 'rgba(255,255,255,0.35)' : 'none')
+        .attr('stroke-width', d => d.isFolderCluster ? 1.5 : 0)
         .attr('filter', 'url(#glow)')
         .attr('cursor', 'pointer')
         .style('display', d => visibleSet.has(d.id) ? null : 'none')
         .style('opacity', 0)
         .call(sel => sel.transition().duration(350).style('opacity', 1)),
       update => update
-        .attr('stroke', 'none')
+        .attr('stroke', d => d.isFolderCluster ? 'rgba(255,255,255,0.35)' : 'none')
+        .attr('stroke-width', d => d.isFolderCluster ? 1.5 : 0)
         .attr('filter', 'url(#glow)')
         .style('display', d => visibleSet.has(d.id) ? null : 'none')
         .style('fill', d => resolveClusterFill(d))
         .call(sel => sel.transition().duration(350)
-          .attr('d', d => generateCloudPath(nodeRadius(d), bumpCountFor(d)))
+          .attr('d', d => generateNodeShapePath(d, nodeRadius(d)))
           .style('opacity', 1)),
       exit => exit
         .each(function(d) {
@@ -462,11 +497,19 @@ function renderLabels(visibleSet) {
   return labelG.selectAll('text')
     .data(state.currentNodes.filter(n => !n.isLibrary), d => d.id)
     .join('text')
-    .text(d => d.label)
+    .each(function (d) {
+      // Folder/file glyphs carry a dim second line with the count (e.g. "23 files").
+      const t = d3.select(this);
+      t.selectAll('tspan').remove();
+      t.append('tspan').text(d.label);
+      if (d._sub) {
+        t.append('tspan').attr('dy', '1.15em').attr('font-size', '0.78em').attr('opacity', 0.6).text(d._sub);
+      }
+    })
     .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
     .attr('fill', d => (d.isCluster || d.isSynthetic) ? getCSSVar('--cograph-label-cluster') : getCSSVar('--cograph-label-default'))
     .attr('text-anchor', 'middle')
-    .attr('dominant-baseline', d => (d.isCluster || d.isSynthetic) ? 'middle' : 'auto')
+    .attr('dominant-baseline', d => (d.isFolderCluster || d.isFileCluster) ? 'hanging' : (d.isCluster || d.isSynthetic) ? 'middle' : 'auto')
     .attr('pointer-events', 'none')
     .style('display', d => visibleSet.has(d.id) ? null : 'none')
     .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)

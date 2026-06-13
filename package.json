@@ -193,9 +193,9 @@
         },
         "cograph.largeRepo.fileThreshold": {
           "type": "number",
-          "default": 2000,
+          "default": 400,
           "minimum": 1,
-          "description": "Source-file count at or above which CoGraph auto-engages folder-cluster mode."
+          "description": "Source-file count at or above which CoGraph auto-engages folder-cluster mode (progressive drill-down)."
         }
       }
     }

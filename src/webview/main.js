@@ -13,6 +13,19 @@ window.clearDirty = function clearDirty() {
   vscode.postMessage({ type: 'dirty-state', dirty: false });
 };
 
+// Lazy per-folder parse: ask the extension to analyze a folder's direct files,
+// showing a spinner on the folder/file nodes until the `graph-patch` arrives.
+window.requestFolderParse = function requestFolderParse(folderPath) {
+  const info = state.structureTree && state.structureTree.folders
+    ? state.structureTree.folders[folderPath] : null;
+  const files = info && info.files ? info.files : [];
+  if (!files.length) { return; }
+  if (state.parsingFolders.has(folderPath)) { return; } // already in flight
+  state.parsingFolders.add(folderPath);
+  if (typeof applyFileClusters === 'function') { applyFileClusters(); }
+  vscode.postMessage({ type: 'expand-folder', folderPath, files });
+};
+
 // ── State ─────────────────────────────────────────────────────────────────────
 const settings = {
   existingFilesOnly: false,
@@ -314,6 +327,37 @@ window.addEventListener('message', (event) => {
   if (message.type === 'structure') {
     if (typeof renderStructureSkeleton === 'function') {
       renderStructureSkeleton(message.tree, message.autoEngage);
+    }
+    return;
+  }
+  if (message.type === 'graph-patch') {
+    if (message.fileGitStatus) { state.fileGitStatus = message.fileGitStatus; }
+    if (message.parsedFolder) { state.parsingFolders.delete(message.parsedFolder); }
+    if (state.fileClusterMode) {
+      ingestGraphData(message.patch, message.parsedFolder);
+    } else {
+      // Normal mode (e.g. incremental save): merge and re-render the full graph.
+      mergeGraphDataPatch(message.patch);
+      if (state.graphData) { renderGraph(state.graphData, true); }
+    }
+    if (state.gitMode && state.gitAvailable) { applyGitColors(); }
+    return;
+  }
+  if (message.type === 'analysis-state') {
+    if (message.parsingFolder) {
+      if (message.error) { state.parsingFolders.delete(message.parsingFolder); }
+      else { state.parsingFolders.add(message.parsingFolder); }
+      if (state.fileClusterMode) { applyFileClusters(); }
+    }
+    if (message.backgroundParsing !== undefined) {
+      state.backgroundParsing = message.backgroundParsing;
+      const cancelBtn = document.getElementById('btn-cancel-analysis');
+      const progress = document.getElementById('bg-progress');
+      if (cancelBtn) { cancelBtn.style.display = message.backgroundParsing ? '' : 'none'; }
+      if (progress) {
+        progress.style.display = message.backgroundParsing ? '' : 'none';
+        progress.textContent = message.backgroundParsing ? 'Analyzing…' : '';
+      }
     }
     return;
   }

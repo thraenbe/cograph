@@ -58,7 +58,7 @@ function fileElement(filePath, fnCount, parsed, parsing) {
   return {
     data: {
       id: 'file::' + filePath,
-      label: fcBasename(filePath),
+      label: fcBasename(filePath) + (parsing ? ' ⏳' : ''),
       _size: parsed && fnCount ? fcClusterSize(fnCount) : 12,
       isFileCluster: true,
       isCluster: true,
@@ -154,7 +154,9 @@ function applyFileClusters() {
  * just that folder. Nodes are merged by id so drill-down state and prior data
  * survive. Re-renders the current view.
  */
-function ingestGraphData(data, parsedFolder) {
+/** Merge a patch into state.graphData by id (deduped edges, unioned files) and
+ *  recompute importance scores. No re-render. */
+function mergeGraphDataPatch(data) {
   if (!data) { return; }
   if (!state.graphData) {
     state.graphData = { nodes: [], edges: [], files: [] };
@@ -176,7 +178,10 @@ function ingestGraphData(data, parsedFolder) {
       edges: state.graphData.edges.filter(e => !e.isLibraryEdge),
     });
   }
+}
 
+function ingestGraphData(data, parsedFolder) {
+  mergeGraphDataPatch(data);
   if (parsedFolder) {
     state.parsedFolders.add(parsedFolder);
   } else if (state.structureTree && state.structureTree.folders) {
@@ -190,8 +195,15 @@ function ingestGraphData(data, parsedFolder) {
 function toggleFileClusterExpand(d) {
   if (d.isFolderCluster) {
     const fp = d._folderPath;
-    if (state.expandedFolders.has(fp)) { state.expandedFolders.delete(fp); }
-    else { state.expandedFolders.add(fp); }
+    if (state.expandedFolders.has(fp)) {
+      state.expandedFolders.delete(fp);
+    } else {
+      state.expandedFolders.add(fp);
+      // Lazily parse this folder's direct files on first expand.
+      if (!state.parsedFolders.has(fp) && typeof window !== 'undefined') {
+        window.requestFolderParse?.(fp);
+      }
+    }
     applyFileClusters();
     if (typeof window !== 'undefined') { window.markDirty?.(); }
     return;
@@ -205,7 +217,10 @@ function toggleFileClusterExpand(d) {
       applyFileClusters();
       if (typeof window !== 'undefined') { window.markDirty?.(); }
     } else if (typeof window !== 'undefined') {
-      window.requestFolderParse?.(folder); // lazy parse (B-P2); no-op until wired
+      // Not parsed yet: pre-expand the file so it reveals its functions as soon
+      // as its folder finishes parsing, and kick off the lazy parse.
+      state.expandedFolders.add(fp);
+      window.requestFolderParse?.(folder);
     }
   }
 }
@@ -243,6 +258,7 @@ if (typeof window !== 'undefined') {
   window.renderStructureSkeleton = renderStructureSkeleton;
   window.toggleFileClusterExpand = toggleFileClusterExpand;
   window.ingestGraphData = ingestGraphData;
+  window.mergeGraphDataPatch = mergeGraphDataPatch;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -251,6 +267,7 @@ if (typeof module !== 'undefined') {
     buildSkeletonElements,
     applyFileClusters,
     ingestGraphData,
+    mergeGraphDataPatch,
     toggleFileClusterExpand,
     enterFileClusterMode,
     exitFileClusterMode,

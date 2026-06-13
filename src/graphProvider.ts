@@ -7,6 +7,7 @@ export { MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from './analyzerRunner';
 import { GitService } from './gitService';
 import { AnalyzerRunner, type AnalyzerRunMeta } from './analyzerRunner';
 import { scanStructure, type StructureTree } from './structureScanner';
+import { mergeGraph } from './graphMerge';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
@@ -264,6 +265,15 @@ export class GraphProvider {
         this.cachedGraph = undefined;
         if (this.panel) { this.panel.webview.html = getLoadingHtml(); }
         this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
+      } else if (message.type === 'expand-folder') {
+        // Lazy per-folder parse: analyze just this folder's files on demand.
+        this.parseSubset(workspaceRoot, message.files ?? [], message.folderPath);
+      } else if (message.type === 'parse-file') {
+        const filePath: string = message.filePath ?? '';
+        this.parseSubset(workspaceRoot, filePath ? [filePath] : [], path.dirname(filePath));
+      } else if (message.type === 'cancel-analysis') {
+        this.analyzerRunner.killAll();
+        this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false, cancelled: true });
       } else if (message.type === 'open-chat') {
         // Focuses the Cograph activity-bar view. The current graph context is
         // already up-to-date — setCurrentGraph is invoked from loadGraph and
@@ -616,6 +626,31 @@ export class GraphProvider {
       tooLarge: meta.statuses.some(s => s.status === 'output-too-large'),
       showRetry: true,
     };
+  }
+
+  /**
+   * Lazily parse a subset of files (a folder's direct files, or one file) and
+   * patch the result into the webview without disturbing the user's drill-down.
+   * Posts `analysis-state` (spinner on/off) and `graph-patch` (merge by id).
+   */
+  private async parseSubset(workspaceRoot: string, files: string[], folderTag: string): Promise<void> {
+    if (!this.panel || files.length === 0) { return; }
+    this.panel.webview.postMessage({ type: 'analysis-state', parsingFolder: folderTag });
+    try {
+      const patch = await this.analyzerRunner.runSubset(workspaceRoot, files);
+      this.cachedGraph = mergeGraph(this.cachedGraph, patch);
+      this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
+      this.gitService.applyGitStatuses(patch.nodes, workspaceRoot);
+      this.panel?.webview.postMessage({
+        type: 'graph-patch',
+        patch,
+        parsedFolder: folderTag,
+        fileGitStatus: this.gitService.fileStatuses,
+      });
+    } catch (err: unknown) {
+      this.outputChannel.appendLine(`Subset parse failed for ${folderTag}: ${(err as Error).message}`);
+      this.panel?.webview.postMessage({ type: 'analysis-state', parsingFolder: folderTag, error: (err as Error).message });
+    }
   }
 
   private async navigateTo(file: string, line: number) {

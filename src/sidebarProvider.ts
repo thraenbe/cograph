@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { GraphIntelligenceResult, ProgressEvent } from './graphIntelligence/provider';
+import type { GraphData } from './graphProvider';
 import { PROVIDER_CATALOG, getProviderInfo, findProviderForModel } from './graphIntelligence/provider';
 import { ChatStore, type ChatMessage, DEFAULT_CHAT_KEY } from './graphIntelligence/chatStore';
 
@@ -11,6 +12,10 @@ export interface SavedGraphMeta {
   description: string;
   savedAt: string;
   file: string;
+  /** True for the special, pinned AI Workflow Graph card. */
+  isWorkflow?: boolean;
+  /** Workflow card lifecycle state; undefined for ordinary saved graphs. */
+  status?: 'before' | 'generating' | 'ready';
 }
 
 // Forward reference — the actual GraphProvider is passed in at construction time
@@ -28,6 +33,27 @@ export interface GraphController {
     onProgress?: (ev: ProgressEvent) => void,
   ): Promise<GraphIntelligenceResult>;
   abortIntelligence?(): void;
+  generateWorkflow?(
+    providerId: string,
+    onProgress?: (ev: ProgressEvent) => void,
+  ): Promise<GraphIntelligenceResult>;
+  showWorkflowGraph?(graph: GraphData, filePath: string, name: string): Promise<void>;
+}
+
+/** Filename of the special, pinned AI Workflow Graph inside `.cograph/`. */
+export const WORKFLOW_FILE = '__workflow__.json';
+
+/** Map a streaming progress event to a short label for the generating card. */
+export function workflowProgressDetail(ev: ProgressEvent): string {
+  switch (ev.kind) {
+    case 'init': return 'analyzing graph…';
+    case 'thinking': return 'thinking…';
+    case 'tool-use': return ev.name ? `${ev.name}…` : 'working…';
+    case 'text': return 'writing summary…';
+    case 'result': return 'finishing…';
+    case 'error': return 'error';
+    default: return 'working…';
+  }
 }
 
 interface LastUsage {
@@ -52,6 +78,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   /** Current saved-graph context that the chat is reasoning about, if any. */
   private _currentGraph: { name: string; file: string } | null = null;
+
+  /** Transient: true while the AI Workflow Graph is being generated (not persisted). */
+  private _workflowGenerating = false;
 
   /** Usage data from the most recent successful turn, surfaced by /cost. */
   private _lastUsage: LastUsage | null = null;
@@ -203,6 +232,22 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             await this._graphController.loadGraph(data, msg.file);
           } catch (err) {
             vscode.window.showErrorMessage(`CoGraph: Failed to load graph — ${(err as Error).message}`);
+          }
+          break;
+        }
+        case 'workflow-generate':
+        case 'workflow-update':
+          await this._generateWorkflow();
+          break;
+        case 'workflow-open': {
+          try {
+            const raw = fs.readFileSync(msg.file, 'utf8');
+            const data = JSON.parse(raw);
+            if (!data?.graph?.nodes) { throw new Error('Workflow graph not generated yet.'); }
+            if (!this._graphController.showWorkflowGraph) { throw new Error('Workflow graphs not supported.'); }
+            await this._graphController.showWorkflowGraph(data.graph, msg.file, data.name || 'Workflow');
+          } catch (err) {
+            vscode.window.showErrorMessage(`CoGraph: Failed to open workflow graph — ${(err as Error).message}`);
           }
           break;
         }
@@ -408,8 +453,82 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private _sendGraphList(): void {
-    const files = this._listCographFiles();
+    const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const regular = this._listCographFiles();
+    // The Workflow Graph is always the first (pinned) card, in one of three states.
+    const files = ws
+      ? [this._workflowMeta(path.join(ws, '.cograph')), ...regular]
+      : regular;
     this._view?.webview.postMessage({ type: 'graph-list', files });
+  }
+
+  /** Build the pinned Workflow card metadata from disk + transient generating state. */
+  private _workflowMeta(dir: string): SavedGraphMeta {
+    const file = path.join(dir, WORKFLOW_FILE);
+    let status: SavedGraphMeta['status'] = 'before';
+    let savedAt = '';
+    if (this._workflowGenerating) {
+      status = 'generating';
+    } else if (fs.existsSync(file)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (data && data.graph && Array.isArray(data.graph.nodes)) {
+          status = 'ready';
+          savedAt = data.savedAt || '';
+        }
+      } catch { /* corrupt file → treat as before */ }
+    }
+    return { name: 'Workflow', description: '', savedAt, file, isWorkflow: true, status };
+  }
+
+  /**
+   * Generate (or re-generate) the AI Workflow Graph: drive the provider through
+   * GraphController.generateWorkflow, stream progress to the pinned card, persist
+   * the normalized result to `.cograph/__workflow__.json`, and refresh the list.
+   */
+  private async _generateWorkflow(): Promise<void> {
+    if (this._workflowGenerating) { return; }
+    const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!ws) { vscode.window.showErrorMessage('CoGraph: No workspace folder open.'); return; }
+    if (!this._graphController.generateWorkflow) {
+      vscode.window.showErrorMessage('CoGraph: Workflow generation not available.');
+      return;
+    }
+    const provider = vscode.workspace.getConfiguration('cograph')
+      .get<string>('graphIntelligence.provider', 'claude-code');
+
+    this._workflowGenerating = true;
+    this._sendGraphList();
+    this._postWorkflowStatus('generating', 'starting…');
+    try {
+      const onProgress = (ev: ProgressEvent) => this._postWorkflowStatus('generating', workflowProgressDetail(ev));
+      const result = await this._graphController.generateWorkflow(provider, onProgress);
+      const dir = path.join(ws, '.cograph');
+      if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+      const file = path.join(dir, WORKFLOW_FILE);
+      const payload = {
+        version: 1,
+        name: 'Workflow',
+        isWorkflow: true,
+        status: 'ready',
+        description: '',
+        savedAt: new Date().toISOString(),
+        graph: result.graph,
+        text: result.text,
+      };
+      fs.writeFileSync(file, JSON.stringify(payload, null, 2), 'utf8');
+      this._workflowGenerating = false;
+      this._sendGraphList();
+      this.appendSystem('Workflow graph generated.');
+    } catch (err) {
+      this._workflowGenerating = false;
+      this._sendGraphList();
+      vscode.window.showErrorMessage(`CoGraph: Workflow generation failed — ${(err as Error).message}`);
+    }
+  }
+
+  private _postWorkflowStatus(status: 'before' | 'generating' | 'ready', detail?: string): void {
+    this._view?.webview.postMessage({ type: 'workflow-status', status, detail });
   }
 
   private _listCographFiles(): SavedGraphMeta[] {
@@ -418,7 +537,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const dir = path.join(ws, '.cograph');
     if (!fs.existsSync(dir)) { return []; }
     return fs.readdirSync(dir)
-      .filter(f => f.endsWith('.json'))
+      .filter(f => f.endsWith('.json') && f !== WORKFLOW_FILE)
       .sort()
       .map(f => {
         try {
@@ -596,6 +715,57 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       background: var(--vscode-list-hoverBackground, #2a2d2e);
       border-color: var(--vscode-focusBorder, #007fd4);
     }
+
+    /* ── Pinned AI Workflow Graph card (3 states) ───────────────────── */
+    .workflow-card {
+      border: 2px dotted var(--vscode-focusBorder, #007fd4);
+      border-radius: 6px;
+      background: var(--vscode-editor-background, #1e1e1e);
+      padding: 9px 11px;
+      display: grid;
+      gap: 5px;
+      cursor: pointer;
+      margin-bottom: 6px;
+    }
+    .workflow-card.before:hover,
+    .workflow-card.ready:hover {
+      background: var(--vscode-list-hoverBackground, #2a2d2e);
+    }
+    .workflow-card.ready {
+      border-style: solid;
+      border-width: 3px;
+    }
+    .workflow-card.generating {
+      cursor: default;
+      border-style: dashed;
+      background-image: repeating-linear-gradient(45deg,
+        transparent, transparent 6px,
+        rgba(127,127,127,0.07) 6px, rgba(127,127,127,0.07) 12px);
+      background-size: 200% 100%;
+      animation: wf-march 0.8s linear infinite;
+    }
+    @keyframes wf-march { from { background-position: 0 0; } to { background-position: 34px 0; } }
+    .wf-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .wf-title {
+      font-size: 12px; font-weight: 600; color: var(--vscode-foreground);
+      display: flex; align-items: center; gap: 6px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .wf-glyph { color: var(--vscode-focusBorder, #007fd4); font-weight: 700; }
+    .wf-sub { font-size: 11px; opacity: 0.7; }
+    .btn-wf-update {
+      font-size: 10px; padding: 2px 7px; border-radius: 4px; cursor: pointer; border: none;
+      background: var(--vscode-button-secondaryBackground, #3a3d41);
+      color: var(--vscode-button-secondaryForeground, #fff);
+    }
+    .btn-wf-update:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
+    .wf-bar { height: 3px; border-radius: 2px; overflow: hidden; background: rgba(127,127,127,0.2); }
+    .wf-bar > span {
+      display: block; height: 100%; width: 40%; border-radius: 2px;
+      background: var(--vscode-focusBorder, #007fd4);
+      animation: wf-slide 1.1s ease-in-out infinite;
+    }
+    @keyframes wf-slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
 
     .card-name {
       font-size: 12px;
@@ -1384,30 +1554,86 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       } catch { return ''; }
     }
 
+    function renderWorkflowCard(g) {
+      const status = g.status || 'before';
+      const safeFile = g.file.replace(/"/g, '&quot;');
+      if (status === 'ready') {
+        return \`<div class="workflow-card ready" data-file="\${safeFile}" title="Open the AI Workflow Graph">
+          <div class="wf-row">
+            <span class="wf-title"><span class="wf-glyph">⇉</span> Workflow Graph</span>
+            <button class="btn-wf-update" title="Regenerate the workflow graph">Update</button>
+          </div>
+          <div class="wf-sub">Backend → Frontend · AI generated</div>
+        </div>\`;
+      }
+      if (status === 'generating') {
+        return \`<div class="workflow-card generating">
+          <div class="wf-row">
+            <span class="wf-title"><span class="wf-glyph">⇉</span> Generating workflow graph</span>
+          </div>
+          <div class="wf-sub" id="wf-detail">working…</div>
+          <div class="wf-bar"><span></span></div>
+        </div>\`;
+      }
+      return \`<div class="workflow-card before" title="Generate the AI Workflow Graph">
+        <div class="wf-row">
+          <span class="wf-title"><span class="wf-glyph">⇉</span> Generate workflow graph</span>
+        </div>
+        <div class="wf-sub">AI-generated Backend → Frontend pipeline</div>
+      </div>\`;
+    }
+
+    function wireWorkflowCard(list) {
+      const before = list.querySelector('.workflow-card.before');
+      if (before) {
+        before.addEventListener('click', () => vscode.postMessage({ type: 'workflow-generate' }));
+      }
+      const ready = list.querySelector('.workflow-card.ready');
+      if (ready) {
+        ready.addEventListener('click', (e) => {
+          if (e.target.closest('.btn-wf-update')) { return; }
+          vscode.postMessage({ type: 'workflow-open', file: ready.dataset.file });
+        });
+        const upd = ready.querySelector('.btn-wf-update');
+        if (upd) {
+          upd.addEventListener('click', (e) => {
+            e.stopPropagation();
+            vscode.postMessage({ type: 'workflow-update' });
+          });
+        }
+      }
+    }
+
     function renderCards(graphs, query) {
       const list = document.getElementById('graph-list');
+      const workflow = graphs.find(g => g.isWorkflow);
+      const rest = graphs.filter(g => !g.isWorkflow);
       const filtered = query
-        ? graphs.filter(g => g.name.toLowerCase().includes(query) || g.description.toLowerCase().includes(query))
-        : graphs;
+        ? rest.filter(g => g.name.toLowerCase().includes(query) || g.description.toLowerCase().includes(query))
+        : rest;
 
+      let html = workflow ? renderWorkflowCard(workflow) : '';
       if (filtered.length === 0) {
-        list.innerHTML = '<div class="empty-state">' + (query ? 'No matches.' : 'No saved graphs yet.') + '</div>';
-        return;
+        if (query) { html += '<div class="empty-state">No matches.</div>'; }
+        else if (!rest.length) { html += '<div class="empty-state">No saved graphs yet.</div>'; }
+      } else {
+        html += filtered.map(g => {
+          const desc = g.description || formatDate(g.savedAt) || '—';
+          const safeFile = g.file.replace(/"/g, '&quot;');
+          const safeName = g.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const safeDesc = desc.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          return \`<div class="graph-card" data-file="\${safeFile}" data-name="\${safeName}">
+            <div class="card-name">\${safeName}</div>
+            <div class="card-bottom">
+              <span class="card-desc">\${safeDesc}</span>
+              <button class="btn-timeline" data-file="\${safeFile}" data-name="\${safeName}" title="Open timeline view for this graph">Timeline</button>
+            </div>
+          </div>\`;
+        }).join('');
       }
+      list.innerHTML = html;
 
-      list.innerHTML = filtered.map(g => {
-        const desc = g.description || formatDate(g.savedAt) || '—';
-        const safeFile = g.file.replace(/"/g, '&quot;');
-        const safeName = g.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const safeDesc = desc.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return \`<div class="graph-card" data-file="\${safeFile}" data-name="\${safeName}">
-          <div class="card-name">\${safeName}</div>
-          <div class="card-bottom">
-            <span class="card-desc">\${safeDesc}</span>
-            <button class="btn-timeline" data-file="\${safeFile}" data-name="\${safeName}" title="Open timeline view for this graph">Timeline</button>
-          </div>
-        </div>\`;
-      }).join('');
+      wireWorkflowCard(list);
 
       list.querySelectorAll('.graph-card').forEach(card => {
         card.addEventListener('click', () => {
@@ -1494,6 +1720,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       } else if (msg.type === 'graphs-height') {
         if (typeof msg.px === 'number' && msg.px > 0) {
           document.body.style.setProperty('--cg-graphs-height', msg.px + 'px');
+        }
+      } else if (msg.type === 'workflow-status') {
+        if (msg.status === 'generating' && msg.detail) {
+          const d = document.getElementById('wf-detail');
+          if (d) { d.textContent = msg.detail; }
         }
       }
     });

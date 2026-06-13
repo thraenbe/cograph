@@ -13,6 +13,19 @@ window.clearDirty = function clearDirty() {
   vscode.postMessage({ type: 'dirty-state', dirty: false });
 };
 
+// Lazy per-folder parse: ask the extension to analyze a folder's direct files,
+// showing a spinner on the folder/file nodes until the `graph-patch` arrives.
+window.requestFolderParse = function requestFolderParse(folderPath) {
+  const info = state.structureTree && state.structureTree.folders
+    ? state.structureTree.folders[folderPath] : null;
+  const files = info && info.files ? info.files : [];
+  if (!files.length) { return; }
+  if (state.parsingFolders.has(folderPath)) { return; } // already in flight
+  state.parsingFolders.add(folderPath);
+  if (typeof applyFileClusters === 'function') { applyFileClusters(); }
+  vscode.postMessage({ type: 'expand-folder', folderPath, files });
+};
+
 // ── State ─────────────────────────────────────────────────────────────────────
 const settings = {
   existingFilesOnly: false,
@@ -110,7 +123,7 @@ function applyDisplaySettings() {
     .attr('stroke-width', d => resolveNodeStrokeWidth(d));
   state.svgCloudNodes?.attr('d', d => generateCloudPath(nodeRadius(d), bumpCountFor(d)));
   state.svgLinks
-    .attr('stroke-width', settings.linkThickness)
+    .attr('stroke-width', d => settings.linkThickness * (typeof edgeWeightScale === 'function' ? edgeWeightScale(d._count) : 1))
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);
   // Update library node dimensions to match new node size
   state.svgLibNodes
@@ -146,8 +159,37 @@ function rerunLayout() {
 }
 
 // ── Complexity ────────────────────────────────────────────────────────────────
+function applyWorkflowComplexity() {
+  const projectData = {
+    nodes: state.graphData.nodes.filter(n => !n.isLibrary),
+    edges: state.graphData.edges.filter(e => !e.isLibraryEdge),
+    workflow: state.graphData.workflow,
+  };
+  const degreeMap = new Map();
+  projectData.nodes.forEach(n => degreeMap.set(n.id, 0));
+  projectData.edges.forEach(e => {
+    if (e.source === '::MAIN::0') return;
+    degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
+    degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
+  });
+  const wv = deriveWorkflowView(projectData, state.workflowLevel);
+  state.workflowStageCount = wv.stageCount;
+  state.workflowDividerStage = wv.dividerStage;
+  const elements = buildClusteredElements(projectData, wv, 0.5, state.importanceScores, new Set(), degreeMap);
+  // Carry pipeline stage + tier onto each rendered node so the layered layout can place it.
+  for (const el of elements) {
+    if (el.data.source === undefined) {
+      const lay = wv.layout.get(el.data.id);
+      if (lay) { el.data._stage = lay.stage; el.data._tier = lay.tier; }
+    }
+  }
+  renderElements(elements, new Map());
+}
+
 function applyComplexity() {
+  if (state.fileClusterMode) { applyFileClusters(); return; }
   if (!state.graphData || !state.importanceScores) return;
+  if (state.renderMode === 'workflow') { applyWorkflowComplexity(); return; }
   const projectData = {
     nodes: state.graphData.nodes.filter(n => !n.isLibrary),
     edges: state.graphData.edges.filter(e => !e.isLibraryEdge),
@@ -248,8 +290,26 @@ function renderGraph(data, isReanalysis = false) {
   state.expandedLibClusters = new Set();
   if (!isReanalysis) { state.hasFitted = false; }
 
+  // Detect the AI Workflow Graph (its presence is marked by graph.workflow).
+  const wasWorkflow = state.renderMode === 'workflow';
+  const isWorkflow = !!(data.workflow && Array.isArray(data.workflow.clusters));
+  state.renderMode = isWorkflow ? 'workflow' : 'force';
+  const levels = (typeof WORKFLOW_LEVELS !== 'undefined') ? WORKFLOW_LEVELS : 10;
+  if (isWorkflow) {
+    state.workflowStageCount = data.workflow.stageCount || 1;
+    state.workflowDividerStage = Number.isFinite(data.workflow.dividerStage)
+      ? data.workflow.dividerStage : (state.workflowStageCount - 1);
+    if (!wasWorkflow) { state.workflowLevel = 0; state.hasFitted = false; } // start least detailed
+    const slider = document.getElementById('slider-complexity');
+    const valEl = document.getElementById('val-complexity');
+    if (slider) slider.value = String(state.workflowLevel / Math.max(1, levels - 1));
+    if (valEl) valEl.textContent = String(state.workflowLevel);
+  } else if (wasWorkflow) {
+    state.hasFitted = false; // returning to the force layout
+  }
+
   const nodeCount = projectData.nodes.length;
-  if (nodeCount >= 500) {
+  if (!isWorkflow && nodeCount >= 500) {
     state.complexityLevel = Math.max(0.1, Math.min(0.9, 500 / nodeCount));
     const slider = document.getElementById('slider-complexity');
     const valEl = document.getElementById('val-complexity');
@@ -299,9 +359,55 @@ window.addEventListener('message', (event) => {
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     state.allScannedFiles = message.data.files ?? [];
     window.resetTimelineState?.();
-    renderGraph(message.data, message.isReanalysis);
+    if (state.fileClusterMode) {
+      // Skeleton is showing — fold the analysis result into it without losing
+      // the user's drill-down, instead of switching to the full graph.
+      ingestGraphData(message.data);
+    } else {
+      renderGraph(message.data, message.isReanalysis);
+    }
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     if (!message.isReanalysis) { window.clearDirty?.(); }
+    return;
+  }
+  if (message.type === 'structure') {
+    if (typeof renderStructureSkeleton === 'function') {
+      renderStructureSkeleton(message.tree, message.autoEngage);
+    }
+    return;
+  }
+  if (message.type === 'graph-patch') {
+    if (message.fileGitStatus) { state.fileGitStatus = message.fileGitStatus; }
+    if (message.parsedFolder) { state.parsingFolders.delete(message.parsedFolder); }
+    // Incremental/reconcile: drop stale nodes for replaced files before merging fresh ones.
+    if (message.replacedFiles && message.replacedFiles.length && state.graphData) {
+      const rm = new Set(message.replacedFiles);
+      const removedIds = new Set(state.graphData.nodes.filter(n => rm.has(n.file)).map(n => n.id));
+      state.graphData = {
+        nodes: state.graphData.nodes.filter(n => !rm.has(n.file)),
+        edges: state.graphData.edges.filter(e => !removedIds.has(e.source) && !removedIds.has(e.target)),
+        files: state.graphData.files,
+      };
+    }
+    if (state.fileClusterMode) {
+      ingestGraphData(message.patch, message.parsedFolder);
+    } else {
+      // Normal mode (e.g. incremental save): merge and re-render the full graph.
+      mergeGraphDataPatch(message.patch);
+      if (state.graphData) { renderGraph(state.graphData, true); }
+    }
+    if (state.gitMode && state.gitAvailable) { applyGitColors(); }
+    return;
+  }
+  if (message.type === 'analysis-state') {
+    if (message.parsingFolder) {
+      if (message.error) { state.parsingFolders.delete(message.parsingFolder); }
+      else { state.parsingFolders.add(message.parsingFolder); }
+      if (state.fileClusterMode) { applyFileClusters(); }
+    }
+    if (message.backgroundParsing !== undefined) {
+      state.backgroundParsing = message.backgroundParsing;
+    }
     return;
   }
   if (message.type === 'timeline-data') {

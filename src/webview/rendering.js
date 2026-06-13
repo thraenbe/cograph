@@ -48,6 +48,7 @@ defs.append('symbol')
 
 // Transform groups
 const g = svg.append('g');
+const dividerG = g.append('g').attr('class', 'workflow-divider');  // back layer; workflow mode only
 const folderG = g.append('g').attr('class', 'folder-bubbles');
 const fileG   = g.append('g').attr('class', 'file-circles');
 const classG  = g.append('g').attr('class', 'class-bubbles');
@@ -243,6 +244,7 @@ function ticked() {
     fitToView();
   }
 
+  if (state.renderMode === 'workflow') { updateWorkflowDivider(); }
   tickFolderOverlay();   // global from folder.js
   tickClassOverlay();    // global from class.js
 }
@@ -449,6 +451,11 @@ function renderLabels(visibleSet) {
 }
 
 function startSimulation(allLinks) {
+  // Workflow mode rebuilds with a fixed-column layout regardless of pendingReheat.
+  if (state.renderMode === 'workflow') {
+    startWorkflowSimulation(allLinks);
+    return;
+  }
   if (state.pendingReheat && state.simulation) {
     state.pendingReheat = false;
     state.simulation.nodes(state.currentNodes);
@@ -472,6 +479,70 @@ function startSimulation(allLinks) {
     .velocityDecay(0.3)
     .alphaDecay(0.02)
     .on('tick', ticked);
+}
+
+const WORKFLOW_MARGIN_X = 90;
+
+// Left→right layered layout: each node's x is pinned to its pipeline column; the
+// simulation only spreads nodes vertically (charge + collision) within a column.
+function startWorkflowSimulation(allLinks) {
+  state.pendingReheat = false;
+  if (state.simulation) state.simulation.stop();
+  const svgEl = svg.node();
+  const W = svgEl.clientWidth || window.innerWidth;
+  const H = svgEl.clientHeight || window.innerHeight;
+  const stageCount = state.workflowStageCount || 1;
+  state.currentNodes.forEach(d => {
+    d.fx = computeColumnX(d._stage ?? 0, stageCount, W, WORKFLOW_MARGIN_X);
+    d.fy = null;
+    if (!Number.isFinite(d.y)) { d.y = H / 2 + (Math.random() - 0.5) * 200; }
+  });
+  state.simulation = d3.forceSimulation(state.currentNodes)
+    .force('link', d3.forceLink(allLinks).id(d => d.id).distance(40).strength(0.02))
+    .force('charge', d3.forceManyBody().strength(-40))
+    .force('y', d3.forceY(H / 2).strength(0.06))
+    .force('collision', d3.forceCollide(d => nodeRadius(d) + 4))
+    .velocityDecay(0.4)
+    .alphaDecay(0.03)
+    .on('tick', ticked);
+}
+
+// Vertical dotted line dividing backend (left) from frontend (right), with captions.
+function updateWorkflowDivider() {
+  if (state.renderMode !== 'workflow') { dividerG.selectAll('*').remove(); return; }
+  const svgEl = svg.node();
+  const W = svgEl.clientWidth || window.innerWidth;
+  const stageCount = state.workflowStageCount || 1;
+  const x = computeColumnX((state.workflowDividerStage ?? stageCount) - 0.5, stageCount, W, WORKFLOW_MARGIN_X);
+  const stroke = getCSSVar('--cograph-label-cluster') || '#888';
+
+  dividerG.selectAll('line.wf-divider-line')
+    .data([x])
+    .join('line')
+    .attr('class', 'wf-divider-line')
+    .attr('x1', d => d).attr('x2', d => d)
+    .attr('y1', -100000).attr('y2', 100000)
+    .attr('stroke', stroke)
+    .attr('stroke-width', 1.5)
+    .attr('stroke-dasharray', '8,6')
+    .attr('opacity', 0.5)
+    .attr('pointer-events', 'none');
+
+  let minY = Infinity;
+  state.currentNodes.forEach(n => { if (Number.isFinite(n.y)) { minY = Math.min(minY, n.y); } });
+  const capY = (Number.isFinite(minY) ? minY : 0) - 30;
+  dividerG.selectAll('text.wf-divider-cap')
+    .data([{ t: 'Backend', dx: -10, a: 'end' }, { t: 'Frontend', dx: 10, a: 'start' }])
+    .join('text')
+    .attr('class', 'wf-divider-cap')
+    .attr('x', d => x + d.dx)
+    .attr('y', capY)
+    .attr('text-anchor', d => d.a)
+    .attr('fill', stroke)
+    .attr('font-size', `${11 * settings.textSize}px`)
+    .attr('opacity', 0.7)
+    .attr('pointer-events', 'none')
+    .text(d => d.t);
 }
 
 function renderLibraryNodes(libNodeData, visibleSet) {
@@ -550,7 +621,7 @@ function renderElements(elements, positionHints = new Map()) {
   state.svgLibNodes = renderLibraryNodes(libNodeData, visibleSet);
   state.svgLibLabels = renderLibraryLabels(libNodeData, visibleSet);
   startSimulation(allLinks);
-  if (state.folderMode) {
+  if (state.folderMode && state.renderMode !== 'workflow') {
     const nodesByFile    = groupByFile(state.currentNodes);
     const folderTree     = buildFolderTree(nodesByFile);
     computeFolderHues(folderTree);
@@ -596,7 +667,7 @@ function renderElements(elements, positionHints = new Map()) {
     state.simulation?.force('fileCluster', null);
     state.simulation?.force('folderSeparation', null);
   }
-  if (state.classMode) {
+  if (state.classMode && state.renderMode !== 'workflow') {
     const classByKey = groupByClass(state.currentNodes);  // global from class.js
     state.svgClassBubbles = renderClassBubbles(classG, classByKey);
 
@@ -622,4 +693,5 @@ function renderElements(elements, positionHints = new Map()) {
   }
 
   if (state.gitMode) applyGitColors();
+  updateWorkflowDivider();
 }

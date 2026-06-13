@@ -12,8 +12,47 @@ import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml } from 
 import type { SidebarProvider } from './sidebarProvider';
 import { createProvider, getProviderInfo } from './graphIntelligence/provider';
 import type { GraphIntelligenceProvider, GraphIntelligenceResult } from './graphIntelligence/provider';
+import { buildWorkflowPrompt, normalizeWorkflowModel } from './graphIntelligence/workflowPrompt';
 
-export interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; }
+/**
+ * Per-node annotations produced by the AI Workflow Graph generation. All fields
+ * are optional on GraphNode so the standard force renderer and previously-saved
+ * graphs are unaffected; only the workflow render mode consumes them.
+ */
+export interface WorkflowNodeMeta {
+  /** 0 = most important; drives the reveal order across the 10 detail levels. */
+  rank: number;
+  /** Pipeline column index, 0 = far-left entry/start. */
+  stage: number;
+  tier: 'backend' | 'frontend' | 'shared';
+  /** Stable topic-cluster slug shared by all members of a cluster. */
+  cluster: string;
+  /** Human-friendly cluster name (AI-generated). */
+  clusterName: string;
+  isEntry?: boolean;
+  isOutput?: boolean;
+}
+
+/** Per-edge annotations produced by the AI Workflow Graph generation. */
+export interface WorkflowEdgeMeta {
+  kind: 'static' | 'dynamic';
+  scope: 'intra-file' | 'inter-file';
+  /** Intelligent connection label, e.g. "emits auth token". */
+  label?: string;
+  /** 0..1 — confidence of an AI-inferred (typically dynamic) dependency. */
+  confidence?: number;
+}
+
+/** Graph-level workflow metadata; its presence marks a graph as a workflow graph. */
+export interface WorkflowGraphMeta {
+  stageCount: number;
+  /** Column index where the backend→frontend divider sits. */
+  dividerStage: number;
+  clusters: { id: string; name: string; tier: string; stage: number }[];
+  generatedAt?: string;
+}
+
+export interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; workflow?: WorkflowEdgeMeta; }
 
 export interface GraphNode {
   id: string;
@@ -27,12 +66,14 @@ export interface GraphNode {
   className?: string;
   classExtends?: string;
   classImplements?: string[];
+  workflow?: WorkflowNodeMeta;
 }
 
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
   files?: string[];
+  workflow?: WorkflowGraphMeta;
 }
 
 export class GraphProvider {
@@ -597,6 +638,57 @@ export class GraphProvider {
     sessionId: string | null,
     onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
   ): Promise<GraphIntelligenceResult> {
+    const { result, workspaceRoot } = await this.invokeProvider(prompt, providerId, sessionId, onProgress);
+    this.cachedGraph = result.graph;
+    this.cachedNodes = result.graph.nodes.filter(n => !n.isLibrary);
+    this.postGraphData(result.graph, workspaceRoot);
+    return result;
+  }
+
+  /**
+   * Generate the AI Workflow Graph: annotate the current graph with workflow
+   * metadata (pipeline stages, tiers, topic clusters, dynamic edges) in a single
+   * provider call, then deterministically normalize and render it. Returns the
+   * normalized result so the caller (sidebar) can persist it.
+   */
+  async generateWorkflow(
+    providerId: string,
+    onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
+  ): Promise<GraphIntelligenceResult> {
+    const { result, workspaceRoot } = await this.invokeProvider(buildWorkflowPrompt(), providerId, null, onProgress);
+    const normalized = normalizeWorkflowModel(result.graph);
+    this.cachedGraph = normalized;
+    this.cachedNodes = normalized.nodes.filter(n => !n.isLibrary);
+    this.postGraphData(normalized, workspaceRoot);
+    this.setPanelTitle('Workflow');
+    return { graph: normalized, text: result.text, sessionId: result.sessionId };
+  }
+
+  /** Render a previously-generated workflow graph (its own annotated nodes/edges). */
+  async showWorkflowGraph(graph: GraphData, filePath: string, name: string): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) { throw new Error('No workspace folder open.'); }
+    if (!this.panel) { this.show(); }
+    if (!this.panel) { throw new Error('Failed to open graph panel.'); }
+    await this.waitForGraphReady();
+    this.cachedGraph = graph;
+    this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
+    this.postGraphData(graph, workspaceRoot);
+    // Do not target the workflow file for "Save Layout" — a positions-only save
+    // would drop the annotated graph. Saving becomes Save-As (a normal layout).
+    this.currentSavedGraphPath = undefined;
+    this.isDirty = false;
+    this.setPanelTitle(name);
+    this._sidebar?.setCurrentGraph({ name, file: filePath });
+  }
+
+  /** Shared provider invocation: open panel, await analysis, run the provider. */
+  private async invokeProvider(
+    prompt: string,
+    providerId: string,
+    sessionId: string | null,
+    onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
+  ): Promise<{ result: GraphIntelligenceResult; workspaceRoot: string }> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) { throw new Error('No workspace folder open.'); }
 
@@ -622,18 +714,18 @@ export class GraphProvider {
       { prompt, graph: this.cachedGraph, workspaceRoot, sessionId, model, effort, maxTurns, maxBudgetUsd, onProgress },
       this.intelController.signal,
     );
+    return { result, workspaceRoot };
+  }
 
-    this.cachedGraph = result.graph;
-    this.cachedNodes = result.graph.nodes.filter(n => !n.isLibrary);
+  /** Post a graph to the webview as a reanalysis render (shared by chat + workflow). */
+  private postGraphData(graph: GraphData, workspaceRoot: string): void {
     this.panel?.webview.postMessage({
       type: 'graph',
-      data: result.graph,
-      gitAvailable: this.gitService.applyGitStatuses(result.graph.nodes, workspaceRoot),
+      data: graph,
+      gitAvailable: this.gitService.applyGitStatuses(graph.nodes, workspaceRoot),
       fileGitStatus: this.gitService.fileStatuses,
       isReanalysis: true,
     });
-
-    return result;
   }
 
   abortIntelligence(): void {

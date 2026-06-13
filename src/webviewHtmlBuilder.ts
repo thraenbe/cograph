@@ -77,6 +77,7 @@ export function getWebviewHtml(
   const webviewDir = vscode.Uri.joinPath(extensionUri, 'src', 'webview');
   const stateUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'state.js'));
   const clusteringUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'clustering.js'));
+  const workflowUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'workflow.js'));
   const highlightUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'highlight.js'));
   const renderingUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'rendering.js'));
   const folderUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'folder.js'));
@@ -311,6 +312,7 @@ export function getWebviewHtml(
   </div>
   <script nonce="${nonce}" src="${stateUri}"></script>
   <script nonce="${nonce}" src="${clusteringUri}"></script>
+  <script nonce="${nonce}" src="${workflowUri}"></script>
   <script nonce="${nonce}" src="${highlightUri}"></script>
   <script nonce="${nonce}" src="${renderingUri}"></script>
   <script nonce="${nonce}" src="${folderUri}"></script>

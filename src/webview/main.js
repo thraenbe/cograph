@@ -146,8 +146,36 @@ function rerunLayout() {
 }
 
 // ── Complexity ────────────────────────────────────────────────────────────────
+function applyWorkflowComplexity() {
+  const projectData = {
+    nodes: state.graphData.nodes.filter(n => !n.isLibrary),
+    edges: state.graphData.edges.filter(e => !e.isLibraryEdge),
+    workflow: state.graphData.workflow,
+  };
+  const degreeMap = new Map();
+  projectData.nodes.forEach(n => degreeMap.set(n.id, 0));
+  projectData.edges.forEach(e => {
+    if (e.source === '::MAIN::0') return;
+    degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
+    degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
+  });
+  const wv = deriveWorkflowView(projectData, state.workflowLevel);
+  state.workflowStageCount = wv.stageCount;
+  state.workflowDividerStage = wv.dividerStage;
+  const elements = buildClusteredElements(projectData, wv, 0.5, state.importanceScores, new Set(), degreeMap);
+  // Carry pipeline stage + tier onto each rendered node so the layered layout can place it.
+  for (const el of elements) {
+    if (el.data.source === undefined) {
+      const lay = wv.layout.get(el.data.id);
+      if (lay) { el.data._stage = lay.stage; el.data._tier = lay.tier; }
+    }
+  }
+  renderElements(elements, new Map());
+}
+
 function applyComplexity() {
   if (!state.graphData || !state.importanceScores) return;
+  if (state.renderMode === 'workflow') { applyWorkflowComplexity(); return; }
   const projectData = {
     nodes: state.graphData.nodes.filter(n => !n.isLibrary),
     edges: state.graphData.edges.filter(e => !e.isLibraryEdge),
@@ -248,8 +276,26 @@ function renderGraph(data, isReanalysis = false) {
   state.expandedLibClusters = new Set();
   if (!isReanalysis) { state.hasFitted = false; }
 
+  // Detect the AI Workflow Graph (its presence is marked by graph.workflow).
+  const wasWorkflow = state.renderMode === 'workflow';
+  const isWorkflow = !!(data.workflow && Array.isArray(data.workflow.clusters));
+  state.renderMode = isWorkflow ? 'workflow' : 'force';
+  const levels = (typeof WORKFLOW_LEVELS !== 'undefined') ? WORKFLOW_LEVELS : 10;
+  if (isWorkflow) {
+    state.workflowStageCount = data.workflow.stageCount || 1;
+    state.workflowDividerStage = Number.isFinite(data.workflow.dividerStage)
+      ? data.workflow.dividerStage : (state.workflowStageCount - 1);
+    if (!wasWorkflow) { state.workflowLevel = 0; state.hasFitted = false; } // start least detailed
+    const slider = document.getElementById('slider-complexity');
+    const valEl = document.getElementById('val-complexity');
+    if (slider) slider.value = String(state.workflowLevel / Math.max(1, levels - 1));
+    if (valEl) valEl.textContent = String(state.workflowLevel);
+  } else if (wasWorkflow) {
+    state.hasFitted = false; // returning to the force layout
+  }
+
   const nodeCount = projectData.nodes.length;
-  if (nodeCount >= 500) {
+  if (!isWorkflow && nodeCount >= 500) {
     state.complexityLevel = Math.max(0.1, Math.min(0.9, 500 / nodeCount));
     const slider = document.getElementById('slider-complexity');
     const valEl = document.getElementById('val-complexity');

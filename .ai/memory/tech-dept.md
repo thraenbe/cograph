@@ -29,9 +29,11 @@ time before). Fine for typical workspaces. Lower-memory alternative if it ever
 matters: a single walk that extracts call-sites into plain JS objects and deletes
 each tree immediately, resolving against the global `nameToIds` afterwards.
 
-**TODO — Java:** `scripts/analyze_java.js` still double-parses (`collectDefinitions`
-parses at the `parse(source)` call inside its file loop, and `collectCalls` parses
-the same files again). Apply the identical `getTree` cache. It's *simpler* than C++:
-`java-parser` returns a Chevrotain CST that **is** garbage-collected, so no
-`clearTreeCache()`/`.delete()` lifecycle is needed — a plain memo `Map` suffices.
-TS/JS analyzers use the TS Compiler API and do not have this double-parse shape.
+**Done — Java:** `scripts/analyze_java.js` now uses the same cache (`getCst` +
+`cstCache`, `_stats.parses` counter, regression test in `analyzeJava.test.ts`).
+As predicted it was simpler than C++: `java-parser` returns a Chevrotain CST that
+**is** garbage-collected, so `clearCstCache()` only drops references — no
+`.delete()`/WASM-heap lifecycle.
+
+TS/JS analyzers use the TS Compiler API and do not have this double-parse shape,
+so no further action there.

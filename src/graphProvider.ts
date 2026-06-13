@@ -8,6 +8,7 @@ import { GitService } from './gitService';
 import { AnalyzerRunner, type AnalyzerRunMeta } from './analyzerRunner';
 import { scanStructure, type StructureTree } from './structureScanner';
 import { mergeGraph } from './graphMerge';
+import { loadCache, writeCache, type CacheLoadResult } from './cacheStore';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
@@ -56,6 +57,10 @@ export class GraphProvider {
   private skeletonActive = false;
   /** Structure scanned in show() but not yet delivered (small-repo path: sent once the graph view is up). */
   private pendingStructure: StructureTree | undefined;
+  /** Latest structure scan, kept for cache writes. */
+  private currentStructure: StructureTree | undefined;
+  /** Per-file debounce timers for incremental on-save re-parsing. */
+  private readonly incrementalTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private graphReadyResolve: (() => void) | undefined;
   private graphReadyPromise: Promise<void> | undefined;
   private intelController: AbortController | undefined;
@@ -140,7 +145,12 @@ export class GraphProvider {
             doc.uri.fsPath.endsWith('.hxx') ||
             doc.uri.fsPath.endsWith('.h++') ||
             doc.uri.fsPath.endsWith('.h')) {
-          this.analyzerRunner.scheduleReanalysis(workspaceRoot);
+          if (this.skeletonActive) {
+            // Large repo: re-parse only the saved file instead of the whole repo.
+            this.scheduleIncrementalReparse(workspaceRoot, doc.uri.fsPath);
+          } else {
+            this.analyzerRunner.scheduleReanalysis(workspaceRoot);
+          }
         }
       }
     });
@@ -157,6 +167,8 @@ export class GraphProvider {
       gitIndexWatcher.dispose();
       if (this.gitRefreshTimer) { clearTimeout(this.gitRefreshTimer); }
       this.analyzerRunner.clearReanalysisTimer();
+      for (const timer of this.incrementalTimers.values()) { clearTimeout(timer); }
+      this.incrementalTimers.clear();
       this.analyzerRunner.killAll();
       this.cachedNodes = [];
       this.cachedGraph = undefined;
@@ -340,11 +352,22 @@ export class GraphProvider {
 
     // Cheap, parse-free structure scan → instant folder skeleton for large repos.
     const structure = scanStructure(workspaceRoot);
+    this.currentStructure = structure;
     const cfg = vscode.workspace.getConfiguration('cograph');
     const threshold = cfg.get<number>('largeRepo.fileThreshold', 2000);
     const autoEngage = cfg.get<boolean>('largeRepo.autoEngage', true) && structure.totalFiles >= threshold;
     this.skeletonActive = autoEngage;
     this.pendingStructure = undefined;
+
+    // Re-open cache: paint a prior analysis instantly. If everything is unchanged,
+    // skip the analyzer entirely; if some files changed, reconcile just those.
+    const cache = loadCache(workspaceRoot, structure);
+    if (cache) {
+      this.loadFromCache(workspaceRoot, structure, cache, autoEngage);
+      if (cache.valid) { return; } // nothing changed — no analysis needed
+      this.reconcileChangedFiles(workspaceRoot, structure, cache.changed);
+      return;
+    }
 
     if (autoEngage) {
       // Paint the skeleton immediately; the analyzer enriches it in the background.
@@ -594,6 +617,7 @@ export class GraphProvider {
     const fileGitStatus = this.gitService.fileStatuses;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
     this.cachedGraph = graph;
+    if (this.currentStructure) { writeCache(workspaceRoot, graph, this.currentStructure); }
     if (this.graphReadyResolve) {
       this.graphReadyResolve();
       this.graphReadyResolve = undefined;
@@ -648,6 +672,7 @@ export class GraphProvider {
       this.cachedGraph = mergeGraph(this.cachedGraph, patch);
       this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
       this.gitService.applyGitStatuses(patch.nodes, workspaceRoot);
+      if (this.currentStructure) { writeCache(workspaceRoot, this.cachedGraph, this.currentStructure); }
       this.panel?.webview.postMessage({
         type: 'graph-patch',
         patch,
@@ -657,6 +682,87 @@ export class GraphProvider {
     } catch (err: unknown) {
       this.outputChannel.appendLine(`Subset parse failed for ${folderTag}: ${(err as Error).message}`);
       this.panel?.webview.postMessage({ type: 'analysis-state', parsingFolder: folderTag, error: (err as Error).message });
+    }
+  }
+
+  /** Paint a cached graph instantly (pruning files that vanished since it was written). */
+  private loadFromCache(workspaceRoot: string, structure: StructureTree, cache: CacheLoadResult, autoEngage: boolean): void {
+    if (!this.panel) { return; }
+    let graph = cache.graph;
+    if (cache.removed.length) {
+      const removed = new Set(cache.removed);
+      const removedIds = new Set(graph.nodes.filter(n => n.file && removed.has(n.file)).map(n => n.id));
+      graph = {
+        nodes: graph.nodes.filter(n => !(n.file && removed.has(n.file))),
+        edges: graph.edges.filter(e => !removedIds.has(e.source) && !removedIds.has(e.target)),
+        files: (graph.files ?? []).filter(f => !removed.has(f)),
+      };
+    }
+    this.cachedGraph = graph;
+    this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
+    const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, workspaceRoot);
+    const fileGitStatus = this.gitService.fileStatuses;
+    if (this.graphReadyResolve) { this.graphReadyResolve(); this.graphReadyResolve = undefined; }
+
+    this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
+    setTimeout(() => {
+      this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage });
+      this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
+    }, 150);
+  }
+
+  /** Re-parse only the files that changed since the cache was written, then patch + rewrite the cache. */
+  private async reconcileChangedFiles(workspaceRoot: string, structure: StructureTree, changed: string[]): Promise<void> {
+    if (!this.panel || changed.length === 0) { return; }
+    this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
+    try {
+      const patch = await this.analyzerRunner.runSubset(workspaceRoot, changed);
+      this.cachedGraph = this.spliceFiles(this.cachedGraph, changed, patch);
+      this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
+      this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
+      writeCache(workspaceRoot, this.cachedGraph, structure);
+      this.panel?.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: changed, fileGitStatus: this.gitService.fileStatuses });
+    } catch (err: unknown) {
+      this.outputChannel.appendLine(`Cache reconcile failed: ${(err as Error).message}`);
+    } finally {
+      this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
+    }
+  }
+
+  /** Remove `files`' stale nodes/edges from base, then merge in the fresh `patch`. */
+  private spliceFiles(base: GraphData | undefined, files: string[], patch: GraphData): GraphData {
+    if (!base) { return patch; }
+    const set = new Set(files);
+    const staleIds = new Set(base.nodes.filter(n => n.file && set.has(n.file)).map(n => n.id));
+    const pruned: GraphData = {
+      nodes: base.nodes.filter(n => !(n.file && set.has(n.file))),
+      edges: base.edges.filter(e => !staleIds.has(e.source) && !staleIds.has(e.target)),
+      files: base.files,
+    };
+    return mergeGraph(pruned, patch);
+  }
+
+  /** Debounced single-file re-parse on save (large-repo path; avoids re-running the whole repo). */
+  private scheduleIncrementalReparse(workspaceRoot: string, file: string): void {
+    const existing = this.incrementalTimers.get(file);
+    if (existing) { clearTimeout(existing); }
+    this.incrementalTimers.set(file, setTimeout(() => {
+      this.incrementalTimers.delete(file);
+      void this.incrementalReparse(workspaceRoot, file);
+    }, 1000));
+  }
+
+  private async incrementalReparse(workspaceRoot: string, file: string): Promise<void> {
+    if (!this.panel) { return; }
+    try {
+      const patch = await this.analyzerRunner.runSubset(workspaceRoot, [file]);
+      this.cachedGraph = this.spliceFiles(this.cachedGraph, [file], patch);
+      this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
+      this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
+      if (this.currentStructure) { writeCache(workspaceRoot, this.cachedGraph, this.currentStructure); }
+      this.panel.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: [file], fileGitStatus: this.gitService.fileStatuses });
+    } catch (err: unknown) {
+      this.outputChannel.appendLine(`Incremental reparse failed for ${file}: ${(err as Error).message}`);
     }
   }
 

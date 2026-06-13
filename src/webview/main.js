@@ -333,6 +333,16 @@ window.addEventListener('message', (event) => {
   if (message.type === 'graph-patch') {
     if (message.fileGitStatus) { state.fileGitStatus = message.fileGitStatus; }
     if (message.parsedFolder) { state.parsingFolders.delete(message.parsedFolder); }
+    // Incremental/reconcile: drop stale nodes for replaced files before merging fresh ones.
+    if (message.replacedFiles && message.replacedFiles.length && state.graphData) {
+      const rm = new Set(message.replacedFiles);
+      const removedIds = new Set(state.graphData.nodes.filter(n => rm.has(n.file)).map(n => n.id));
+      state.graphData = {
+        nodes: state.graphData.nodes.filter(n => !rm.has(n.file)),
+        edges: state.graphData.edges.filter(e => !removedIds.has(e.source) && !removedIds.has(e.target)),
+        files: state.graphData.files,
+      };
+    }
     if (state.fileClusterMode) {
       ingestGraphData(message.patch, message.parsedFolder);
     } else {

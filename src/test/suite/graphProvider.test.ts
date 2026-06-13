@@ -7,6 +7,8 @@ import * as path from 'path';
 import { EventEmitter } from 'events';
 import { GraphProvider } from '../../graphProvider';
 import { AnalyzerRunner, RETRY_BACKOFF_MS } from '../../analyzerRunner';
+import { scanStructure } from '../../structureScanner';
+import { writeCache } from '../../cacheStore';
 
 // Use require() so sinon can stub the underlying CJS module properties.
 // (The `import * as cp` wrapper uses getter-only descriptors that sinon cannot replace.)
@@ -410,6 +412,36 @@ suite('GraphProvider', () => {
       assert.ok(killAll.called, 'killAll invoked');
       const cancelled = webview.postMessage.getCalls().find(c => c.args[0]?.type === 'analysis-state' && c.args[0]?.cancelled === true);
       assert.ok(cancelled, 'analysis-state(cancelled) posted');
+    });
+  });
+
+  // ── re-open cache ──────────────────────────────────────────────────────────
+
+  suite('re-open cache', () => {
+    test('valid cache → instant graph from disk, analyzer not spawned', function (done) {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-cache-hit-'));
+      fs.mkdirSync(path.join(tmp, 'src'));
+      fs.writeFileSync(path.join(tmp, 'src', 'a.ts'), 'export function a(){}');
+      const structure = scanStructure(tmp);
+      writeCache(tmp, { nodes: [{ id: 'cached', name: 'a', file: path.join(tmp, 'src', 'a.ts'), line: 1 }], edges: [], files: [] } as any, structure);
+
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmp } }]);
+      sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
+      const spawn = sandbox.stub(rawCp, 'spawn');
+      const fakePanel = makeFakePanel();
+      sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
+
+      const provider = new GraphProvider(makeFakeContext());
+      provider.show();
+
+      setTimeout(() => {
+        const graphCall = fakePanel.webview.postMessage.getCalls().find(c => c.args[0]?.type === 'graph');
+        assert.ok(graphCall, 'graph posted from cache');
+        assert.strictEqual(graphCall!.args[0].data.nodes[0].id, 'cached');
+        assert.ok(spawn.notCalled, 'analyzer not spawned when the cache is valid');
+        fs.rmSync(tmp, { recursive: true, force: true });
+        done();
+      }, 250);
     });
   });
 

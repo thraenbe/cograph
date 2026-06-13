@@ -6,7 +6,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import { GraphProvider } from '../../graphProvider';
-import { RETRY_BACKOFF_MS } from '../../analyzerRunner';
+import { AnalyzerRunner, RETRY_BACKOFF_MS } from '../../analyzerRunner';
+import { scanStructure } from '../../structureScanner';
+import { writeCache } from '../../cacheStore';
 
 // Use require() so sinon can stub the underlying CJS module properties.
 // (The `import * as cp` wrapper uses getter-only descriptors that sinon cannot replace.)
@@ -366,6 +368,80 @@ suite('GraphProvider', () => {
 
       assert.ok(webview.html.includes('Analyzing'), 'panel reset to loading state');
       assert.ok(spawn.callCount > afterShow, 'analyzers were re-spawned');
+    });
+  });
+
+  // ── file-cluster subset handlers ───────────────────────────────────────────
+
+  suite('file-cluster subset handlers', () => {
+    test('expand-folder → runSubset(files) and posts a graph-patch', async () => {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+      const subset = { nodes: [{ id: 'a', name: 'a', file: '/ws/f/a.ts', line: 1 }], edges: [], files: ['/ws/f/a.ts'] };
+      const runSubset = sandbox.stub(AnalyzerRunner.prototype, 'runSubset').resolves(subset as any);
+
+      // setupPanelWithCapturedMessages stubs spawn (5 procs that never close → the
+      // initial full run hangs harmlessly; we only exercise the subset path).
+      const { webview, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+      const provider = new GraphProvider(makeFakeContext());
+      provider.show();
+
+      await msgCallbacks[0]({ type: 'expand-folder', folderPath: '/ws/f', files: ['/ws/f/a.ts'] });
+      // parseSubset is fire-and-forget in the switch; let its await settle.
+      await new Promise(r => setTimeout(r, 0));
+
+      assert.ok(runSubset.calledOnceWithExactly('/ws', ['/ws/f/a.ts']), 'runSubset called with the folder files');
+      const patch = webview.postMessage.getCalls().find(c => c.args[0]?.type === 'graph-patch');
+      assert.ok(patch, 'graph-patch posted');
+      assert.deepStrictEqual(patch!.args[0].patch, subset);
+      assert.strictEqual(patch!.args[0].parsedFolder, '/ws/f');
+      // Spinner toggles via analysis-state before the patch.
+      const parsing = webview.postMessage.getCalls().find(c => c.args[0]?.type === 'analysis-state' && c.args[0]?.parsingFolder === '/ws/f');
+      assert.ok(parsing, 'analysis-state(parsingFolder) posted to drive the spinner');
+    });
+
+    test('cancel-analysis → killAll and analysis-state(cancelled)', async () => {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+      const killAll = sandbox.stub(AnalyzerRunner.prototype, 'killAll');
+
+      const { webview, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+      const provider = new GraphProvider(makeFakeContext());
+      provider.show();
+
+      await msgCallbacks[0]({ type: 'cancel-analysis' });
+
+      assert.ok(killAll.called, 'killAll invoked');
+      const cancelled = webview.postMessage.getCalls().find(c => c.args[0]?.type === 'analysis-state' && c.args[0]?.cancelled === true);
+      assert.ok(cancelled, 'analysis-state(cancelled) posted');
+    });
+  });
+
+  // ── re-open cache ──────────────────────────────────────────────────────────
+
+  suite('re-open cache', () => {
+    test('valid cache → instant graph from disk, analyzer not spawned', function (done) {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-cache-hit-'));
+      fs.mkdirSync(path.join(tmp, 'src'));
+      fs.writeFileSync(path.join(tmp, 'src', 'a.ts'), 'export function a(){}');
+      const structure = scanStructure(tmp);
+      writeCache(tmp, { nodes: [{ id: 'cached', name: 'a', file: path.join(tmp, 'src', 'a.ts'), line: 1 }], edges: [], files: [] } as any, structure);
+
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmp } }]);
+      sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
+      const spawn = sandbox.stub(rawCp, 'spawn');
+      const fakePanel = makeFakePanel();
+      sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
+
+      const provider = new GraphProvider(makeFakeContext());
+      provider.show();
+
+      setTimeout(() => {
+        const graphCall = fakePanel.webview.postMessage.getCalls().find(c => c.args[0]?.type === 'graph');
+        assert.ok(graphCall, 'graph posted from cache');
+        assert.strictEqual(graphCall!.args[0].data.nodes[0].id, 'cached');
+        assert.ok(spawn.notCalled, 'analyzer not spawned when the cache is valid');
+        fs.rmSync(tmp, { recursive: true, force: true });
+        done();
+      }, 250);
     });
   });
 

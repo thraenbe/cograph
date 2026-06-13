@@ -141,8 +141,18 @@ def _method_name(node: ast.expr) -> str | None:
 SKIP_DIR_NAMES = frozenset({'node_modules', 'out', 'dist', '__pycache__'})
 
 
+# Subset mode: when set (via `--files <listpath>`), parse only these files
+# instead of walking `root`. None → full walk.
+_EXPLICIT_FILES = None
+
+
 def _walk_py_files(root: str):
     """Yield .py file paths, skipping hidden directories and common non-source dirs."""
+    if _EXPLICIT_FILES is not None:
+        for filepath in _EXPLICIT_FILES:
+            if filepath.endswith('.py'):
+                yield filepath
+        return
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if not d.startswith('.') and d not in SKIP_DIR_NAMES]
         for filename in filenames:
@@ -204,9 +214,21 @@ def _collect_calls_in_stmt(stmt: ast.stmt, name_to_ids: dict, found: set) -> Non
 
 
 def main():
+    global _EXPLICIT_FILES
     if len(sys.argv) < 2:
-        print('Usage: analyze.py <workspace_root>', file=sys.stderr)
+        print('Usage: analyze.py <workspace_root> [--files <listpath>]', file=sys.stderr)
         sys.exit(1)
+
+    args = sys.argv[1:]
+    if '--files' in args:
+        idx = args.index('--files')
+        list_path = args[idx + 1] if idx + 1 < len(args) else None
+        if list_path:
+            try:
+                with open(list_path, 'r', encoding='utf-8') as fh:
+                    _EXPLICIT_FILES = [ln.strip() for ln in fh if ln.strip()]
+            except OSError:
+                _EXPLICIT_FILES = []
 
     root = sys.argv[1]
     definitions = collect_definitions(root)

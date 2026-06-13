@@ -429,13 +429,24 @@ function collectCalls(files, definitions) {
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
 
+// Subset mode: `--files <listpath>` analyzes only the listed .java files.
+// Returns null when absent → full walk.
+function explicitFileList() {
+  const i = process.argv.indexOf('--files');
+  if (i === -1 || !process.argv[i + 1]) { return null; }
+  let raw;
+  try { raw = fs.readFileSync(process.argv[i + 1], 'utf8'); } catch { return []; }
+  return raw.split('\n').map(s => s.trim()).filter(Boolean)
+    .filter(f => f.endsWith('.java'));
+}
+
 function main() {
   if (process.argv.length < 3) {
-    process.stderr.write('Usage: analyze_java.js <workspace_root>\n');
+    process.stderr.write('Usage: analyze_java.js <workspace_root> [--files <listpath>]\n');
     process.exit(1);
   }
   const root = process.argv[2];
-  const files = collectJavaFiles(root);
+  const files = explicitFileList() ?? collectJavaFiles(root);
   try {
     const definitions = collectDefinitions(files);
     const { edges, libraryNodes } = collectCalls(files, definitions);

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 export const MAX_OUTPUT_BYTES = 500 * 1024 * 1024; // 500 MB guard
 export const ANALYSIS_TIMEOUT_MS = 300_000;         // 5 min
@@ -50,6 +51,8 @@ export class AnalyzerRunner {
   private resolvedPythonBin: string | null | undefined = undefined;
   /** Bumped by killAll() / each new run so a stale retry loop aborts itself. */
   private runToken = 0;
+  /** Monotonic counter for unique subset temp-file names. */
+  private subsetSeq = 0;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -147,6 +150,56 @@ export class AnalyzerRunner {
       };
       return { merged, statuses };
     });
+  }
+
+  /**
+   * Parse only the given files (lazy per-folder expansion / single-file
+   * incremental re-analysis) and return the merged subset graph. Reuses
+   * spawnAnalyzerProcess, so killAll() cancels subset parses too. Each analyzer
+   * self-filters the list to its own extensions, so a mixed list is safe.
+   *
+   * Caveat: call targets resolve only within the parsed set, so edges into
+   * un-parsed files may be incomplete until the full background pass reconciles.
+   */
+  async runSubset(workspaceRoot: string, files: string[]): Promise<GraphData> {
+    const empty: GraphData = { nodes: [], edges: [], files: [] };
+    if (files.length === 0) { return empty; }
+    const pythonBin = this.resolvePythonBin();
+
+    let listPath: string;
+    try {
+      listPath = path.join(os.tmpdir(), `cograph-subset-${process.pid}-${this.subsetSeq++}.txt`);
+      fs.writeFileSync(listPath, files.join('\n'), 'utf8');
+    } catch {
+      return empty;
+    }
+
+    try {
+      const ext = this.context.extensionPath;
+      const withList = (script: string) => [path.join(ext, 'scripts', script), workspaceRoot, '--files', listPath];
+      const spawns: Array<Promise<AnalyzerResult>> = [
+        this.spawnAnalyzerProcess(process.execPath, withList('analyze_ts.js'), 'typescript'),
+        this.spawnAnalyzerProcess(process.execPath, withList('analyze_js.js'), 'javascript'),
+        this.spawnAnalyzerProcess(process.execPath, withList('analyze_java.js'), 'java'),
+        this.spawnAnalyzerProcess(process.execPath, withList('analyze_cpp.js'), 'cpp'),
+      ];
+      if (pythonBin) {
+        spawns.push(this.spawnAnalyzerProcess(pythonBin, withList('analyze.py'), 'python'));
+      }
+      const statuses = await Promise.all(spawns);
+      for (const s of statuses) {
+        if (s.status !== 'ok' && s.status !== 'empty') {
+          this.log(`Subset analyzer [${s.lang}] ${s.status}${s.detail ? `: ${s.detail}` : ''}`);
+        }
+      }
+      return {
+        nodes: statuses.flatMap(r => r.graph.nodes),
+        edges: statuses.flatMap(r => r.graph.edges),
+        files: statuses.flatMap(r => r.graph.files ?? []),
+      };
+    } finally {
+      try { fs.unlinkSync(listPath); } catch { /* best effort cleanup */ }
+    }
   }
 
   private delay(ms: number): Promise<void> {

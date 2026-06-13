@@ -573,14 +573,25 @@ function collectCalls(files, definitions) {
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
 
+// Subset mode: `--files <listpath>` analyzes only the listed C++ files.
+// Returns null when absent → full walk.
+function explicitFileList() {
+  const i = process.argv.indexOf('--files');
+  if (i === -1 || !process.argv[i + 1]) { return null; }
+  let raw;
+  try { raw = fs.readFileSync(process.argv[i + 1], 'utf8'); } catch { return []; }
+  return raw.split('\n').map(s => s.trim()).filter(Boolean)
+    .filter(f => CPP_EXTS.has(path.extname(f)));
+}
+
 async function main() {
   if (process.argv.length < 3) {
-    process.stderr.write('Usage: analyze_cpp.js <workspace_root>\n');
+    process.stderr.write('Usage: analyze_cpp.js <workspace_root> [--files <listpath>]\n');
     process.exit(1);
   }
   await init();
   const root = process.argv[2];
-  const files = collectCppFiles(root);
+  const files = explicitFileList() ?? collectCppFiles(root);
   try {
     const definitions = collectDefinitions(files);
     const { edges, libraryNodes } = collectCalls(files, definitions);

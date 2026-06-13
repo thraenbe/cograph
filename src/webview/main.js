@@ -13,6 +13,19 @@ window.clearDirty = function clearDirty() {
   vscode.postMessage({ type: 'dirty-state', dirty: false });
 };
 
+// Lazy per-folder parse: ask the extension to analyze a folder's direct files,
+// showing a spinner on the folder/file nodes until the `graph-patch` arrives.
+window.requestFolderParse = function requestFolderParse(folderPath) {
+  const info = state.structureTree && state.structureTree.folders
+    ? state.structureTree.folders[folderPath] : null;
+  const files = info && info.files ? info.files : [];
+  if (!files.length) { return; }
+  if (state.parsingFolders.has(folderPath)) { return; } // already in flight
+  state.parsingFolders.add(folderPath);
+  if (typeof applyFileClusters === 'function') { applyFileClusters(); }
+  vscode.postMessage({ type: 'expand-folder', folderPath, files });
+};
+
 // ── State ─────────────────────────────────────────────────────────────────────
 const settings = {
   existingFilesOnly: false,
@@ -110,7 +123,7 @@ function applyDisplaySettings() {
     .attr('stroke-width', d => resolveNodeStrokeWidth(d));
   state.svgCloudNodes?.attr('d', d => generateCloudPath(nodeRadius(d), bumpCountFor(d)));
   state.svgLinks
-    .attr('stroke-width', settings.linkThickness)
+    .attr('stroke-width', d => settings.linkThickness * (typeof edgeWeightScale === 'function' ? edgeWeightScale(d._count) : 1))
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);
   // Update library node dimensions to match new node size
   state.svgLibNodes
@@ -147,6 +160,7 @@ function rerunLayout() {
 
 // ── Complexity ────────────────────────────────────────────────────────────────
 function applyComplexity() {
+  if (state.fileClusterMode) { applyFileClusters(); return; }
   if (!state.graphData || !state.importanceScores) return;
   const projectData = {
     nodes: state.graphData.nodes.filter(n => !n.isLibrary),
@@ -299,9 +313,55 @@ window.addEventListener('message', (event) => {
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     state.allScannedFiles = message.data.files ?? [];
     window.resetTimelineState?.();
-    renderGraph(message.data, message.isReanalysis);
+    if (state.fileClusterMode) {
+      // Skeleton is showing — fold the analysis result into it without losing
+      // the user's drill-down, instead of switching to the full graph.
+      ingestGraphData(message.data);
+    } else {
+      renderGraph(message.data, message.isReanalysis);
+    }
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     if (!message.isReanalysis) { window.clearDirty?.(); }
+    return;
+  }
+  if (message.type === 'structure') {
+    if (typeof renderStructureSkeleton === 'function') {
+      renderStructureSkeleton(message.tree, message.autoEngage);
+    }
+    return;
+  }
+  if (message.type === 'graph-patch') {
+    if (message.fileGitStatus) { state.fileGitStatus = message.fileGitStatus; }
+    if (message.parsedFolder) { state.parsingFolders.delete(message.parsedFolder); }
+    // Incremental/reconcile: drop stale nodes for replaced files before merging fresh ones.
+    if (message.replacedFiles && message.replacedFiles.length && state.graphData) {
+      const rm = new Set(message.replacedFiles);
+      const removedIds = new Set(state.graphData.nodes.filter(n => rm.has(n.file)).map(n => n.id));
+      state.graphData = {
+        nodes: state.graphData.nodes.filter(n => !rm.has(n.file)),
+        edges: state.graphData.edges.filter(e => !removedIds.has(e.source) && !removedIds.has(e.target)),
+        files: state.graphData.files,
+      };
+    }
+    if (state.fileClusterMode) {
+      ingestGraphData(message.patch, message.parsedFolder);
+    } else {
+      // Normal mode (e.g. incremental save): merge and re-render the full graph.
+      mergeGraphDataPatch(message.patch);
+      if (state.graphData) { renderGraph(state.graphData, true); }
+    }
+    if (state.gitMode && state.gitAvailable) { applyGitColors(); }
+    return;
+  }
+  if (message.type === 'analysis-state') {
+    if (message.parsingFolder) {
+      if (message.error) { state.parsingFolders.delete(message.parsingFolder); }
+      else { state.parsingFolders.add(message.parsingFolder); }
+      if (state.fileClusterMode) { applyFileClusters(); }
+    }
+    if (message.backgroundParsing !== undefined) {
+      state.backgroundParsing = message.backgroundParsing;
+    }
     return;
   }
   if (message.type === 'timeline-data') {

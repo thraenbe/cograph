@@ -159,6 +159,7 @@ export function getWebviewHtml(
   const highlightUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'highlight.js'));
   const renderingUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'rendering.js'));
   const folderUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'folder.js'));
+  const fileClustersUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'fileClusters.js'));
   const classUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'class.js'));
   const colorsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'colors.js'));
   const popupsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'popups.js'));
@@ -393,6 +394,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${highlightUri}"></script>
   <script nonce="${nonce}" src="${renderingUri}"></script>
   <script nonce="${nonce}" src="${folderUri}"></script>
+  <script nonce="${nonce}" src="${fileClustersUri}"></script>
   <script nonce="${nonce}" src="${classUri}"></script>
   <script nonce="${nonce}" src="${colorsUri}"></script>
   <script nonce="${nonce}" src="${popupsUri}"></script>

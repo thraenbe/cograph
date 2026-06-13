@@ -5,10 +5,10 @@ import * as fs from 'fs';
 export { MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from './analyzerRunner';
 
 import { GitService } from './gitService';
-import { AnalyzerRunner } from './analyzerRunner';
+import { AnalyzerRunner, type AnalyzerRunMeta } from './analyzerRunner';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
-import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml } from './webviewHtmlBuilder';
+import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
 import type { SidebarProvider } from './sidebarProvider';
 import { createProvider, getProviderInfo } from './graphIntelligence/provider';
 import type { GraphIntelligenceProvider, GraphIntelligenceResult } from './graphIntelligence/provider';
@@ -67,7 +67,13 @@ export class GraphProvider {
     this.analyzerRunner = new AnalyzerRunner(
       context,
       (msg) => this.showError(msg),
-      (stdout, workspaceRoot) => this.handleAnalysisResult(stdout, workspaceRoot),
+      (stdout, workspaceRoot, meta) => this.handleAnalysisResult(stdout, workspaceRoot, meta),
+      (msg) => this.outputChannel.appendLine(msg),
+      (attempt, max) => {
+        if (this.panel) {
+          this.panel.webview.html = getLoadingHtml(`Analyzing project… (retry ${attempt}/${max})`);
+        }
+      },
     );
     this.libraryDescriber = new LibraryDescriber(
       context.extensionPath,
@@ -246,6 +252,13 @@ export class GraphProvider {
         }
       } else if (message.type === 'dirty-state') {
         this.setDirty(!!message.dirty);
+      } else if (message.type === 'retry-analysis') {
+        // Triggered from the empty-state Retry button: re-run as a fresh initial
+        // load (with backoff) so a transient/unready failure can recover.
+        this.cachedNodes = [];
+        this.cachedGraph = undefined;
+        if (this.panel) { this.panel.webview.html = getLoadingHtml(); }
+        this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
       } else if (message.type === 'open-chat') {
         // Focuses the Cograph activity-bar view. The current graph context is
         // already up-to-date — setCurrentGraph is invoked from loadGraph and
@@ -309,7 +322,7 @@ export class GraphProvider {
     });
 
     this.panel.webview.html = getLoadingHtml();
-    this.analyzerRunner.run(workspaceRoot);
+    this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
   }
 
   isOpen(): boolean {
@@ -453,7 +466,7 @@ export class GraphProvider {
           return;
         }
         if (graph.nodes.length === 0) {
-          panel.webview.html = getEmptyStateHtml();
+          panel.webview.html = getEmptyStateHtml({ showRetry: false });
           return;
         }
         const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, wsRoot);
@@ -522,7 +535,7 @@ export class GraphProvider {
   }
 
   /** Parse stdout, guard empty graphs, and post the graph message. */
-  private handleAnalysisResult(stdout: string, workspaceRoot: string): void {
+  private handleAnalysisResult(stdout: string, workspaceRoot: string, meta?: AnalyzerRunMeta): void {
     if (!this.panel) { return; }
 
     let graph: GraphData;
@@ -534,7 +547,9 @@ export class GraphProvider {
     }
 
     if (graph.nodes.length === 0) {
-      this.panel.webview.html = getEmptyStateHtml();
+      // NOTE (cross-PR): when the file-cluster skeleton lands, a 0-node result is
+      // normal while a skeleton is shown — gate this empty-state on "no skeleton".
+      this.panel.webview.html = getEmptyStateHtml(this.buildEmptyStateInfo(meta));
       return;
     }
 
@@ -556,6 +571,21 @@ export class GraphProvider {
         this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
       }, 150);
     }
+  }
+
+  /** Map analyzer run metadata onto the actionable empty-state's display info. */
+  private buildEmptyStateInfo(meta?: AnalyzerRunMeta): EmptyStateInfo {
+    if (!meta) { return { showRetry: true }; }
+    const failures = meta.statuses
+      .filter(s => s.status !== 'ok' && s.status !== 'empty')
+      .map(s => ({ lang: s.lang, status: s.status, detail: s.detail }));
+    return {
+      failures,
+      candidateFilesFound: meta.candidateFilesFound,
+      timedOut: meta.statuses.some(s => s.status === 'timeout'),
+      tooLarge: meta.statuses.some(s => s.status === 'output-too-large'),
+      showRetry: true,
+    };
   }
 
   private async navigateTo(file: string, line: number) {

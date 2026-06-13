@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 
-export function getLoadingHtml(): string {
+export function getLoadingHtml(message = 'Analyzing project…'): string {
+  const esc = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,27 +19,105 @@ export function getLoadingHtml(): string {
 <body>
   <div style="text-align:center">
     <div class="spinner"></div>
-    <p>Analyzing project…</p>
+    <p>${esc}</p>
   </div>
 </body>
 </html>`;
 }
 
-export function getEmptyStateHtml(): string {
+export interface AnalyzerFailureInfo { lang: string; status: string; detail?: string; }
+
+export interface EmptyStateInfo {
+  /** Per-analyzer failures (status not 'ok'/'empty'), surfaced as diagnostics. */
+  failures?: AnalyzerFailureInfo[];
+  /** Whether any supported source file exists on disk (tunes the message). */
+  candidateFilesFound?: boolean;
+  /** Analysis hit the time limit (do not suggest a quick retry). */
+  timedOut?: boolean;
+  /** Analysis output exceeded the size guard. */
+  tooLarge?: boolean;
+  /** Render the Retry button (default true; suppressed for the timeline panel). */
+  showRetry?: boolean;
+}
+
+/**
+ * Actionable empty-state. Distinguishes "still loading / failed" (retry helps)
+ * from "genuinely no functions", and surfaces analyzer failures instead of
+ * swallowing them. The Retry button posts a `retry-analysis` message.
+ */
+export function getEmptyStateHtml(info: EmptyStateInfo = {}): string {
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const failures = info.failures ?? [];
+  const showRetry = info.showRetry !== false;
+
+  let headline: string;
+  let detail: string;
+  if (info.timedOut) {
+    headline = 'Analysis timed out';
+    detail = 'The project was too large to analyze within the time limit. Try again, or open a smaller folder.';
+  } else if (info.tooLarge) {
+    headline = 'Analysis output too large';
+    detail = 'The generated graph exceeded the size limit. Try a smaller workspace.';
+  } else if (failures.length > 0) {
+    headline = 'Analysis could not complete';
+    detail = 'Some language analyzers failed to produce a graph. See the details below, then retry.';
+  } else if (info.candidateFilesFound === false) {
+    headline = 'No source files found yet';
+    detail = 'No supported source files were found. If the workspace is still loading, wait a moment and retry.';
+  } else {
+    headline = 'No functions found';
+    detail = 'The supported source files contain no functions CoGraph could extract.';
+  }
+
+  const failuresHtml = failures.length
+    ? `<ul class="failures">${failures
+        .map(f => `<li><code>${esc(f.lang)}</code> — ${esc(f.status)}${f.detail ? `: ${esc(f.detail)}` : ''}</li>`)
+        .join('')}</ul>`
+    : '';
+  const retryHtml = showRetry ? `<button id="retry">Retry analysis</button>` : '';
+  const retryScript = showRetry
+    ? `<script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    const btn = document.getElementById('retry');
+    btn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'retry-analysis' });
+      btn.disabled = true;
+      btn.textContent = 'Retrying…';
+    });
+  </script>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <style>
   body { display:flex; align-items:center; justify-content:center; height:100vh; margin:0;
          background:var(--vscode-editor-background); color:var(--vscode-editor-foreground); font-family:sans-serif; }
+  .wrap { text-align:center; max-width:520px; padding:24px; }
+  .glyph { font-size:48px; opacity:0.7; }
+  h2 { margin:12px 0 6px; font-size:16px; font-weight:600; }
+  p { margin:0 0 16px; opacity:0.85; font-size:13px; line-height:1.5; }
+  .failures { text-align:left; margin:0 auto 16px; max-width:460px; font-size:12px;
+              color:var(--vscode-errorForeground,#f48771); }
+  .failures code { color:var(--vscode-editor-foreground); }
+  button { font:inherit; padding:6px 18px; border:none; border-radius:4px; cursor:pointer;
+           background:var(--vscode-button-background); color:var(--vscode-button-foreground); }
+  button:hover { background:var(--vscode-button-hoverBackground); }
+  button:disabled { opacity:0.6; cursor:default; }
 </style>
 </head>
 <body>
-  <div style="text-align:center">
-    <div style="font-size:48px">&#x2205;</div>
-    <p>No functions found in this workspace.</p>
+  <div class="wrap">
+    <div class="glyph">&#x2205;</div>
+    <h2>${esc(headline)}</h2>
+    <p>${esc(detail)}</p>
+    ${failuresHtml}
+    ${retryHtml}
   </div>
+  ${retryScript}
 </body>
 </html>`;
 }

@@ -5,7 +5,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { EventEmitter } from 'events';
-import { GraphProvider, MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from '../../graphProvider';
+import { GraphProvider } from '../../graphProvider';
+import { RETRY_BACKOFF_MS } from '../../analyzerRunner';
 
 // Use require() so sinon can stub the underlying CJS module properties.
 // (The `import * as cp` wrapper uses getter-only descriptors that sinon cannot replace.)
@@ -32,6 +33,36 @@ function makeFakeProc() {
   proc.kill = sinon.stub();
   proc.pid = 1234;
   return proc;
+}
+
+const EMPTY_JSON = JSON.stringify({ nodes: [], edges: [], files: [] });
+const emitEmpty = (p: any) => { p.stdout.emit('data', Buffer.from(EMPTY_JSON)); p.emit('close', 0); };
+const emitExit = (p: any, code = 1, stderr = 'SyntaxError: boom') => { p.stderr.emit('data', Buffer.from(stderr)); p.emit('close', code); };
+
+/**
+ * Stub spawn so each analyzer process is created fresh and auto-emits its outcome
+ * on the next tick — works across the retry rounds that the initial load now does.
+ * `emitForCall(idx, proc)` gets the 0-based spawn index (idx % 5 = language).
+ */
+function stubSpawnAuto(
+  sandbox: sinon.SinonSandbox,
+  realSetTimeout: typeof setTimeout,
+  emitForCall: (idx: number, proc: any) => void,
+): sinon.SinonStub {
+  let calls = 0;
+  return sandbox.stub(rawCp, 'spawn').callsFake(() => {
+    const idx = calls++;
+    const proc = makeFakeProc();
+    realSetTimeout(() => emitForCall(idx, proc), 0);
+    return proc;
+  });
+}
+
+/** Collapse RETRY_BACKOFF_MS waits to ~0 so retry-driven tests run fast. */
+function stubFastBackoff(sandbox: sinon.SinonSandbox, realSetTimeout: typeof setTimeout) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sandbox.stub(global, 'setTimeout').callsFake((fn: any, ms?: number) =>
+    realSetTimeout(fn, ms && (RETRY_BACKOFF_MS as number[]).includes(ms) ? 0 : (ms as number)));
 }
 
 /** Build a fake webview panel. */
@@ -129,118 +160,11 @@ suite('GraphProvider', () => {
       );
     });
 
-    test('process exits code 1 + stderr → showError with truncated stderr', () => {
-      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
-      const fakePanel = makeFakePanel();
-      sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
-      const showErr = sandbox.stub(vscode.window, 'showErrorMessage');
-      sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
-
-      const fakeProc = makeFakeProc();
-      const fakeTsProc = makeFakeProc();
-      const fakeJsProc = makeFakeProc();
-      const fakeJavaProc = makeFakeProc();
-      const fakeCppProc  = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
-
-      const provider = new GraphProvider(makeFakeContext());
-      provider.show();
-
-      fakeProc.stderr.emit('data', Buffer.from('SyntaxError: invalid syntax'));
-      fakeProc.emit('close', 1);
-
-      assert.ok(showErr.calledOnce, 'showErrorMessage called');
-      assert.ok(showErr.firstCall.args[0].includes('exit 1'), 'mentions exit code');
-      assert.ok(showErr.firstCall.args[0].includes('SyntaxError'), 'includes stderr snippet');
-    });
-
-    test('stdout > MAX_OUTPUT_BYTES → kills proc, shows size error', () => {
-      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
-      const fakePanel = makeFakePanel();
-      sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
-      const showErr = sandbox.stub(vscode.window, 'showErrorMessage');
-      sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
-
-      const fakeProc = makeFakeProc();
-      const fakeTsProc = makeFakeProc();
-      const fakeJsProc = makeFakeProc();
-      const fakeJavaProc = makeFakeProc();
-      const fakeCppProc  = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
-
-      const provider = new GraphProvider(makeFakeContext());
-      provider.show();
-
-      // Emit a chunk slightly over 100 MB on the Python proc only
-      const bigChunk = Buffer.alloc(MAX_OUTPUT_BYTES + 1);
-      fakeProc.stdout.emit('data', bigChunk);
-
-      assert.ok(fakeProc.kill.calledOnce, 'process should be killed');
-      assert.ok(showErr.calledOnce, 'showErrorMessage called');
-      assert.ok(showErr.firstCall.args[0].includes('too large'), 'message mentions too large');
-    });
-
-    test('timeout exceeded → shows timeout error', function (done) {
-      this.timeout(5000);
-      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
-      const fakePanel = makeFakePanel();
-      sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
-      const showErr = sandbox.stub(vscode.window, 'showErrorMessage');
-      sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
-
-      const fakeProc = makeFakeProc();
-      const fakeTsProc = makeFakeProc();
-      const fakeJsProc = makeFakeProc();
-      const fakeJavaProc = makeFakeProc();
-      const fakeCppProc  = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
-
-      // Capture the real setTimeout BEFORE stubbing so the stub and the
-      // test's own timer can call it without infinite recursion.
-      const TIMEOUT_MS = 100;
-      const realSetTimeout = setTimeout;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sandbox.stub(global, 'setTimeout').callsFake((fn: any, ms?: number) => {
-        // Replace only the 60 s analysis timeout; pass everything else through.
-        return realSetTimeout(fn, ms === ANALYSIS_TIMEOUT_MS ? TIMEOUT_MS : (ms as number));
-      });
-
-      const provider = new GraphProvider(makeFakeContext());
-      provider.show();
-
-      realSetTimeout(() => {
-        assert.ok(fakeProc.kill.calledOnce, 'process killed on timeout');
-        assert.ok(showErr.calledOnce, 'showErrorMessage called');
-        assert.ok(showErr.firstCall.args[0].toLowerCase().includes('timed out'), 'message mentions timeout');
-        done();
-      }, TIMEOUT_MS + 200);
-    });
-
-    test('process error event → showError with start failure message', () => {
-      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
-      const fakePanel = makeFakePanel();
-      sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
-      const showErr = sandbox.stub(vscode.window, 'showErrorMessage');
-      sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
-
-      const fakeProc = makeFakeProc();
-      const fakeTsProc = makeFakeProc();
-      const fakeJsProc = makeFakeProc();
-      const fakeJavaProc = makeFakeProc();
-      const fakeCppProc  = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
-
-      const provider = new GraphProvider(makeFakeContext());
-      provider.show();
-
-      fakeProc.emit('error', new Error('ENOENT'));
-
-      assert.ok(showErr.calledOnce, 'showErrorMessage called');
-      assert.ok(
-        showErr.firstCall.args[0].includes('Failed to start analyzer'),
-        'error should mention failed to start analyzer'
-      );
-    });
+    // Per-analyzer failure handling (exit codes, timeout, output cap, spawn
+    // errors, status mapping, retry) is unit-tested directly in
+    // analyzerRunner.test.ts. The initial load now retries an empty result and
+    // surfaces failures via the actionable empty-state rather than per-analyzer
+    // popups — see the handleAnalysisResult() suite below.
 
     test('stdout chunks are concatenated before parsing', function (done) {
       sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
@@ -348,59 +272,100 @@ suite('GraphProvider', () => {
       }, 300);
     });
 
-    test('zero nodes → sets empty state HTML', function (done) {
+    test('zero nodes after retries → actionable empty-state with a Retry button', function (done) {
+      this.timeout(5000);
       sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
       const fakePanel = makeFakePanel();
       sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
-
-      const fakeProc = makeFakeProc();
-      const fakeTsProc = makeFakeProc();
-      const fakeJsProc = makeFakeProc();
-      const fakeJavaProc = makeFakeProc();
-      const fakeCppProc  = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc).onCall(3).returns(fakeJavaProc).onCall(4).returns(fakeCppProc);
+      const realSetTimeout = setTimeout;
+      stubFastBackoff(sandbox, realSetTimeout);
+      stubSpawnAuto(sandbox, realSetTimeout, (_idx, proc) => emitEmpty(proc));
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
 
-      // All procs must close before Promise.all resolves
-      fakeProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
-      fakeProc.emit('close', 0);
-      fakeTsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
-      fakeTsProc.emit('close', 0);
-      fakeJsProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
-      fakeJsProc.emit('close', 0);
-      fakeJavaProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
-      fakeJavaProc.emit('close', 0);
-      fakeCppProc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [] })));
-      fakeCppProc.emit('close', 0);
-
-      // Wait for Promise.all microtask to settle
-      setTimeout(() => {
-        assert.ok(fakePanel.webview.html.includes('No functions found'), 'empty state HTML set');
+      realSetTimeout(() => {
+        assert.ok(fakePanel.webview.html.includes('Retry analysis'), 'empty-state offers a Retry button');
         done();
-      }, 50);
+      }, 250);
     });
 
-    test('invalid JSON → shows parse error', () => {
+    test('all analyzers fail → empty-state surfaces per-language diagnostics', function (done) {
+      this.timeout(5000);
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+      const fakePanel = makeFakePanel();
+      sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
+      sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
+      const realSetTimeout = setTimeout;
+      stubFastBackoff(sandbox, realSetTimeout);
+      stubSpawnAuto(sandbox, realSetTimeout, (_idx, proc) => emitExit(proc, 1));
+
+      const provider = new GraphProvider(makeFakeContext());
+      provider.show();
+
+      realSetTimeout(() => {
+        const html = fakePanel.webview.html;
+        assert.ok(html.includes('Analysis could not complete'), 'failure headline shown');
+        assert.ok(html.includes('exit-nonzero'), 'diagnostic lists the failure status, not swallowed');
+        assert.ok(html.includes('Retry analysis'), 'retry offered');
+        done();
+      }, 250);
+    });
+
+    test('handleAnalysisResult with unparseable merged stdout → shows parse error', () => {
       sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
       const fakePanel = makeFakePanel();
       sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
       const showErr = sandbox.stub(vscode.window, 'showErrorMessage');
       sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
-
-      const fakeProc = makeFakeProc();
-      sandbox.stub(rawCp, 'spawn').returns(fakeProc);
+      // Procs never complete, so the live run never overwrites the panel.
+      stubSpawnAuto(sandbox, setTimeout, () => { /* never emits */ });
 
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
-
-      fakeProc.stdout.emit('data', Buffer.from('not json {{{'));
-      fakeProc.emit('close', 0);
+      (provider as any).handleAnalysisResult('not json {{{', '/ws');
 
       assert.ok(showErr.calledOnce, 'showErrorMessage called');
       assert.ok(showErr.firstCall.args[0].includes('Failed to parse'), 'parse error message');
+    });
+  });
+
+  // ── retry-analysis message ─────────────────────────────────────────────────
+
+  suite('retry-analysis message', () => {
+    test('re-runs the analyzers and resets the panel to the loading state', () => {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+      sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
+      const realSetTimeout = setTimeout;
+      const spawn = stubSpawnAuto(sandbox, realSetTimeout, () => { /* never completes → no retry churn */ });
+
+      const msgCallbacks: Array<(msg: unknown) => void> = [];
+      const webview = {
+        html: '',
+        cspSource: 'vscode-resource:',
+        onDidReceiveMessage: sinon.stub().callsFake((cb: (m: unknown) => void) => { msgCallbacks.push(cb); return { dispose: () => {} }; }),
+        postMessage: sinon.stub().resolves(true),
+        asWebviewUri: sinon.stub().callsFake((u: vscode.Uri) => u),
+      };
+      const panel = {
+        webview,
+        reveal: sinon.stub(),
+        onDidDispose: sinon.stub().returns({ dispose: () => {} }),
+        dispose: sinon.stub(),
+      };
+      sandbox.stub(vscode.window, 'createWebviewPanel').returns(panel as any);
+
+      const provider = new GraphProvider(makeFakeContext());
+      provider.show();
+      const afterShow = spawn.callCount; // 5 analyzers
+      webview.html = '';
+
+      assert.ok(msgCallbacks.length >= 1, 'message handler registered');
+      msgCallbacks[0]({ type: 'retry-analysis' });
+
+      assert.ok(webview.html.includes('Analyzing'), 'panel reset to loading state');
+      assert.ok(spawn.callCount > afterShow, 'analyzers were re-spawned');
     });
   });
 

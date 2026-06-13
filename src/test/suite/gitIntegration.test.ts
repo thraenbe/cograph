@@ -411,7 +411,14 @@ suite('Message Handling', () => {
     const fakeProc = makeFakeProc();
     const fakeTsProc = makeFakeProc();
     const fakeJsProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').onFirstCall().returns(fakeProc).onSecondCall().returns(fakeTsProc).onThirdCall().returns(fakeJsProc);
+    const fakeJavaProc = makeFakeProc();
+    const fakeCppProc = makeFakeProc();
+    sandbox.stub(rawCp, 'spawn')
+      .onFirstCall().returns(fakeProc)
+      .onSecondCall().returns(fakeTsProc)
+      .onThirdCall().returns(fakeJsProc)
+      .onCall(3).returns(fakeJavaProc)
+      .onCall(4).returns(fakeCppProc);
 
     const fakePanel = makeFakePanel();
     sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);

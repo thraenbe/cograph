@@ -247,6 +247,55 @@ suite('highlightCode — Java', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Suite: highlightCode — C++
+// ---------------------------------------------------------------------------
+
+suite('highlightCode — C++', () => {
+  test('class keyword → blue, followed by class name in teal', () => {
+    const result = highlightCode('class Foo {};', 'cpp');
+    assert.ok(result.includes('<span style="color:#569cd6">class</span>'), 'class should be highlighted');
+    assert.ok(result.includes('<span style="color:#4ec9b0">Foo</span>'), 'class name should be teal');
+  });
+
+  test('public, private, static keywords → highlighted', () => {
+    for (const kw of ['public', 'private', 'static']) {
+      const result = highlightCode(`${kw}: void run() {}`, 'cpp');
+      assert.ok(result.includes(`<span style="color:#569cd6">${kw}</span>`), `${kw} should be highlighted`);
+    }
+  });
+
+  test('namespace and using keywords → highlighted', () => {
+    const result = highlightCode('namespace ns {} using std::cout;', 'cpp');
+    assert.ok(result.includes('<span style="color:#569cd6">namespace</span>'));
+    assert.ok(result.includes('<span style="color:#569cd6">using</span>'));
+  });
+
+  test('template, typename, virtual, override keywords → highlighted', () => {
+    for (const kw of ['template', 'typename', 'virtual', 'override']) {
+      const result = highlightCode(`${kw} ;`, 'cpp');
+      assert.ok(result.includes(`<span style="color:#569cd6">${kw}</span>`), `${kw} should be highlighted`);
+    }
+  });
+
+  test('C++ // line comment → green span', () => {
+    const result = highlightCode('// cpp comment', 'cpp');
+    assert.ok(result.includes('<span style="color:#6a9955">'));
+    assert.ok(result.includes('cpp comment'));
+  });
+
+  test('C++ /* block comment */ → green span', () => {
+    const result = highlightCode('/* block */', 'cpp');
+    assert.ok(result.includes('<span style="color:#6a9955">'));
+    assert.ok(result.includes('block'));
+  });
+
+  test('C++ string literal → orange span', () => {
+    const result = highlightCode('"hello"', 'cpp');
+    assert.ok(result.includes('<span style="color:#ce9178">"hello"</span>'));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Suite: highlightCode — Edge Cases
 // ---------------------------------------------------------------------------
 
@@ -371,6 +420,7 @@ suite('getLanguageColor', () => {
 
   test('java → returns #b07219', () => {
     assert.strictEqual(getLanguageColor('java'), '#b07219');
+    assert.strictEqual(getLanguageColor('cpp'), '#f34b7d');
   });
 
   test('typescript → returns the configured TS color', () => {

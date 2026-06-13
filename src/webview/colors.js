@@ -4,6 +4,7 @@ const languageColors = {
   typescript: '#dd3b71',
   javascript: '#f7df1e',
   java:       '#b07219',
+  cpp:        '#f34b7d',
 };
 
 function getLanguageColor(lang) {

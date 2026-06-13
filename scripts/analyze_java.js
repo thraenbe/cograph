@@ -20,6 +20,34 @@ const { parse, BaseJavaCstVisitorWithDefaults } =
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build']);
 
+// ── Parse cache (single-parse optimisation) ───────────────────────────────────
+// collectDefinitions and collectCalls each need the CST of every file. Parsing
+// dominates the analyzer's cost, so we parse each file once and reuse the CST
+// across both passes instead of re-parsing it (which doubled analysis time — and
+// reanalysis runs on every save). Mirrors the cache in analyze_cpp.js. Unlike
+// web-tree-sitter, java-parser returns a Chevrotain CST that IS garbage-collected,
+// so clearCstCache() only has to drop references — there is no WASM heap to free.
+const cstCache = new Map(); // filepath -> CST | null
+
+// Diagnostic/test counter: number of actual parse() invocations. A run over N
+// files should report N parses, not 2N.
+const _stats = { parses: 0 };
+
+function getCst(filepath) {
+  if (cstCache.has(filepath)) return cstCache.get(filepath);
+  let cst = null;
+  try {
+    const source = fs.readFileSync(filepath, 'utf8');
+    cst = parse(source);
+    if (cst) _stats.parses++;
+  } catch { cst = null; }
+  cstCache.set(filepath, cst ?? null);
+  return cst ?? null;
+}
+
+/** Drop all cached CSTs (Chevrotain CSTs are GC'd once unreferenced). */
+function clearCstCache() { cstCache.clear(); }
+
 function collectJavaFiles(root) {
   const results = [];
   function walk(dir) {
@@ -251,10 +279,8 @@ class DefinitionCollector extends BaseJavaCstVisitorWithDefaults {
 function collectDefinitions(files) {
   const definitions = {};
   for (const filepath of files) {
-    let source;
-    try { source = fs.readFileSync(filepath, 'utf8'); } catch { continue; }
-    let cst;
-    try { cst = parse(source); } catch { continue; }
+    const cst = getCst(filepath); // parsed once, reused by collectCalls
+    if (!cst) { continue; }
     try {
       const collector = new DefinitionCollector(filepath);
       collector.visit(cst);
@@ -386,10 +412,8 @@ function collectCalls(files, definitions) {
   const allEdges = [];
   const allLibraryNodes = new Map();
   for (const filepath of files) {
-    let source;
-    try { source = fs.readFileSync(filepath, 'utf8'); } catch { continue; }
-    let cst;
-    try { cst = parse(source); } catch { continue; }
+    const cst = getCst(filepath); // cache hit when collectDefinitions ran first
+    if (!cst) { continue; }
     const importMap = parseImports(cst);
     try {
       const collector = new CallCollector(filepath, definitions, nameToIds, importMap);
@@ -412,10 +436,14 @@ function main() {
   }
   const root = process.argv[2];
   const files = collectJavaFiles(root);
-  const definitions = collectDefinitions(files);
-  const { edges, libraryNodes } = collectCalls(files, definitions);
-  const nodes = [...Object.values(definitions), ...libraryNodes];
-  process.stdout.write(JSON.stringify({ nodes, edges, files }) + '\n');
+  try {
+    const definitions = collectDefinitions(files);
+    const { edges, libraryNodes } = collectCalls(files, definitions);
+    const nodes = [...Object.values(definitions), ...libraryNodes];
+    process.stdout.write(JSON.stringify({ nodes, edges, files }) + '\n');
+  } finally {
+    clearCstCache(); // drop cached CSTs
+  }
 }
 
 // Only run main() when invoked as a script, not when require()'d by tests.
@@ -424,5 +452,5 @@ if (require.main === module) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { collectJavaFiles, collectDefinitions, collectCalls };
+  module.exports = { collectJavaFiles, collectDefinitions, collectCalls, clearCstCache, _stats };
 }

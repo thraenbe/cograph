@@ -49,15 +49,17 @@ export class AnalyzerRunner {
     const tsScript = path.join(this.context.extensionPath, 'scripts', 'analyze_ts.js');
     const jsScript = path.join(this.context.extensionPath, 'scripts', 'analyze_js.js');
     const javaScript = path.join(this.context.extensionPath, 'scripts', 'analyze_java.js');
+    const cppScript  = path.join(this.context.extensionPath, 'scripts', 'analyze_cpp.js');
     const pyPromise   = this.spawnAnalyzerProcess(pythonBin, [pyScript, workspaceRoot], true);
     const tsPromise   = this.spawnAnalyzerProcess(process.execPath, [tsScript, workspaceRoot], false);
     const jsPromise   = this.spawnAnalyzerProcess(process.execPath, [jsScript, workspaceRoot], false);
     const javaPromise = this.spawnAnalyzerProcess(process.execPath, [javaScript, workspaceRoot], false);
-    Promise.all([pyPromise, tsPromise, jsPromise, javaPromise]).then(([pyGraph, tsGraph, jsGraph, javaGraph]) => {
+    const cppPromise  = this.spawnAnalyzerProcess(process.execPath, [cppScript, workspaceRoot], false);
+    Promise.all([pyPromise, tsPromise, jsPromise, javaPromise, cppPromise]).then(([pyGraph, tsGraph, jsGraph, javaGraph, cppGraph]) => {
       const merged: GraphData = {
-        nodes: [...pyGraph.nodes, ...tsGraph.nodes, ...jsGraph.nodes, ...javaGraph.nodes],
-        edges: [...pyGraph.edges, ...tsGraph.edges, ...jsGraph.edges, ...javaGraph.edges],
-        files: [...(pyGraph.files ?? []), ...(tsGraph.files ?? []), ...(jsGraph.files ?? []), ...(javaGraph.files ?? [])],
+        nodes: [...pyGraph.nodes, ...tsGraph.nodes, ...jsGraph.nodes, ...javaGraph.nodes, ...cppGraph.nodes],
+        edges: [...pyGraph.edges, ...tsGraph.edges, ...jsGraph.edges, ...javaGraph.edges, ...cppGraph.edges],
+        files: [...(pyGraph.files ?? []), ...(tsGraph.files ?? []), ...(jsGraph.files ?? []), ...(javaGraph.files ?? []), ...(cppGraph.files ?? [])],
       };
       this.onResult(JSON.stringify(merged), workspaceRoot);
     });

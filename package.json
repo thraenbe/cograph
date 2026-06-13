@@ -1,8 +1,8 @@
 {
   "name": "cograph",
   "displayName": "CoGraph",
-  "description": "Interactive call graph visualization for Python, TypeScript, JavaScript, and Java projects",
-  "version": "1.0.4",
+  "description": "Interactive call graph visualization for Python, TypeScript, JavaScript, Java, and C++ projects",
+  "version": "1.0.5",
   "publisher": "thraenbe",
   "icon": "media/icon.png",
   "repository": {
@@ -19,6 +19,8 @@
     "typescript",
     "javascript",
     "java",
+    "cpp",
+    "c++",
     "call graph",
     "visualization",
     "dependency",
@@ -194,12 +196,14 @@
     "pretest": "npm run compile",
     "test": "node ./out/test/runTest.js",
     "lint": "eslint src --ext ts",
+    "build:cpp-grammar": "tree-sitter build --wasm node_modules/tree-sitter-cpp -o scripts/tree-sitter-cpp.wasm",
     "package": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce package",
     "publish": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce publish"
   },
   "dependencies": {
     "java-parser": "^2.0.5",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "web-tree-sitter": "0.26.9"
   },
   "devDependencies": {
     "@types/jsdom": "^21.1.7",
@@ -215,6 +219,8 @@
     "glob": "^10.3.0",
     "jsdom": "^25.0.1",
     "mocha": "^10.4.0",
-    "sinon": "^17.0.0"
+    "sinon": "^17.0.0",
+    "tree-sitter-cli": "0.26.9",
+    "tree-sitter-cpp": "^0.22.3"
   }
 }

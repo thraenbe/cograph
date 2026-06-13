@@ -20,7 +20,7 @@ export interface GraphNode {
   name: string;
   file: string | null;
   line: number;
-  language?: 'python' | 'typescript' | 'javascript' | 'java';
+  language?: 'python' | 'typescript' | 'javascript' | 'java' | 'cpp';
   gitStatus?: { unstaged: 'added' | 'modified' | 'deleted' | null; staged: 'added' | 'modified' | 'deleted' | null };
   isLibrary?: boolean;
   libraryName?: string;
@@ -116,7 +116,16 @@ export class GraphProvider {
             doc.uri.fsPath.endsWith('.jsx') ||
             doc.uri.fsPath.endsWith('.mjs') ||
             doc.uri.fsPath.endsWith('.cjs') ||
-            doc.uri.fsPath.endsWith('.java')) {
+            doc.uri.fsPath.endsWith('.java') ||
+            doc.uri.fsPath.endsWith('.cpp') ||
+            doc.uri.fsPath.endsWith('.cc') ||
+            doc.uri.fsPath.endsWith('.cxx') ||
+            doc.uri.fsPath.endsWith('.c++') ||
+            doc.uri.fsPath.endsWith('.hpp') ||
+            doc.uri.fsPath.endsWith('.hh') ||
+            doc.uri.fsPath.endsWith('.hxx') ||
+            doc.uri.fsPath.endsWith('.h++') ||
+            doc.uri.fsPath.endsWith('.h')) {
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
       }
@@ -158,6 +167,9 @@ export class GraphProvider {
           } else {
             url = `https://javadoc.io/doc/${libraryName}`;
           }
+        } else if (language === 'cpp') {
+          const q = encodeURIComponent(`${libraryName}::${message.functionName ?? ''}`);
+          url = `https://en.cppreference.com/mwiki/index.php?search=${q}`;
         } else {
           url = `https://www.npmjs.com/package/${libraryName}`;
         }
@@ -177,6 +189,9 @@ export class GraphProvider {
           const languageId = ext === 'py' ? 'python'
             : ext === 'js' ? 'javascript'
             : ext === 'java' ? 'java'
+            : (ext === 'cpp' || ext === 'cc' || ext === 'cxx' || ext === 'c++'
+                || ext === 'hpp' || ext === 'hh' || ext === 'hxx' || ext === 'h++'
+                || ext === 'h') ? 'cpp'
             : 'typescript';
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const colorize = (vscode.languages as any).colorize;

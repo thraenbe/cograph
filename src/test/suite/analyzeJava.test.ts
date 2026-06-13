@@ -4,7 +4,8 @@ import * as os from 'os';
 import * as path from 'path';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { collectJavaFiles, collectDefinitions, collectCalls } = require('../../../scripts/analyze_java.js');
+const javaAnalyzer = require('../../../scripts/analyze_java.js');
+const { collectJavaFiles, collectDefinitions, collectCalls } = javaAnalyzer;
 
 // ---------------------------------------------------------------------------
 // collectJavaFiles — extension inclusion + skip rules
@@ -287,5 +288,34 @@ suite('collectCalls (Java)', () => {
     const runId    = list.find((d: any) => d.name === 'run')?.id;
     assert.ok(helperId && runId);
     assert.ok(edges.some((e: any) => e.source === runId && e.target === helperId));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parse cache — each file is parsed once per analysis run (single-parse)
+// ---------------------------------------------------------------------------
+
+suite('parse cache (single-parse, Java)', () => {
+  let tmpDir: string;
+
+  setup(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-java-cache-')); });
+  teardown(() => {
+    javaAnalyzer.clearCstCache();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('collectDefinitions + collectCalls parse each file once, not twice', () => {
+    const fileA = path.join(tmpDir, 'A.java');
+    const fileB = path.join(tmpDir, 'B.java');
+    fs.writeFileSync(fileA, 'class A {\n  void helper() {}\n}\n');
+    fs.writeFileSync(fileB, 'class B {\n  void run() { helper(); }\n}\n');
+    const files = [fileA, fileB];
+
+    javaAnalyzer.clearCstCache();
+    javaAnalyzer._stats.parses = 0;
+    const defs = collectDefinitions(files);
+    collectCalls(files, defs);
+    assert.strictEqual(javaAnalyzer._stats.parses, files.length,
+      'two files → two parses across both passes (cache reused), not four');
   });
 });

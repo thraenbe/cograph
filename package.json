@@ -185,6 +185,17 @@
           "type": "number",
           "default": 300000,
           "description": "Max milliseconds to wait for a Graph Intelligence response."
+        },
+        "cograph.largeRepo.autoEngage": {
+          "type": "boolean",
+          "default": true,
+          "description": "For large repos, open in progressive folder-cluster mode (a single project node that expands as you click) instead of laying out the whole graph at once."
+        },
+        "cograph.largeRepo.fileThreshold": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 1,
+          "description": "Source-file count at or above which CoGraph auto-engages folder-cluster mode."
         }
       }
     }

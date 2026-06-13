@@ -350,9 +350,20 @@ function prepareRenderData(elements, positionHints = new Map()) {
     y: oldPositions.get(e.data.id)?.y ?? positionHints.get(e.data.id)?.y ?? H / 2 + (Math.random() - 0.5) * 200,
   }));
 
-  const allLinks = edgeData.map(e => ({ source: e.data.source, target: e.data.target, isLibraryEdge: e.data.isLibraryEdge ?? false }));
+  const allLinks = edgeData.map(e => ({
+    source: e.data.source,
+    target: e.data.target,
+    isLibraryEdge: e.data.isLibraryEdge ?? false,
+    _count: e.data._count ?? 1,
+    pending: e.data.pending ?? false,
+  }));
   const visibleSet = getVisibleNodeIds();
   return { allLinks, visibleSet };
+}
+
+// Aggregated-edge thickness: grows sub-linearly with the number of underlying calls.
+function edgeWeightScale(count) {
+  return 1 + Math.log2(Math.max(1, count || 1)) * 0.6;
 }
 
 function renderLinks(allLinks, visibleSet) {
@@ -360,10 +371,20 @@ function renderLinks(allLinks, visibleSet) {
     .data(allLinks)
     .join('line')
     .attr('stroke', d => d.isLibraryEdge ? getCSSVar('--cograph-link-library') : getCSSVar('--cograph-link-default'))
-    .attr('stroke-dasharray', d => d.isLibraryEdge ? '6,3' : null)
-    .attr('stroke-width', settings.linkThickness)
-    .attr('opacity', 0.7)
+    .attr('stroke-dasharray', d => d.isLibraryEdge ? '6,3' : (d.pending ? '4,3' : null))
+    .attr('stroke-width', d => settings.linkThickness * edgeWeightScale(d._count))
+    .attr('opacity', d => d.pending ? 0.4 : 0.7)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
+    .each(function(d) {
+      // Tooltip for aggregated edges (folder/file clusters); skipped for plain 1-call edges.
+      let t = this.querySelector('title');
+      if (d._count > 1 || d.pending) {
+        if (!t) { t = document.createElementNS('http://www.w3.org/2000/svg', 'title'); this.appendChild(t); }
+        t.textContent = d.pending ? `${d._count}+ calls (parsing…)` : `${d._count} calls`;
+      } else if (t) {
+        t.remove();
+      }
+    })
     .style('display', d => (visibleSet.has(d.source) && visibleSet.has(d.target)) ? null : 'none');
 }
 
@@ -425,6 +446,10 @@ function renderCloudNodes(visibleSet) {
     .call(drag)
     .on('click', (event, d) => {
       event.stopPropagation();
+      if (d.isFolderCluster || d.isFileCluster) {
+        if (typeof toggleFileClusterExpand === 'function') { toggleFileClusterExpand(d); }
+        return;
+      }
       if (d.isSynthetic) return;
       state.expandedClusters.add(d.id);
       applyComplexity();

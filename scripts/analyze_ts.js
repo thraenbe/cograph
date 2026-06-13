@@ -289,13 +289,25 @@ function collectCalls(files, definitions) {
   return { edges, libraryNodes: Array.from(libraryNodes.values()) };
 }
 
+// Subset mode: `--files <listpath>` analyzes only the newline-separated files in
+// <listpath> (filtered to this analyzer's extensions), instead of walking root.
+// Returns null when --files is absent so the caller falls back to a full walk.
+function explicitFileList() {
+  const i = process.argv.indexOf('--files');
+  if (i === -1 || !process.argv[i + 1]) { return null; }
+  let raw;
+  try { raw = fs.readFileSync(process.argv[i + 1], 'utf8'); } catch { return []; }
+  return raw.split('\n').map(s => s.trim()).filter(Boolean)
+    .filter(f => !f.endsWith('.d.ts') && (f.endsWith('.ts') || f.endsWith('.tsx')));
+}
+
 function main() {
   if (process.argv.length < 3) {
-    process.stderr.write('Usage: analyze_ts.js <workspace_root>\n');
+    process.stderr.write('Usage: analyze_ts.js <workspace_root> [--files <listpath>]\n');
     process.exit(1);
   }
   const root = process.argv[2];
-  const files = collectTsFiles(root);
+  const files = explicitFileList() ?? collectTsFiles(root);
   const definitions = collectDefinitions(files);
   const { edges, libraryNodes } = collectCalls(files, definitions);
   const nodes = [...Object.values(definitions), ...libraryNodes];

@@ -5,10 +5,13 @@ import * as fs from 'fs';
 export { MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from './analyzerRunner';
 
 import { GitService } from './gitService';
-import { AnalyzerRunner } from './analyzerRunner';
+import { AnalyzerRunner, type AnalyzerRunMeta } from './analyzerRunner';
+import { scanStructure, type StructureTree } from './structureScanner';
+import { mergeGraph } from './graphMerge';
+import { loadCache, writeCache, type CacheLoadResult } from './cacheStore';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
-import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml } from './webviewHtmlBuilder';
+import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
 import type { SidebarProvider } from './sidebarProvider';
 import { createProvider, getProviderInfo } from './graphIntelligence/provider';
 import type { GraphIntelligenceProvider, GraphIntelligenceResult } from './graphIntelligence/provider';
@@ -91,6 +94,12 @@ export class GraphProvider {
   private isDirty = false;
   private static readonly DIRTY_PREFIX = '● ';
   private cachedGraph: GraphData | undefined;
+  /** True when a file-cluster skeleton is shown, so a 0-node / async result must not reset the view. */
+  private skeletonActive = false;
+  /** Latest structure scan, kept for cache writes. */
+  private currentStructure: StructureTree | undefined;
+  /** Per-file debounce timers for incremental on-save re-parsing. */
+  private readonly incrementalTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private graphReadyResolve: (() => void) | undefined;
   private graphReadyPromise: Promise<void> | undefined;
   private intelController: AbortController | undefined;
@@ -108,7 +117,15 @@ export class GraphProvider {
     this.analyzerRunner = new AnalyzerRunner(
       context,
       (msg) => this.showError(msg),
-      (stdout, workspaceRoot) => this.handleAnalysisResult(stdout, workspaceRoot),
+      (stdout, workspaceRoot, meta) => this.handleAnalysisResult(stdout, workspaceRoot, meta),
+      (msg) => this.outputChannel.appendLine(msg),
+      (attempt, max) => {
+        // Don't reset the panel HTML during retries when a skeleton is showing —
+        // that would wipe the user's drill-down.
+        if (this.panel && !this.skeletonActive) {
+          this.panel.webview.html = getLoadingHtml(`Analyzing project… (retry ${attempt}/${max})`);
+        }
+      },
     );
     this.libraryDescriber = new LibraryDescriber(
       context.extensionPath,
@@ -167,7 +184,12 @@ export class GraphProvider {
             doc.uri.fsPath.endsWith('.hxx') ||
             doc.uri.fsPath.endsWith('.h++') ||
             doc.uri.fsPath.endsWith('.h')) {
-          this.analyzerRunner.scheduleReanalysis(workspaceRoot);
+          if (this.skeletonActive) {
+            // Large repo: re-parse only the saved file instead of the whole repo.
+            this.scheduleIncrementalReparse(workspaceRoot, doc.uri.fsPath);
+          } else {
+            this.analyzerRunner.scheduleReanalysis(workspaceRoot);
+          }
         }
       }
     });
@@ -184,6 +206,8 @@ export class GraphProvider {
       gitIndexWatcher.dispose();
       if (this.gitRefreshTimer) { clearTimeout(this.gitRefreshTimer); }
       this.analyzerRunner.clearReanalysisTimer();
+      for (const timer of this.incrementalTimers.values()) { clearTimeout(timer); }
+      this.incrementalTimers.clear();
       this.analyzerRunner.killAll();
       this.cachedNodes = [];
       this.cachedGraph = undefined;
@@ -287,6 +311,22 @@ export class GraphProvider {
         }
       } else if (message.type === 'dirty-state') {
         this.setDirty(!!message.dirty);
+      } else if (message.type === 'retry-analysis') {
+        // Triggered from the empty-state Retry button: re-run as a fresh initial
+        // load (with backoff) so a transient/unready failure can recover.
+        this.cachedNodes = [];
+        this.cachedGraph = undefined;
+        if (this.panel) { this.panel.webview.html = getLoadingHtml(); }
+        this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
+      } else if (message.type === 'expand-folder') {
+        // Lazy per-folder parse: analyze just this folder's files on demand.
+        this.parseSubset(workspaceRoot, message.files ?? [], message.folderPath);
+      } else if (message.type === 'parse-file') {
+        const filePath: string = message.filePath ?? '';
+        this.parseSubset(workspaceRoot, filePath ? [filePath] : [], path.dirname(filePath));
+      } else if (message.type === 'cancel-analysis') {
+        this.analyzerRunner.killAll();
+        this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false, cancelled: true });
       } else if (message.type === 'open-chat') {
         // Focuses the Cograph activity-bar view. The current graph context is
         // already up-to-date — setCurrentGraph is invoked from loadGraph and
@@ -349,8 +389,36 @@ export class GraphProvider {
       }
     });
 
-    this.panel.webview.html = getLoadingHtml();
-    this.analyzerRunner.run(workspaceRoot);
+    // Cheap, parse-free structure scan → instant folder skeleton for large repos.
+    const structure = scanStructure(workspaceRoot);
+    this.currentStructure = structure;
+    const cfg = vscode.workspace.getConfiguration('cograph');
+    const threshold = cfg.get<number>('largeRepo.fileThreshold', 2000);
+    const autoEngage = cfg.get<boolean>('largeRepo.autoEngage', true) && structure.totalFiles >= threshold;
+    this.skeletonActive = autoEngage;
+
+    // Re-open cache: paint a prior analysis instantly. If everything is unchanged,
+    // skip the analyzer entirely; if some files changed, reconcile just those.
+    const cache = loadCache(workspaceRoot, structure);
+    if (cache) {
+      this.loadFromCache(workspaceRoot, structure, cache, autoEngage);
+      if (cache.valid) { return; } // nothing changed — no analysis needed
+      this.reconcileChangedFiles(workspaceRoot, structure, cache.changed);
+      return;
+    }
+
+    if (autoEngage) {
+      // Paint the skeleton immediately; the analyzer enriches it in the background.
+      this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
+      setTimeout(() => {
+        this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
+        this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
+      }, 150);
+    } else {
+      // Small repo: behave exactly as before — plain graph, no skeleton.
+      this.panel.webview.html = getLoadingHtml();
+    }
+    this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
   }
 
   isOpen(): boolean {
@@ -494,7 +562,7 @@ export class GraphProvider {
           return;
         }
         if (graph.nodes.length === 0) {
-          panel.webview.html = getEmptyStateHtml();
+          panel.webview.html = getEmptyStateHtml({ showRetry: false });
           return;
         }
         const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, wsRoot);
@@ -563,7 +631,7 @@ export class GraphProvider {
   }
 
   /** Parse stdout, guard empty graphs, and post the graph message. */
-  private handleAnalysisResult(stdout: string, workspaceRoot: string): void {
+  private handleAnalysisResult(stdout: string, workspaceRoot: string, meta?: AnalyzerRunMeta): void {
     if (!this.panel) { return; }
 
     let graph: GraphData;
@@ -574,8 +642,10 @@ export class GraphProvider {
       return;
     }
 
-    if (graph.nodes.length === 0) {
-      this.panel.webview.html = getEmptyStateHtml();
+    // A 0-node result is only a dead-end when NO skeleton is shown. With the
+    // file-cluster skeleton up, the structure stays and analysis just adds nothing.
+    if (graph.nodes.length === 0 && !this.skeletonActive) {
+      this.panel.webview.html = getEmptyStateHtml(this.buildEmptyStateInfo(meta));
       return;
     }
 
@@ -584,18 +654,149 @@ export class GraphProvider {
     const fileGitStatus = this.gitService.fileStatuses;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
     this.cachedGraph = graph;
+    if (this.currentStructure) { writeCache(workspaceRoot, graph, this.currentStructure); }
     if (this.graphReadyResolve) {
       this.graphReadyResolve();
       this.graphReadyResolve = undefined;
     }
 
-    if (isReanalysis) {
+    if (isReanalysis || this.skeletonActive) {
+      // Webview already up (reanalysis) or showing the skeleton — deliver data without resetting the view.
       this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: true });
+      if (this.skeletonActive) {
+        // Background full pass finished — hide the Stop button / progress indicator.
+        this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
+      }
     } else {
       this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
       setTimeout(() => {
         this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
       }, 150);
+    }
+  }
+
+  /** Map analyzer run metadata onto the actionable empty-state's display info. */
+  private buildEmptyStateInfo(meta?: AnalyzerRunMeta): EmptyStateInfo {
+    if (!meta) { return { showRetry: true }; }
+    const failures = meta.statuses
+      .filter(s => s.status !== 'ok' && s.status !== 'empty')
+      .map(s => ({ lang: s.lang, status: s.status, detail: s.detail }));
+    return {
+      failures,
+      candidateFilesFound: meta.candidateFilesFound,
+      timedOut: meta.statuses.some(s => s.status === 'timeout'),
+      tooLarge: meta.statuses.some(s => s.status === 'output-too-large'),
+      showRetry: true,
+    };
+  }
+
+  /**
+   * Lazily parse a subset of files (a folder's direct files, or one file) and
+   * patch the result into the webview without disturbing the user's drill-down.
+   * Posts `analysis-state` (spinner on/off) and `graph-patch` (merge by id).
+   */
+  private async parseSubset(workspaceRoot: string, files: string[], folderTag: string): Promise<void> {
+    if (!this.panel || files.length === 0) { return; }
+    this.panel.webview.postMessage({ type: 'analysis-state', parsingFolder: folderTag });
+    try {
+      const patch = await this.analyzerRunner.runSubset(workspaceRoot, files);
+      this.cachedGraph = mergeGraph(this.cachedGraph, patch);
+      this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
+      this.gitService.applyGitStatuses(patch.nodes, workspaceRoot);
+      if (this.currentStructure) { writeCache(workspaceRoot, this.cachedGraph, this.currentStructure); }
+      this.panel?.webview.postMessage({
+        type: 'graph-patch',
+        patch,
+        parsedFolder: folderTag,
+        fileGitStatus: this.gitService.fileStatuses,
+      });
+    } catch (err: unknown) {
+      this.outputChannel.appendLine(`Subset parse failed for ${folderTag}: ${(err as Error).message}`);
+      this.panel?.webview.postMessage({ type: 'analysis-state', parsingFolder: folderTag, error: (err as Error).message });
+    }
+  }
+
+  /** Paint a cached graph instantly (pruning files that vanished since it was written). */
+  private loadFromCache(workspaceRoot: string, structure: StructureTree, cache: CacheLoadResult, autoEngage: boolean): void {
+    if (!this.panel) { return; }
+    let graph = cache.graph;
+    if (cache.removed.length) {
+      const removed = new Set(cache.removed);
+      const removedIds = new Set(graph.nodes.filter(n => n.file && removed.has(n.file)).map(n => n.id));
+      graph = {
+        nodes: graph.nodes.filter(n => !(n.file && removed.has(n.file))),
+        edges: graph.edges.filter(e => !removedIds.has(e.source) && !removedIds.has(e.target)),
+        files: (graph.files ?? []).filter(f => !removed.has(f)),
+      };
+    }
+    this.cachedGraph = graph;
+    this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
+    const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, workspaceRoot);
+    const fileGitStatus = this.gitService.fileStatuses;
+    if (this.graphReadyResolve) { this.graphReadyResolve(); this.graphReadyResolve = undefined; }
+
+    this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
+    setTimeout(() => {
+      // Only large repos engage the folder skeleton; small repos render the plain graph.
+      if (autoEngage) {
+        this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
+      }
+      this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
+    }, 150);
+  }
+
+  /** Re-parse only the files that changed since the cache was written, then patch + rewrite the cache. */
+  private async reconcileChangedFiles(workspaceRoot: string, structure: StructureTree, changed: string[]): Promise<void> {
+    if (!this.panel || changed.length === 0) { return; }
+    this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
+    try {
+      const patch = await this.analyzerRunner.runSubset(workspaceRoot, changed);
+      this.cachedGraph = this.spliceFiles(this.cachedGraph, changed, patch);
+      this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
+      this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
+      writeCache(workspaceRoot, this.cachedGraph, structure);
+      this.panel?.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: changed, fileGitStatus: this.gitService.fileStatuses });
+    } catch (err: unknown) {
+      this.outputChannel.appendLine(`Cache reconcile failed: ${(err as Error).message}`);
+    } finally {
+      this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
+    }
+  }
+
+  /** Remove `files`' stale nodes/edges from base, then merge in the fresh `patch`. */
+  private spliceFiles(base: GraphData | undefined, files: string[], patch: GraphData): GraphData {
+    if (!base) { return patch; }
+    const set = new Set(files);
+    const staleIds = new Set(base.nodes.filter(n => n.file && set.has(n.file)).map(n => n.id));
+    const pruned: GraphData = {
+      nodes: base.nodes.filter(n => !(n.file && set.has(n.file))),
+      edges: base.edges.filter(e => !staleIds.has(e.source) && !staleIds.has(e.target)),
+      files: base.files,
+    };
+    return mergeGraph(pruned, patch);
+  }
+
+  /** Debounced single-file re-parse on save (large-repo path; avoids re-running the whole repo). */
+  private scheduleIncrementalReparse(workspaceRoot: string, file: string): void {
+    const existing = this.incrementalTimers.get(file);
+    if (existing) { clearTimeout(existing); }
+    this.incrementalTimers.set(file, setTimeout(() => {
+      this.incrementalTimers.delete(file);
+      void this.incrementalReparse(workspaceRoot, file);
+    }, 1000));
+  }
+
+  private async incrementalReparse(workspaceRoot: string, file: string): Promise<void> {
+    if (!this.panel) { return; }
+    try {
+      const patch = await this.analyzerRunner.runSubset(workspaceRoot, [file]);
+      this.cachedGraph = this.spliceFiles(this.cachedGraph, [file], patch);
+      this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
+      this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
+      if (this.currentStructure) { writeCache(workspaceRoot, this.cachedGraph, this.currentStructure); }
+      this.panel.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: [file], fileGitStatus: this.gitService.fileStatuses });
+    } catch (err: unknown) {
+      this.outputChannel.appendLine(`Incremental reparse failed for ${file}: ${(err as Error).message}`);
     }
   }
 

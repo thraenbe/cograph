@@ -306,8 +306,16 @@ const complexitySlider = document.getElementById('slider-complexity');
 const complexityVal = document.getElementById('val-complexity');
 if (complexitySlider) {
   complexitySlider.addEventListener('input', () => {
-    state.complexityLevel = parseFloat(complexitySlider.value);
-    if (complexityVal) complexityVal.textContent = state.complexityLevel.toFixed(2);
+    const raw = parseFloat(complexitySlider.value);
+    if (state.renderMode === 'workflow') {
+      // Workflow mode reinterprets the 0..1 slider as 10 discrete detail levels.
+      const levels = (typeof WORKFLOW_LEVELS !== 'undefined') ? WORKFLOW_LEVELS : 10;
+      state.workflowLevel = Math.round(raw * (levels - 1));
+      if (complexityVal) complexityVal.textContent = String(state.workflowLevel);
+    } else {
+      state.complexityLevel = raw;
+      if (complexityVal) complexityVal.textContent = raw.toFixed(2);
+    }
     state.expandedClusters = new Set();
     clearTimeout(state.clusterTimer);
     state.clusterTimer = setTimeout(applyComplexity, 80);

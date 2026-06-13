@@ -2,6 +2,10 @@ const state = {
   graphData: null,
   complexityLevel: 1,
   clusterGroupBy: 'connectivity',  // 'connectivity' | 'class' | 'file' | 'folder'
+  renderMode: 'force',             // 'force' (default) | 'workflow'
+  workflowLevel: 0,                // 0..9 detail level when renderMode === 'workflow'
+  workflowStageCount: 1,
+  workflowDividerStage: 0,
   importanceScores: null,
   clusterTimer: null,
   expandedClusters: new Set(),

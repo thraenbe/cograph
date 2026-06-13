@@ -6,6 +6,7 @@ export { MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from './analyzerRunner';
 
 import { GitService } from './gitService';
 import { AnalyzerRunner, type AnalyzerRunMeta } from './analyzerRunner';
+import { scanStructure, type StructureTree } from './structureScanner';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
@@ -50,6 +51,10 @@ export class GraphProvider {
   private isDirty = false;
   private static readonly DIRTY_PREFIX = '● ';
   private cachedGraph: GraphData | undefined;
+  /** True when a file-cluster skeleton is shown, so a 0-node / async result must not reset the view. */
+  private skeletonActive = false;
+  /** Structure scanned in show() but not yet delivered (small-repo path: sent once the graph view is up). */
+  private pendingStructure: StructureTree | undefined;
   private graphReadyResolve: (() => void) | undefined;
   private graphReadyPromise: Promise<void> | undefined;
   private intelController: AbortController | undefined;
@@ -321,7 +326,25 @@ export class GraphProvider {
       }
     });
 
-    this.panel.webview.html = getLoadingHtml();
+    // Cheap, parse-free structure scan → instant folder skeleton for large repos.
+    const structure = scanStructure(workspaceRoot);
+    const cfg = vscode.workspace.getConfiguration('cograph');
+    const threshold = cfg.get<number>('largeRepo.fileThreshold', 2000);
+    const autoEngage = cfg.get<boolean>('largeRepo.autoEngage', true) && structure.totalFiles >= threshold;
+    this.skeletonActive = autoEngage;
+    this.pendingStructure = undefined;
+
+    if (autoEngage) {
+      // Paint the skeleton immediately; the analyzer enriches it in the background.
+      this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
+      setTimeout(() => {
+        this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
+      }, 150);
+    } else {
+      // Small repo: behave as before, but keep the structure to enable the toggle once the view is up.
+      this.panel.webview.html = getLoadingHtml();
+      this.pendingStructure = structure;
+    }
     this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
   }
 
@@ -546,9 +569,9 @@ export class GraphProvider {
       return;
     }
 
-    if (graph.nodes.length === 0) {
-      // NOTE (cross-PR): when the file-cluster skeleton lands, a 0-node result is
-      // normal while a skeleton is shown — gate this empty-state on "no skeleton".
+    // A 0-node result is only a dead-end when NO skeleton is shown. With the
+    // file-cluster skeleton up, the structure stays and analysis just adds nothing.
+    if (graph.nodes.length === 0 && !this.skeletonActive) {
       this.panel.webview.html = getEmptyStateHtml(this.buildEmptyStateInfo(meta));
       return;
     }
@@ -563,12 +586,19 @@ export class GraphProvider {
       this.graphReadyResolve = undefined;
     }
 
-    if (isReanalysis) {
+    if (isReanalysis || this.skeletonActive) {
+      // Webview already up (reanalysis) or showing the skeleton — deliver data without resetting the view.
       this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: true });
     } else {
       this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
+      const pending = this.pendingStructure;
+      this.pendingStructure = undefined;
       setTimeout(() => {
         this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
+        // Deliver the (dormant) structure so the Clusters toggle works on small repos too.
+        if (pending) {
+          this.panel?.webview.postMessage({ type: 'structure', tree: pending, autoEngage: false });
+        }
       }, 150);
     }
   }

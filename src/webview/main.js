@@ -147,6 +147,7 @@ function rerunLayout() {
 
 // ── Complexity ────────────────────────────────────────────────────────────────
 function applyComplexity() {
+  if (state.fileClusterMode) { applyFileClusters(); return; }
   if (!state.graphData || !state.importanceScores) return;
   const projectData = {
     nodes: state.graphData.nodes.filter(n => !n.isLibrary),
@@ -299,9 +300,21 @@ window.addEventListener('message', (event) => {
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     state.allScannedFiles = message.data.files ?? [];
     window.resetTimelineState?.();
-    renderGraph(message.data, message.isReanalysis);
+    if (state.fileClusterMode) {
+      // Skeleton is showing — fold the analysis result into it without losing
+      // the user's drill-down, instead of switching to the full graph.
+      ingestGraphData(message.data);
+    } else {
+      renderGraph(message.data, message.isReanalysis);
+    }
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     if (!message.isReanalysis) { window.clearDirty?.(); }
+    return;
+  }
+  if (message.type === 'structure') {
+    if (typeof renderStructureSkeleton === 'function') {
+      renderStructureSkeleton(message.tree, message.autoEngage);
+    }
     return;
   }
   if (message.type === 'timeline-data') {

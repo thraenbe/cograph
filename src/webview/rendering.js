@@ -423,6 +423,10 @@ function renderCloudNodes(visibleSet) {
     .call(drag)
     .on('click', (event, d) => {
       event.stopPropagation();
+      if (d.isFolderCluster || d.isFileCluster) {
+        if (typeof toggleFileClusterExpand === 'function') { toggleFileClusterExpand(d); }
+        return;
+      }
       if (d.isSynthetic) return;
       state.expandedClusters.add(d.id);
       applyComplexity();

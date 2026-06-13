@@ -193,6 +193,22 @@ document.getElementById('btn-folder-mode')?.addEventListener('click', () => {
   window.markDirty?.();
 });
 
+// ── File-cluster (large-repo progressive drill-down) mode ──────────────────────
+document.getElementById('btn-file-cluster-mode')?.addEventListener('click', () => {
+  if (state.fileClusterMode) {
+    if (typeof exitFileClusterMode === 'function') { exitFileClusterMode(); }
+  } else {
+    if (!state.structureTree) { return; } // structure not delivered yet — nothing to drill into
+    if (typeof enterFileClusterMode === 'function') { enterFileClusterMode(); }
+  }
+  window.markDirty?.();
+});
+
+// ── Cancel background analysis ─────────────────────────────────────────────────
+document.getElementById('btn-cancel-analysis')?.addEventListener('click', () => {
+  vscode.postMessage({ type: 'cancel-analysis' });
+});
+
 function updateFolderPanel() {
   const body = document.getElementById('folder-filters-body');
   if (!body) return;

@@ -55,8 +55,6 @@ export class GraphProvider {
   private cachedGraph: GraphData | undefined;
   /** True when a file-cluster skeleton is shown, so a 0-node / async result must not reset the view. */
   private skeletonActive = false;
-  /** Structure scanned in show() but not yet delivered (small-repo path: sent once the graph view is up). */
-  private pendingStructure: StructureTree | undefined;
   /** Latest structure scan, kept for cache writes. */
   private currentStructure: StructureTree | undefined;
   /** Per-file debounce timers for incremental on-save re-parsing. */
@@ -357,7 +355,6 @@ export class GraphProvider {
     const threshold = cfg.get<number>('largeRepo.fileThreshold', 2000);
     const autoEngage = cfg.get<boolean>('largeRepo.autoEngage', true) && structure.totalFiles >= threshold;
     this.skeletonActive = autoEngage;
-    this.pendingStructure = undefined;
 
     // Re-open cache: paint a prior analysis instantly. If everything is unchanged,
     // skip the analyzer entirely; if some files changed, reconcile just those.
@@ -377,9 +374,8 @@ export class GraphProvider {
         this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
       }, 150);
     } else {
-      // Small repo: behave as before, but keep the structure to enable the toggle once the view is up.
+      // Small repo: behave exactly as before — plain graph, no skeleton.
       this.panel.webview.html = getLoadingHtml();
-      this.pendingStructure = structure;
     }
     this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
   }
@@ -632,14 +628,8 @@ export class GraphProvider {
       }
     } else {
       this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
-      const pending = this.pendingStructure;
-      this.pendingStructure = undefined;
       setTimeout(() => {
         this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
-        // Deliver the (dormant) structure so the Clusters toggle works on small repos too.
-        if (pending) {
-          this.panel?.webview.postMessage({ type: 'structure', tree: pending, autoEngage: false });
-        }
       }, 150);
     }
   }
@@ -706,7 +696,10 @@ export class GraphProvider {
 
     this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
     setTimeout(() => {
-      this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage });
+      // Only large repos engage the folder skeleton; small repos render the plain graph.
+      if (autoEngage) {
+        this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
+      }
       this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
     }, 150);
   }

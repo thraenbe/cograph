@@ -361,13 +361,6 @@ window.addEventListener('message', (event) => {
     }
     if (message.backgroundParsing !== undefined) {
       state.backgroundParsing = message.backgroundParsing;
-      const cancelBtn = document.getElementById('btn-cancel-analysis');
-      const progress = document.getElementById('bg-progress');
-      if (cancelBtn) { cancelBtn.style.display = message.backgroundParsing ? '' : 'none'; }
-      if (progress) {
-        progress.style.display = message.backgroundParsing ? '' : 'none';
-        progress.textContent = message.backgroundParsing ? 'Analyzing…' : '';
-      }
     }
     return;
   }

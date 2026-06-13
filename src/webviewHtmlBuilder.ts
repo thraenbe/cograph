@@ -231,8 +231,6 @@ export function getWebviewHtml(
         <button id="btn-group-class"        class="tl-btn"        title="Cluster by class">Class</button>
         <button id="btn-group-file"         class="tl-btn"        title="Cluster by file">File</button>
       </div>
-      <div class="tl-section-label">Large repos</div>
-      <button id="btn-file-cluster-mode" class="tl-btn" title="Progressive folder drill-down — start with one project node and expand as you click">Clusters</button>
     </div>
     <div id="panel-git" class="tl-panel" style="display:none">
       <button id="btn-git-mode" class="tl-btn" title="Toggle git diff colors">Git</button>
@@ -281,8 +279,6 @@ export function getWebviewHtml(
     <div id="panel-actions" class="tl-panel">
       <button id="btn-open-chat" class="tl-btn" title="Open chat with this graph selected">Open Chat</button>
       <button id="btn-save-graph" class="tl-btn" title="Save graph layout">Save Layout</button>
-      <button id="btn-cancel-analysis" class="tl-btn" style="display:none" title="Stop the background analysis">&#9632; Stop</button>
-      <span id="bg-progress" class="tl-progress" style="display:none"></span>
     </div>
   </div>
   ${timelinePanelHtml}

@@ -228,11 +228,16 @@
     return p ? p.glyph : '◆';
   }
 
+  function providerDisplayName(providerId) {
+    const p = providerCatalog.find((x) => x.id === providerId);
+    return p ? p.displayName : providerId;
+  }
+
   function setModelLabel(provider, model) {
     if (provider) { activeProvider = provider; }
     if (model) { activeModel = model; }
     if (pillGlyph) { pillGlyph.textContent = providerGlyph(activeProvider); }
-    if (pillName) { pillName.textContent = activeModel; }
+    if (pillName) { pillName.textContent = providerDisplayName(activeProvider) + ' · ' + activeModel; }
     const sm = status.querySelector('.status-model');
     if (sm) { sm.textContent = providerGlyph(activeProvider) + ' ' + activeModel; }
   }
@@ -243,7 +248,13 @@
     } else {
       const parts = [];
       providerCatalog.forEach((prov) => {
-        parts.push('<div class="mm-header">' + prov.glyph + '  ' + escapeHtml(prov.displayName) + '</div>');
+        const active = prov.id === activeProvider;
+        parts.push(
+          '<div class="mm-header' + (active ? ' mm-header--active' : '') + '" data-provider="' + prov.id + '" role="button" tabindex="0" title="Switch to ' + escapeHtml(prov.displayName) + '">' +
+            prov.glyph + '  ' + escapeHtml(prov.displayName) +
+            '<span class="mm-header-dot">' + (active ? '●' : '') + '</span>' +
+          '</div>'
+        );
         prov.models.forEach((m) => {
           const checked = (prov.id === activeProvider && m.id === activeModel) ? '✓' : '';
           parts.push(
@@ -267,6 +278,22 @@
           vscode.postMessage({ type: 'chat-model-change', provider, model });
         }
         hideModelMenu();
+      });
+    });
+    // Clicking a provider header switches provider only, keeping that
+    // provider's own saved/recommended model (the extension re-reads it).
+    menu.querySelectorAll('.mm-header[data-provider]').forEach((el) => {
+      const switchProvider = (ev) => {
+        ev.stopPropagation();
+        const provider = el.dataset.provider;
+        if (provider && provider !== activeProvider) {
+          vscode.postMessage({ type: 'chat-provider-change', provider });
+        }
+        hideModelMenu();
+      };
+      el.addEventListener('click', switchProvider);
+      el.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') { switchProvider(ev); }
       });
     });
     const footer = menu.querySelector('[data-action="settings"]');

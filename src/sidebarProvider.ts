@@ -815,6 +815,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
     .model-menu .mm-item:hover { background: var(--vscode-menu-selectionBackground, #094771); }
     .model-menu .mm-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       padding: 8px 10px 4px;
       font-family: var(--cg-mono);
       font-size: 10px;
@@ -822,7 +825,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       text-transform: uppercase;
       color: var(--vscode-descriptionForeground);
       opacity: 0.7;
+      cursor: pointer;
     }
+    .model-menu .mm-header:hover { color: var(--vscode-foreground); opacity: 1; }
+    .model-menu .mm-header:focus-visible {
+      outline: 1px solid var(--vscode-focusBorder, #007fd4);
+      outline-offset: -1px;
+    }
+    .model-menu .mm-header--active { color: var(--cg-accent); opacity: 1; }
+    .model-menu .mm-header-dot { margin-left: auto; color: var(--cg-accent); font-size: 8px; }
     .model-menu .mm-header:not(:first-child) {
       border-top: 1px solid var(--vscode-menu-border, #454545);
       margin-top: 4px;
@@ -1250,7 +1261,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         <button id="btn-graph-pick" class="chip chip--graph" type="button" title="Choose the graph this chat is about">
           <span id="graph-dot" class="chip-glyph chip-glyph--graph">○</span><span id="graph-name" class="chip-label">Open a graph…</span>
         </button>
-        <button id="model-pill" class="chip chip--model" type="button" title="Change model">
+        <button id="model-pill" class="chip chip--model" type="button" title="Switch provider / model (Claude Code ⇄ Codex)">
           <span id="model-glyph" class="chip-glyph chip-glyph--model">◆</span><span id="model-name" class="chip-label">sonnet</span>
         </button>
         <button id="model-settings" class="chip-icon" type="button" title="Graph Intelligence settings" aria-label="Settings">⚙</button>

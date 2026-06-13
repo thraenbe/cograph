@@ -76,7 +76,9 @@ export class GraphProvider {
       (stdout, workspaceRoot, meta) => this.handleAnalysisResult(stdout, workspaceRoot, meta),
       (msg) => this.outputChannel.appendLine(msg),
       (attempt, max) => {
-        if (this.panel) {
+        // Don't reset the panel HTML during retries when a skeleton is showing —
+        // that would wipe the user's drill-down.
+        if (this.panel && !this.skeletonActive) {
           this.panel.webview.html = getLoadingHtml(`Analyzing project… (retry ${attempt}/${max})`);
         }
       },
@@ -349,6 +351,7 @@ export class GraphProvider {
       this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
       setTimeout(() => {
         this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
+        this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
       }, 150);
     } else {
       // Small repo: behave as before, but keep the structure to enable the toggle once the view is up.
@@ -599,6 +602,10 @@ export class GraphProvider {
     if (isReanalysis || this.skeletonActive) {
       // Webview already up (reanalysis) or showing the skeleton — deliver data without resetting the view.
       this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: true });
+      if (this.skeletonActive) {
+        // Background full pass finished — hide the Stop button / progress indicator.
+        this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
+      }
     } else {
       this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
       const pending = this.pendingStructure;

@@ -123,7 +123,7 @@ function applyDisplaySettings() {
     .attr('stroke-width', d => resolveNodeStrokeWidth(d));
   state.svgCloudNodes?.attr('d', d => generateCloudPath(nodeRadius(d), bumpCountFor(d)));
   state.svgLinks
-    .attr('stroke-width', settings.linkThickness)
+    .attr('stroke-width', d => settings.linkThickness * (typeof edgeWeightScale === 'function' ? edgeWeightScale(d._count) : 1))
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);
   // Update library node dimensions to match new node size
   state.svgLibNodes

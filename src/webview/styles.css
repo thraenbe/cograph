@@ -148,16 +148,33 @@ body.vscode-light {
 }
 
 /* ── Search input inside panel ── */
+.search-container {
+  position: relative;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
 .panel-section input[type="text"] {
   width: 100%;
-  padding: 5px 8px;
-  margin-bottom: 8px;
+  padding: 5px 24px 5px 8px;
   background: var(--vscode-input-background, #3c3c3c);
   border: 1px solid var(--vscode-input-border, #555);
   border-radius: 4px;
   color: var(--vscode-input-foreground, #cccccc);
   font-size: 12px;
   outline: none;
+  box-sizing: border-box;
+}
+
+.search-container .clear-icon {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  display: none;
+  color: var(--vscode-input-foreground, #cccccc);
+  font-size: 12px;
 }
 
 .panel-section input[type="text"]:focus {
@@ -676,15 +693,23 @@ body.vscode-light {
 }
 .func-header:active { cursor: grabbing; }
 
+.func-header-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .func-header button {
   background: none;
   border: none;
   color: var(--vscode-editor-foreground, #cccccc);
   cursor: pointer;
   font-size: 14px;
-  padding: 2px 4px;
+  padding: 4px;
   border-radius: 3px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .func-header button:hover {
   background: var(--vscode-toolbar-hoverBackground, #333);

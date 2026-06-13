@@ -46,6 +46,45 @@ async function init() {
   return parser;
 }
 
+// ── Parse cache (single-parse optimisation) ───────────────────────────────────
+// collectDefinitions and collectCalls each need the parse tree of every file.
+// Parsing dominates the analyzer's cost, so we parse each file once and reuse
+// the tree across both passes instead of re-parsing it (which doubled analysis
+// time — and this runs on every save). web-tree-sitter trees are WASM-heap
+// objects that are NOT garbage-collected, so clearTreeCache() must free them
+// when an analysis run completes.
+//
+// Trade-off: every tree is held in memory between the two passes (vs one at a
+// time before). Acceptable for typical workspaces; the lower-memory variant (a
+// single walk that extracts call-sites into plain objects and deletes each tree
+// immediately) is recorded in .ai/memory/tech-dept.md as a future option, along
+// with a note to apply this same cache to scripts/analyze_java.js.
+const treeCache = new Map(); // filepath -> Tree | null
+
+// Diagnostic/test counter: number of actual parser.parse() invocations. A run
+// over N files should report N parses, not 2N.
+const _stats = { parses: 0 };
+
+function getTree(filepath) {
+  if (treeCache.has(filepath)) return treeCache.get(filepath);
+  let tree = null;
+  try {
+    const source = fs.readFileSync(filepath, 'utf8');
+    tree = parser.parse(source);
+    if (tree) _stats.parses++;
+  } catch { tree = null; }
+  treeCache.set(filepath, tree ?? null);
+  return tree ?? null;
+}
+
+/** Free all cached WASM trees and empty the cache. Call once per analysis run. */
+function clearTreeCache() {
+  for (const tree of treeCache.values()) {
+    if (tree) { try { tree.delete(); } catch { /* already freed */ } }
+  }
+  treeCache.clear();
+}
+
 const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build', 'CMakeFiles']);
 const CPP_EXTS = new Set(['.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hh', '.hxx', '.h++', '.h']);
 
@@ -328,15 +367,11 @@ function pruneRedundantDeclarations(definitions) {
 function collectDefinitions(files) {
   const definitions = {};
   for (const filepath of files) {
-    let source;
-    try { source = fs.readFileSync(filepath, 'utf8'); } catch { continue; }
-    let tree;
-    try { tree = parser.parse(source); } catch { continue; }
+    const tree = getTree(filepath); // parsed once, reused by collectCalls
     if (!tree) { continue; }
     try {
       collectDefinitionsFromTree(tree.rootNode, filepath, definitions);
     } catch { /* skip files that crash the walker */ }
-    finally { tree.delete(); } // free WASM heap — web-tree-sitter trees are not GC'd
   }
   pruneRedundantDeclarations(definitions);
   return definitions;
@@ -404,7 +439,17 @@ function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, import
         return;
       }
       const ns = importMap.usingSymbols[name];
-      if (ns) addLibraryEdge(ns, name);
+      if (ns) { addLibraryEdge(ns, name); return; }
+      // Fallback: an unqualified call matching no workspace symbol, in a file
+      // with exactly one `using namespace N`, is most likely N::name. Restricted
+      // to a single open namespace so attribution is unambiguous — with several
+      // open namespaces we can't tell which owns the symbol, so we drop it.
+      // Caveat: this can mis-bucket genuinely-global C functions (e.g. printf →
+      // std::printf); accepted, consistent with the liberal library-node
+      // behaviour of the other analyzers.
+      if (importMap.usingNamespaces.length === 1) {
+        addLibraryEdge(importMap.usingNamespaces[0], name);
+      }
       return;
     }
 
@@ -413,7 +458,21 @@ function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, import
       if (!field) return;
       const name = field.text;
       const ids = nameToIds[name];
-      if (ids) for (const id of ids) addEdge(id, false);
+      if (!ids) return;
+      // `recv.name()` / `recv->name()`: name must be a member, so exclude free
+      // functions that merely share the name (receiver-blind matching otherwise
+      // over-connects to every same-named definition in the workspace).
+      const members = ids.filter(id => definitions[id] && definitions[id].className);
+      if (members.length === 0) return;
+      // When the receiver is `this`, the member belongs to the enclosing class —
+      // resolve precisely to it instead of to every class that declares `name`.
+      const recv = fn.childForFieldName('argument');
+      if (recv && recv.type === 'this') {
+        const cls = topClass();
+        const own = members.filter(id => definitions[id].className === cls);
+        if (own.length) { for (const id of own) addEdge(id, false); return; }
+      }
+      for (const id of members) addEdge(id, false);
       return;
     }
 
@@ -501,17 +560,13 @@ function collectCalls(files, definitions) {
   const seenEdges = new Set();
   const libraryNodes = new Map();
   for (const filepath of files) {
-    let source;
-    try { source = fs.readFileSync(filepath, 'utf8'); } catch { continue; }
-    let tree;
-    try { tree = parser.parse(source); } catch { continue; }
+    const tree = getTree(filepath); // cache hit when collectDefinitions ran first
     if (!tree) { continue; }
     try {
       const importMap = parseImports(tree.rootNode);
       collectCallsFromTree(tree.rootNode, filepath, definitions, nameToIds, importMap,
                            edges, seenEdges, libraryNodes);
     } catch { /* skip files that crash the walker */ }
-    finally { tree.delete(); } // free WASM heap — web-tree-sitter trees are not GC'd
   }
   return { edges, libraryNodes: Array.from(libraryNodes.values()) };
 }
@@ -526,10 +581,14 @@ async function main() {
   await init();
   const root = process.argv[2];
   const files = collectCppFiles(root);
-  const definitions = collectDefinitions(files);
-  const { edges, libraryNodes } = collectCalls(files, definitions);
-  const nodes = [...Object.values(definitions), ...libraryNodes];
-  process.stdout.write(JSON.stringify({ nodes, edges, files }) + '\n');
+  try {
+    const definitions = collectDefinitions(files);
+    const { edges, libraryNodes } = collectCalls(files, definitions);
+    const nodes = [...Object.values(definitions), ...libraryNodes];
+    process.stdout.write(JSON.stringify({ nodes, edges, files }) + '\n');
+  } finally {
+    clearTreeCache(); // free all cached WASM trees
+  }
 }
 
 if (require.main === module) {
@@ -540,5 +599,5 @@ if (require.main === module) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { init, collectCppFiles, collectDefinitions, collectCalls };
+  module.exports = { init, collectCppFiles, collectDefinitions, collectCalls, clearTreeCache, _stats };
 }

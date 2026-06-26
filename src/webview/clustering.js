@@ -1,6 +1,13 @@
 // clustering.js — cluster-based complexity reduction
 // All functions are globals; loaded before main.js
 
+// Shared edge-aggregation core: a global from aggregate.js in the webview,
+// require()-d directly when this module is loaded by Node unit tests.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const _aggregateEdges = (typeof aggregateEdges !== 'undefined')
+  ? aggregateEdges
+  : require('./aggregate.js').aggregateEdges;
+
 class UnionFind {
   constructor(ids) {
     this.parent = new Map(ids.map((id) => [id, id]));
@@ -351,19 +358,7 @@ function buildRenderedNodeMap(nodeToCluster, expandedClusters) {
 }
 
 function buildDeduplicatedEdges(realEdges, nodeToRendered) {
-  const elements = [];
-  const seenEdges = new Set();
-  for (const edge of realEdges) {
-    const src = nodeToRendered.get(edge.source);
-    const tgt = nodeToRendered.get(edge.target);
-    if (!src || !tgt || src === tgt) continue;
-    const key = `${src}→${tgt}`;
-    if (!seenEdges.has(key)) {
-      seenEdges.add(key);
-      elements.push({ data: { source: src, target: tgt } });
-    }
-  }
-  return elements;
+  return _aggregateEdges(realEdges, id => nodeToRendered.get(id));
 }
 
 function buildClusteredElements(data, clusterResult, level, importanceScores, expandedClusters = new Set(), degreeMap = new Map()) {

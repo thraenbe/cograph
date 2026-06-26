@@ -1,9 +1,12 @@
 const state = {
   graphData: null,
   complexityLevel: 1,
-  clusterGroupBy: 'connectivity',  // 'connectivity' | 'class' | 'file' | 'folder'
-  renderMode: 'force',             // 'force' (default) | 'workflow'
-  workflowLevel: 0,                // 0..9 detail level when renderMode === 'workflow'
+  // Single source of truth for the primary view. 'cluster' = the force graph
+  // (grouped per clusterGroupBy); 'drilldown' = the folder-skeleton drill-down;
+  // 'workflow' = the AI-pipeline staged layout (auto-detected from graph.workflow).
+  viewMode: 'cluster',
+  clusterGroupBy: 'connectivity',  // sub-mode of the 'cluster' view: 'connectivity' | 'class' | 'file'
+  workflowLevel: 0,                // 0..9 detail level when viewMode === 'workflow'
   workflowStageCount: 1,
   workflowDividerStage: 0,
   importanceScores: null,
@@ -40,7 +43,7 @@ const state = {
   hiddenFolders: new Set(),
   onlyShowFolder: null,
   // ── File-cluster (large-repo progressive drill-down) ──────────────────────
-  fileClusterMode: false,        // master toggle for the folder-skeleton render mode
+  // Active when viewMode === 'drilldown'.
   structureTree: null,           // StructureTree from the `structure` message
   rootFolderPath: null,          // common-root folder = the level-0 node
   expandedFolders: new Set(),    // folder/file paths the user has drilled into

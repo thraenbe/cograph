@@ -15,16 +15,6 @@ function getLanguageColor(lang) {
   return `hsl(${((hash >>> 0) % 360)}, 55%, 55%)`;
 }
 
-// Deterministic, well-spread hue per folder path (golden-angle stride keeps even
-// similar sibling paths visually distinct). Used to colour folder-cluster glyphs.
-function getFolderColor(path) {
-  let hash = 0;
-  const s = path || '';
-  for (let i = 0; i < s.length; i++) hash = (s.charCodeAt(i) + ((hash << 5) - hash)) | 0;
-  const hue = (Math.abs(hash) * 137.508) % 360;
-  return `hsl(${hue.toFixed(0)}, 47%, 57%)`;
-}
-
 // ── Git color resolvers ───────────────────────────────────────────────────────
 function resolveNodeFill(d) {
   if (state.gitMode && !d.isCluster && !d.isSynthetic && d.gitStatus) {
@@ -80,7 +70,7 @@ function renderLanguageLegend() {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { resolveNodeFill, getLanguageColor, getFolderColor, renderLanguageLegend };
+  module.exports = { resolveNodeFill, getLanguageColor, renderLanguageLegend };
 }
 
 function applyGitColors() {

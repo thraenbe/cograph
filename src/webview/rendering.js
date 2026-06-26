@@ -147,6 +147,13 @@ function generateNodeShapePath(d, R) {
   return generateCloudPath(R, bumpCountFor(d));
 }
 
+// Folders repel each other far harder than files/functions so the top-level
+// drill-down spreads out instead of clumping. Only folder glyphs are boosted.
+const FOLDER_REPEL_MULTIPLIER = 14;
+function chargeStrength(d) {
+  return d.isFolderCluster ? -settings.repelForce * FOLDER_REPEL_MULTIPLIER : -settings.repelForce;
+}
+
 // Creates (or recreates) a per-cluster hard-stop linearGradient in <defs>.
 // Returns the fill string e.g. 'url(#cograph-lang-grad-...)'.
 function ensureClusterGradient(d) {
@@ -167,8 +174,9 @@ function ensureClusterGradient(d) {
 }
 
 // Language colors on clusters are always shown regardless of languageMode toggle.
+// Folders & connectivity clusters tint by the mix of languages they contain;
+// files (one language) take that language's solid colour.
 function resolveClusterFill(d) {
-  if (d.isFolderCluster) return getFolderColor(d._folderPath || d.id);
   if (d.isFileCluster) return getLanguageColor(d.language) || getCSSVar('--cograph-node-cluster');
   if (d.languageBreakdown?.length > 1) return ensureClusterGradient(d);
   if (d.languageBreakdown?.length === 1) return getLanguageColor(d.languageBreakdown[0].lang) ?? getCSSVar('--cograph-node-cluster');
@@ -277,7 +285,7 @@ function ticked() {
     fitToView();
   }
 
-  if (state.renderMode === 'workflow') { updateWorkflowDivider(); }
+  if (state.viewMode === 'workflow') { updateWorkflowDivider(); }
   tickFolderOverlay();   // global from folder.js
   tickClassOverlay();    // global from class.js
 }
@@ -326,7 +334,7 @@ function onCloudMouseOver(event, d) {
     .style('fill', getCSSVar('--cograph-node-hover'))
     .attr('filter', 'url(#glow-hover)')
     .transition().duration(120)
-    .attr('d', generateCloudPath(nodeRadius(d) * 1.15, bumpCountFor(d)));
+    .attr('d', generateNodeShapePath(d, nodeRadius(d) * 1.15));
   const linkHover   = getCSSVar('--cograph-link-hover');
   const linkLibrary = getCSSVar('--cograph-link-library');
   const linkDefault = getCSSVar('--cograph-link-default');
@@ -348,7 +356,7 @@ function onCloudMouseOut(event, d) {
     .style('fill', resolveClusterFill(d))
     .attr('filter', 'url(#glow)')
     .transition().duration(120)
-    .attr('d', generateCloudPath(nodeRadius(d), bumpCountFor(d)));
+    .attr('d', generateNodeShapePath(d, nodeRadius(d)));
   const linkLibrary = getCSSVar('--cograph-link-library');
   const linkDefault = getCSSVar('--cograph-link-default');
   state.svgLinks
@@ -520,7 +528,7 @@ function renderLabels(visibleSet) {
 
 function startSimulation(allLinks) {
   // Workflow mode rebuilds with a fixed-column layout regardless of pendingReheat.
-  if (state.renderMode === 'workflow') {
+  if (state.viewMode === 'workflow') {
     startWorkflowSimulation(allLinks);
     return;
   }
@@ -539,7 +547,7 @@ function startSimulation(allLinks) {
     .force('link', d3.forceLink(allLinks).id(d => d.id)
       .distance(40)
       .strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1))
-    .force('charge', d3.forceManyBody().strength(-settings.repelForce))
+    .force('charge', d3.forceManyBody().strength(chargeStrength))
     .force('center', d3.forceCenter(W / 2, H / 2).strength(0.001))
     .force('x', d3.forceX(W / 2).strength(settings.centerForce))
     .force('y', d3.forceY(H / 2).strength(settings.centerForce))
@@ -577,7 +585,7 @@ function startWorkflowSimulation(allLinks) {
 
 // Vertical dotted line dividing backend (left) from frontend (right), with captions.
 function updateWorkflowDivider() {
-  if (state.renderMode !== 'workflow') { dividerG.selectAll('*').remove(); return; }
+  if (state.viewMode !== 'workflow') { dividerG.selectAll('*').remove(); return; }
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;
   const stageCount = state.workflowStageCount || 1;
@@ -689,7 +697,7 @@ function renderElements(elements, positionHints = new Map()) {
   state.svgLibNodes = renderLibraryNodes(libNodeData, visibleSet);
   state.svgLibLabels = renderLibraryLabels(libNodeData, visibleSet);
   startSimulation(allLinks);
-  if (state.folderMode && state.renderMode !== 'workflow') {
+  if (state.folderMode && state.viewMode !== 'workflow') {
     const nodesByFile    = groupByFile(state.currentNodes);
     const folderTree     = buildFolderTree(nodesByFile);
     computeFolderHues(folderTree);
@@ -735,7 +743,7 @@ function renderElements(elements, positionHints = new Map()) {
     state.simulation?.force('fileCluster', null);
     state.simulation?.force('folderSeparation', null);
   }
-  if (state.classMode && state.renderMode !== 'workflow') {
+  if (state.classMode && state.viewMode !== 'workflow') {
     const classByKey = groupByClass(state.currentNodes);  // global from class.js
     state.svgClassBubbles = renderClassBubbles(classG, classByKey);
 

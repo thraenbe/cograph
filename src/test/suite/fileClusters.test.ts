@@ -60,6 +60,27 @@ suite('fileClusters.buildSkeletonElements', () => {
     assert.strictEqual(aFile.language, 'typescript');
   });
 
+  test('folder colour follows the languages it contains (languageBreakdown)', () => {
+    const tree = {
+      root: '/p',
+      folders: {
+        '/p': { path: '/p', depth: 0, parent: null, childFolders: ['/p/src'], files: [], fileCount: 3 },
+        '/p/src': { path: '/p/src', depth: 1, parent: '/p', childFolders: [], files: ['/p/src/a.ts', '/p/src/b.ts', '/p/src/c.py'], fileCount: 3 },
+      },
+      files: [
+        { path: '/p/src/a.ts', language: 'typescript' },
+        { path: '/p/src/b.ts', language: 'typescript' },
+        { path: '/p/src/c.py', language: 'python' },
+      ],
+      totalFiles: 3,
+    };
+    const root = buildSkeletonElements(tree, new Set(), new Set(), null)[0].data;
+    assert.ok(Array.isArray(root.languageBreakdown), 'root carries a language breakdown');
+    const langs = root.languageBreakdown.map((b: any) => b.lang);
+    assert.ok(langs.includes('typescript') && langs.includes('python'), 'mixes both languages');
+    assert.strictEqual(root.languageBreakdown[0].lang, 'typescript', 'dominant language first');
+  });
+
   test('expanding a sub-folder → reveals its files (descendant drill-down)', () => {
     const els = buildSkeletonElements(makeTree(), new Set(['/p', '/p/src']), new Set(), null);
     assert.deepStrictEqual(

@@ -866,6 +866,9 @@ export class GraphProvider {
     providerId: string,
     onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
   ): Promise<GraphIntelligenceResult> {
+    if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
+      throw new Error('AI features are off — enable them in CoGraph settings to generate the Workflow Graph.');
+    }
     const { result, workspaceRoot } = await this.invokeProvider(buildWorkflowPrompt(), providerId, null, onProgress);
     const normalized = normalizeWorkflowModel(result.graph);
     this.cachedGraph = normalized;

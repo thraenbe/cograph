@@ -110,6 +110,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           this._sendGraphList();
           this._view?.webview.postMessage({ type: 'provider-catalog', catalog: PROVIDER_CATALOG });
           this._sendActiveModel();
+          this._sendAiEnabled();
           // Restore previously-saved splitter height.
           const savedHeight = this._workspaceState?.get<number>(SidebarProvider.STATE_KEY_GRAPHS_HEIGHT);
           if (typeof savedHeight === 'number' && savedHeight > 0) {
@@ -120,6 +121,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'chat-send': {
+          // Guard: AI features must be enabled before any chat can run.
+          if (!this._aiEnabled()) {
+            this._view?.webview.postMessage({ type: 'chat-status', stage: 'idle' });
+            this._view?.webview.postMessage({ type: 'chat-input-restore', text: msg.prompt });
+            this.appendSystem('AI features are off — enable them to chat.');
+            this._openAiSettings();
+            break;
+          }
           // Guard: a graph must be selected before any chat can run.
           if (!this._currentGraph) {
             this._view?.webview.postMessage({ type: 'chat-status', stage: 'idle' });
@@ -237,7 +246,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         }
         case 'workflow-generate':
         case 'workflow-update':
+          if (!this._aiEnabled()) {
+            this._openAiSettings();
+            break;
+          }
           await this._generateWorkflow();
+          break;
+        case 'open-ai-settings':
+          this._openAiSettings();
           break;
         case 'workflow-open': {
           try {
@@ -412,6 +428,27 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const modelKey = info?.modelSettingKey ?? 'graphIntelligence.model';
     const model = cfg.get<string>(modelKey, info?.defaultModel ?? 'sonnet');
     this._view?.webview.postMessage({ type: 'chat-model-set', provider, model });
+  }
+
+  /** Whether the user has opted into AI features (Chat + Workflow Graph). */
+  private _aiEnabled(): boolean {
+    return vscode.workspace.getConfiguration('cograph')
+      .get<boolean>('graphIntelligence.enabled', false);
+  }
+
+  /** Push the current AI-enabled state so the webview can gray-out/un-gray. */
+  private _sendAiEnabled(): void {
+    this._view?.webview.postMessage({ type: 'ai-enabled', enabled: this._aiEnabled() });
+  }
+
+  /** Re-read the AI-enabled flag and push it to the webview (called on config change). */
+  public refreshAiEnabled(): void {
+    this._sendAiEnabled();
+  }
+
+  /** Open native VS Code settings filtered to CoGraph's AI settings. */
+  private _openAiSettings(): void {
+    vscode.commands.executeCommand('workbench.action.openSettings', 'cograph.graphIntelligence');
   }
 
   private async _showGraphPicker(): Promise<void> {
@@ -600,6 +637,40 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     /* When either pane is collapsed, the splitter has no meaning. */
     body.no-splitter .splitter { display: none; }
+
+    /* ── AI-features gate (transparency / opt-in consent) ──────────────── */
+    #pane-chat { position: relative; }
+    #chat-gate { display: none; }
+    body.ai-disabled #chat-gate {
+      display: flex;
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      text-align: center;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.45);
+    }
+    body.ai-disabled #body-chat {
+      filter: grayscale(1);
+      opacity: 0.45;
+      pointer-events: none;
+    }
+    .ai-gate-title { font-size: 12px; font-weight: 600; color: var(--vscode-foreground); }
+    .ai-gate-text { font-size: 11px; opacity: 0.85; max-width: 230px; line-height: 1.45; color: var(--vscode-foreground); }
+    .ai-gate-btn {
+      padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 4px; cursor: pointer;
+      border: 1px solid var(--vscode-button-background, #0e639c);
+      background: var(--vscode-button-background, #0e639c);
+      color: var(--vscode-button-foreground, #fff);
+    }
+    .ai-gate-btn:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
+    /* Locked AI Workflow Graph card while AI is disabled. */
+    .workflow-card.locked { opacity: 0.6; border-style: dashed; cursor: pointer; }
+    .workflow-card.locked:hover { background: var(--vscode-list-hoverBackground, #2a2d2e); }
 
     /* Splitter mimics VS Code's sash between sidebar sections: invisible by
        default, faint hover highlight, 8px hit zone straddling the section border. */
@@ -1403,7 +1474,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   </style>
 </head>
-<body>
+<body class="ai-disabled">
 
   <!-- CHAT pane (fixed top) -->
   <div class="pane pane--chat" id="pane-chat">
@@ -1449,6 +1520,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           <button id="chat-send" type="submit">Send</button>
         </div>
       </form>
+    </div>
+    <div id="chat-gate">
+      <div class="ai-gate-title">AI features are off</div>
+      <div class="ai-gate-text">Chat and the AI Workflow Graph run an AI CLI on your behalf. Enable them to get started — you can choose the model, timeout and more.</div>
+      <button id="btn-enable-ai" class="ai-gate-btn" type="button">Enable AI Features</button>
     </div>
   </div>
 
@@ -1537,6 +1613,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     // ── Search ─────────────────────────────────────────────────────────
     let allGraphs = [];
 
+    // Whether the user has opted into AI features (Chat + Workflow Graph).
+    let aiEnabled = false;
+
     document.getElementById('search').addEventListener('input', (e) => {
       renderCards(allGraphs, e.target.value.toLowerCase());
     });
@@ -1544,6 +1623,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     // ── New Graph ──────────────────────────────────────────────────────
     document.getElementById('btn-new-graph').addEventListener('click', () => {
       vscode.postMessage({ type: 'new-graph' });
+    });
+
+    // ── Enable AI Features (consent gate) ──────────────────────────────
+    document.getElementById('btn-enable-ai').addEventListener('click', () => {
+      vscode.postMessage({ type: 'open-ai-settings' });
     });
 
     // ── Card rendering ─────────────────────────────────────────────────
@@ -1557,6 +1641,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     function renderWorkflowCard(g) {
       const status = g.status || 'before';
       const safeFile = g.file.replace(/"/g, '&quot;');
+      if (!aiEnabled) {
+        return \`<div class="workflow-card locked" title="Enable AI Features to generate the Workflow Graph">
+          <div class="wf-row">
+            <span class="wf-title"><span class="wf-glyph">⇉</span> Workflow Graph</span>
+          </div>
+          <div class="wf-sub">Enable AI Features to generate</div>
+        </div>\`;
+      }
       if (status === 'ready') {
         return \`<div class="workflow-card ready" data-file="\${safeFile}" title="Open the AI Workflow Graph">
           <div class="wf-row">
@@ -1584,6 +1676,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     function wireWorkflowCard(list) {
+      const locked = list.querySelector('.workflow-card.locked');
+      if (locked) {
+        locked.addEventListener('click', () => vscode.postMessage({ type: 'open-ai-settings' }));
+        return;
+      }
       const before = list.querySelector('.workflow-card.before');
       if (before) {
         before.addEventListener('click', () => vscode.postMessage({ type: 'workflow-generate' }));
@@ -1726,6 +1823,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           const d = document.getElementById('wf-detail');
           if (d) { d.textContent = msg.detail; }
         }
+      } else if (msg.type === 'ai-enabled') {
+        aiEnabled = !!msg.enabled;
+        document.body.classList.toggle('ai-disabled', !aiEnabled);
+        // Re-render the saved-graphs list so the workflow card reflects the new state.
+        const query = document.getElementById('search').value.toLowerCase();
+        renderCards(allGraphs, query);
       }
     });
 

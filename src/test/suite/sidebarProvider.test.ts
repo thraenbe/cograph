@@ -73,6 +73,18 @@ function writeJsonFile(dir: string, filename: string, data: unknown): string {
   return p;
 }
 
+// Stub vscode.workspace.getConfiguration so the AI-features gate sees a known
+// `graphIntelligence.enabled` value; all other keys fall back to their default.
+function stubAiEnabled(sandbox: sinon.SinonSandbox, enabled: boolean): void {
+  sandbox.stub(vscode.workspace, 'getConfiguration').callsFake(((..._args: unknown[]) => ({
+    get: (key: string, dflt?: unknown) =>
+      key === 'graphIntelligence.enabled' ? enabled : dflt,
+    has: () => false,
+    inspect: () => undefined,
+    update: async () => {},
+  })) as unknown as typeof vscode.workspace.getConfiguration);
+}
+
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
@@ -546,6 +558,7 @@ suite('SidebarProvider', () => {
       const cographDir = path.join(tmpDir, '.cograph');
       fs.mkdirSync(cographDir);
       sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+      stubAiEnabled(sandbox, true);
       const generateWorkflow = sinon.stub().resolves({
         graph: { nodes: [{ id: 'a' }], edges: [], workflow: { stageCount: 2, dividerStage: 1, clusters: [] } },
         text: 'done',
@@ -600,6 +613,102 @@ suite('SidebarProvider', () => {
       assert.ok(html.includes('workflow-card ready'), 'ready-state markup present');
       assert.ok(html.includes("type: 'workflow-generate'"), 'generate action wired');
       assert.ok(html.includes("type: 'workflow-open'"), 'open action wired');
+    });
+  });
+
+  // ── AI-features enablement gate ──────────────────────────────────────────
+  suite('AI features gate', () => {
+    function setup2() {
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
+      const fake = makeFakeWebviewView();
+      provider.resolveWebviewView(fake.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+      return { provider, ...fake };
+    }
+
+    test('HTML contains the consent overlay and Enable button (gated by default)', () => {
+      const { webview } = setup2();
+      assert.ok(webview.html.includes('<body class="ai-disabled">'), 'body starts gated');
+      assert.ok(webview.html.includes('id="chat-gate"'), 'chat gate overlay present');
+      assert.ok(webview.html.includes('id="btn-enable-ai"'), 'enable button present');
+      assert.ok(webview.html.includes('Enable AI Features'), 'enable button label present');
+      assert.ok(webview.html.includes('workflow-card locked'), 'locked workflow card markup present');
+      assert.ok(webview.html.includes("type: 'open-ai-settings'"), 'open-ai-settings action wired');
+    });
+
+    test('ready posts ai-enabled reflecting the setting', async () => {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+      stubAiEnabled(sandbox, false);
+      const { webview, received } = setup2();
+
+      await received[0]({ type: 'ready' });
+
+      const msg = webview.postMessage.getCalls()
+        .map((c: sinon.SinonSpyCall) => c.args[0])
+        .find((m: { type: string }) => m.type === 'ai-enabled');
+      assert.ok(msg, 'ai-enabled posted on ready');
+      assert.strictEqual(msg.enabled, false);
+    });
+
+    test('chat-send while disabled → does not run intelligence and opens settings', async () => {
+      stubAiEnabled(sandbox, false);
+      const execStub = sandbox.stub(vscode.commands, 'executeCommand').resolves();
+      const runGraphIntelligence = sinon.stub().resolves({ text: 'x' });
+      const provider = new SidebarProvider(
+        vscode.Uri.file('/fake/ext'),
+        makeFakeController({ runGraphIntelligence }),
+      );
+      const fake = makeFakeWebviewView();
+      provider.resolveWebviewView(fake.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+
+      await fake.received[0]({ type: 'chat-send', prompt: 'hi' });
+
+      assert.ok(runGraphIntelligence.notCalled, 'AI must not run while disabled');
+      assert.ok(
+        execStub.calledWith('workbench.action.openSettings', 'cograph.graphIntelligence'),
+        'should open AI settings',
+      );
+    });
+
+    test('workflow-generate while disabled → does not call controller and opens settings', async () => {
+      stubAiEnabled(sandbox, false);
+      const execStub = sandbox.stub(vscode.commands, 'executeCommand').resolves();
+      const generateWorkflow = sinon.stub().resolves({ graph: { nodes: [], edges: [] }, text: 'x' });
+      const provider = new SidebarProvider(
+        vscode.Uri.file('/fake/ext'),
+        makeFakeController({ generateWorkflow }),
+      );
+      const fake = makeFakeWebviewView();
+      provider.resolveWebviewView(fake.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+
+      await fake.received[0]({ type: 'workflow-generate' });
+
+      assert.ok(generateWorkflow.notCalled, 'workflow must not generate while disabled');
+      assert.ok(
+        execStub.calledWith('workbench.action.openSettings', 'cograph.graphIntelligence'),
+        'should open AI settings',
+      );
+    });
+
+    test('open-ai-settings → opens native settings filtered to cograph AI', async () => {
+      const execStub = sandbox.stub(vscode.commands, 'executeCommand').resolves();
+      const { received } = setup2();
+
+      await received[0]({ type: 'open-ai-settings' });
+
+      assert.ok(execStub.calledOnceWith('workbench.action.openSettings', 'cograph.graphIntelligence'));
+    });
+
+    test('refreshAiEnabled posts the current ai-enabled state', () => {
+      stubAiEnabled(sandbox, true);
+      const { provider, webview } = setup2();
+
+      provider.refreshAiEnabled();
+
+      const msg = webview.postMessage.getCalls()
+        .map((c: sinon.SinonSpyCall) => c.args[0])
+        .find((m: { type: string }) => m.type === 'ai-enabled');
+      assert.ok(msg, 'ai-enabled posted');
+      assert.strictEqual(msg.enabled, true);
     });
   });
 });

@@ -108,6 +108,12 @@
     "configuration": {
       "title": "CoGraph",
       "properties": {
+        "cograph.graphIntelligence.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Enable AI-powered features (Chat and the AI Workflow Graph). When off, these features are disabled until you turn them on here. AI features run the Claude Code / Codex CLI on your behalf."
+        },
         "cograph.graphIntelligence.provider": {
           "type": "string",
           "enum": [

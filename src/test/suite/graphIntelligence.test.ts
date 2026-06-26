@@ -908,7 +908,19 @@ suite('Sidebar chat handler', () => {
     return { view, webview, received };
   }
 
+  // Opt into AI features so chat-send isn't short-circuited by the consent gate.
+  // Other keys fall back to their provided default.
+  function enableAi() {
+    sandbox.stub(vscode.workspace, 'getConfiguration').returns({
+      get: (key: string, def: unknown) => (key === 'graphIntelligence.enabled' ? true : def),
+      update: sinon.stub().resolves(),
+      has: () => false,
+      inspect: () => undefined,
+    } as unknown as vscode.WorkspaceConfiguration);
+  }
+
   test('chat-send posts user bubble, calls runGraphIntelligence, posts AI bubble', async () => {
+    enableAi();
     const chatStore = new ChatStore(tmpDir);
     const controller: GraphController = {
       show: sinon.stub(),
@@ -945,6 +957,7 @@ suite('Sidebar chat handler', () => {
   });
 
   test('chat-send forwards provider progress events as chat-progress messages', async () => {
+    enableAi();
     const chatStore = new ChatStore(tmpDir);
     const controller: GraphController = {
       show: sinon.stub(),
@@ -977,6 +990,7 @@ suite('Sidebar chat handler', () => {
   });
 
   test('chat-send is blocked when no graph is selected; opens picker, restores input', async () => {
+    enableAi();
     const chatStore = new ChatStore(tmpDir);
     const runStub = sinon.stub().resolves(SAMPLE_RESULT);
     const controller: GraphController = {
@@ -1014,6 +1028,7 @@ suite('Sidebar chat handler', () => {
   });
 
   test('chat-send posts error bubble when provider rejects', async () => {
+    enableAi();
     const chatStore = new ChatStore(tmpDir);
     const controller: GraphController = {
       show: sinon.stub(),
@@ -1141,6 +1156,7 @@ suite('Sidebar chat handler', () => {
     sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: vscode.Uri.file(tmpDir) }]);
     sandbox.stub(vscode.workspace, 'getConfiguration').returns({
       get: (key: string, def: unknown) => {
+        if (key === 'graphIntelligence.enabled') { return true; }
         if (key === 'graphIntelligence.provider') { return 'claude-code'; }
         if (key === 'graphIntelligence.model') { return 'sonnet'; }
         return def;
@@ -1220,7 +1236,11 @@ suite('Sidebar chat handler', () => {
     const chatStore = new ChatStore(tmpDir);
     sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: vscode.Uri.file(tmpDir) }]);
     sandbox.stub(vscode.workspace, 'getConfiguration').returns({
-      get: (key: string, def: unknown) => key === 'graphIntelligence.provider' ? 'codex' : def,
+      get: (key: string, def: unknown) => {
+        if (key === 'graphIntelligence.enabled') { return true; }
+        if (key === 'graphIntelligence.provider') { return 'codex'; }
+        return def;
+      },
       update: sinon.stub().resolves(),
       has: () => false,
       inspect: () => undefined,

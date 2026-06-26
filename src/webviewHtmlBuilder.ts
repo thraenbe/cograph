@@ -155,6 +155,7 @@ export function getWebviewHtml(
   const timelineMode = opts.timelineMode === true;
   const webviewDir = vscode.Uri.joinPath(extensionUri, 'src', 'webview');
   const stateUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'state.js'));
+  const aggregateUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'aggregate.js'));
   const clusteringUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'clustering.js'));
   const workflowUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'workflow.js'));
   const highlightUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'highlight.js'));
@@ -268,6 +269,11 @@ export function getWebviewHtml(
         <div class="slider-header"><label for="slider-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.2</span></div>
         <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.2" />
       </div>
+      <div class="slider-row">
+        <div class="slider-header"><label for="slider-folder-repel">Folder Repel Force</label><span id="val-folder-repel">0.25</span></div>
+        <input type="range" id="slider-folder-repel" min="0" max="2" step="0.01" value="0.25" />
+      </div>
+      <button id="btn-more-forces" class="tl-link-btn" title="Open settings to adjust all forces">view more forces &#9881;</button>
       <div class="tl-legend-header" id="toggle-folder-filters">
         <span>Filters</span>
         <span class="tl-chevron collapsed">▾</span>
@@ -391,6 +397,7 @@ export function getWebviewHtml(
     <ul id="ctx-menu-list"></ul>
   </div>
   <script nonce="${nonce}" src="${stateUri}"></script>
+  <script nonce="${nonce}" src="${aggregateUri}"></script>
   <script nonce="${nonce}" src="${clusteringUri}"></script>
   <script nonce="${nonce}" src="${workflowUri}"></script>
   <script nonce="${nonce}" src="${highlightUri}"></script>

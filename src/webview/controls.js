@@ -119,6 +119,13 @@ wireSlider('slider-center-force', 'val-center-force', 'centerForce', rerunLayout
 wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);
 wireSlider('slider-link-force', 'val-link-force', 'linkForce', rerunLayout);
 wireSlider('slider-file-cluster', 'val-file-cluster', 'fileClusterForce', rerunLayout);
+wireSlider('slider-folder-repel', 'val-folder-repel', 'folderRepelForce', rerunLayout);
+
+// "view more forces" shortcut — opens the gear settings panel (Center/Repel/Link forces)
+document.getElementById('btn-more-forces')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  settingsPanel?.classList.add('open');
+});
 
 // ── Collapsible legend headers ────────────────────────────────────────────────
 function wireLegendToggle(headerId, bodyId) {
@@ -362,7 +369,7 @@ const complexityVal = document.getElementById('val-complexity');
 if (complexitySlider) {
   complexitySlider.addEventListener('input', () => {
     const raw = parseFloat(complexitySlider.value);
-    if (state.renderMode === 'workflow') {
+    if (state.viewMode === 'workflow') {
       // Workflow mode reinterprets the 0..1 slider as 10 discrete detail levels.
       const levels = (typeof WORKFLOW_LEVELS !== 'undefined') ? WORKFLOW_LEVELS : 10;
       state.workflowLevel = Math.round(raw * (levels - 1));

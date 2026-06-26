@@ -511,7 +511,7 @@ function createFolderSeparationForce(folderTree, nodesByFile) {
       const dy = cyA - cyB || 0.01;
       const dist = Math.hypot(dx, dy);
       const boost = overlapping ? 3.0 : 1.0;
-      const strength = 0.25 * alpha * boost / dist;
+      const strength = (settings.folderRepelForce ?? 0.25) * alpha * boost / dist;
 
       nodesA.forEach(n => { n.vx += dx * strength; n.vy += dy * strength; });
       nodesB.forEach(n => { n.vx -= dx * strength; n.vy -= dy * strength; });

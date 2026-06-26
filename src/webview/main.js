@@ -42,6 +42,7 @@ const settings = {
   repelForce: 250,
   linkForce: 1,
   fileClusterForce: 0.2,
+  folderRepelForce: 0.25,
   openFunctionPopup: true,
 };
 
@@ -121,7 +122,7 @@ function applyDisplaySettings() {
     .attr('r', d => nodeRadius(d))
     .attr('stroke', d => resolveNodeStroke(d))
     .attr('stroke-width', d => resolveNodeStrokeWidth(d));
-  state.svgCloudNodes?.attr('d', d => generateCloudPath(nodeRadius(d), bumpCountFor(d)));
+  state.svgCloudNodes?.attr('d', d => generateNodeShapePath(d, nodeRadius(d)));
   state.svgLinks
     .attr('stroke-width', d => settings.linkThickness * (typeof edgeWeightScale === 'function' ? edgeWeightScale(d._count) : 1))
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null);
@@ -153,7 +154,7 @@ function rerunLayout() {
   state.simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(0.05));
   state.simulation.force('x', d3.forceX(W / 2).strength(settings.centerForce));
   state.simulation.force('y', d3.forceY(H / 2).strength(settings.centerForce));
-  state.simulation.force('charge').strength(-settings.repelForce);
+  state.simulation.force('charge').strength(typeof chargeStrength === 'function' ? chargeStrength : -settings.repelForce);
   state.simulation.force('link').strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1).distance(40);
   state.simulation.alpha(0.5).restart();
 }
@@ -187,9 +188,9 @@ function applyWorkflowComplexity() {
 }
 
 function applyComplexity() {
-  if (state.fileClusterMode) { applyFileClusters(); return; }
+  if (state.viewMode === 'drilldown') { applyFileClusters(); return; }
   if (!state.graphData || !state.importanceScores) return;
-  if (state.renderMode === 'workflow') { applyWorkflowComplexity(); return; }
+  if (state.viewMode === 'workflow') { applyWorkflowComplexity(); return; }
   const projectData = {
     nodes: state.graphData.nodes.filter(n => !n.isLibrary),
     edges: state.graphData.edges.filter(e => !e.isLibraryEdge),
@@ -291,9 +292,11 @@ function renderGraph(data, isReanalysis = false) {
   if (!isReanalysis) { state.hasFitted = false; }
 
   // Detect the AI Workflow Graph (its presence is marked by graph.workflow).
-  const wasWorkflow = state.renderMode === 'workflow';
+  // renderGraph only runs outside drill-down, so it's safe to set the view here;
+  // the cluster grouping (clusterGroupBy) is preserved across workflow toggles.
+  const wasWorkflow = state.viewMode === 'workflow';
   const isWorkflow = !!(data.workflow && Array.isArray(data.workflow.clusters));
-  state.renderMode = isWorkflow ? 'workflow' : 'force';
+  state.viewMode = isWorkflow ? 'workflow' : 'cluster';
   const levels = (typeof WORKFLOW_LEVELS !== 'undefined') ? WORKFLOW_LEVELS : 10;
   if (isWorkflow) {
     state.workflowStageCount = data.workflow.stageCount || 1;
@@ -359,7 +362,7 @@ window.addEventListener('message', (event) => {
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     state.allScannedFiles = message.data.files ?? [];
     window.resetTimelineState?.();
-    if (state.fileClusterMode) {
+    if (state.viewMode === 'drilldown') {
       // Skeleton is showing — fold the analysis result into it without losing
       // the user's drill-down, instead of switching to the full graph.
       ingestGraphData(message.data);
@@ -389,7 +392,7 @@ window.addEventListener('message', (event) => {
         files: state.graphData.files,
       };
     }
-    if (state.fileClusterMode) {
+    if (state.viewMode === 'drilldown') {
       ingestGraphData(message.patch, message.parsedFolder);
     } else {
       // Normal mode (e.g. incremental save): merge and re-render the full graph.
@@ -403,7 +406,7 @@ window.addEventListener('message', (event) => {
     if (message.parsingFolder) {
       if (message.error) { state.parsingFolders.delete(message.parsingFolder); }
       else { state.parsingFolders.add(message.parsingFolder); }
-      if (state.fileClusterMode) { applyFileClusters(); }
+      if (state.viewMode === 'drilldown') { applyFileClusters(); }
     }
     if (message.backgroundParsing !== undefined) {
       state.backgroundParsing = message.backgroundParsing;

@@ -108,6 +108,12 @@
     "configuration": {
       "title": "CoGraph",
       "properties": {
+        "cograph.graphIntelligence.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Enable AI-powered features (Chat and the AI Workflow Graph). When off, these features are disabled until you turn them on here. AI features run the Claude Code / Codex CLI on your behalf."
+        },
         "cograph.graphIntelligence.provider": {
           "type": "string",
           "enum": [
@@ -189,13 +195,7 @@
         "cograph.largeRepo.autoEngage": {
           "type": "boolean",
           "default": true,
-          "description": "For large repos, open in progressive folder-cluster mode (a single project node that expands as you click) instead of laying out the whole graph at once."
-        },
-        "cograph.largeRepo.fileThreshold": {
-          "type": "number",
-          "default": 400,
-          "minimum": 1,
-          "description": "Source-file count at or above which CoGraph auto-engages folder-cluster mode (progressive drill-down)."
+          "description": "Open in progressive folder-cluster mode — a single project node that expands one level per click — instead of laying out the whole graph at once. Applies to all repos; disable to fall back to the flat graph."
         }
       }
     }

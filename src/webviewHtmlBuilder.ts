@@ -155,6 +155,7 @@ export function getWebviewHtml(
   const timelineMode = opts.timelineMode === true;
   const webviewDir = vscode.Uri.joinPath(extensionUri, 'src', 'webview');
   const stateUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'state.js'));
+  const aggregateUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'aggregate.js'));
   const clusteringUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'clustering.js'));
   const workflowUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'workflow.js'));
   const highlightUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'highlight.js'));
@@ -228,9 +229,9 @@ export function getWebviewHtml(
       <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
       <div class="tl-section-label">Group by</div>
       <div class="btn-group">
-        <button id="btn-group-connectivity" class="tl-btn active" title="Cluster by connection importance">Auto</button>
-        <button id="btn-group-class"        class="tl-btn"        title="Cluster by class">Class</button>
-        <button id="btn-group-file"         class="tl-btn"        title="Cluster by file">File</button>
+        <button id="btn-group-file"    class="tl-btn active" title="Navigate by folder (drill down)">File</button>
+        <button id="btn-group-class"   class="tl-btn"        title="Cluster by class">Class</button>
+        <button id="btn-group-connect" class="tl-btn"        title="Cluster by connection importance">Connect</button>
       </div>
     </div>
     <div id="panel-git" class="tl-panel" style="display:none">
@@ -268,6 +269,15 @@ export function getWebviewHtml(
         <div class="slider-header"><label for="slider-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.2</span></div>
         <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.2" />
       </div>
+      <div class="slider-row">
+        <div class="slider-header"><label for="slider-folder-repel">Folder Repel Force</label><span id="val-folder-repel">0.25</span></div>
+        <input type="range" id="slider-folder-repel" min="0" max="10" step="0.01" value="0.25" />
+      </div>
+      <div class="slider-row">
+        <div class="slider-header"><label for="slider-file-repel">File Repel Force</label><span id="val-file-repel">0.25</span></div>
+        <input type="range" id="slider-file-repel" min="0" max="10" step="0.01" value="0.25" />
+      </div>
+      <button id="btn-more-forces" class="tl-link-btn" title="Open settings to adjust all forces">view more forces &#9881;</button>
       <div class="tl-legend-header" id="toggle-folder-filters">
         <span>Filters</span>
         <span class="tl-chevron collapsed">▾</span>
@@ -391,6 +401,7 @@ export function getWebviewHtml(
     <ul id="ctx-menu-list"></ul>
   </div>
   <script nonce="${nonce}" src="${stateUri}"></script>
+  <script nonce="${nonce}" src="${aggregateUri}"></script>
   <script nonce="${nonce}" src="${clusteringUri}"></script>
   <script nonce="${nonce}" src="${workflowUri}"></script>
   <script nonce="${nonce}" src="${highlightUri}"></script>

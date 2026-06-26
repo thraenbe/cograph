@@ -412,7 +412,7 @@ suite('Save Graph Layout button', () => {
     // controls.js reads these at click time from the global state object
     (global as any).state.currentNodes = [];
     (global as any).state.complexityLevel = 0.5;
-    (global as any).state.clusterGroupBy = 'connectivity';
+    (global as any).state.clusterGroupBy = 'connect';
     (global as any).state.layoutMode = 'dynamic';
     (global as any).state.gitMode = false;
     (global as any).state.languageMode = false;
@@ -525,7 +525,7 @@ suite('Save Graph Layout button', () => {
     assert.strictEqual(posted.length, 1);
     assert.deepStrictEqual(posted[0].payload.nodePositions, {});
     // settings payload should still be populated
-    assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'connectivity');
+    assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'connect');
   });
 });
 

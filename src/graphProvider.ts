@@ -393,8 +393,10 @@ export class GraphProvider {
     const structure = scanStructure(workspaceRoot);
     this.currentStructure = structure;
     const cfg = vscode.workspace.getConfiguration('cograph');
-    const threshold = cfg.get<number>('largeRepo.fileThreshold', 400);
-    const autoEngage = cfg.get<boolean>('largeRepo.autoEngage', true) && structure.totalFiles >= threshold;
+    // File-cluster (folder drill-down) is the default view for every repo: start at a
+    // single project-root node and expand one level per click. Repo size no longer
+    // gates this; `largeRepo.autoEngage` is the escape hatch back to the flat graph.
+    const autoEngage = cfg.get<boolean>('largeRepo.autoEngage', true) && structure.totalFiles > 0;
     this.skeletonActive = autoEngage;
 
     // Re-open cache: paint a prior analysis instantly. If everything is unchanged,
@@ -700,14 +702,18 @@ export class GraphProvider {
     this.panel.webview.postMessage({ type: 'analysis-state', parsingFolder: folderTag });
     try {
       const patch = await this.analyzerRunner.runSubset(workspaceRoot, files);
-      this.cachedGraph = mergeGraph(this.cachedGraph, patch);
+      // splice (not bare merge) so re-expanding a folder drops nodes for functions
+      // that were deleted since it was last parsed; `replacedFiles` makes the
+      // webview prune the same stale ids before it folds the patch in.
+      this.cachedGraph = this.spliceFiles(this.cachedGraph, files, patch);
       this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
-      this.gitService.applyGitStatuses(patch.nodes, workspaceRoot);
+      this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
       if (this.currentStructure) { writeCache(workspaceRoot, this.cachedGraph, this.currentStructure); }
       this.panel?.webview.postMessage({
         type: 'graph-patch',
         patch,
         parsedFolder: folderTag,
+        replacedFiles: files,
         fileGitStatus: this.gitService.fileStatuses,
       });
     } catch (err: unknown) {
@@ -745,17 +751,26 @@ export class GraphProvider {
     }, 150);
   }
 
+  /**
+   * Re-parse `files`, splice the result into the cached graph (removing stale
+   * nodes for those files first), rewrite the cache, and patch the webview.
+   * Shared by the cache-reconcile and on-save incremental paths.
+   */
+  private async reparseAndPatch(workspaceRoot: string, files: string[], structure: StructureTree | undefined): Promise<void> {
+    const patch = await this.analyzerRunner.runSubset(workspaceRoot, files);
+    this.cachedGraph = this.spliceFiles(this.cachedGraph, files, patch);
+    this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
+    this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
+    if (structure) { writeCache(workspaceRoot, this.cachedGraph, structure); }
+    this.panel?.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: files, fileGitStatus: this.gitService.fileStatuses });
+  }
+
   /** Re-parse only the files that changed since the cache was written, then patch + rewrite the cache. */
   private async reconcileChangedFiles(workspaceRoot: string, structure: StructureTree, changed: string[]): Promise<void> {
     if (!this.panel || changed.length === 0) { return; }
     this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
     try {
-      const patch = await this.analyzerRunner.runSubset(workspaceRoot, changed);
-      this.cachedGraph = this.spliceFiles(this.cachedGraph, changed, patch);
-      this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
-      this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
-      writeCache(workspaceRoot, this.cachedGraph, structure);
-      this.panel?.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: changed, fileGitStatus: this.gitService.fileStatuses });
+      await this.reparseAndPatch(workspaceRoot, changed, structure);
     } catch (err: unknown) {
       this.outputChannel.appendLine(`Cache reconcile failed: ${(err as Error).message}`);
     } finally {
@@ -789,12 +804,7 @@ export class GraphProvider {
   private async incrementalReparse(workspaceRoot: string, file: string): Promise<void> {
     if (!this.panel) { return; }
     try {
-      const patch = await this.analyzerRunner.runSubset(workspaceRoot, [file]);
-      this.cachedGraph = this.spliceFiles(this.cachedGraph, [file], patch);
-      this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
-      this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
-      if (this.currentStructure) { writeCache(workspaceRoot, this.cachedGraph, this.currentStructure); }
-      this.panel.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: [file], fileGitStatus: this.gitService.fileStatuses });
+      await this.reparseAndPatch(workspaceRoot, [file], this.currentStructure);
     } catch (err: unknown) {
       this.outputChannel.appendLine(`Incremental reparse failed for ${file}: ${(err as Error).message}`);
     }
@@ -856,6 +866,9 @@ export class GraphProvider {
     providerId: string,
     onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
   ): Promise<GraphIntelligenceResult> {
+    if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
+      throw new Error('AI features are off — enable them in CoGraph settings to generate the Workflow Graph.');
+    }
     const { result, workspaceRoot } = await this.invokeProvider(buildWorkflowPrompt(), providerId, null, onProgress);
     const normalized = normalizeWorkflowModel(result.graph);
     this.cachedGraph = normalized;

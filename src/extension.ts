@@ -34,7 +34,15 @@ export function activate(context: vscode.ExtensionContext) {
     provider.requestSave('save-as');
   });
 
-  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand);
+  // Re-push the AI-enabled state to the sidebar whenever the user toggles it,
+  // so the gray-out clears/reapplies without reopening the view.
+  const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration('cograph.graphIntelligence.enabled')) {
+      sidebarProvider.refreshAiEnabled();
+    }
+  });
+
+  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, configListener);
 }
 
 export function deactivate() {}

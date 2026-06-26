@@ -356,6 +356,27 @@ body.vscode-light {
   margin-bottom: 8px;
 }
 
+.tl-link-btn {
+  width: 100%;
+  padding: 2px 4px;
+  margin-top: 2px;
+  font-size: 10px;
+  background: none;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: center;
+  opacity: 0.85;
+  transition: opacity 0.1s, background 0.1s;
+}
+
+.tl-link-btn:hover {
+  opacity: 1;
+  text-decoration: underline;
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
 .tl-section-label {
   font-size: 10px;
   opacity: 0.6;

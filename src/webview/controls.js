@@ -119,6 +119,14 @@ wireSlider('slider-center-force', 'val-center-force', 'centerForce', rerunLayout
 wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);
 wireSlider('slider-link-force', 'val-link-force', 'linkForce', rerunLayout);
 wireSlider('slider-file-cluster', 'val-file-cluster', 'fileClusterForce', rerunLayout);
+wireSlider('slider-folder-repel', 'val-folder-repel', 'folderRepelForce', rerunLayout);
+wireSlider('slider-file-repel', 'val-file-repel', 'fileRepelForce', rerunLayout);
+
+// "view more forces" shortcut — opens the gear settings panel (Center/Repel/Link forces)
+document.getElementById('btn-more-forces')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  settingsPanel?.classList.add('open');
+});
 
 // ── Collapsible legend headers ────────────────────────────────────────────────
 function wireLegendToggle(headerId, bodyId) {
@@ -135,15 +143,22 @@ wireLegendToggle('toggle-git-legend', 'git-legend-body');
 wireLegendToggle('toggle-folder-filters', 'folder-filters-body');
 
 // ── Cluster group-by controls ─────────────────────────────────────────────────
-const GROUP_BY_MODES = ['connectivity', 'class', 'file'];
+// Three lenses: File (the folder drill-down — default), Class, Connect.
+const GROUP_BY_MODES = ['file', 'class', 'connect'];
 GROUP_BY_MODES.forEach(mode => {
   document.getElementById(`btn-group-${mode}`)?.addEventListener('click', () => {
-    state.clusterGroupBy = mode;
     state.expandedClusters = new Set();
     GROUP_BY_MODES.forEach(m =>
       document.getElementById(`btn-group-${m}`)?.classList.toggle('active', m === mode)
     );
-    applyComplexity();
+    if (mode === 'file') {
+      // File mode IS the folder drill-down.
+      if (typeof enterFileClusterMode === 'function') { enterFileClusterMode(); }
+    } else {
+      state.viewMode = 'cluster';
+      state.clusterGroupBy = mode;
+      applyComplexity();
+    }
     window.markDirty?.();
   });
 });
@@ -362,7 +377,14 @@ const complexityVal = document.getElementById('val-complexity');
 if (complexitySlider) {
   complexitySlider.addEventListener('input', () => {
     const raw = parseFloat(complexitySlider.value);
-    if (state.renderMode === 'workflow') {
+    if (typeof isDrilldown === 'function' && isDrilldown()) {
+      // File mode: the slider is a uniform "open folders to depth D" control.
+      clearTimeout(state.clusterTimer);
+      state.clusterTimer = setTimeout(() => applyDetailDepth(raw), 80);
+      window.markDirty?.();
+      return;
+    }
+    if (state.viewMode === 'workflow') {
       // Workflow mode reinterprets the 0..1 slider as 10 discrete detail levels.
       const levels = (typeof WORKFLOW_LEVELS !== 'undefined') ? WORKFLOW_LEVELS : 10;
       state.workflowLevel = Math.round(raw * (levels - 1));

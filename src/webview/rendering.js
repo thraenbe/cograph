@@ -124,34 +124,26 @@ function generateCloudPath(R, bumpCount) {
   return d + ' Z';
 }
 
-// Rounded-square "folder" glyph centered at (0,0), sized to ~R.
-function roundedSquarePath(R) {
-  const s = R * 0.9;                  // half-side
-  const r = Math.min(s * 0.32, s);   // corner radius
-  return `M ${-s + r} ${-s} L ${s - r} ${-s} Q ${s} ${-s} ${s} ${-s + r}`
-    + ` L ${s} ${s - r} Q ${s} ${s} ${s - r} ${s}`
-    + ` L ${-s + r} ${s} Q ${-s} ${s} ${-s} ${s - r}`
-    + ` L ${-s} ${-s + r} Q ${-s} ${-s} ${-s + r} ${-s} Z`;
-}
-
 // Plain circle path (two arcs), centered at (0,0).
 function circlePath(R) {
   return `M ${-R} 0 A ${R} ${R} 0 1 0 ${R} 0 A ${R} ${R} 0 1 0 ${-R} 0 Z`;
 }
 
-// Shape selector for the cloud-node layer: folders → rounded square, files →
-// circle, everything else (connectivity/structural clusters) → cloud silhouette.
+// Shape selector for the cloud-node layer: files → circle, everything else
+// (folders and connectivity/structural clusters) → cloud silhouette.
 function generateNodeShapePath(d, R) {
-  if (d.isFolderCluster) { return roundedSquarePath(R); }
   if (d.isFileCluster) { return circlePath(R); }
   return generateCloudPath(R, bumpCountFor(d));
 }
 
-// Folders repel each other far harder than files/functions so the top-level
-// drill-down spreads out instead of clumping. Only folder glyphs are boosted.
-const FOLDER_REPEL_MULTIPLIER = 14;
 function chargeStrength(d) {
-  return d.isFolderCluster ? -settings.repelForce * FOLDER_REPEL_MULTIPLIER : -settings.repelForce;
+  return -settings.repelForce;
+}
+
+// An edge touching a folder/file drill-down cluster node (vs a function↔function edge).
+function isFolderLink(d) {
+  const s = d.source, t = d.target;
+  return !!(s && t && (s.isFolderCluster || s.isFileCluster || t.isFolderCluster || t.isFileCluster));
 }
 
 // Creates (or recreates) a per-cluster hard-stop linearGradient in <defs>.
@@ -286,8 +278,10 @@ function ticked() {
   }
 
   if (state.viewMode === 'workflow') { updateWorkflowDivider(); }
-  tickFolderOverlay();   // global from folder.js
-  tickClassOverlay();    // global from class.js
+  tickFileCircles();        // global from folder.js (file circles — overlay AND drill-down)
+  tickFolderOverlay();      // global from folder.js (connect/class folder bubbles)
+  tickDrilldownBoxes();     // global from folder.js (file-mode folder boxes)
+  tickClassOverlay();       // global from class.js
 }
 
 // ── Node event handlers ───────────────────────────────────────────────────────
@@ -431,7 +425,7 @@ function renderLinks(allLinks, visibleSet) {
 
 function renderNodes(visibleSet) {
   return nodeG.selectAll('circle.regular-node')
-    .data(state.currentNodes.filter(n => !n.isLibrary && !n.isCluster && !n.isSynthetic), d => d.id)
+    .data(state.currentNodes.filter(n => !n.isLibrary && !n.isCluster && !n.isSynthetic && !n.isFileAnchor), d => d.id)
     .join(
       enter => enter.append('circle').attr('class', 'regular-node'),
       update => update,
@@ -458,33 +452,41 @@ function renderNodes(visibleSet) {
 }
 
 function renderCloudNodes(visibleSet) {
+  const currentIds = new Set(state.currentNodes.map(n => n.id));
   return nodeG.selectAll('path.cloud-node')
     .data(state.currentNodes.filter(n => (n.isCluster || n.isSynthetic) && !n.isLibrary), d => d.id)
     .join(
+      // No fade/morph transitions: a folder click triggers several rapid re-renders
+      // (expand → parse spinner → graph-patch) that interrupt them, leaving cloud
+      // nodes stuck at partial/zero opacity (a folder vanishing or dimming). Set
+      // opacity and shape directly so a node is always fully drawn.
       enter => enter.append('path').attr('class', 'cloud-node')
         .attr('d', d => generateNodeShapePath(d, nodeRadius(d)))
         .style('fill', d => resolveClusterFill(d))
-        .attr('stroke', d => d.isFolderCluster ? 'rgba(255,255,255,0.35)' : 'none')
-        .attr('stroke-width', d => d.isFolderCluster ? 1.5 : 0)
         .attr('filter', 'url(#glow)')
         .attr('cursor', 'pointer')
         .style('display', d => visibleSet.has(d.id) ? null : 'none')
-        .style('opacity', 0)
-        .call(sel => sel.transition().duration(350).style('opacity', 1)),
+        .style('opacity', 1),
       update => update
-        .attr('stroke', d => d.isFolderCluster ? 'rgba(255,255,255,0.35)' : 'none')
-        .attr('stroke-width', d => d.isFolderCluster ? 1.5 : 0)
         .attr('filter', 'url(#glow)')
         .style('display', d => visibleSet.has(d.id) ? null : 'none')
         .style('fill', d => resolveClusterFill(d))
-        .call(sel => sel.transition().duration(350)
-          .attr('d', d => generateNodeShapePath(d, nodeRadius(d)))
-          .style('opacity', 1)),
+        .style('opacity', 1)
+        .attr('d', d => generateNodeShapePath(d, nodeRadius(d))),
       exit => exit
         .each(function(d) {
-          defs.select('#cograph-lang-grad-' + d.id.replace(/[^a-zA-Z0-9]/g, '_')).remove();
+          // Only drop the gradient if no surviving node still uses this id — a
+          // duplicate DOM element exiting must not delete the real node's fill.
+          if (!currentIds.has(d.id)) {
+            defs.select('#cograph-lang-grad-' + d.id.replace(/[^a-zA-Z0-9]/g, '_')).remove();
+          }
         })
-        .call(sel => sel.transition().duration(200).style('opacity', 0).remove())
+        // Remove immediately. A fade-out transition here gets interrupted by the
+        // rapid re-renders that follow a folder click (expand → parse spinner →
+        // graph-patch), so its `.remove()` never fires and the exited folder node
+        // lingers as a frozen, disconnected duplicate.
+        .interrupt()
+        .remove()
     )
     .call(drag)
     .on('click', (event, d) => {
@@ -493,9 +495,26 @@ function renderCloudNodes(visibleSet) {
         if (typeof toggleFileClusterExpand === 'function') { toggleFileClusterExpand(d); }
         return;
       }
-      if (d.isSynthetic) return;
+      // Collapsed cluster (incl. the detail-0 synthetic root) → expand on click.
       state.expandedClusters.add(d.id);
       applyComplexity();
+    })
+    .on('contextmenu', (event, d) => {
+      if (!d.isFolderCluster || typeof showContextMenu !== 'function') { return; }
+      event.preventDefault();
+      event.stopPropagation();
+      const fp = d._folderPath;
+      const items = [
+        { label: `${d.label} (Folder)`, isHeader: true },
+        { label: 'Elapse folder',         action: () => { if (typeof elapseFolder === 'function') { elapseFolder(fp); } } },
+        { label: 'Only show this folder', action: () => { state.onlyShowFolder = fp; applyFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Hide folder',           action: () => { state.hiddenFolders.add(fp); applyFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Go to folder',          action: () => vscode.postMessage({ type: 'navigate', file: fp, line: 1 }) },
+      ];
+      if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
+        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); ticked(); updateFolderPanel(); } });
+      }
+      showContextMenu(event, items);
     })
     .on('mouseover', onCloudMouseOver)
     .on('mouseout', onCloudMouseOut);
@@ -503,7 +522,7 @@ function renderCloudNodes(visibleSet) {
 
 function renderLabels(visibleSet) {
   return labelG.selectAll('text')
-    .data(state.currentNodes.filter(n => !n.isLibrary), d => d.id)
+    .data(state.currentNodes.filter(n => !n.isLibrary && !n.isFileAnchor), d => d.id)
     .join('text')
     .each(function (d) {
       // Folder/file glyphs carry a dim second line with the count (e.g. "23 files").
@@ -545,8 +564,13 @@ function startSimulation(allLinks) {
   const H = svgEl.clientHeight || window.innerHeight;
   state.simulation = d3.forceSimulation(state.currentNodes)
     .force('link', d3.forceLink(allLinks).id(d => d.id)
-      .distance(40)
-      .strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1))
+      // Folder/file aggregated edges pull weakly and rest farther apart, so folders
+      // separate instead of clumping; function-level edges keep full strength.
+      .distance(d => isFolderLink(d) ? 120 : 40)
+      .strength(d => {
+        if (d.isLibraryEdge) { return settings.linkForce * 0.1 * 0.3; }
+        return isFolderLink(d) ? settings.linkForce * 0.1 * 0.25 : settings.linkForce * 0.1;
+      }))
     .force('charge', d3.forceManyBody().strength(chargeStrength))
     .force('center', d3.forceCenter(W / 2, H / 2).strength(0.001))
     .force('x', d3.forceX(W / 2).strength(settings.centerForce))
@@ -697,7 +721,34 @@ function renderElements(elements, positionHints = new Map()) {
   state.svgLibNodes = renderLibraryNodes(libNodeData, visibleSet);
   state.svgLibLabels = renderLibraryLabels(libNodeData, visibleSet);
   startSimulation(allLinks);
-  if (state.folderMode && state.viewMode !== 'workflow') {
+  if (typeof isDrilldown === 'function' && isDrilldown() && state.folderMode) {
+    // File (drill-down) mode: boxes around each opened folder's contents.
+    folderG.selectAll('*').remove();   // drop any stale function-overlay bubbles + their drag handlers
+    const boxes = buildDrilldownBoxData();
+    state.svgDrilldownBoxes = renderDrilldownBoxes(boxes);
+    state.simulation?.force('drilldownCluster', createDrilldownClusterForce(boxes));
+    state.simulation?.force('drilldownSeparation', createDrilldownSeparationForce());
+    // File circles around the visible function nodes (same look + options as the
+    // legacy overlay: filename, fn count, drag, dbl-click & right-click menu).
+    const ddNodesByFile = groupByFile(state.currentNodes);
+    state.svgFileCircles = renderFileCircles(fileG, ddNodesByFile);
+    state.svgFileCircles.each(function() {
+      d3.select(this).select('.file-circle-shape')
+        .attr('stroke-width', 1.5).attr('stroke-dasharray', '6,3')
+        .attr('pointer-events', 'all').attr('cursor', 'grab');
+      d3.select(this).select('.file-circle-label')
+        .attr('font-size', `${11 * settings.textSize}px`).attr('text-anchor', 'middle')
+        .attr('font-weight', '600').attr('pointer-events', 'none');
+    });
+    state.svgFileCircles.call(createFileDrag()).on('mousemove', onFileHoverMove);
+    state.svgFolderBubbles = null;
+    state.simulation?.force('fileCluster', createFileClusterForce(ddNodesByFile));
+    state.simulation?.force('fileSeparation', createFileSeparationForce(ddNodesByFile));
+    state.simulation?.force('folderSeparation', null);
+  } else if (state.folderMode && state.viewMode !== 'workflow') {
+    state.svgDrilldownBoxes = null;
+    state.simulation?.force('drilldownCluster', null);
+    state.simulation?.force('drilldownSeparation', null);
     const nodesByFile    = groupByFile(state.currentNodes);
     const folderTree     = buildFolderTree(nodesByFile);
     computeFolderHues(folderTree);
@@ -734,14 +785,19 @@ function renderElements(elements, positionHints = new Map()) {
     state.svgFolderBubbles.on('mousemove', onFolderHoverMove);
 
     state.simulation.force('fileCluster', createFileClusterForce(nodesByFile));
+    state.simulation.force('fileSeparation', createFileSeparationForce(nodesByFile));
     state.simulation.force('folderSeparation', createFolderSeparationForce(folderTree, nodesByFile));
   } else {
     fileG.selectAll('*').remove();
     folderG.selectAll('*').remove();
     state.svgFileCircles   = null;
     state.svgFolderBubbles = null;
+    state.svgDrilldownBoxes = null;
     state.simulation?.force('fileCluster', null);
+    state.simulation?.force('fileSeparation', null);
     state.simulation?.force('folderSeparation', null);
+    state.simulation?.force('drilldownCluster', null);
+    state.simulation?.force('drilldownSeparation', null);
   }
   if (state.classMode && state.viewMode !== 'workflow') {
     const classByKey = groupByClass(state.currentNodes);  // global from class.js

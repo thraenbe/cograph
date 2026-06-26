@@ -1,11 +1,13 @@
 const state = {
   graphData: null,
   complexityLevel: 1,
-  // Single source of truth for the primary view. 'cluster' = the force graph
-  // (grouped per clusterGroupBy); 'drilldown' = the folder-skeleton drill-down;
+  // Primary view: 'cluster' = the force graph (grouped per clusterGroupBy);
   // 'workflow' = the AI-pipeline staged layout (auto-detected from graph.workflow).
   viewMode: 'cluster',
-  clusterGroupBy: 'connectivity',  // sub-mode of the 'cluster' view: 'connectivity' | 'class' | 'file'
+  // Cluster lens: 'file' = the folder drill-down (default); 'class'; 'connect'
+  // (call-connectivity, formerly "auto"). Drill-down is active when
+  // clusterGroupBy === 'file' && viewMode !== 'workflow' (see isDrilldown()).
+  clusterGroupBy: 'file',
   workflowLevel: 0,                // 0..9 detail level when viewMode === 'workflow'
   workflowStageCount: 1,
   workflowDividerStage: 0,
@@ -32,6 +34,7 @@ const state = {
   classMode: true,
   svgFileCircles: null,
   svgFolderBubbles: null,
+  svgDrilldownBoxes: null,       // folder boxes in file (drill-down) mode
   svgClassBubbles: null,
   gitAvailable: false,
   fileGitStatus: {},
@@ -42,10 +45,11 @@ const state = {
   allScannedFiles: [],
   hiddenFolders: new Set(),
   onlyShowFolder: null,
-  // ── File-cluster (large-repo progressive drill-down) ──────────────────────
-  // Active when viewMode === 'drilldown'.
+  // ── File-cluster (folder drill-down — the 'file' lens) ────────────────────
+  // Active when clusterGroupBy === 'file' && viewMode !== 'workflow' (isDrilldown()).
   structureTree: null,           // StructureTree from the `structure` message
   rootFolderPath: null,          // common-root folder = the level-0 node
+  detailDepth: 0,                // file-mode: uniform folder-open depth (slider-driven)
   expandedFolders: new Set(),    // folder/file paths the user has drilled into
   parsedFolders: new Set(),      // folders whose files have been parsed (functions known)
   parsingFolders: new Set(),     // folders with an in-flight subset parse (spinner)

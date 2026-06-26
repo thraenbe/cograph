@@ -43,6 +43,7 @@ const settings = {
   linkForce: 1,
   fileClusterForce: 0.2,
   folderRepelForce: 0.25,
+  fileRepelForce: 0.25,
   openFunctionPopup: true,
 };
 
@@ -83,8 +84,13 @@ function getVisibleNodeIds() {
       if (!n.file || !n.line || n.line <= 0) return;
     }
     if (!settings.showOrphans && !state.connectedNodeIds.has(n.id)) return;
-    if (n.file && !n.isLibrary && !n.isCluster && !n.isSynthetic) {
-      const nf = pathDirname(n.file);
+    // Folder only-show / hide filters — applied to function nodes AND drill-down
+    // skeleton nodes (folder::/file::) by their path.
+    let nf = null;
+    if (n.isFolderCluster) { nf = n._folderPath; }
+    else if (n.isFileCluster) { nf = pathDirname(n._filePath); }
+    else if (n.file && !n.isLibrary && !n.isCluster && !n.isSynthetic) { nf = pathDirname(n.file); }
+    if (nf != null && (state.onlyShowFolder || state.hiddenFolders.size)) {
       const inside = (folder) => nf === folder || nf.startsWith(folder + '/') || nf.startsWith(folder + '\\');
       if (state.onlyShowFolder && !inside(state.onlyShowFolder)) return;
       for (const hf of state.hiddenFolders) {
@@ -155,7 +161,12 @@ function rerunLayout() {
   state.simulation.force('x', d3.forceX(W / 2).strength(settings.centerForce));
   state.simulation.force('y', d3.forceY(H / 2).strength(settings.centerForce));
   state.simulation.force('charge').strength(typeof chargeStrength === 'function' ? chargeStrength : -settings.repelForce);
-  state.simulation.force('link').strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3 : settings.linkForce * 0.1).distance(40);
+  // Keep folder/file edges weak + long so folders stay separated (see startSimulation).
+  const folderLink = typeof isFolderLink === 'function' ? isFolderLink : () => false;
+  state.simulation.force('link')
+    .strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3
+      : folderLink(d) ? settings.linkForce * 0.1 * 0.25 : settings.linkForce * 0.1)
+    .distance(d => folderLink(d) ? 120 : 40);
   state.simulation.alpha(0.5).restart();
 }
 
@@ -188,7 +199,7 @@ function applyWorkflowComplexity() {
 }
 
 function applyComplexity() {
-  if (state.viewMode === 'drilldown') { applyFileClusters(); return; }
+  if (isDrilldown()) { applyFileClusters(); return; }
   if (!state.graphData || !state.importanceScores) return;
   if (state.viewMode === 'workflow') { applyWorkflowComplexity(); return; }
   const projectData = {
@@ -202,7 +213,8 @@ function applyComplexity() {
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
-  const clusterResult = state.clusterGroupBy === 'connectivity'
+  // Reaches here only for 'connect' or 'class' ('file' is the drill-down, handled above).
+  const clusterResult = state.clusterGroupBy === 'connect'
     ? computeClusters(projectData, state.importanceScores, state.complexityLevel)
     : computeStructuralClusters(projectData, state.clusterGroupBy, state.complexityLevel);
   const elements = buildClusteredElements(projectData, clusterResult, state.complexityLevel, state.importanceScores, state.expandedClusters, degreeMap);
@@ -264,7 +276,7 @@ function applyComplexity() {
   // For structural modes, seed each cluster at the centroid of its members'
   // current on-screen positions so the layout starts compact instead of random.
   const positionHints = new Map();
-  if (state.clusterGroupBy !== 'connectivity' && state.currentNodes.length > 0) {
+  if (state.clusterGroupBy !== 'connect' && state.currentNodes.length > 0) {
     const currentById = new Map(state.currentNodes.map(n => [n.id, n]));
     for (const [clusterId, members] of clusterResult.clusterMembers) {
       const pts = members
@@ -362,7 +374,7 @@ window.addEventListener('message', (event) => {
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     state.allScannedFiles = message.data.files ?? [];
     window.resetTimelineState?.();
-    if (state.viewMode === 'drilldown') {
+    if (isDrilldown()) {
       // Skeleton is showing — fold the analysis result into it without losing
       // the user's drill-down, instead of switching to the full graph.
       ingestGraphData(message.data);
@@ -392,7 +404,7 @@ window.addEventListener('message', (event) => {
         files: state.graphData.files,
       };
     }
-    if (state.viewMode === 'drilldown') {
+    if (isDrilldown()) {
       ingestGraphData(message.patch, message.parsedFolder);
     } else {
       // Normal mode (e.g. incremental save): merge and re-render the full graph.
@@ -406,7 +418,7 @@ window.addEventListener('message', (event) => {
     if (message.parsingFolder) {
       if (message.error) { state.parsingFolders.delete(message.parsingFolder); }
       else { state.parsingFolders.add(message.parsingFolder); }
-      if (state.viewMode === 'drilldown') { applyFileClusters(); }
+      if (isDrilldown()) { applyFileClusters(); }
     }
     if (message.backgroundParsing !== undefined) {
       state.backgroundParsing = message.backgroundParsing;
@@ -456,7 +468,11 @@ window.addEventListener('message', (event) => {
       if (slider) { slider.value = String(saved.complexityLevel); }
       if (valEl) { valEl.textContent = Number(saved.complexityLevel).toFixed(2); }
     }
-    if (saved.clusterGroupBy !== undefined) { state.clusterGroupBy = saved.clusterGroupBy; }
+    if (saved.clusterGroupBy !== undefined) {
+      // Back-compat: 'connectivity'/'auto' were renamed to 'connect'.
+      const legacy = { connectivity: 'connect', auto: 'connect' };
+      state.clusterGroupBy = legacy[saved.clusterGroupBy] ?? saved.clusterGroupBy;
+    }
     if (saved.gitMode !== undefined) {
       state.gitMode = saved.gitMode;
       document.getElementById('btn-git-mode')?.classList.toggle('active', saved.gitMode);

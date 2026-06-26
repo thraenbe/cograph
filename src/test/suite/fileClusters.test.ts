@@ -51,13 +51,17 @@ suite('fileClusters.buildSkeletonElements', () => {
     assert.strictEqual(root.isFolderCluster, true);
     assert.ok(root._size > 0);
 
-    // A parsed file: name + function count, file glyph + language.
-    const graphData = { nodes: [{ id: 'f1', name: 'a', file: '/p/src/a.ts', line: 1, language: 'typescript' }], edges: [] };
-    const els = buildSkeletonElements(makeTree(), new Set(['/p', '/p/src']), new Set(['/p/src']), graphData);
+    // A file in an UNPARSED folder → collapsed file node (circle glyph + language).
+    const els = buildSkeletonElements(makeTree(), new Set(['/p', '/p/src']), new Set(), null);
     const aFile = els.find((e: any) => e.data.id === 'file::/p/src/a.ts').data;
-    assert.strictEqual(aFile._sub, '1 fn');
     assert.strictEqual(aFile.isFileCluster, true);
     assert.strictEqual(aFile.language, 'typescript');
+
+    // Once the folder is PARSED, that file becomes its function nodes (no file node).
+    const graphData = { nodes: [{ id: 'f1', name: 'a', file: '/p/src/a.ts', line: 1, language: 'typescript' }], edges: [] };
+    const parsed = buildSkeletonElements(makeTree(), new Set(['/p', '/p/src']), new Set(['/p/src']), graphData);
+    assert.ok(ids(parsed).includes('f1'), 'function node emitted for a parsed folder');
+    assert.ok(!ids(parsed).includes('file::/p/src/a.ts'), 'no collapsed file node once parsed');
   });
 
   test('folder colour follows the languages it contains (languageBreakdown)', () => {
@@ -95,7 +99,7 @@ suite('fileClusters.buildSkeletonElements', () => {
     assert.ok(!ids(els).some(id => id.startsWith('file::/p/src/')), 'sub-folder files hidden when collapsed');
   });
 
-  test('a parsed file shows its function count; expanding it reveals function nodes', () => {
+  test('a parsed folder shows its files’ functions directly; function-less files get an anchor', () => {
     const graphData = {
       nodes: [
         { id: 'fa1', name: 'alpha', file: '/p/src/a.ts', line: 1, language: 'typescript' },
@@ -103,23 +107,19 @@ suite('fileClusters.buildSkeletonElements', () => {
       ],
       edges: [],
     };
-    const parsed = new Set(['/p/src']);
-
-    // a.ts parsed but collapsed → file node carries memberCount = 2, parsed = true
-    const collapsed = buildSkeletonElements(makeTree(), new Set(['/p', '/p/src']), parsed, graphData);
-    const aFile = collapsed.find((e: any) => e.data.id === 'file::/p/src/a.ts');
-    assert.strictEqual(aFile.data.parsed, true);
-    assert.strictEqual(aFile.data.memberCount, 2);
-
-    // a.ts expanded → its function nodes appear instead of the file node
-    const expanded = buildSkeletonElements(
-      makeTree(), new Set(['/p', '/p/src', '/p/src/a.ts']), parsed, graphData,
-    );
-    assert.ok(ids(expanded).includes('fa1') && ids(expanded).includes('fa2'), 'function nodes emitted');
-    assert.ok(!ids(expanded).includes('file::/p/src/a.ts'), 'file node replaced by its functions');
-    const fn = expanded.find((e: any) => e.data.id === 'fa1');
+    // /p/src parsed → a.ts shows its functions directly (no per-file expand, no file node).
+    const els = buildSkeletonElements(makeTree(), new Set(['/p', '/p/src']), new Set(['/p/src']), graphData);
+    assert.ok(ids(els).includes('fa1') && ids(els).includes('fa2'), 'function nodes emitted');
+    assert.ok(!ids(els).includes('file::/p/src/a.ts'), 'no collapsed file node once parsed');
+    const fn = els.find((e: any) => e.data.id === 'fa1');
     assert.strictEqual(fn.data.isCluster, false);
     assert.strictEqual(fn.data.label, 'alpha');
+
+    // b.ts has no functions → an invisible anchor (so the overlay can draw an empty circle).
+    const anchor = els.find((e: any) => e.data.id === 'fileanchor::/p/src/b.ts');
+    assert.ok(anchor, 'function-less file gets an anchor');
+    assert.strictEqual(anchor.data.isFileAnchor, true);
+    assert.strictEqual(anchor.data.file, '/p/src/b.ts');
   });
 
   test('an un-parsed file cannot expand to functions (stays a file node)', () => {
@@ -163,8 +163,8 @@ suite('fileClusters.visibleNodeIdOf', () => {
     const t = makeTree2();
     assert.strictEqual(visibleNodeIdOf(x, new Set(), new Set(), t), 'folder::/p', 'root collapsed');
     assert.strictEqual(visibleNodeIdOf(x, new Set(['/p']), new Set(), t), 'folder::/p/aaa', 'root open, folder collapsed');
-    assert.strictEqual(visibleNodeIdOf(x, new Set(['/p', '/p/aaa']), new Set(['/p/aaa']), t), 'file::/p/aaa/x.ts', 'folder open, file collapsed');
-    assert.strictEqual(visibleNodeIdOf(x, new Set(['/p', '/p/aaa', '/p/aaa/x.ts']), new Set(['/p/aaa']), t), 'x1', 'file open + parsed → function');
+    assert.strictEqual(visibleNodeIdOf(x, new Set(['/p', '/p/aaa']), new Set(), t), 'file::/p/aaa/x.ts', 'folder open but unparsed → file node');
+    assert.strictEqual(visibleNodeIdOf(x, new Set(['/p', '/p/aaa']), new Set(['/p/aaa']), t), 'x1', 'folder open + parsed → function');
   });
 });
 

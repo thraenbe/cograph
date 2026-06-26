@@ -1,0 +1,206 @@
+import * as assert from 'assert';
+
+// Pure drill-down helpers from the webview modules (no DOM/D3 needed).
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const fc = require('../../../src/webview/fileClusters.js');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const folder = require('../../../src/webview/folder.js');
+
+// A 3-level tree: /p (d0) → /p/a (d1) → /p/a/b (d2), plus a sibling /p/c (d1).
+function makeTree(totalFiles = 4) {
+  return {
+    root: '/p',
+    totalFiles,
+    folders: {
+      '/p':     { path: '/p',     depth: 0, parent: null,   childFolders: ['/p/a', '/p/c'], files: ['/p/x.ts'],     fileCount: totalFiles },
+      '/p/a':   { path: '/p/a',   depth: 1, parent: '/p',   childFolders: ['/p/a/b'],       files: ['/p/a/y.ts'],   fileCount: 2 },
+      '/p/a/b': { path: '/p/a/b', depth: 2, parent: '/p/a', childFolders: [],               files: ['/p/a/b/z.ts'], fileCount: 1 },
+      '/p/c':   { path: '/p/c',   depth: 1, parent: '/p',   childFolders: [],               files: ['/p/c/w.ts'],   fileCount: 1 },
+    },
+    files: [
+      { path: '/p/x.ts',     language: 'typescript' },
+      { path: '/p/a/y.ts',   language: 'typescript' },
+      { path: '/p/a/b/z.ts', language: 'python' },
+      { path: '/p/c/w.ts',   language: 'typescript' },
+    ],
+  };
+}
+
+// These suites set the shared globals `state`/`settings`; save/restore so they
+// don't leak into other webview test files that share the same globals.
+let _savedState: any;
+let _savedSettings: any;
+setup(() => { _savedState = (global as any).state; _savedSettings = (global as any).settings; });
+teardown(() => { (global as any).state = _savedState; (global as any).settings = _savedSettings; });
+
+suite('drilldown depth helpers', () => {
+  test('maxFolderDepth reflects the deepest folder', () => {
+    assert.strictEqual(fc.maxFolderDepth(makeTree()), 2);
+    assert.strictEqual(fc.maxFolderDepth({ folders: {} }), 0);
+    assert.strictEqual(fc.maxFolderDepth(null), 0);
+  });
+
+  test('expandToDepth opens every folder shallower than D (D=0 → root only)', () => {
+    const t = makeTree();
+    assert.deepStrictEqual([...fc.expandToDepth(t, 0)].sort(), []);
+    assert.deepStrictEqual([...fc.expandToDepth(t, 1)].sort(), ['/p']);
+    assert.deepStrictEqual([...fc.expandToDepth(t, 2)].sort(), ['/p', '/p/a', '/p/c']);
+    assert.deepStrictEqual([...fc.expandToDepth(t, 3)].sort(), ['/p', '/p/a', '/p/a/b', '/p/c']);
+  });
+
+  test('expandToDetail: 0 → root only, 1 → every folder open', () => {
+    const t = makeTree();
+    // raw 0 → nothing expanded (root collapsed).
+    assert.deepStrictEqual([...fc.expandToDetail(t, 0)], []);
+    // raw 1 → every folder open (a parsed folder then shows its files' functions).
+    const full = fc.expandToDetail(t, 1);
+    for (const fp of Object.keys(t.folders)) { assert.ok(full.has(fp), `folder ${fp} expanded`); }
+    // Files are NOT in the expansion set — they surface via their open+parsed folder.
+    for (const f of t.files) { assert.ok(!full.has(f.path), `file ${f.path} not in set`); }
+    // Mid value expands strictly fewer than full and at least the root.
+    const mid = fc.expandToDetail(t, 0.5);
+    assert.ok(mid.size > 0 && mid.size < full.size);
+  });
+});
+
+suite('drilldown folder paths', () => {
+  test('pathUnder matches a folder and its descendants only', () => {
+    assert.ok(folder.pathUnder('/p/a/b', '/p/a'));
+    assert.ok(folder.pathUnder('/p/a', '/p/a'));
+    assert.ok(!folder.pathUnder('/p/c', '/p/a'));
+    assert.ok(!folder.pathUnder('/p/ab', '/p/a'), 'prefix without separator is not "under"');
+  });
+
+  test('ddNodePath returns the path a node is filed under', () => {
+    assert.strictEqual(folder.ddNodePath({ isFolderCluster: true, _folderPath: '/p/a' }), '/p/a');
+    assert.strictEqual(folder.ddNodePath({ isFileCluster: true, _filePath: '/p/a/y.ts' }), '/p/a/y.ts');
+    assert.strictEqual(folder.ddNodePath({ file: '/p/a/y.ts' }), '/p/a/y.ts');
+    assert.strictEqual(folder.ddNodePath({ file: null }), null);
+  });
+});
+
+suite('buildDrilldownBoxData', () => {
+  test('one box per expanded folder; members are exactly its descendants', () => {
+    (global as any).state = {
+      structureTree: makeTree(),
+      expandedFolders: new Set(['/p', '/p/a']),
+      currentNodes: [
+        { id: 'folder::/p/a',     isFolderCluster: true, _folderPath: '/p/a' },
+        { id: 'folder::/p/c',     isFolderCluster: true, _folderPath: '/p/c' },
+        { id: 'file::/p/a/b/z.ts', isFileCluster: true,  _filePath: '/p/a/b/z.ts' },
+        { id: 'fnX',              file: '/p/x.ts' },
+        { id: 'fnY',              file: '/p/a/y.ts' },
+      ],
+    };
+    const boxes = folder.buildDrilldownBoxData();
+    const byPath = new Map<string, any>(boxes.map((b: any) => [b.folderPath, b]));
+
+    // The project root ('/p') gets NO box; only non-root expanded folders do.
+    assert.deepStrictEqual(boxes.map((b: any) => b.folderPath).sort(), ['/p/a']);
+    assert.ok(!byPath.has('/p'), 'root folder is not boxed');
+
+    // /p/a contains only its descendants — NOT /p/c, NOT the root file fnX.
+    const a = byPath.get('/p/a');
+    const aIds = a.members.map((m: any) => m.id);
+    assert.ok(aIds.includes('fnY') && aIds.includes('file::/p/a/b/z.ts'));
+    assert.ok(!aIds.includes('folder::/p/c'), 'sibling folder excluded');
+    assert.ok(!aIds.includes('fnX'), 'root-level file excluded');
+  });
+
+  test('boxes are ordered shallow-first (parents render behind children)', () => {
+    (global as any).state = {
+      structureTree: makeTree(),
+      expandedFolders: new Set(['/p/a/b', '/p/a', '/p']),
+      currentNodes: [
+        { id: 'fnY', file: '/p/a/y.ts' },
+        { id: 'fnZ', file: '/p/a/b/z.ts' },
+      ],
+    };
+    // Root '/p' excluded; remaining boxes ordered by depth (1 before 2).
+    const boxes = folder.buildDrilldownBoxData();
+    assert.deepStrictEqual(boxes.map((b: any) => b.depth), [1, 2]);
+    assert.deepStrictEqual(boxes.map((b: any) => b.folderPath), ['/p/a', '/p/a/b']);
+  });
+
+  test('an expanded file path (not a folder) produces no box', () => {
+    (global as any).state = {
+      structureTree: makeTree(),
+      expandedFolders: new Set(['/p/a/y.ts']),
+      currentNodes: [{ id: 'fnY', file: '/p/a/y.ts' }],
+    };
+    assert.deepStrictEqual(folder.buildDrilldownBoxData(), []);
+  });
+});
+
+suite('elapse / collapse folder', () => {
+  function freshState() {
+    (global as any).state = {
+      structureTree: makeTree(),
+      expandedFolders: new Set<string>(),
+      parsedFolders: new Set<string>(),
+      parsingFolders: new Set<string>(),
+    };
+  }
+
+  test('elapseFolder expands the folder, its subfolders, and all its files', () => {
+    freshState();
+    fc.elapseFolder('/p/a');
+    const exp = (global as any).state.expandedFolders as Set<string>;
+    assert.ok(exp.has('/p/a') && exp.has('/p/a/b'), 'subtree folders expanded');
+    assert.ok(exp.has('/p/a/y.ts') && exp.has('/p/a/b/z.ts'), 'descendant files expanded → functions');
+    assert.ok(!exp.has('/p/c') && !exp.has('/p/x.ts'), 'nothing outside the folder is touched');
+  });
+
+  test('collapseFolder removes the folder and its whole subtree', () => {
+    freshState();
+    (global as any).state.expandedFolders = new Set(['/p', '/p/a', '/p/a/b', '/p/a/y.ts']);
+    fc.collapseFolder('/p/a');
+    const exp = (global as any).state.expandedFolders as Set<string>;
+    assert.deepStrictEqual([...exp], ['/p'], 'only the /p/a subtree is collapsed');
+  });
+});
+
+suite('createDrilldownSeparationForce', () => {
+  test('pushes sibling folders apart along their centroid axis', () => {
+    (global as any).settings = { folderRepelForce: 0.25 };
+    const a = { id: 'a', file: '/p/a/y.ts',  x: 0, y: 0, vx: 0, vy: 0 };
+    const b = { id: 'b', file: '/p/c/w.ts',  x: 1, y: 0, vx: 0, vy: 0 };
+    (global as any).state = { structureTree: makeTree(), currentNodes: [a, b] };
+
+    const force = folder.createDrilldownSeparationForce();
+    force(1);
+
+    // /p/a (left) is pushed -x, /p/c (right) is pushed +x → they separate.
+    assert.ok(a.vx < 0, 'left sibling pushed left');
+    assert.ok(b.vx > 0, 'right sibling pushed right');
+  });
+
+  test('a pinned node (fx set) is not moved', () => {
+    (global as any).settings = { folderRepelForce: 0.25 };
+    const a = { id: 'a', file: '/p/a/y.ts', x: 0, y: 0, vx: 0, vy: 0, fx: 0, fy: 0 };
+    const b = { id: 'b', file: '/p/c/w.ts', x: 1, y: 0, vx: 0, vy: 0 };
+    (global as any).state = { structureTree: makeTree(), currentNodes: [a, b] };
+    folder.createDrilldownSeparationForce()(1);
+    assert.strictEqual(a.vx, 0, 'pinned node velocity unchanged');
+  });
+});
+
+suite('createFileSeparationForce', () => {
+  test('pushes overlapping sibling files apart', () => {
+    (global as any).settings = { fileRepelForce: 0.25 };
+    const a = { id: 'a', x: 0, y: 0, vx: 0, vy: 0 };
+    const b = { id: 'b', x: 1, y: 0, vx: 0, vy: 0 };
+    const nodesByFile = new Map([['/p/a/x.ts', [a]], ['/p/a/y.ts', [b]]]);
+    folder.createFileSeparationForce(nodesByFile)(1);
+    assert.ok(a.vx < 0 && b.vx > 0, 'sibling file groups separate');
+  });
+
+  test('files in different folders are not paired (folder repel handles those)', () => {
+    (global as any).settings = { fileRepelForce: 0.25 };
+    const a = { id: 'a', x: 0, y: 0, vx: 0, vy: 0 };
+    const b = { id: 'b', x: 1, y: 0, vx: 0, vy: 0 };
+    const nodesByFile = new Map([['/p/a/x.ts', [a]], ['/p/b/y.ts', [b]]]);
+    folder.createFileSeparationForce(nodesByFile)(1);
+    assert.strictEqual(a.vx, 0, 'no cross-folder file separation');
+  });
+});

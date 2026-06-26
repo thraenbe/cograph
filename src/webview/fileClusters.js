@@ -8,12 +8,13 @@
 //
 // All functions are globals (loaded after folder.js, before main.js).
 
-// Shared edge-aggregation core: a global from aggregate.js in the webview,
-// require()-d directly when this module is loaded by Node unit tests.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const _aggregateEdges = (typeof aggregateEdges !== 'undefined')
-  ? aggregateEdges
-  : require('./aggregate.js').aggregateEdges;
+// Shared edge-aggregation core (`aggregateEdges`) is a webview global from
+// aggregate.js; in Node unit tests pull it onto `global` once. A top-level
+// `const` would redeclare across the webview's shared script scope.
+if (typeof aggregateEdges === 'undefined' && typeof require !== 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  global.aggregateEdges = require('./aggregate.js').aggregateEdges;
+}
 
 // ── Path helpers (self-contained so the module is unit-testable) ──────────────
 function fcDirname(fp) {
@@ -41,6 +42,119 @@ function fcLangFromPath(fp) {
 // Size hierarchy: folders > files > functions, so the drill-down reads at a glance.
 function folderSize(count) { return Math.min(92, 30 + 11 * Math.log2((count || 0) + 1)); }
 function fileSize(fnCount, parsed) { return parsed && fnCount ? Math.min(54, 16 + 7 * Math.log2(fnCount + 1)) : 16; }
+
+// ── Detail (0..1) ⇄ folder expansion ──────────────────────────────────────────
+// The Detail slider in file mode is a 0..1 value: 0 = only the root folder shows;
+// 1 = the entire graph (every folder + file expanded to functions); in between it
+// opens the tree progressively deeper.
+
+function maxFolderDepth(tree) {
+  if (!tree || !tree.folders) { return 0; }
+  let m = 0;
+  for (const k in tree.folders) { const d = tree.folders[k].depth || 0; if (d > m) { m = d; } }
+  return m;
+}
+
+/** Folders to mark expanded so the tree is uniformly open to `depth` (folders only). */
+function expandToDepth(tree, depth) {
+  const set = new Set();
+  if (!tree || !tree.folders) { return set; }
+  for (const k in tree.folders) {
+    if ((tree.folders[k].depth || 0) < depth) { set.add(k); }
+  }
+  return set;
+}
+
+/** Expanded set for a 0..1 detail value. The level scale runs folders (0..maxDepth),
+ *  then files-as-nodes (maxDepth+1), then functions (maxDepth+2). At raw=1 every
+ *  folder AND file is expanded → the entire function graph. */
+function expandToDetail(tree, raw) {
+  if (!tree || !tree.folders) { return new Set(); }
+  // 0 = root only … (maxDepth+1) = every folder open. A file's functions show as
+  // soon as its (open) folder is parsed, so no per-file expansion is needed.
+  const levels = maxFolderDepth(tree) + 1;
+  const target = Math.round(Math.max(0, Math.min(1, raw)) * levels);
+  return expandToDepth(tree, target);
+}
+
+/** Ask the host to parse any expanded-but-unparsed folder so its functions appear. */
+function requestParseForExpanded() {
+  if (typeof window === 'undefined' || !window.requestFolderParse) { return; }
+  const folders = state.structureTree && state.structureTree.folders;
+  if (!folders) { return; }
+  for (const fp of state.expandedFolders) {
+    if (folders[fp] && !state.parsedFolders.has(fp) && !state.parsingFolders.has(fp)) {
+      window.requestFolderParse(fp);
+    }
+  }
+}
+
+function setDetailSlider(raw) {
+  if (typeof document === 'undefined') { return; }
+  const slider = document.getElementById('slider-complexity');
+  const valEl = document.getElementById('val-complexity');
+  if (slider) { slider.value = String(raw); }
+  if (valEl) { valEl.textContent = raw.toFixed(2); }
+}
+
+/** Initial detail: < 200 files → full graph (1); otherwise collapsed at root (0).
+ *  No explicit parse request here — the background full pass parses the whole repo
+ *  and marks every folder parsed, so functions fill in as it completes. */
+function setInitialDetailDepth() {
+  const tree = state.structureTree;
+  if (!tree) { return; }
+  const raw = (tree.totalFiles || 0) < 200 ? 1 : 0;
+  state.detailDepth = raw;
+  state.expandedFolders = expandToDetail(tree, raw);
+  setDetailSlider(raw);
+}
+
+/** Apply a 0..1 detail value from the slider (file mode only). */
+function applyDetailDepth(raw) {
+  const tree = state.structureTree;
+  if (!tree) { return; }
+  state.detailDepth = raw;
+  state.expandedFolders = expandToDetail(tree, raw);
+  if (typeof document !== 'undefined') {
+    const valEl = document.getElementById('val-complexity');
+    if (valEl) { valEl.textContent = raw.toFixed(2); }
+  }
+  requestParseForExpanded();
+  applyFileClusters();
+}
+
+/** Nudge the slider a little on a click-dive (continuous 0..1). */
+function nudgeDetailSlider(dir) {
+  if (typeof document === 'undefined') { return; }
+  const slider = document.getElementById('slider-complexity');
+  if (!slider) { return; }
+  const raw = Math.max(0, Math.min(1, parseFloat(slider.value) + dir * 0.05));
+  slider.value = String(raw);
+  const valEl = document.getElementById('val-complexity');
+  if (valEl) { valEl.textContent = raw.toFixed(2); }
+}
+
+/** Right-click "Elapse folder": expand a folder and its whole subtree (folders +
+ *  files) so every function inside it is shown directly. Parses on demand. */
+function elapseFolder(folderPath) {
+  const tree = state.structureTree;
+  if (!tree || !tree.folders) { return; }
+  const under = (p) => p === folderPath || p.startsWith(folderPath + '/') || p.startsWith(folderPath + '\\');
+  for (const fp in tree.folders) { if (under(fp)) { state.expandedFolders.add(fp); } }
+  for (const f of (tree.files || [])) { if (under(f.path)) { state.expandedFolders.add(f.path); } }
+  requestParseForExpanded();
+  applyFileClusters();
+  if (typeof window !== 'undefined') { window.markDirty?.(); }
+}
+
+/** Right-click "Collapse folder": collapse a folder (and its subtree) back to a
+ *  single folder node. */
+function collapseFolder(folderPath) {
+  const under = (p) => p === folderPath || p.startsWith(folderPath + '/') || p.startsWith(folderPath + '\\');
+  for (const p of [...state.expandedFolders]) { if (under(p)) { state.expandedFolders.delete(p); } }
+  applyFileClusters();
+  if (typeof window !== 'undefined') { window.markDirty?.(); }
+}
 
 // Recursive language breakdown per folder, so a folder is coloured by the mix of
 // code it contains (like the old project/cluster node). Memoised on the tree.
@@ -138,6 +252,25 @@ function functionElement(n) {
   };
 }
 
+// An invisible layout anchor for a function-less file, so the file-circle overlay
+// can draw an (empty) circle that's positioned inside the folder instead of
+// floating. Excluded from the node/label render passes (isFileAnchor).
+function fileAnchorElement(filePath) {
+  return {
+    data: {
+      id: 'fileanchor::' + filePath,
+      label: fcBasename(filePath),
+      _size: 2,
+      file: filePath,
+      line: 0,
+      isCluster: false,
+      isSynthetic: false,
+      isFileAnchor: true,
+      language: fcLangFromPath(filePath),
+    },
+  };
+}
+
 /**
  * Build the visible element set for the current drill-down state. Pure function
  * of (tree, expandedFolders, parsedFolders, graphData, parsingFolders).
@@ -171,10 +304,14 @@ function buildSkeletonElements(tree, expandedFolders, parsedFolders, graphData, 
   function visitFile(filePath) {
     const fns = nodesByFile.get(filePath) || [];
     const folderParsed = parsedFolders.has(fcDirname(filePath));
-    if (expandedFolders.has(filePath) && folderParsed && fns.length) {
-      for (const n of fns) { elements.push(functionElement(n)); }
+    if (folderParsed) {
+      // Parsed folder → the file is a file circle: its functions, or an invisible
+      // anchor so a function-less file still gets a (positioned) empty circle.
+      if (fns.length) { for (const n of fns) { elements.push(functionElement(n)); } }
+      else { elements.push(fileAnchorElement(filePath)); }
     } else {
-      elements.push(fileElement(filePath, fns.length, folderParsed, parsingFolders.has(fcDirname(filePath))));
+      // Folder not parsed yet → a collapsed file node (with a spinner while parsing).
+      elements.push(fileElement(filePath, fns.length, false, parsingFolders.has(fcDirname(filePath))));
     }
   }
 
@@ -193,8 +330,9 @@ function visibleNodeIdOf(node, expandedFolders, parsedFolders, tree) {
   const fileFolder = fcDirname(fp);
 
   if (expandedFolders.has(fileFolder)) {
-    // File's folder is open → the file is on the frontier (or its functions are).
-    if (expandedFolders.has(fp) && parsedFolders.has(fileFolder)) { return node.id; }
+    // Folder open + parsed → its functions are shown directly; open but unparsed →
+    // the collapsed file node is what's visible.
+    if (parsedFolders.has(fileFolder)) { return node.id; }
     return 'file::' + fp;
   }
   // Folder closed → walk up to the deepest open ancestor; the collapsed folder
@@ -229,7 +367,7 @@ function buildWeightedEdges(graphData, expandedFolders, parsedFolders, tree) {
     const tn = nodeById.get(tId);
     return !parsedFolders.has(fcDirname(sn.file)) || !parsedFolders.has(fcDirname(tn.file));
   };
-  return _aggregateEdges(graphData.edges, mapId, { weighted: true, pendingFor });
+  return aggregateEdges(graphData.edges, mapId, { weighted: true, pendingFor });
 }
 
 // ── Render + interaction (browser-only; needs renderElements/state/D3) ────────
@@ -294,8 +432,10 @@ function toggleFileClusterExpand(d) {
     const fp = d._folderPath;
     if (state.expandedFolders.has(fp)) {
       state.expandedFolders.delete(fp);
+      nudgeDetailSlider(-1);
     } else {
       state.expandedFolders.add(fp);
+      nudgeDetailSlider(+1); // diving deeper bumps the detail slider a bit
       // Lazily parse this folder's direct files on first expand.
       if (!state.parsedFolders.has(fp) && typeof window !== 'undefined') {
         window.requestFolderParse?.(fp);
@@ -322,25 +462,36 @@ function toggleFileClusterExpand(d) {
   }
 }
 
+// Drill-down (folder navigation) is the 'file' cluster lens, outside workflow mode.
+// Requires a structure tree; without one (e.g. autoEngage disabled) 'file' mode
+// falls back to plain file-structural clustering instead of a blank view.
+function isDrilldown() {
+  return state.clusterGroupBy === 'file'
+    && state.viewMode !== 'workflow'
+    && !!(state.structureTree && state.structureTree.folders);
+}
+
 function enterFileClusterMode() {
-  state.viewMode = 'drilldown';
-  state.folderMode = false;
+  state.viewMode = 'cluster';
+  state.clusterGroupBy = 'file'; // the 'file' lens IS the folder drill-down
   state.classMode = false;
-  state.clusterGroupBy = 'file'; // reflect "group by file" in the toolbar
   // If a full graph is already loaded (small repo / valid cache), every folder is
   // parsed — so files expand to functions immediately without a redundant re-parse.
   if (state.graphData && state.graphData.nodes && state.graphData.nodes.length
       && state.structureTree && state.structureTree.folders) {
     state.parsedFolders = new Set(Object.keys(state.structureTree.folders));
   }
+  // Pick the initial drill-down depth from repo size (large repos start collapsed).
+  setInitialDetailDepth();
   if (typeof document !== 'undefined') {
-    // Cluster mode supersedes the folder/class overlays; reflect "group by file".
-    document.getElementById('btn-folder-mode')?.classList.remove('active');
     document.getElementById('btn-class-mode')?.classList.remove('active');
-    ['connectivity', 'class', 'file'].forEach(m =>
+    ['file', 'class', 'connect'].forEach(m =>
       document.getElementById(`btn-group-${m}`)?.classList.toggle('active', m === 'file'));
   }
-  applyFileClusters();
+  // Dispatch through applyComplexity: drill-down when a structure tree is present,
+  // otherwise plain file-structural clustering (no blank view).
+  if (typeof applyComplexity === 'function') { applyComplexity(); }
+  else { applyFileClusters(); }
 }
 
 /** Handle a `structure` message: store the tree and (optionally) engage the mode. */
@@ -371,6 +522,12 @@ if (typeof module !== 'undefined') {
     toggleFileClusterExpand,
     enterFileClusterMode,
     renderStructureSkeleton,
+    isDrilldown,
+    maxFolderDepth,
+    expandToDepth,
+    expandToDetail,
+    elapseFolder,
+    collapseFolder,
     fcDirname,
     fcBasename,
   };

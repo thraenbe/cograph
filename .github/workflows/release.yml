@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+
+      # Keep version in sync with VSCODE_VERSION in src/test/runTest.ts
+      - name: Cache VS Code test binary
+        uses: actions/cache@v4
+        with:
+          path: .vscode-test
+          key: vscode-test-${{ runner.os }}-1.116.0
+
+      - name: Run tests (Linux needs xvfb)
+        run: xvfb-run -a npm test
+
+      - name: Package extension
+        run: npm run package
+
+      - name: Locate .vsix
+        id: vsix
+        run: echo "path=$(ls *.vsix | head -n1)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.vsix.outputs.path }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      # Publishes to the VS Code Marketplace.
+      # Skipped automatically until the VSCE_PAT repository secret is configured,
+      # so a first dry-run tag still produces a GitHub Release without failing.
+      - name: Publish to VS Code Marketplace
+        if: ${{ env.VSCE_PAT != '' }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npm run publish

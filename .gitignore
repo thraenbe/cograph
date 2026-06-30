@@ -8,5 +8,6 @@ scripts/__pycache__/
 cograph-*/
 *.swp
 linkedin.txt
-Screenshot*.png
+# Ad-hoc screenshots dropped at the repo root (committed assets live in docs/images/)
+/Screenshot*.png
 .cograph/

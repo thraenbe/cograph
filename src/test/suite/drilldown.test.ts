@@ -185,6 +185,69 @@ suite('createDrilldownSeparationForce', () => {
   });
 });
 
+suite('isDrilldown()', () => {
+  test('true with file lens + cluster view + structure tree', () => {
+    (global as any).state = { clusterGroupBy: 'file', viewMode: 'cluster', structureTree: makeTree() };
+    assert.strictEqual(fc.isDrilldown(), true);
+  });
+
+  test('false when the lens is not file', () => {
+    (global as any).state = { clusterGroupBy: 'connect', viewMode: 'cluster', structureTree: makeTree() };
+    assert.strictEqual(fc.isDrilldown(), false);
+    (global as any).state.clusterGroupBy = 'class';
+    assert.strictEqual(fc.isDrilldown(), false);
+  });
+
+  test('false while the workflow view is active', () => {
+    (global as any).state = { clusterGroupBy: 'file', viewMode: 'workflow', structureTree: makeTree() };
+    assert.strictEqual(fc.isDrilldown(), false);
+  });
+
+  test('false without a structure tree (fallback to plain clustering)', () => {
+    (global as any).state = { clusterGroupBy: 'file', viewMode: 'cluster', structureTree: null };
+    assert.strictEqual(fc.isDrilldown(), false);
+    (global as any).state.structureTree = {}; // tree without folders
+    assert.strictEqual(fc.isDrilldown(), false);
+  });
+});
+
+suite('graph message routing (classifyGraphMessage)', () => {
+  const drilldownState = () => ({ clusterGroupBy: 'file', viewMode: 'cluster', structureTree: makeTree() });
+
+  test('workflow payload → render even while drill-down is active', () => {
+    (global as any).state = drilldownState();
+    const data = { nodes: [], edges: [], workflow: { clusters: [], stageCount: 1 } };
+    assert.strictEqual(fc.isWorkflowPayload(data), true);
+    assert.strictEqual(fc.classifyGraphMessage(data), 'render');
+  });
+
+  test('non-workflow payload while drill-down is active → ingest', () => {
+    (global as any).state = drilldownState();
+    assert.strictEqual(fc.classifyGraphMessage({ nodes: [], edges: [] }), 'ingest');
+  });
+
+  test('non-workflow payload outside drill-down → render', () => {
+    (global as any).state = { clusterGroupBy: 'connect', viewMode: 'cluster', structureTree: makeTree() };
+    assert.strictEqual(fc.classifyGraphMessage({ nodes: [], edges: [] }), 'render');
+  });
+
+  test('a workflow marker without a clusters array is not a workflow payload', () => {
+    (global as any).state = drilldownState();
+    const data = { nodes: [], edges: [], workflow: {} };
+    assert.strictEqual(fc.isWorkflowPayload(data), false);
+    assert.strictEqual(fc.classifyGraphMessage(data), 'ingest');
+  });
+
+  test('null/missing data → render, no throw', () => {
+    (global as any).state = drilldownState();
+    assert.strictEqual(fc.isWorkflowPayload(null), false);
+    assert.strictEqual(fc.classifyGraphMessage(null), 'ingest');
+    // Outside drill-down, null data still routes to render without throwing.
+    (global as any).state = { clusterGroupBy: 'connect', viewMode: 'cluster', structureTree: null };
+    assert.strictEqual(fc.classifyGraphMessage(null), 'render');
+  });
+});
+
 suite('createFileSeparationForce', () => {
   test('pushes overlapping sibling files apart', () => {
     (global as any).settings = { fileRepelForce: 0.25 };

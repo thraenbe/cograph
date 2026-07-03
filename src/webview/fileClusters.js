@@ -123,13 +123,15 @@ function applyDetailDepth(raw) {
   applyFileClusters();
 }
 
-/** Nudge the slider a little on a click-dive (continuous 0..1). */
+/** Nudge the slider a little on a click-dive (continuous 0..1), keeping
+ *  state.detailDepth in sync with the DOM slider. */
 function nudgeDetailSlider(dir) {
   if (typeof document === 'undefined') { return; }
   const slider = document.getElementById('slider-complexity');
   if (!slider) { return; }
   const raw = Math.max(0, Math.min(1, parseFloat(slider.value) + dir * 0.05));
   slider.value = String(raw);
+  state.detailDepth = raw;
   const valEl = document.getElementById('val-complexity');
   if (valEl) { valEl.textContent = raw.toFixed(2); }
 }
@@ -365,6 +367,7 @@ function buildWeightedEdges(graphData, expandedFolders, parsedFolders, tree) {
   const pendingFor = (sId, tId) => {
     const sn = nodeById.get(sId);
     const tn = nodeById.get(tId);
+    if (!sn || !sn.file || !tn || !tn.file) { return true; } // unknown endpoint → provisional
     return !parsedFolders.has(fcDirname(sn.file)) || !parsedFolders.has(fcDirname(tn.file));
   };
   return aggregateEdges(graphData.edges, mapId, { weighted: true, pendingFor });

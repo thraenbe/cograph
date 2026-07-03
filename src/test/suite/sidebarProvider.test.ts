@@ -653,9 +653,12 @@ suite('SidebarProvider', () => {
       stubAiEnabled(sandbox, false);
       const execStub = sandbox.stub(vscode.commands, 'executeCommand').resolves();
       const runGraphIntelligence = sinon.stub().resolves({ text: 'x' });
+      // A chat store makes appendSystem observable (it early-returns without one).
+      const chatStore = { append: sinon.stub(), getActiveKey: () => 'k', load: () => [] };
       const provider = new SidebarProvider(
         vscode.Uri.file('/fake/ext'),
         makeFakeController({ runGraphIntelligence }),
+        chatStore as any,
       );
       const fake = makeFakeWebviewView();
       provider.resolveWebviewView(fake.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
@@ -667,6 +670,14 @@ suite('SidebarProvider', () => {
         execStub.calledWith('workbench.action.openSettings', 'cograph.graphIntelligence'),
         'should open AI settings',
       );
+      const posted = fake.webview.postMessage.getCalls().map((c: sinon.SinonSpyCall) => c.args[0]);
+      const status = posted.find((m: any) => m.type === 'chat-status');
+      assert.ok(status && status.stage === 'idle', 'chat spinner reset to idle');
+      const restore = posted.find((m: any) => m.type === 'chat-input-restore');
+      assert.ok(restore && restore.text === 'hi', 'typed prompt restored to the input');
+      const sys = posted.find((m: any) =>
+        m.type === 'chat-append' && m.message?.role === 'system' && /AI features are off/.test(m.message.text));
+      assert.ok(sys, 'system explainer appended to the chat');
     });
 
     test('workflow-generate while disabled → does not call controller and opens settings', async () => {

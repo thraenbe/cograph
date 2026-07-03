@@ -37,3 +37,22 @@ As predicted it was simpler than C++: `java-parser` returns a Chevrotain CST tha
 
 TS/JS analyzers use the TS Compiler API and do not have this double-parse shape,
 so no further action there.
+
+### Webview file sizes exceed the <400 LOC guideline (deferred from PR #39 review)
+
+Deferred during the PR #39 review-findings pass (branch
+`fix/pr39-review-findings`, 2026-07): several webview modules are well past the
+CLAUDE.md "files < 400 LOC preferred" limit and keep growing:
+
+- `src/webview/folder.js` (~975 LOC) — mixes the legacy folder-bubble overlay,
+  drill-down boxes, context menus, and four force generators
+- `src/webview/rendering.js` (~775 LOC)
+- `src/webview/main.js` (~500 LOC) — also not require-able in tests
+  (top-level `acquireVsCodeApi()`), which forced the `applySavedViewSettings`
+  extraction; more of its `graph-loaded`/message-router logic could move out
+- `src/webview/fileClusters.js` (~500 LOC)
+
+Suggested first cut: extract the drill-down box/force code from `folder.js`
+into a new `drilldown.js` module (~300 LOC move + a `webviewHtmlBuilder.ts`
+script tag). Higher regression risk — do it as its own change with manual
+smoke testing of the File lens.

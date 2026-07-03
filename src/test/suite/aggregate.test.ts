@@ -45,7 +45,7 @@ suite('aggregate.aggregateEdges', () => {
     assert.strictEqual(out[0].data._count, 1);
   });
 
-  test('weighted mode: pending is set from pendingFor on first occurrence', () => {
+  test('weighted mode: pending reflects pendingFor over the underlying edges', () => {
     const edges = [
       { source: 'a', target: 'b' },
       { source: 'a', target: 'b' },
@@ -58,6 +58,22 @@ suite('aggregate.aggregateEdges', () => {
     const cd = out.find((e: any) => e.data.source === 'c');
     assert.strictEqual(ab.data.pending, true);
     assert.strictEqual(cd.data.pending, false);
+  });
+
+  test('mixed-pending duplicates OR-accumulate: pending wins regardless of edge order', () => {
+    // x1 and x2 both roll up to A; only x2 sits in an un-parsed subtree.
+    const map = (id: string) => ({ x1: 'A', x2: 'A', y1: 'B' } as Record<string, string>)[id];
+    const pendingFor = (s: string) => s === 'x2';
+    for (const edges of [
+      [{ source: 'x1', target: 'y1' }, { source: 'x2', target: 'y1' }], // parsed edge first
+      [{ source: 'x2', target: 'y1' }, { source: 'x1', target: 'y1' }], // un-parsed edge first
+    ]) {
+      const out = aggregateEdges(edges, map, { weighted: true, pendingFor });
+      assert.strictEqual(out.length, 1);
+      assert.strictEqual(out[0].data._count, 2);
+      assert.strictEqual(out[0].data.pending, true,
+        'any un-parsed underlying call makes the visible edge provisional');
+    }
   });
 
   test('endpoints that map to falsy are dropped (unknown nodes)', () => {

@@ -126,7 +126,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'chat-status', stage: 'idle' });
             this._view?.webview.postMessage({ type: 'chat-input-restore', text: msg.prompt });
             this.appendSystem('AI features are off — enable them to chat.');
-            this._openAiSettings();
+            await this._openAiSettings();
             break;
           }
           // Guard: a graph must be selected before any chat can run.
@@ -232,7 +232,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'chat-open-settings':
-          vscode.commands.executeCommand('workbench.action.openSettings', 'cograph.graphIntelligence');
+          await this._openAiSettings();
           break;
         case 'open-graph': {
           try {
@@ -247,13 +247,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case 'workflow-generate':
         case 'workflow-update':
           if (!this._aiEnabled()) {
-            this._openAiSettings();
+            await this._openAiSettings();
             break;
           }
           await this._generateWorkflow();
           break;
         case 'open-ai-settings':
-          this._openAiSettings();
+          await this._openAiSettings();
           break;
         case 'workflow-open': {
           try {
@@ -447,8 +447,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   /** Open native VS Code settings filtered to CoGraph's AI settings. */
-  private _openAiSettings(): void {
-    vscode.commands.executeCommand('workbench.action.openSettings', 'cograph.graphIntelligence');
+  private async _openAiSettings(): Promise<void> {
+    try {
+      await vscode.commands.executeCommand('workbench.action.openSettings', 'cograph.graphIntelligence');
+    } catch (err) {
+      vscode.window.showErrorMessage(`CoGraph: Could not open settings — ${(err as Error).message}`);
+    }
   }
 
   private async _showGraphPicker(): Promise<void> {

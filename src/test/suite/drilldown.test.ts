@@ -5,6 +5,10 @@ import * as assert from 'assert';
 const fc = require('../../../src/webview/fileClusters.js');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const folder = require('../../../src/webview/folder.js');
+// jsdom is loaded at module scope: the first require is slow, and inside a
+// setup() hook it can blow the hook timeout.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { JSDOM } = require('jsdom');
 
 // A 3-level tree: /p (d0) → /p/a (d1) → /p/a/b (d2), plus a sibling /p/c (d1).
 function makeTree(totalFiles = 4) {
@@ -313,6 +317,38 @@ suite('detail depth (setInitialDetailDepth / applyDetailDepth)', () => {
     };
     fc.applyDetailDepth(0.5);
     assert.deepStrictEqual(requested, [], 'no redundant parse requests');
+  });
+});
+
+suite('nudgeDetailSlider()', () => {
+  let savedDocument: any;
+
+  setup(() => {
+    savedDocument = (global as any).document;
+    const dom = new JSDOM(`<!DOCTYPE html><html><body>
+      <input id="slider-complexity" type="range" min="0" max="1" step="0.01" value="0.2" />
+      <span id="val-complexity">0.20</span>
+    </body></html>`);
+    (global as any).document = dom.window.document;
+    (global as any).state = { detailDepth: 0.2 };
+  });
+
+  teardown(() => { (global as any).document = savedDocument; });
+
+  test('keeps state.detailDepth in sync with the slider', () => {
+    fc.nudgeDetailSlider(+1);
+    const slider = (global as any).document.getElementById('slider-complexity');
+    assert.strictEqual(slider.value, '0.25');
+    assert.strictEqual((global as any).state.detailDepth, 0.25, 'state mirrors the nudged slider');
+    assert.strictEqual((global as any).document.getElementById('val-complexity').textContent, '0.25');
+  });
+
+  test('clamped nudges are mirrored too', () => {
+    const slider = (global as any).document.getElementById('slider-complexity');
+    slider.value = '0.02';
+    fc.nudgeDetailSlider(-1); // 0.02 - 0.05 → clamped to 0
+    assert.strictEqual(slider.value, '0');
+    assert.strictEqual((global as any).state.detailDepth, 0);
   });
 });
 

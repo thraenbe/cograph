@@ -16,6 +16,18 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # vsce refuses to package @types/vscode newer than engines.vscode (^1.75):
+      # bump this only together with a deliberate engines.vscode raise (see PR #44).
+      - dependency-name: "@types/vscode"
+      # Keep node types on the runtime major used by CI and engines (Node 20) —
+      # newer-major types allow APIs that don't exist at runtime (see PR #46).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # eslint 9+ requires flat config + typescript-eslint v8; take majors only
+      # as a dedicated migration (see PR #47).
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
     labels:
       - "dependencies"
 

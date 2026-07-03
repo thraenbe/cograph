@@ -227,7 +227,7 @@
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.32.0",
     "eslint": "^8.0.0",
-    "glob": "^10.3.0",
+    "glob": "^13.0.6",
     "jsdom": "^25.0.1",
     "mocha": "^10.4.0",
     "sinon": "^17.0.0",

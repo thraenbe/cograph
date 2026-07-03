@@ -248,6 +248,135 @@ suite('graph message routing (classifyGraphMessage)', () => {
   });
 });
 
+suite('detail depth (setInitialDetailDepth / applyDetailDepth)', () => {
+  let savedWindow: any;
+  setup(() => { savedWindow = (global as any).window; });
+  teardown(() => { (global as any).window = savedWindow; });
+
+  test('setInitialDetailDepth: under 200 files → full detail (1), all folders expanded', () => {
+    (global as any).state = { structureTree: makeTree(4), expandedFolders: new Set(), detailDepth: -1 };
+    fc.setInitialDetailDepth();
+    const st = (global as any).state;
+    assert.strictEqual(st.detailDepth, 1);
+    for (const fp of Object.keys(st.structureTree.folders)) {
+      assert.ok(st.expandedFolders.has(fp), `folder ${fp} expanded`);
+    }
+  });
+
+  test('setInitialDetailDepth: 200-file boundary → collapsed at root (0)', () => {
+    (global as any).state = { structureTree: makeTree(200), expandedFolders: new Set(), detailDepth: -1 };
+    fc.setInitialDetailDepth();
+    const st = (global as any).state;
+    assert.strictEqual(st.detailDepth, 0, 'exactly 200 files is no longer "small"');
+    assert.strictEqual(st.expandedFolders.size, 0, 'nothing expanded');
+  });
+
+  test('applyDetailDepth wires expandToDetail onto state and records detailDepth', () => {
+    (global as any).window = undefined; // no parse channel needed here
+    (global as any).state = {
+      structureTree: makeTree(),
+      expandedFolders: new Set(['/p/a/b']), // manually-toggled state is replaced wholesale
+      parsedFolders: new Set(), parsingFolders: new Set(),
+      detailDepth: 0,
+    };
+    fc.applyDetailDepth(0.5);
+    const st = (global as any).state;
+    assert.strictEqual(st.detailDepth, 0.5);
+    assert.deepStrictEqual(
+      [...st.expandedFolders].sort(),
+      [...fc.expandToDetail(st.structureTree, 0.5)].sort(),
+      'expandedFolders regenerated uniformly from the raw value',
+    );
+  });
+
+  test('applyDetailDepth requests a parse for each expanded-but-unparsed folder', () => {
+    const requested: string[] = [];
+    (global as any).window = { requestFolderParse: (fp: string) => requested.push(fp) };
+    (global as any).state = {
+      structureTree: makeTree(),
+      expandedFolders: new Set(),
+      parsedFolders: new Set(), parsingFolders: new Set(),
+      detailDepth: 0,
+    };
+    fc.applyDetailDepth(0.5); // opens /p, /p/a, /p/c
+    assert.deepStrictEqual(requested.sort(), ['/p', '/p/a', '/p/c']);
+  });
+
+  test('applyDetailDepth requests nothing when every expanded folder is parsed or in flight', () => {
+    const requested: string[] = [];
+    (global as any).window = { requestFolderParse: (fp: string) => requested.push(fp) };
+    (global as any).state = {
+      structureTree: makeTree(),
+      expandedFolders: new Set(),
+      parsedFolders: new Set(['/p', '/p/a']), parsingFolders: new Set(['/p/c']),
+      detailDepth: 0,
+    };
+    fc.applyDetailDepth(0.5);
+    assert.deepStrictEqual(requested, [], 'no redundant parse requests');
+  });
+});
+
+suite('enterFileClusterMode()', () => {
+  let savedApplyComplexity: any;
+  let applyComplexityCalls: number;
+  setup(() => {
+    savedApplyComplexity = (global as any).applyComplexity;
+    applyComplexityCalls = 0;
+    (global as any).applyComplexity = () => { applyComplexityCalls++; };
+  });
+  teardown(() => { (global as any).applyComplexity = savedApplyComplexity; });
+
+  test('seeds parsedFolders from the tree when a full graph is already loaded', () => {
+    (global as any).state = {
+      structureTree: makeTree(),
+      graphData: { nodes: [{ id: 'fnY', file: '/p/a/y.ts' }], edges: [] },
+      expandedFolders: new Set(), parsedFolders: new Set(), parsingFolders: new Set(),
+    };
+    fc.enterFileClusterMode();
+    const st = (global as any).state;
+    assert.deepStrictEqual(
+      [...st.parsedFolders].sort(),
+      Object.keys(st.structureTree.folders).sort(),
+      'every folder marked parsed — functions expand without a re-parse',
+    );
+  });
+
+  test('does not fabricate parsedFolders when no graph data is loaded', () => {
+    (global as any).state = {
+      structureTree: makeTree(),
+      graphData: null,
+      expandedFolders: new Set(), parsedFolders: new Set(), parsingFolders: new Set(),
+    };
+    fc.enterFileClusterMode();
+    assert.strictEqual((global as any).state.parsedFolders.size, 0);
+  });
+
+  test('sets viewMode=cluster, clusterGroupBy=file, classMode=false and dispatches applyComplexity', () => {
+    (global as any).state = {
+      structureTree: makeTree(),
+      graphData: null, viewMode: 'workflow', clusterGroupBy: 'connect', classMode: true,
+      expandedFolders: new Set(), parsedFolders: new Set(), parsingFolders: new Set(),
+    };
+    fc.enterFileClusterMode();
+    const st = (global as any).state;
+    assert.strictEqual(st.viewMode, 'cluster');
+    assert.strictEqual(st.clusterGroupBy, 'file');
+    assert.strictEqual(st.classMode, false);
+    assert.strictEqual(applyComplexityCalls, 1, 'render dispatched through applyComplexity');
+  });
+
+  test('initial detail depth follows repo size on entry (large repo starts collapsed)', () => {
+    (global as any).state = {
+      structureTree: makeTree(500),
+      graphData: null,
+      expandedFolders: new Set(), parsedFolders: new Set(), parsingFolders: new Set(),
+    };
+    fc.enterFileClusterMode();
+    assert.strictEqual((global as any).state.detailDepth, 0);
+    assert.strictEqual((global as any).state.expandedFolders.size, 0);
+  });
+});
+
 suite('createFileSeparationForce', () => {
   test('pushes overlapping sibling files apart', () => {
     (global as any).settings = { fileRepelForce: 0.25 };

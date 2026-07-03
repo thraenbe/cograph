@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-07-03
+
+### Fixed
+- The AI Workflow Graph renders while the folder drill-down is active (previously the payload was silently folded into the drill-down skeleton and never displayed).
+- Leaving the Workflow view restores the drill-down's folder expansion and detail slider instead of resetting them.
+- Folder drill-down boxes, file circles, and repel forces work in saved layouts where the legacy folder overlay was toggled off.
+- Aggregated drill-down edges are marked provisional if any of their underlying calls touches an un-parsed subtree (previously only the first call was considered).
+- Failures when opening the AI settings page are surfaced instead of silently ignored.
+
+### Changed
+- Build fixed for TypeScript 6 (`types: ["node"]` in tsconfig); dependency updates (TypeScript 6.0.3, glob 13, CI actions).
+
+## [1.1.0] - 2026-06-26
+
 ### Added
 - Folder navigation overhaul: the File lens is now a drill-down with folder boxes, file circles, and a detail slider.
 - Opt-in enablement gate for AI features — nothing runs against an AI provider until you explicitly enable it (transparency).
@@ -82,7 +96,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Library node clustering.
 - Click-to-navigate to function definitions.
 
-[Unreleased]: https://github.com/thraenbe/cograph/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/thraenbe/cograph/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/thraenbe/cograph/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/thraenbe/cograph/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/thraenbe/cograph/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/thraenbe/cograph/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/thraenbe/cograph/compare/v1.0.2...v1.0.3

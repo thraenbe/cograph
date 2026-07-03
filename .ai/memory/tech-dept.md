@@ -37,3 +37,37 @@ As predicted it was simpler than C++: `java-parser` returns a Chevrotain CST tha
 
 TS/JS analyzers use the TS Compiler API and do not have this double-parse shape,
 so no further action there.
+
+### Webview file sizes exceed the <400 LOC guideline (deferred from PR #39 review)
+
+Deferred during the PR #39 review-findings pass (branch
+`fix/pr39-review-findings`, 2026-07): several webview modules are well past the
+CLAUDE.md "files < 400 LOC preferred" limit and keep growing:
+
+- `src/webview/folder.js` (~975 LOC) — mixes the legacy folder-bubble overlay,
+  drill-down boxes, context menus, and four force generators
+- `src/webview/rendering.js` (~775 LOC)
+- `src/webview/main.js` (~500 LOC) — also not require-able in tests
+  (top-level `acquireVsCodeApi()`), which forced the `applySavedViewSettings`
+  extraction; more of its `graph-loaded`/message-router logic could move out
+- `src/webview/fileClusters.js` (~500 LOC)
+
+Suggested first cut: extract the drill-down box/force code from `folder.js`
+into a new `drilldown.js` module (~300 LOC move + a `webviewHtmlBuilder.ts`
+script tag). Higher regression risk — do it as its own change with manual
+smoke testing of the File lens.
+
+### Test hygiene: `graphProvider.test.ts` providers are never disposed
+
+Found while fixing the cross-test `scheduleReanalysis` timer leak (2026-07,
+gitIntegration message suite — an armed 1s timer fired `killAll()+run()` into a
+later test's `cp.spawn` stub; broke CI on macOS/Windows for PR #41). The
+gitIntegration and graphProviderWorkflow suites now fire the fake panel's
+`onDidDispose` callback in teardown. `graphProvider.test.ts` still creates
+`GraphProvider`s via `provider.show()` without ever disposing them. None of its
+tests arm the reanalysis timer today (verified: no `save-func-source` /
+rename / new-file messages), so there is no live bullet — but each `show()`
+leaks a real save-listener and a `.git/index` file watcher (the "File Watcher
+Invalid handle" noise in test logs), and a future test that touches a
+reanalysis-scheduling path would re-load the gun. Fix shape: same captured
+`_disposeCallback` teardown pattern as gitIntegration.

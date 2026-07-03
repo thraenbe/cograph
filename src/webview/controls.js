@@ -288,6 +288,40 @@ function buildSavePayload() {
   };
 }
 
+/** Restore saved display settings from a graph-loaded payload onto state + the
+ *  control DOM (buildSavePayload's read-side mirror). Handles the legacy
+ *  'connectivity'/'auto' → 'connect' rename. */
+function applySavedViewSettings(saved) {
+  if (saved.complexityLevel !== undefined) {
+    state.complexityLevel = saved.complexityLevel;
+    const slider = document.getElementById('slider-complexity');
+    const valEl = document.getElementById('val-complexity');
+    if (slider) { slider.value = String(saved.complexityLevel); }
+    if (valEl) { valEl.textContent = Number(saved.complexityLevel).toFixed(2); }
+  }
+  if (saved.clusterGroupBy !== undefined) {
+    // Back-compat: 'connectivity'/'auto' were renamed to 'connect'.
+    const legacy = { connectivity: 'connect', auto: 'connect' };
+    state.clusterGroupBy = legacy[saved.clusterGroupBy] ?? saved.clusterGroupBy;
+  }
+  if (saved.gitMode !== undefined) {
+    state.gitMode = saved.gitMode;
+    document.getElementById('btn-git-mode')?.classList.toggle('active', saved.gitMode);
+  }
+  if (saved.languageMode !== undefined) {
+    state.languageMode = saved.languageMode;
+    document.getElementById('btn-language-mode')?.classList.toggle('active', saved.languageMode);
+  }
+  if (saved.folderMode !== undefined) {
+    state.folderMode = saved.folderMode;
+    document.getElementById('btn-folder-mode')?.classList.toggle('active', saved.folderMode);
+  }
+  if (saved.classMode !== undefined) {
+    state.classMode = saved.classMode;
+    document.getElementById('btn-class-mode')?.classList.toggle('active', saved.classMode);
+  }
+}
+
 document.getElementById('btn-save-graph')?.addEventListener('click', () => {
   vscode.postMessage({
     type: 'save-graph',
@@ -353,7 +387,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 if (typeof module !== 'undefined') {
-  module.exports = { applyResizeDelta };
+  module.exports = { applyResizeDelta, applySavedViewSettings };
 }
 
 // ── Resize math helper ────────────────────────────────────────────────────────

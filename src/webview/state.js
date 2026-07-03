@@ -5,8 +5,9 @@ const state = {
   // 'workflow' = the AI-pipeline staged layout (auto-detected from graph.workflow).
   viewMode: 'cluster',
   // Cluster lens: 'file' = the folder drill-down (default); 'class'; 'connect'
-  // (call-connectivity, formerly "auto"). Drill-down is active when
-  // clusterGroupBy === 'file' && viewMode !== 'workflow' (see isDrilldown()).
+  // (call-connectivity; the enum value was 'connectivity', the button label "Auto").
+  // Drill-down is active when clusterGroupBy === 'file' && viewMode !== 'workflow'
+  // && a structure tree is loaded (see isDrilldown()).
   clusterGroupBy: 'file',
   workflowLevel: 0,                // 0..9 detail level when viewMode === 'workflow'
   workflowStageCount: 1,
@@ -46,7 +47,8 @@ const state = {
   hiddenFolders: new Set(),
   onlyShowFolder: null,
   // ── File-cluster (folder drill-down — the 'file' lens) ────────────────────
-  // Active when clusterGroupBy === 'file' && viewMode !== 'workflow' (isDrilldown()).
+  // Active when clusterGroupBy === 'file' && viewMode !== 'workflow' &&
+  // structureTree is set (isDrilldown()).
   structureTree: null,           // StructureTree from the `structure` message
   rootFolderPath: null,          // common-root folder = the level-0 node
   detailDepth: 0,                // file-mode: uniform folder-open depth (slider-driven)

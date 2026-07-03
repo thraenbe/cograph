@@ -5,6 +5,10 @@ import * as assert from 'assert';
 const fc = require('../../../src/webview/fileClusters.js');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const folder = require('../../../src/webview/folder.js');
+// jsdom is loaded at module scope: the first require is slow, and inside a
+// setup() hook it can blow the hook timeout.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { JSDOM } = require('jsdom');
 
 // A 3-level tree: /p (d0) → /p/a (d1) → /p/a/b (d2), plus a sibling /p/c (d1).
 function makeTree(totalFiles = 4) {
@@ -182,6 +186,230 @@ suite('createDrilldownSeparationForce', () => {
     (global as any).state = { structureTree: makeTree(), currentNodes: [a, b] };
     folder.createDrilldownSeparationForce()(1);
     assert.strictEqual(a.vx, 0, 'pinned node velocity unchanged');
+  });
+});
+
+suite('isDrilldown()', () => {
+  test('true with file lens + cluster view + structure tree', () => {
+    (global as any).state = { clusterGroupBy: 'file', viewMode: 'cluster', structureTree: makeTree() };
+    assert.strictEqual(fc.isDrilldown(), true);
+  });
+
+  test('false when the lens is not file', () => {
+    (global as any).state = { clusterGroupBy: 'connect', viewMode: 'cluster', structureTree: makeTree() };
+    assert.strictEqual(fc.isDrilldown(), false);
+    (global as any).state.clusterGroupBy = 'class';
+    assert.strictEqual(fc.isDrilldown(), false);
+  });
+
+  test('false while the workflow view is active', () => {
+    (global as any).state = { clusterGroupBy: 'file', viewMode: 'workflow', structureTree: makeTree() };
+    assert.strictEqual(fc.isDrilldown(), false);
+  });
+
+  test('false without a structure tree (fallback to plain clustering)', () => {
+    (global as any).state = { clusterGroupBy: 'file', viewMode: 'cluster', structureTree: null };
+    assert.strictEqual(fc.isDrilldown(), false);
+    (global as any).state.structureTree = {}; // tree without folders
+    assert.strictEqual(fc.isDrilldown(), false);
+  });
+});
+
+suite('graph message routing (classifyGraphMessage)', () => {
+  const drilldownState = () => ({ clusterGroupBy: 'file', viewMode: 'cluster', structureTree: makeTree() });
+
+  test('workflow payload → render even while drill-down is active', () => {
+    (global as any).state = drilldownState();
+    const data = { nodes: [], edges: [], workflow: { clusters: [], stageCount: 1 } };
+    assert.strictEqual(fc.isWorkflowPayload(data), true);
+    assert.strictEqual(fc.classifyGraphMessage(data), 'render');
+  });
+
+  test('non-workflow payload while drill-down is active → ingest', () => {
+    (global as any).state = drilldownState();
+    assert.strictEqual(fc.classifyGraphMessage({ nodes: [], edges: [] }), 'ingest');
+  });
+
+  test('non-workflow payload outside drill-down → render', () => {
+    (global as any).state = { clusterGroupBy: 'connect', viewMode: 'cluster', structureTree: makeTree() };
+    assert.strictEqual(fc.classifyGraphMessage({ nodes: [], edges: [] }), 'render');
+  });
+
+  test('a workflow marker without a clusters array is not a workflow payload', () => {
+    (global as any).state = drilldownState();
+    const data = { nodes: [], edges: [], workflow: {} };
+    assert.strictEqual(fc.isWorkflowPayload(data), false);
+    assert.strictEqual(fc.classifyGraphMessage(data), 'ingest');
+  });
+
+  test('null/missing data → render, no throw', () => {
+    (global as any).state = drilldownState();
+    assert.strictEqual(fc.isWorkflowPayload(null), false);
+    assert.strictEqual(fc.classifyGraphMessage(null), 'ingest');
+    // Outside drill-down, null data still routes to render without throwing.
+    (global as any).state = { clusterGroupBy: 'connect', viewMode: 'cluster', structureTree: null };
+    assert.strictEqual(fc.classifyGraphMessage(null), 'render');
+  });
+});
+
+suite('detail depth (setInitialDetailDepth / applyDetailDepth)', () => {
+  let savedWindow: any;
+  setup(() => { savedWindow = (global as any).window; });
+  teardown(() => { (global as any).window = savedWindow; });
+
+  test('setInitialDetailDepth: under 200 files → full detail (1), all folders expanded', () => {
+    (global as any).state = { structureTree: makeTree(4), expandedFolders: new Set(), detailDepth: -1 };
+    fc.setInitialDetailDepth();
+    const st = (global as any).state;
+    assert.strictEqual(st.detailDepth, 1);
+    for (const fp of Object.keys(st.structureTree.folders)) {
+      assert.ok(st.expandedFolders.has(fp), `folder ${fp} expanded`);
+    }
+  });
+
+  test('setInitialDetailDepth: 200-file boundary → collapsed at root (0)', () => {
+    (global as any).state = { structureTree: makeTree(200), expandedFolders: new Set(), detailDepth: -1 };
+    fc.setInitialDetailDepth();
+    const st = (global as any).state;
+    assert.strictEqual(st.detailDepth, 0, 'exactly 200 files is no longer "small"');
+    assert.strictEqual(st.expandedFolders.size, 0, 'nothing expanded');
+  });
+
+  test('applyDetailDepth wires expandToDetail onto state and records detailDepth', () => {
+    (global as any).window = undefined; // no parse channel needed here
+    (global as any).state = {
+      structureTree: makeTree(),
+      expandedFolders: new Set(['/p/a/b']), // manually-toggled state is replaced wholesale
+      parsedFolders: new Set(), parsingFolders: new Set(),
+      detailDepth: 0,
+    };
+    fc.applyDetailDepth(0.5);
+    const st = (global as any).state;
+    assert.strictEqual(st.detailDepth, 0.5);
+    assert.deepStrictEqual(
+      [...st.expandedFolders].sort(),
+      [...fc.expandToDetail(st.structureTree, 0.5)].sort(),
+      'expandedFolders regenerated uniformly from the raw value',
+    );
+  });
+
+  test('applyDetailDepth requests a parse for each expanded-but-unparsed folder', () => {
+    const requested: string[] = [];
+    (global as any).window = { requestFolderParse: (fp: string) => requested.push(fp) };
+    (global as any).state = {
+      structureTree: makeTree(),
+      expandedFolders: new Set(),
+      parsedFolders: new Set(), parsingFolders: new Set(),
+      detailDepth: 0,
+    };
+    fc.applyDetailDepth(0.5); // opens /p, /p/a, /p/c
+    assert.deepStrictEqual(requested.sort(), ['/p', '/p/a', '/p/c']);
+  });
+
+  test('applyDetailDepth requests nothing when every expanded folder is parsed or in flight', () => {
+    const requested: string[] = [];
+    (global as any).window = { requestFolderParse: (fp: string) => requested.push(fp) };
+    (global as any).state = {
+      structureTree: makeTree(),
+      expandedFolders: new Set(),
+      parsedFolders: new Set(['/p', '/p/a']), parsingFolders: new Set(['/p/c']),
+      detailDepth: 0,
+    };
+    fc.applyDetailDepth(0.5);
+    assert.deepStrictEqual(requested, [], 'no redundant parse requests');
+  });
+});
+
+suite('nudgeDetailSlider()', () => {
+  let savedDocument: any;
+
+  setup(() => {
+    savedDocument = (global as any).document;
+    const dom = new JSDOM(`<!DOCTYPE html><html><body>
+      <input id="slider-complexity" type="range" min="0" max="1" step="0.01" value="0.2" />
+      <span id="val-complexity">0.20</span>
+    </body></html>`);
+    (global as any).document = dom.window.document;
+    (global as any).state = { detailDepth: 0.2 };
+  });
+
+  teardown(() => { (global as any).document = savedDocument; });
+
+  test('keeps state.detailDepth in sync with the slider', () => {
+    fc.nudgeDetailSlider(+1);
+    const slider = (global as any).document.getElementById('slider-complexity');
+    assert.strictEqual(slider.value, '0.25');
+    assert.strictEqual((global as any).state.detailDepth, 0.25, 'state mirrors the nudged slider');
+    assert.strictEqual((global as any).document.getElementById('val-complexity').textContent, '0.25');
+  });
+
+  test('clamped nudges are mirrored too', () => {
+    const slider = (global as any).document.getElementById('slider-complexity');
+    slider.value = '0.02';
+    fc.nudgeDetailSlider(-1); // 0.02 - 0.05 → clamped to 0
+    assert.strictEqual(slider.value, '0');
+    assert.strictEqual((global as any).state.detailDepth, 0);
+  });
+});
+
+suite('enterFileClusterMode()', () => {
+  let savedApplyComplexity: any;
+  let applyComplexityCalls: number;
+  setup(() => {
+    savedApplyComplexity = (global as any).applyComplexity;
+    applyComplexityCalls = 0;
+    (global as any).applyComplexity = () => { applyComplexityCalls++; };
+  });
+  teardown(() => { (global as any).applyComplexity = savedApplyComplexity; });
+
+  test('seeds parsedFolders from the tree when a full graph is already loaded', () => {
+    (global as any).state = {
+      structureTree: makeTree(),
+      graphData: { nodes: [{ id: 'fnY', file: '/p/a/y.ts' }], edges: [] },
+      expandedFolders: new Set(), parsedFolders: new Set(), parsingFolders: new Set(),
+    };
+    fc.enterFileClusterMode();
+    const st = (global as any).state;
+    assert.deepStrictEqual(
+      [...st.parsedFolders].sort(),
+      Object.keys(st.structureTree.folders).sort(),
+      'every folder marked parsed — functions expand without a re-parse',
+    );
+  });
+
+  test('does not fabricate parsedFolders when no graph data is loaded', () => {
+    (global as any).state = {
+      structureTree: makeTree(),
+      graphData: null,
+      expandedFolders: new Set(), parsedFolders: new Set(), parsingFolders: new Set(),
+    };
+    fc.enterFileClusterMode();
+    assert.strictEqual((global as any).state.parsedFolders.size, 0);
+  });
+
+  test('sets viewMode=cluster, clusterGroupBy=file, classMode=false and dispatches applyComplexity', () => {
+    (global as any).state = {
+      structureTree: makeTree(),
+      graphData: null, viewMode: 'workflow', clusterGroupBy: 'connect', classMode: true,
+      expandedFolders: new Set(), parsedFolders: new Set(), parsingFolders: new Set(),
+    };
+    fc.enterFileClusterMode();
+    const st = (global as any).state;
+    assert.strictEqual(st.viewMode, 'cluster');
+    assert.strictEqual(st.clusterGroupBy, 'file');
+    assert.strictEqual(st.classMode, false);
+    assert.strictEqual(applyComplexityCalls, 1, 'render dispatched through applyComplexity');
+  });
+
+  test('initial detail depth follows repo size on entry (large repo starts collapsed)', () => {
+    (global as any).state = {
+      structureTree: makeTree(500),
+      graphData: null,
+      expandedFolders: new Set(), parsedFolders: new Set(), parsingFolders: new Set(),
+    };
+    fc.enterFileClusterMode();
+    assert.strictEqual((global as any).state.detailDepth, 0);
+    assert.strictEqual((global as any).state.expandedFolders.size, 0);
   });
 });
 

@@ -198,4 +198,39 @@ suite('fileClusters.buildWeightedEdges', () => {
     const edges = buildWeightedEdges(g, new Set(['/p']), new Set(['/p/aaa', '/p/bbb']), makeTree2());
     assert.strictEqual(edges.length, 0);
   });
+
+  test('collapsed ancestor mixing parsed and un-parsed children → pending regardless of edge order', () => {
+    // /p/a is collapsed and contains one parsed (in1) and one un-parsed (in2)
+    // subfolder; both call into /p/b. The single visible /p/a → /p/b edge must
+    // be provisional no matter which underlying call is aggregated first.
+    const tree = {
+      root: '/p',
+      folders: {
+        '/p':       { path: '/p',       depth: 0, parent: null,   childFolders: ['/p/a', '/p/b'], files: [], fileCount: 3 },
+        '/p/a':     { path: '/p/a',     depth: 1, parent: '/p',   childFolders: ['/p/a/in1', '/p/a/in2'], files: [], fileCount: 2 },
+        '/p/a/in1': { path: '/p/a/in1', depth: 2, parent: '/p/a', childFolders: [], files: ['/p/a/in1/f.ts'], fileCount: 1 },
+        '/p/a/in2': { path: '/p/a/in2', depth: 2, parent: '/p/a', childFolders: [], files: ['/p/a/in2/g.ts'], fileCount: 1 },
+        '/p/b':     { path: '/p/b',     depth: 1, parent: '/p',   childFolders: [], files: ['/p/b/h.ts'], fileCount: 1 },
+      },
+      files: [], totalFiles: 3,
+    };
+    const nodes = [
+      { id: 'i1', name: 'f', file: '/p/a/in1/f.ts', line: 1 },
+      { id: 'i2', name: 'g', file: '/p/a/in2/g.ts', line: 1 },
+      { id: 't1', name: 'h', file: '/p/b/h.ts',     line: 1 },
+    ];
+    const expanded = new Set(['/p']);
+    const parsed = new Set(['/p/a/in1', '/p/b']); // in2 NOT parsed
+    for (const edgeOrder of [
+      [{ source: 'i1', target: 't1' }, { source: 'i2', target: 't1' }],
+      [{ source: 'i2', target: 't1' }, { source: 'i1', target: 't1' }],
+    ]) {
+      const edges = buildWeightedEdges({ nodes, edges: edgeOrder }, expanded, parsed, tree);
+      assert.strictEqual(edges.length, 1);
+      assert.strictEqual(edges[0].data.source, 'folder::/p/a');
+      assert.strictEqual(edges[0].data.target, 'folder::/p/b');
+      assert.strictEqual(edges[0].data._count, 2);
+      assert.strictEqual(edges[0].data.pending, true, 'un-parsed in2 keeps the rolled-up edge provisional');
+    }
+  });
 });

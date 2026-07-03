@@ -213,7 +213,8 @@ function applyComplexity() {
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
-  // Reaches here only for 'connect' or 'class' ('file' is the drill-down, handled above).
+  // Reaches here for 'connect', 'class', or 'file' without a structure tree
+  // (which falls back to plain file-structural clustering instead of the drill-down).
   const clusterResult = state.clusterGroupBy === 'connect'
     ? computeClusters(projectData, state.importanceScores, state.complexityLevel)
     : computeStructuralClusters(projectData, state.clusterGroupBy, state.complexityLevel);
@@ -304,10 +305,11 @@ function renderGraph(data, isReanalysis = false) {
   if (!isReanalysis) { state.hasFitted = false; }
 
   // Detect the AI Workflow Graph (its presence is marked by graph.workflow).
-  // renderGraph only runs outside drill-down, so it's safe to set the view here;
-  // the cluster grouping (clusterGroupBy) is preserved across workflow toggles.
+  // Workflow payloads route here even while the drill-down is active (see
+  // classifyGraphMessage); the cluster grouping (clusterGroupBy) is preserved
+  // across workflow toggles.
   const wasWorkflow = state.viewMode === 'workflow';
-  const isWorkflow = !!(data.workflow && Array.isArray(data.workflow.clusters));
+  const isWorkflow = isWorkflowPayload(data);
   state.viewMode = isWorkflow ? 'workflow' : 'cluster';
   const levels = (typeof WORKFLOW_LEVELS !== 'undefined') ? WORKFLOW_LEVELS : 10;
   if (isWorkflow) {
@@ -321,10 +323,19 @@ function renderGraph(data, isReanalysis = false) {
     if (valEl) valEl.textContent = String(state.workflowLevel);
   } else if (wasWorkflow) {
     state.hasFitted = false; // returning to the force layout
+    if (isDrilldown()) {
+      // Back to the folder drill-down: this fresh full analysis covers the whole
+      // tree, and workflow mode repurposed the Detail slider as its 0..9 level —
+      // restore both. Drill-down expansion state (expandedFolders/detailDepth)
+      // is intentionally preserved.
+      state.parsedFolders = new Set(Object.keys(state.structureTree.folders));
+      setDetailSlider(state.detailDepth);
+    }
   }
 
   const nodeCount = projectData.nodes.length;
-  if (!isWorkflow && nodeCount >= 500) {
+  // In drill-down the slider means detail depth — don't clobber it for big repos.
+  if (!isWorkflow && !isDrilldown() && nodeCount >= 500) {
     state.complexityLevel = Math.max(0.1, Math.min(0.9, 500 / nodeCount));
     const slider = document.getElementById('slider-complexity');
     const valEl = document.getElementById('val-complexity');
@@ -374,9 +385,10 @@ window.addEventListener('message', (event) => {
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     state.allScannedFiles = message.data.files ?? [];
     window.resetTimelineState?.();
-    if (isDrilldown()) {
+    if (classifyGraphMessage(message.data) === 'ingest') {
       // Skeleton is showing — fold the analysis result into it without losing
       // the user's drill-down, instead of switching to the full graph.
+      // Workflow payloads never take this path: only renderGraph can show them.
       ingestGraphData(message.data);
     } else {
       renderGraph(message.data, message.isReanalysis);
@@ -404,7 +416,9 @@ window.addEventListener('message', (event) => {
         files: state.graphData.files,
       };
     }
-    if (isDrilldown()) {
+    // Patches never carry workflow metadata today; the classifier keeps the
+    // routing invariant explicit and shared with the `graph` handler.
+    if (classifyGraphMessage(message.patch) === 'ingest') {
       ingestGraphData(message.patch, message.parsedFolder);
     } else {
       // Normal mode (e.g. incremental save): merge and re-render the full graph.
@@ -460,35 +474,8 @@ window.addEventListener('message', (event) => {
     const { settings: saved, nodePositions } = message.payload;
     if (!state.currentNodes.length || !nodePositions) { return; }
 
-    // Apply saved display state
-    if (saved.complexityLevel !== undefined) {
-      state.complexityLevel = saved.complexityLevel;
-      const slider = document.getElementById('slider-complexity');
-      const valEl = document.getElementById('val-complexity');
-      if (slider) { slider.value = String(saved.complexityLevel); }
-      if (valEl) { valEl.textContent = Number(saved.complexityLevel).toFixed(2); }
-    }
-    if (saved.clusterGroupBy !== undefined) {
-      // Back-compat: 'connectivity'/'auto' were renamed to 'connect'.
-      const legacy = { connectivity: 'connect', auto: 'connect' };
-      state.clusterGroupBy = legacy[saved.clusterGroupBy] ?? saved.clusterGroupBy;
-    }
-    if (saved.gitMode !== undefined) {
-      state.gitMode = saved.gitMode;
-      document.getElementById('btn-git-mode')?.classList.toggle('active', saved.gitMode);
-    }
-    if (saved.languageMode !== undefined) {
-      state.languageMode = saved.languageMode;
-      document.getElementById('btn-language-mode')?.classList.toggle('active', saved.languageMode);
-    }
-    if (saved.folderMode !== undefined) {
-      state.folderMode = saved.folderMode;
-      document.getElementById('btn-folder-mode')?.classList.toggle('active', saved.folderMode);
-    }
-    if (saved.classMode !== undefined) {
-      state.classMode = saved.classMode;
-      document.getElementById('btn-class-mode')?.classList.toggle('active', saved.classMode);
-    }
+    // Apply saved display state (defined in controls.js).
+    applySavedViewSettings(saved);
 
     // Apply saved node positions
     for (const n of state.currentNodes) {

@@ -53,6 +53,13 @@ function makeDOM() {
     <div class="func-resize-handle" data-dir="sw"></div>
     <input id="slider-complexity" type="range" value="0.99" />
     <span id="val-complexity">0.99</span>
+    <button id="btn-group-file" class="active"></button>
+    <button id="btn-group-class"></button>
+    <button id="btn-group-connect"></button>
+    <button id="btn-folder-mode"></button>
+    <button id="btn-class-mode"></button>
+    <input id="slider-folder-repel" type="range" value="0.25" /><span id="val-folder-repel">0.25</span>
+    <input id="slider-file-repel" type="range" value="0.25" /><span id="val-file-repel">0.25</span>
     <button id="btn-save-graph"></button>
     <button id="btn-open-chat"></button>
   </body></html>`;
@@ -67,6 +74,10 @@ const dom = makeDOM();
 (global as any).state = {
   gitMode: false,
   languageMode: false,
+  folderMode: true,
+  classMode: true,
+  viewMode: 'cluster',
+  clusterGroupBy: 'file',
   hasFitted: false,
   complexityLevel: 0.99,
   expandedClusters: new Set(),
@@ -81,6 +92,7 @@ const dom = makeDOM();
   showOrphans: true, showLibraries: false, arrows: true,
   textFadeThreshold: 0.5, nodeSize: 2.5, textSize: 1.0, linkThickness: 4,
   centerForce: 1, repelForce: 50, linkForce: 1,
+  folderRepelForce: 0.25, fileRepelForce: 0.25,
 };
 (global as any).vscode = { postMessage: () => {} };
 
@@ -89,7 +101,10 @@ const dom = makeDOM();
 (global as any).applyFilters = () => {};
 (global as any).applyComplexity = () => {};
 (global as any).applyDisplaySettings = () => {};
-(global as any).rerunLayout = () => {};
+// wireSlider captures its onInput callback by value at load time, so the stub
+// counts calls into a module-level variable that suites can reset and read.
+let rerunLayoutCallCount = 0;
+(global as any).rerunLayout = () => { rerunLayoutCallCount++; };
 (global as any).applyGitColors = () => {};
 (global as any).fitToView = () => {};
 (global as any).updateFuncHighlight = () => {};
@@ -100,9 +115,9 @@ const dom = makeDOM();
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 require('../../../src/webview/controls.js');
 
-// Also get applyResizeDelta for direct testing
+// Also get applyResizeDelta / applySavedViewSettings for direct testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { applyResizeDelta } = require('../../../src/webview/controls.js');
+const { applyResizeDelta, applySavedViewSettings } = require('../../../src/webview/controls.js');
 
 // Load popups.js factory for textarea handler tests
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -556,5 +571,163 @@ suite('Open Chat button', () => {
     dom.window.document.getElementById('btn-open-chat')!.click();
     assert.strictEqual(posted.length, 1);
     assert.strictEqual(Object.keys(posted[0]).length, 1, 'message has exactly one key');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: Group-by lens buttons (File / Class / Connect)
+// ---------------------------------------------------------------------------
+
+suite('Group-by lens buttons', () => {
+  const st = () => (global as any).state;
+  const doc = dom.window.document;
+  let savedApplyComplexity: any;
+  let savedEnterFileClusterMode: any;
+  let applyComplexityCalls: number;
+  let enterFileClusterModeCalls: number;
+
+  setup(() => {
+    savedApplyComplexity = (global as any).applyComplexity;
+    savedEnterFileClusterMode = (global as any).enterFileClusterMode;
+    applyComplexityCalls = 0;
+    enterFileClusterModeCalls = 0;
+    (global as any).applyComplexity = () => { applyComplexityCalls++; };
+    (global as any).enterFileClusterMode = () => { enterFileClusterModeCalls++; };
+    Object.assign(st(), {
+      viewMode: 'cluster', clusterGroupBy: 'file',
+      expandedClusters: new Set(['some-cluster']),
+    });
+  });
+
+  teardown(() => {
+    (global as any).applyComplexity = savedApplyComplexity;
+    (global as any).enterFileClusterMode = savedEnterFileClusterMode;
+  });
+
+  test('File click → delegates to enterFileClusterMode and clears expandedClusters', () => {
+    doc.getElementById('btn-group-file')!.click();
+    assert.strictEqual(enterFileClusterModeCalls, 1, 'file lens enters the drill-down');
+    assert.strictEqual(st().expandedClusters.size, 0, 'expanded clusters reset');
+    assert.strictEqual(applyComplexityCalls, 0, 'handler defers rendering to enterFileClusterMode');
+  });
+
+  test('Class click → viewMode=cluster, clusterGroupBy=class, applyComplexity called', () => {
+    st().viewMode = 'workflow'; // prove the lens click leaves workflow mode
+    doc.getElementById('btn-group-class')!.click();
+    assert.strictEqual(st().viewMode, 'cluster');
+    assert.strictEqual(st().clusterGroupBy, 'class');
+    assert.strictEqual(applyComplexityCalls, 1);
+    assert.strictEqual(enterFileClusterModeCalls, 0);
+  });
+
+  test('Connect click → clusterGroupBy=connect and applyComplexity called', () => {
+    doc.getElementById('btn-group-connect')!.click();
+    assert.strictEqual(st().viewMode, 'cluster');
+    assert.strictEqual(st().clusterGroupBy, 'connect');
+    assert.strictEqual(applyComplexityCalls, 1);
+  });
+
+  test('lens buttons toggle the active class exclusively', () => {
+    doc.getElementById('btn-group-class')!.click();
+    assert.ok(doc.getElementById('btn-group-class')!.classList.contains('active'));
+    assert.ok(!doc.getElementById('btn-group-file')!.classList.contains('active'));
+    assert.ok(!doc.getElementById('btn-group-connect')!.classList.contains('active'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: Drill-down force sliders (Folder/File Repel)
+// ---------------------------------------------------------------------------
+
+suite('Drill-down force sliders', () => {
+  const doc = dom.window.document;
+
+  setup(() => { rerunLayoutCallCount = 0; });
+
+  test('slider-folder-repel input → settings.folderRepelForce updated, val synced, rerunLayout', () => {
+    const slider = doc.getElementById('slider-folder-repel') as any;
+    slider.value = '0.5';
+    dispatch(slider, 'input');
+    assert.strictEqual((global as any).settings.folderRepelForce, 0.5);
+    assert.strictEqual(doc.getElementById('val-folder-repel')!.textContent, '0.5');
+    assert.strictEqual(rerunLayoutCallCount, 1);
+  });
+
+  test('slider-file-repel input → settings.fileRepelForce updated and rerunLayout', () => {
+    const slider = doc.getElementById('slider-file-repel') as any;
+    slider.value = '0.8';
+    dispatch(slider, 'input');
+    assert.strictEqual((global as any).settings.fileRepelForce, 0.8);
+    assert.strictEqual(doc.getElementById('val-file-repel')!.textContent, '0.8');
+    assert.strictEqual(rerunLayoutCallCount, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: applySavedViewSettings — graph-loaded display-state restore
+// ---------------------------------------------------------------------------
+
+suite('applySavedViewSettings()', () => {
+  const st = () => (global as any).state;
+  const doc = dom.window.document;
+
+  setup(() => {
+    // Deterministic baseline for every restore test.
+    Object.assign(st(), {
+      complexityLevel: 0.99, clusterGroupBy: 'file',
+      gitMode: false, languageMode: false, folderMode: true, classMode: true,
+    });
+    ['btn-git-mode', 'btn-language-mode', 'btn-class-mode'].forEach(id =>
+      doc.getElementById(id)!.classList.remove('active'));
+    doc.getElementById('btn-folder-mode')!.classList.add('active');
+  });
+
+  test('legacy clusterGroupBy remap: connectivity → connect', () => {
+    applySavedViewSettings({ clusterGroupBy: 'connectivity' });
+    assert.strictEqual(st().clusterGroupBy, 'connect');
+  });
+
+  test('legacy clusterGroupBy remap: auto → connect', () => {
+    applySavedViewSettings({ clusterGroupBy: 'auto' });
+    assert.strictEqual(st().clusterGroupBy, 'connect');
+  });
+
+  test('modern clusterGroupBy passes through; undefined leaves state untouched', () => {
+    applySavedViewSettings({ clusterGroupBy: 'class' });
+    assert.strictEqual(st().clusterGroupBy, 'class');
+    applySavedViewSettings({});
+    assert.strictEqual(st().clusterGroupBy, 'class', 'undefined key must not reset the lens');
+  });
+
+  test('folderMode:false restore updates state and clears the button active class', () => {
+    applySavedViewSettings({ folderMode: false });
+    assert.strictEqual(st().folderMode, false);
+    assert.ok(!doc.getElementById('btn-folder-mode')!.classList.contains('active'));
+  });
+
+  test('gitMode/languageMode/classMode restore toggles state and button classes', () => {
+    applySavedViewSettings({ gitMode: true, languageMode: true, classMode: false });
+    assert.strictEqual(st().gitMode, true);
+    assert.strictEqual(st().languageMode, true);
+    assert.strictEqual(st().classMode, false);
+    assert.ok(doc.getElementById('btn-git-mode')!.classList.contains('active'));
+    assert.ok(doc.getElementById('btn-language-mode')!.classList.contains('active'));
+    assert.ok(!doc.getElementById('btn-class-mode')!.classList.contains('active'));
+  });
+
+  test('complexityLevel restore syncs state, slider value, and val text', () => {
+    applySavedViewSettings({ complexityLevel: 0.4 });
+    assert.strictEqual(st().complexityLevel, 0.4);
+    assert.strictEqual((doc.getElementById('slider-complexity') as any).value, '0.4');
+    assert.strictEqual(doc.getElementById('val-complexity')!.textContent, '0.40');
+  });
+
+  test('empty settings object → no state mutation, no throw', () => {
+    const before = { ...st() };
+    applySavedViewSettings({});
+    assert.strictEqual(st().complexityLevel, before.complexityLevel);
+    assert.strictEqual(st().clusterGroupBy, before.clusterGroupBy);
+    assert.strictEqual(st().gitMode, before.gitMode);
+    assert.strictEqual(st().folderMode, before.folderMode);
   });
 });

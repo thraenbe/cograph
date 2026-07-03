@@ -721,8 +721,10 @@ function renderElements(elements, positionHints = new Map()) {
   state.svgLibNodes = renderLibraryNodes(libNodeData, visibleSet);
   state.svgLibLabels = renderLibraryLabels(libNodeData, visibleSet);
   startSimulation(allLinks);
-  if (typeof isDrilldown === 'function' && isDrilldown() && state.folderMode) {
+  if (typeof isDrilldown === 'function' && isDrilldown()) {
     // File (drill-down) mode: boxes around each opened folder's contents.
+    // Boxes/circles/forces are the drill-down's structure, not an overlay —
+    // state.folderMode only governs the legacy folder-bubble overlay below.
     folderG.selectAll('*').remove();   // drop any stale function-overlay bubbles + their drag handlers
     const boxes = buildDrilldownBoxData();
     state.svgDrilldownBoxes = renderDrilldownBoxes(boxes);

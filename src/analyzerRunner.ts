@@ -133,14 +133,24 @@ export class AnalyzerRunner {
     this.onResult(JSON.stringify(merged), workspaceRoot, { statuses, candidateFilesFound });
   }
 
+  /**
+   * Absolute path to an analyzer subprocess script. Packaged builds ship
+   * esbuild-bundled node analyzers under dist/scripts (self-contained, no
+   * node_modules in the .vsix); dev and test hosts fall back to the sources
+   * under scripts/. The Python analyzers only ever exist under scripts/.
+   */
+  private analyzerScript(name: string): string {
+    const bundled = path.join(this.context.extensionPath, 'dist', 'scripts', name);
+    return fs.existsSync(bundled) ? bundled : path.join(this.context.extensionPath, 'scripts', name);
+  }
+
   private runOnce(workspaceRoot: string, pythonBin: string): Promise<{ merged: GraphData; statuses: AnalyzerResult[] }> {
-    const ext = this.context.extensionPath;
     const spawns: Array<Promise<AnalyzerResult>> = [
-      this.spawnAnalyzerProcess(pythonBin, [path.join(ext, 'scripts', 'analyze.py'), workspaceRoot], 'python'),
-      this.spawnAnalyzerProcess(process.execPath, [path.join(ext, 'scripts', 'analyze_ts.js'), workspaceRoot], 'typescript'),
-      this.spawnAnalyzerProcess(process.execPath, [path.join(ext, 'scripts', 'analyze_js.js'), workspaceRoot], 'javascript'),
-      this.spawnAnalyzerProcess(process.execPath, [path.join(ext, 'scripts', 'analyze_java.js'), workspaceRoot], 'java'),
-      this.spawnAnalyzerProcess(process.execPath, [path.join(ext, 'scripts', 'analyze_cpp.js'), workspaceRoot], 'cpp'),
+      this.spawnAnalyzerProcess(pythonBin, [this.analyzerScript('analyze.py'), workspaceRoot], 'python'),
+      this.spawnAnalyzerProcess(process.execPath, [this.analyzerScript('analyze_ts.js'), workspaceRoot], 'typescript'),
+      this.spawnAnalyzerProcess(process.execPath, [this.analyzerScript('analyze_js.js'), workspaceRoot], 'javascript'),
+      this.spawnAnalyzerProcess(process.execPath, [this.analyzerScript('analyze_java.js'), workspaceRoot], 'java'),
+      this.spawnAnalyzerProcess(process.execPath, [this.analyzerScript('analyze_cpp.js'), workspaceRoot], 'cpp'),
     ];
     return Promise.all(spawns).then((statuses) => {
       const merged: GraphData = {
@@ -175,8 +185,7 @@ export class AnalyzerRunner {
     }
 
     try {
-      const ext = this.context.extensionPath;
-      const withList = (script: string) => [path.join(ext, 'scripts', script), workspaceRoot, '--files', listPath];
+      const withList = (script: string) => [this.analyzerScript(script), workspaceRoot, '--files', listPath];
       const spawns: Array<Promise<AnalyzerResult>> = [
         this.spawnAnalyzerProcess(process.execPath, withList('analyze_ts.js'), 'typescript'),
         this.spawnAnalyzerProcess(process.execPath, withList('analyze_js.js'), 'javascript'),

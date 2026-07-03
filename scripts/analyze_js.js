@@ -14,7 +14,9 @@
 
 const path = require('path');
 const fs   = require('fs');
-const ts   = require(path.join(__dirname, '..', 'node_modules', 'typescript'));
+// Bare specifier so esbuild can inline it into the packaged bundle (dev runs
+// resolve it from the repo's node_modules via normal module resolution).
+const ts   = require('typescript');
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist']);
 const JS_EXTENSIONS  = new Set(['.js', '.jsx', '.mjs', '.cjs']);

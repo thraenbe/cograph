@@ -40,7 +40,7 @@
     "onCommand:cograph.saveGraphAs",
     "onView:cograph.savedGraphs"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -201,10 +201,12 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "node esbuild.js --production",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile",
+    "bundle": "node esbuild.js",
+    "bundle:watch": "node esbuild.js --watch",
+    "pretest": "npm run compile && npm run bundle",
     "test": "node ./out/test/runTest.js",
     "lint": "eslint src --ext ts",
     "build:cpp-grammar": "tree-sitter build --wasm node_modules/tree-sitter-cpp -o scripts/tree-sitter-cpp.wasm",
@@ -226,6 +228,7 @@
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.32.0",
+    "esbuild": "^0.28.1",
     "eslint": "^8.0.0",
     "glob": "^13.0.6",
     "jsdom": "^25.0.1",

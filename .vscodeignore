@@ -1,28 +1,36 @@
 .vscode/**
+.vscode-test/**
 .ai/**
 .claude/**
+.cograph/**
 .github/**
+docs/**
 prompts/**
+
+# The packaged runtime is dist/** (esbuild bundles — see esbuild.js). The
+# webview ships as plain JS straight from src/webview; everything else in
+# src/ and the tsc output in out/ stay out of the .vsix.
 src/**
 !src/webview/**
-scripts/__pycache__/**
-scripts/test_*.py
+out/**
+
+# Node analyzer sources are bundled into dist/scripts (with both .wasm files
+# next to them). Only the Python analyzers run from scripts/ in the package.
+scripts/**
+!scripts/analyze.py
+!scripts/describe_lib.py
+
+# All runtime dependencies are inlined by esbuild.
+node_modules/**
+
 **/*.ts
+**/*.map
 **/*.swp
 **/*.tmp
-out/test/**
-out/**/*.test.js
-out/**/*.test.js.map
-node_modules/**
-!node_modules/typescript/**
-!node_modules/web-tree-sitter/**
-# java-parser + its (hoisted) transitive deps — required by scripts/analyze_java.js
-!node_modules/java-parser/**
-!node_modules/chevrotain/**
-!node_modules/regexp-to-ast/**
-!node_modules/lodash/**
 .eslintrc.json
+.gitignore
 tsconfig.json
+esbuild.js
 .pytest_cache/**
 requirements-dev.txt
 CLAUDE.md

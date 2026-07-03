@@ -15,8 +15,9 @@
 
 const path = require('path');
 const fs   = require('fs');
-const { parse, BaseJavaCstVisitorWithDefaults } =
-  require(path.join(__dirname, '..', 'node_modules', 'java-parser'));
+// Bare specifier so esbuild can inline it into the packaged bundle (dev runs
+// resolve it from the repo's node_modules via normal module resolution).
+const { parse, BaseJavaCstVisitorWithDefaults } = require('java-parser');
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build']);
 

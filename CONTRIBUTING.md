@@ -20,8 +20,11 @@ microservice ceremony.
 git clone https://github.com/thraenbe/cograph.git
 cd cograph
 npm ci
-npm run watch        # incremental TypeScript compile in the background
+npm run bundle:watch # incremental esbuild bundle to ./dist — this is what the dev host runs
 ```
+
+`npm run watch` (incremental `tsc` to `./out`) is still useful alongside it: esbuild
+does not type-check, so tsc is where type errors surface.
 
 To launch the extension in a development host:
 
@@ -33,7 +36,8 @@ To launch the extension in a development host:
 ## Build, lint, and test
 
 ```bash
-npm run compile      # one-off TypeScript build to ./out
+npm run compile      # one-off type-checking TypeScript build to ./out (tests run from here)
+npm run bundle       # one-off esbuild bundle to ./dist (VS Code runs the extension from here)
 npm run lint         # ESLint over src/**/*.ts
 npm test             # Mocha suite via @vscode/test-electron (downloads VS Code)
 npm run package      # produce a .vsix (sanity-check packaging)

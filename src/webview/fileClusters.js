@@ -65,9 +65,9 @@ function expandToDepth(tree, depth) {
   return set;
 }
 
-/** Expanded set for a 0..1 detail value. The level scale runs folders (0..maxDepth),
- *  then files-as-nodes (maxDepth+1), then functions (maxDepth+2). At raw=1 every
- *  folder AND file is expanded → the entire function graph. */
+/** Expanded set for a 0..1 detail value. The level scale is folders-only:
+ *  0 = root collapsed … maxFolderDepth+1 = every folder open. Files need no
+ *  per-file tier — a file's functions show as soon as its open folder is parsed. */
 function expandToDetail(tree, raw) {
   if (!tree || !tree.folders) { return new Set(); }
   // 0 = root only … (maxDepth+1) = every folder open. A file's functions show as

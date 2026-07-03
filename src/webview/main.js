@@ -213,7 +213,8 @@ function applyComplexity() {
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
-  // Reaches here only for 'connect' or 'class' ('file' is the drill-down, handled above).
+  // Reaches here for 'connect', 'class', or 'file' without a structure tree
+  // (which falls back to plain file-structural clustering instead of the drill-down).
   const clusterResult = state.clusterGroupBy === 'connect'
     ? computeClusters(projectData, state.importanceScores, state.complexityLevel)
     : computeStructuralClusters(projectData, state.clusterGroupBy, state.complexityLevel);

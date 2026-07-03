@@ -56,3 +56,18 @@ Suggested first cut: extract the drill-down box/force code from `folder.js`
 into a new `drilldown.js` module (~300 LOC move + a `webviewHtmlBuilder.ts`
 script tag). Higher regression risk — do it as its own change with manual
 smoke testing of the File lens.
+
+### Test hygiene: `graphProvider.test.ts` providers are never disposed
+
+Found while fixing the cross-test `scheduleReanalysis` timer leak (2026-07,
+gitIntegration message suite — an armed 1s timer fired `killAll()+run()` into a
+later test's `cp.spawn` stub; broke CI on macOS/Windows for PR #41). The
+gitIntegration and graphProviderWorkflow suites now fire the fake panel's
+`onDidDispose` callback in teardown. `graphProvider.test.ts` still creates
+`GraphProvider`s via `provider.show()` without ever disposing them. None of its
+tests arm the reanalysis timer today (verified: no `save-func-source` /
+rename / new-file messages), so there is no live bullet — but each `show()`
+leaks a real save-listener and a `.git/index` file watcher (the "File Watcher
+Invalid handle" noise in test logs), and a future test that touches a
+reanalysis-scheduling path would re-load the gun. Fix shape: same captured
+`_disposeCallback` teardown pattern as gitIntegration.

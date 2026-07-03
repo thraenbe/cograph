@@ -36,10 +36,20 @@ function makeFakePanel() {
     title: '',
     webview,
     reveal: sinon.stub(),
-    onDidDispose: sinon.stub().returns({ dispose: () => {} }),
+    onDidDispose: sinon.stub().callsFake((cb: () => void) => {
+      (panel as any)._disposeCallback = cb;
+      return { dispose: () => {} };
+    }),
     dispose: sinon.stub(),
   };
   return panel;
+}
+
+/** Run GraphProvider's onDidDispose handler, as VS Code does when the panel
+ *  closes — releases the save listener, file watcher, and any pending timers
+ *  so no delayed work leaks into later tests. */
+function disposePanel(fakePanel: ReturnType<typeof makeFakePanel>): void {
+  (fakePanel as any)._disposeCallback?.();
 }
 
 /** Stub getConfiguration: graphIntelligence.enabled → `enabled`, all else → default. */
@@ -143,12 +153,13 @@ suite('GraphProvider.generateWorkflow (AI gate + provider path)', () => {
       assert.strictEqual((fakePanel as any).title, 'Workflow', 'panel title set');
       assert.ok(Array.isArray(result.graph.workflow?.clusters), 'normalized graph returned to caller');
     } finally {
+      disposePanel(fakePanel);
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 
   test('provider rejection propagates to the caller', async () => {
-    const { tmp, provider } = await setupEnabled();
+    const { tmp, provider, fakePanel } = await setupEnabled();
     try {
       provider.setProviderFactoryForTesting((() => ({
         run: sinon.stub().rejects(new Error('boom')),
@@ -156,6 +167,7 @@ suite('GraphProvider.generateWorkflow (AI gate + provider path)', () => {
 
       await assert.rejects(() => provider.generateWorkflow('claude-code'), /boom/);
     } finally {
+      disposePanel(fakePanel);
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });

@@ -394,6 +394,7 @@ suite('refreshGitStatus()', () => {
 suite('Message Handling', () => {
   let sandbox: sinon.SinonSandbox;
   let tmpDir: string;
+  let activePanel: ReturnType<typeof makeFakePanel> | undefined;
 
   setup(() => {
     sandbox = sinon.createSandbox();
@@ -401,6 +402,13 @@ suite('Message Handling', () => {
   });
 
   teardown(() => {
+    // Close the panel the way VS Code would, so GraphProvider's onDidDispose
+    // handler clears the scheduleReanalysis timer and kills analyzer procs.
+    // Without this, a save-func-source test leaves a 1s timer armed that later
+    // fires killAll()+run() into an UNRELATED test's cp.spawn stub — the exact
+    // cross-test flake that broke CI on macOS/Windows (spawn.callCount off by 5).
+    (activePanel as any)?._disposeCallback?.();
+    activePanel = undefined;
     sandbox.restore();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -421,6 +429,7 @@ suite('Message Handling', () => {
       .onCall(4).returns(fakeCppProc);
 
     const fakePanel = makeFakePanel();
+    activePanel = fakePanel;
     sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
 
     const provider = new GraphProvider(makeFakeContext());
@@ -540,6 +549,29 @@ suite('Message Handling', () => {
 
     assert.ok(showErr.calledOnce, 'showErrorMessage should be called on save failure');
     assert.ok(showErr.firstCall.args[0].includes('Failed to save'), 'message should mention failure');
+  });
+
+  test('panel dispose clears a scheduled reanalysis (no phantom analyzer run later)', () => {
+    const { fakePanel } = setupProvider();
+    const spawn = rawCp.spawn as sinon.SinonStub;
+
+    const filePath = path.join(tmpDir, 'save_test.py');
+    fs.writeFileSync(filePath, 'def greet():\n    return "hello"\n');
+
+    // Fake timers AFTER show(), so only the reanalysis scheduling is affected.
+    const clock = sandbox.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    fakePanel.sendMessage({
+      type: 'save-func-source',
+      file: filePath,
+      line: 1,
+      newSource: 'def greet():\n    return "world"\n',
+    });
+    (fakePanel as any)._disposeCallback();
+
+    const before = spawn.callCount;
+    clock.tick(1500); // well past the 1000ms scheduleReanalysis delay
+    assert.strictEqual(spawn.callCount, before,
+      'a disposed panel must not fire a reanalysis round into later tests');
   });
 });
 

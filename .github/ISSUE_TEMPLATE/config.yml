@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & discussion
+    url: https://github.com/thraenbe/cograph/discussions
+    about: Ask questions, share graphs, and discuss ideas with the community.
+  - name: VS Code Marketplace
+    url: https://marketplace.visualstudio.com/items?itemName=thraenbe.cograph
+    about: Install CoGraph, read reviews, or rate the extension.

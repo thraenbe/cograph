@@ -205,7 +205,10 @@ function fitToView() {
 // ── Drag (swimming effect) ────────────────────────────────────────────────────
 const drag = d3.drag()
   .on('start', (event, d) => {
-    if (state.layoutMode === 'dynamic' && !event.active && state.simulation)
+    // Large graphs freeze once settled (issue #52): don't reheat the whole
+    // simulation for a single drag — move the node directly instead.
+    if (state.layoutMode === 'dynamic' && dragShouldReheat(state.currentNodes.length)
+        && !event.active && state.simulation)
       state.simulation.alphaTarget(0.3).restart();
     d.fx = d.x;
     d.fy = d.y;
@@ -213,20 +216,21 @@ const drag = d3.drag()
   .on('drag', (event, d) => {
     d.fx = event.x;
     d.fy = event.y;
-    if (state.layoutMode === 'static') {
-      // Simulation stopped — sync x/y directly so ticked() renders correctly
+    if (state.layoutMode === 'static' || !dragShouldReheat(state.currentNodes.length)) {
+      // Simulation stopped (static, or frozen large graph) — sync x/y directly
+      // so ticked() renders correctly.
       d.x = event.x;
       d.y = event.y;
       ticked();
     }
   })
   .on('end', (event, d) => {
-    if (state.layoutMode === 'dynamic') {
+    if (state.layoutMode === 'dynamic' && dragShouldReheat(state.currentNodes.length)) {
       if (!event.active && state.simulation) state.simulation.alphaTarget(0);
       d.fx = null;
       d.fy = null; // release — node rejoins simulation
     }
-    // static: keep fx/fy pinned so node stays exactly where dropped
+    // static or frozen large graph: keep fx/fy pinned so node stays where dropped
     window.markDirty?.();
   });
 

@@ -23,7 +23,7 @@ jobs:
 
       # Keep version in sync with VSCODE_VERSION in src/test/runTest.ts
       - name: Cache VS Code test binary
-        uses: actions/cache@v5.0.5
+        uses: actions/cache@v6.1.0
         with:
           path: .vscode-test
           key: vscode-test-${{ runner.os }}-1.116.0

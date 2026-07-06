@@ -38,7 +38,7 @@ const settings = {
   nodeSize: 2.5,
   textSize: 1.5,
   linkThickness: 4,
-  centerForce: 0.025,
+  centerForce: 0.05,
   repelForce: 250,
   linkForce: 1,
   fileClusterForce: 0.2,

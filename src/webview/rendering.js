@@ -271,10 +271,16 @@ function ticked() {
     this.setAttribute('y', d.y + nodeRadius(d) + 10);
   });
 
-  // Auto-fit once after initial settling
-  if (!state.hasFitted && state.simulation && state.simulation.alpha() < 0.1) {
-    state.hasFitted = true;
-    fitToView();
+  // Auto-fit once after initial settling; large graphs also freeze once settled.
+  if (state.simulation) {
+    const alpha = state.simulation.alpha();
+    if (!state.hasFitted && alpha < 0.1) {
+      state.hasFitted = true;
+      fitToView();
+    }
+    if (shouldFreeze(alpha, state.currentNodes.length)) {
+      state.simulation.stop();
+    }
   }
 
   if (state.viewMode === 'workflow') { updateWorkflowDivider(); }
@@ -559,6 +565,7 @@ function startSimulation(allLinks) {
     return;
   }
   if (state.simulation) state.simulation.stop();
+  const n = state.currentNodes.length;
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;
   const H = svgEl.clientHeight || window.innerHeight;
@@ -575,10 +582,14 @@ function startSimulation(allLinks) {
     .force('center', d3.forceCenter(W / 2, H / 2).strength(0.001))
     .force('x', d3.forceX(W / 2).strength(settings.centerForce))
     .force('y', d3.forceY(H / 2).strength(settings.centerForce))
-    .force('collision', d3.forceCollide(d => nodeRadius(d) + 1))
     .velocityDecay(0.3)
-    .alphaDecay(0.02)
+    .alphaDecay(alphaDecayFor(n))
     .on('tick', ticked);
+  // Collision resolution is skipped for large graphs (it dominates tick cost);
+  // applied via simulation.force() after construction, the idiomatic d3 way.
+  if (useCollide(n)) {
+    state.simulation.force('collision', d3.forceCollide(d => nodeRadius(d) + 1));
+  }
 }
 
 const WORKFLOW_MARGIN_X = 90;

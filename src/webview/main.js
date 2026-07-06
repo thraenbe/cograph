@@ -41,6 +41,7 @@ const settings = {
   centerForce: 0.05,
   repelForce: 250,
   linkForce: 1,
+  userTunedForces: false,
   fileClusterForce: 0.2,
   folderRepelForce: 0.25,
   fileRepelForce: 0.25,

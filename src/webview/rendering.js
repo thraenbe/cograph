@@ -570,6 +570,15 @@ function startSimulation(allLinks) {
   }
   if (state.simulation) state.simulation.stop();
   const n = state.currentNodes.length;
+  // Dynamic per-repo force defaults (#27): unless the user hand-tuned the force
+  // sliders, seed centering/repel from the graph size before building forces
+  // (the charge/x/y forces below read settings.* for this repo).
+  if (!settings.userTunedForces) {
+    const defaults = computeForceDefaults(n);
+    settings.centerForce = defaults.centerForce;
+    settings.repelForce = defaults.repelForce;
+    if (typeof syncForceSliders === 'function') syncForceSliders();
+  }
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;
   const H = svgEl.clientHeight || window.innerHeight;

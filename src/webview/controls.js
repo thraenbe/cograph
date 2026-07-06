@@ -67,10 +67,7 @@ document.getElementById('btn-reset-layout')?.addEventListener('click', () => {
     textFadeThreshold: 0.5,
     nodeSize: 2.5,
     textSize: 1.5,
-    linkThickness: 4,
-    centerForce: 0.05,
-    repelForce: 250,
-    linkForce: 1
+    linkThickness: 4
   };
 
   Object.assign(settings, defaults);
@@ -79,16 +76,23 @@ document.getElementById('btn-reset-layout')?.addEventListener('click', () => {
     'slider-text-fade': { valId: 'val-text-fade', value: defaults.textFadeThreshold },
     'slider-node-size': { valId: 'val-node-size', value: defaults.nodeSize },
     'slider-text-size': { valId: 'val-text-size', value: defaults.textSize },
-    'slider-link-thickness': { valId: 'val-link-thickness', value: defaults.linkThickness },
-    'slider-center-force': { valId: 'val-center-force', value: defaults.centerForce },
-    'slider-repel-force': { valId: 'val-repel-force', value: defaults.repelForce },
-    'slider-link-force': { valId: 'val-link-force', value: defaults.linkForce }
+    'slider-link-thickness': { valId: 'val-link-thickness', value: defaults.linkThickness }
   })) {
     const slider = document.getElementById(key);
     const valEl = document.getElementById(val.valId);
     if (slider) slider.value = val.value;
     if (valEl) valEl.textContent = val.value;
   }
+
+  // Forces reset to the size-aware defaults (#27), not fixed 0.05/250/1 — a
+  // small repo (≤500 nodes) still lands on today's values. Clearing the
+  // user-tuned flag re-arms dynamic defaults; syncForceSliders mirrors them.
+  const forceDefaults = computeForceDefaults(state.currentNodes.length);
+  settings.centerForce = forceDefaults.centerForce;
+  settings.repelForce = forceDefaults.repelForce;
+  settings.linkForce = forceDefaults.linkForce;
+  settings.userTunedForces = false;
+  syncForceSliders();
 
   applyDisplaySettings();
   rerunLayout();
@@ -111,13 +115,36 @@ function wireSlider(id, valId, settingsKey, onInput) {
   });
 }
 
+// Push the three main force values from `settings` back into their sliders +
+// value labels. Called after dynamic size-based defaults (#27) mutate settings
+// (Reset, and startSimulation) so the controls reflect the applied values.
+function syncForceSliders() {
+  const rows = [
+    ['slider-center-force', 'val-center-force', settings.centerForce],
+    ['slider-repel-force', 'val-repel-force', settings.repelForce],
+    ['slider-link-force', 'val-link-force', settings.linkForce],
+  ];
+  for (const [sliderId, labelId, value] of rows) {
+    const slider = document.getElementById(sliderId);
+    const label = document.getElementById(labelId);
+    if (slider) slider.value = String(value);
+    if (label) label.textContent = String(value);
+  }
+}
+
 wireSlider('slider-text-fade', 'val-text-fade', 'textFadeThreshold', applyDisplaySettings);
 wireSlider('slider-node-size', 'val-node-size', 'nodeSize', applyDisplaySettings);
 wireSlider('slider-text-size', 'val-text-size', 'textSize', applyDisplaySettings);
 wireSlider('slider-link-thickness', 'val-link-thickness', 'linkThickness', applyDisplaySettings);
-wireSlider('slider-center-force', 'val-center-force', 'centerForce', rerunLayout);
-wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);
-wireSlider('slider-link-force', 'val-link-force', 'linkForce', rerunLayout);
+// Hand-tuning any of the three main forces opts this repo out of the dynamic
+// size-based defaults (#27) until the next Reset.
+function markForcesTunedAndRerun() {
+  settings.userTunedForces = true;
+  rerunLayout();
+}
+wireSlider('slider-center-force', 'val-center-force', 'centerForce', markForcesTunedAndRerun);
+wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', markForcesTunedAndRerun);
+wireSlider('slider-link-force', 'val-link-force', 'linkForce', markForcesTunedAndRerun);
 wireSlider('slider-file-cluster', 'val-file-cluster', 'fileClusterForce', rerunLayout);
 wireSlider('slider-folder-repel', 'val-folder-repel', 'folderRepelForce', rerunLayout);
 wireSlider('slider-file-repel', 'val-file-repel', 'fileRepelForce', rerunLayout);
@@ -387,7 +414,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 if (typeof module !== 'undefined') {
-  module.exports = { applyResizeDelta, applySavedViewSettings };
+  module.exports = { applyResizeDelta, applySavedViewSettings, syncForceSliders };
 }
 
 // ── Resize math helper ────────────────────────────────────────────────────────

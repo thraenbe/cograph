@@ -25,6 +25,7 @@ function makeDOM() {
     <input id="slider-center-force" type="range" value="1" /><span id="val-center-force">1</span>
     <input id="slider-repel-force" type="range" value="50" /><span id="val-repel-force">50</span>
     <input id="slider-link-force" type="range" value="1" /><span id="val-link-force">1</span>
+    <button id="btn-reset-layout"></button>
     <div id="toggle-git-legend"><span class="tl-chevron">▾</span></div>
     <div id="git-legend-body"></div>
     <div id="toggle-folder-filters"><span class="tl-chevron">▾</span></div>
@@ -110,14 +111,21 @@ let rerunLayoutCallCount = 0;
 (global as any).updateFuncHighlight = () => {};
 (global as any).updateSaveBtn = () => {};
 (global as any).highlightCode = () => '';
+// computeForceDefaults is a shared script global in the real webview; the reset
+// handler + startSimulation call it. Install the pure module here (Task 1).
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+(global as any).computeForceDefaults = require('../../../src/webview/layoutTuning.js').computeForceDefaults;
 
 // Load controls.js (attaches all event listeners to existing DOM elements)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 require('../../../src/webview/controls.js');
 
-// Also get applyResizeDelta / applySavedViewSettings for direct testing
+// Also get applyResizeDelta / applySavedViewSettings for direct testing.
+// syncForceSliders is a shared script global in the real webview; expose it as
+// one here so tests (and the reset handler) can reach it the same way.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { applyResizeDelta, applySavedViewSettings } = require('../../../src/webview/controls.js');
+const { applyResizeDelta, applySavedViewSettings, syncForceSliders } = require('../../../src/webview/controls.js');
+(global as any).syncForceSliders = syncForceSliders;
 
 // Load popups.js factory for textarea handler tests
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -729,5 +737,39 @@ suite('applySavedViewSettings()', () => {
     assert.strictEqual(st().clusterGroupBy, before.clusterGroupBy);
     assert.strictEqual(st().gitMode, before.gitMode);
     assert.strictEqual(st().folderMode, before.folderMode);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: dynamic force defaults (#27)
+// ---------------------------------------------------------------------------
+
+suite('dynamic force defaults (#27)', () => {
+  test('force slider input marks settings.userTunedForces', () => {
+    (global as any).settings.userTunedForces = false;
+    const slider = dom.window.document.getElementById('slider-repel-force') as any;
+    slider.value = '300';
+    dispatch(slider, 'input');
+    assert.strictEqual((global as any).settings.userTunedForces, true);
+  });
+
+  test('syncForceSliders pushes settings values into sliders and labels', () => {
+    (global as any).settings.centerForce = 0.15;
+    (global as any).settings.repelForce = 80;
+    (global as any).settings.linkForce = 1;
+    (global as any).syncForceSliders();
+    const slider = dom.window.document.getElementById('slider-repel-force') as any;
+    assert.strictEqual(slider.value, '80');
+    assert.strictEqual(dom.window.document.getElementById('val-repel-force')!.textContent, '80');
+  });
+
+  test('reset restores size-based defaults and clears userTunedForces', () => {
+    (global as any).state.currentNodes = new Array(3000).fill(0).map((_, i) => ({ id: String(i) }));
+    (global as any).settings.userTunedForces = true;
+    (global as any).settings.repelForce = 999;
+    const btn = dom.window.document.getElementById('btn-reset-layout') as any;
+    dispatch(btn, 'click');
+    assert.strictEqual((global as any).settings.repelForce, 80);
+    assert.strictEqual((global as any).settings.userTunedForces, false);
   });
 });

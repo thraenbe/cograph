@@ -223,7 +223,7 @@
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.0.0",
     "@types/sinon": "^17.0.0",
-    "@types/vscode": "^1.64.0",
+    "@types/vscode": "^1.125.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.0",
@@ -235,6 +235,6 @@
     "mocha": "^10.4.0",
     "sinon": "^17.0.0",
     "tree-sitter-cli": "0.26.9",
-    "tree-sitter-cpp": "^0.22.3"
+    "tree-sitter-cpp": "^0.23.4"
   }
 }

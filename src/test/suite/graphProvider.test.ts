@@ -333,6 +333,55 @@ suite('GraphProvider', () => {
     });
   });
 
+  // ── [perf] instrumentation ─────────────────────────────────────────────────
+
+  suite('perf metrics logging', () => {
+    test('handleAnalysisResult logs payload size metrics', () => {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+      const fakePanel = makeFakePanel();
+      sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
+      sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
+      // Procs never complete, so the live run never overwrites the panel.
+      stubSpawnAuto(sandbox, setTimeout, () => { /* never emits */ });
+      const appendLine = sinon.stub();
+      sandbox.stub(vscode.window, 'createOutputChannel').returns({ appendLine } as any);
+
+      const provider = new GraphProvider(makeFakeContext());
+      provider.show();
+
+      const stdout = JSON.stringify({
+        nodes: [{ id: 'a' }, { id: 'b' }],
+        edges: [{ source: 'a', target: 'b' }],
+      });
+      (provider as any).handleAnalysisResult(stdout, '/ws');
+
+      assert.ok(
+        appendLine.args.some(([line]) =>
+          /\[perf\] payload: 2 nodes \/ 1 edges, \d+(\.\d+)? (KB|MB)/.test(line)),
+        `expected a [perf] payload line, got: ${JSON.stringify(appendLine.args)}`,
+      );
+    });
+
+    test('layout-metrics message from the webview is logged', () => {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+      const appendLine = sinon.stub();
+      sandbox.stub(vscode.window, 'createOutputChannel').returns({ appendLine } as any);
+      const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
+
+      const provider = new GraphProvider(makeFakeContext());
+      provider.show();
+
+      assert.ok(msgCallbacks.length >= 1, 'message callback should be registered');
+      msgCallbacks[0]({ type: 'layout-metrics', ms: 843, nodes: 1500 });
+
+      assert.ok(
+        appendLine.args.some(([line]) =>
+          line.includes('[perf] webview layout settled in 843ms (1500 nodes)')),
+        `expected a [perf] layout line, got: ${JSON.stringify(appendLine.args)}`,
+      );
+    });
+  });
+
   // ── retry-analysis message ─────────────────────────────────────────────────
 
   suite('retry-analysis message', () => {

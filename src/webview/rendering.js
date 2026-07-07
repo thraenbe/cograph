@@ -234,6 +234,15 @@ const drag = d3.drag()
     window.markDirty?.();
   });
 
+// Report webview layout settle time back to the host once per render. Guarded on
+// layoutStartedAt so repaint-only ticked() calls (drag, zoom) never re-post.
+function postLayoutMetrics() {
+  if (state.layoutStartedAt == null) { return; }
+  const ms = Date.now() - state.layoutStartedAt;
+  state.layoutStartedAt = null;
+  vscode.postMessage({ type: 'layout-metrics', ms, nodes: state.currentNodes.length });
+}
+
 // ── Tick ──────────────────────────────────────────────────────────────────────
 function ticked() {
   state.svgLinks?.each(function (d) {
@@ -281,6 +290,7 @@ function ticked() {
     if (!state.hasFitted && alpha < 0.1) {
       state.hasFitted = true;
       fitToView();
+      postLayoutMetrics();
     }
     if (shouldFreeze(alpha, state.currentNodes.length)) {
       state.simulation.stop();

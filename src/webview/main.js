@@ -302,6 +302,7 @@ function applyComplexity() {
 
 // ── Main entry ────────────────────────────────────────────────────────────────
 function renderGraph(data, isReanalysis = false) {
+  state.layoutStartedAt = Date.now();
   state.graphData = data;
   const projectData = { nodes: data.nodes.filter(n => !n.isLibrary), edges: data.edges.filter(e => !e.isLibraryEdge) };
   state.importanceScores = computeImportanceScores(projectData);

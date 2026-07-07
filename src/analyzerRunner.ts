@@ -34,6 +34,8 @@ export interface AnalyzerResult {
   status: AnalyzerStatus;
   lang: string;
   detail?: string;
+  /** Wall-clock time this analyzer subprocess took, from spawn to resolution. */
+  durationMs: number;
 }
 
 /** Metadata accompanying a finished analysis run, so the UI can react to failures. */
@@ -106,6 +108,7 @@ export class AnalyzerRunner {
     let statuses: AnalyzerResult[] = [];
 
     for (let attempt = 0; attempt <= MAX_ANALYSIS_RETRIES; attempt++) {
+      const attemptStart = Date.now();
       const result = await this.runOnce(workspaceRoot, pythonBin);
       if (token !== this.runToken) { return; } // superseded by killAll() or a newer run
       merged = result.merged;
@@ -117,6 +120,13 @@ export class AnalyzerRunner {
           this.log(`Analyzer [${s.lang}] ${s.status}${s.detail ? `: ${s.detail}` : ''}`);
         }
       }
+
+      // Timing breakdown — turns "it's slow" into per-analyzer numbers (#50).
+      for (const s of statuses) {
+        this.log(`[perf] ${s.lang}: ${s.status} in ${s.durationMs ?? 0}ms`);
+      }
+      this.log(`[perf] analysis attempt ${attempt + 1}: ${Date.now() - attemptStart}ms total, ` +
+        `${merged.nodes.length} nodes / ${merged.edges.length} edges`);
 
       if (merged.nodes.length > 0) { break; } // success — even a partial graph beats retrying
 
@@ -172,6 +182,7 @@ export class AnalyzerRunner {
    * un-parsed files may be incomplete until the full background pass reconciles.
    */
   async runSubset(workspaceRoot: string, files: string[]): Promise<GraphData> {
+    const startedAt = Date.now();
     const empty: GraphData = { nodes: [], edges: [], files: [] };
     if (files.length === 0) { return empty; }
     const pythonBin = this.resolvePythonBin();
@@ -201,6 +212,7 @@ export class AnalyzerRunner {
           this.log(`Subset analyzer [${s.lang}] ${s.status}${s.detail ? `: ${s.detail}` : ''}`);
         }
       }
+      this.log(`[perf] subset parse (${files.length} files): ${Date.now() - startedAt}ms`);
       return {
         nodes: statuses.flatMap(r => r.graph.nodes),
         edges: statuses.flatMap(r => r.graph.edges),
@@ -304,8 +316,10 @@ export class AnalyzerRunner {
   }
 
   private spawnAnalyzerProcess(bin: string, args: string[], lang: string): Promise<AnalyzerResult> {
+    const startedAt = Date.now();
     const empty: GraphData = { nodes: [], edges: [], files: [] };
-    const fail = (status: AnalyzerStatus, detail?: string): AnalyzerResult => ({ graph: empty, status, lang, detail });
+    const fail = (status: AnalyzerStatus, detail?: string): AnalyzerResult =>
+      ({ graph: empty, status, lang, detail, durationMs: Date.now() - startedAt });
     return new Promise((resolve) => {
       let proc: cp.ChildProcess;
       try {
@@ -371,7 +385,7 @@ export class AnalyzerRunner {
         }
         try {
           const graph = JSON.parse(stdout) as GraphData;
-          resolve({ graph, status: graph.nodes.length > 0 ? 'ok' : 'empty', lang });
+          resolve({ graph, status: graph.nodes.length > 0 ? 'ok' : 'empty', lang, durationMs: Date.now() - startedAt });
         } catch {
           resolve(fail('parse-error', stderr ? stderr.slice(0, 300).trim() : 'invalid JSON'));
         }

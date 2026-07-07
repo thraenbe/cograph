@@ -100,6 +100,23 @@ function deriveWorkflowView(data, level) {
   return { nodeToCluster, clusterMembers, clusterLabels, layout, stageCount, dividerStage };
 }
 
+/**
+ * Largest detail level <= `level` whose derived view renders at most `maxNodes`
+ * rendered nodes (issue #52 item 2: the workflow view must stay bounded on huge
+ * repos, since the >=500-node complexity auto-cap excludes it). The rendered-node
+ * count is `clusterMembers.size` — the distinct nodes buildClusteredElements
+ * draws. Level 0 is always allowed (there is no lower level), so the loop
+ * terminates; small graphs whose highest level already fits are left untouched.
+ */
+function clampWorkflowLevel(data, level, maxNodes) {
+  let lvl = level;
+  while (lvl > 0) {
+    if (deriveWorkflowView(data, lvl).clusterMembers.size <= maxNodes) { break; }
+    lvl -= 1;
+  }
+  return lvl;
+}
+
 function cellKey(n) { return 'cell|' + wfStage(n) + '|' + wfTier(n); }
 
 function groupLabel(key, members, nodeById, lvl) {
@@ -135,5 +152,5 @@ function computeColumnX(stage, stageCount, width, marginX) {
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 if (typeof module !== 'undefined') {
-  module.exports = { deriveWorkflowView, computeColumnX, WORKFLOW_LEVELS };
+  module.exports = { deriveWorkflowView, clampWorkflowLevel, computeColumnX, WORKFLOW_LEVELS };
 }

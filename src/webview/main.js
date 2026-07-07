@@ -185,6 +185,10 @@ function applyWorkflowComplexity() {
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
+  // Bound the rendered node count on huge repos (issue #52 item 2): the slider
+  // may request more detail than the view can show, so lower the effective level
+  // until it fits WORKFLOW_MAX_NODES (level 0 is always allowed).
+  state.workflowLevel = clampWorkflowLevel(projectData, state.workflowLevel, WORKFLOW_MAX_NODES);
   const wv = deriveWorkflowView(projectData, state.workflowLevel);
   state.workflowStageCount = wv.stageCount;
   state.workflowDividerStage = wv.dividerStage;

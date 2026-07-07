@@ -5,12 +5,41 @@ import * as assert from 'assert';
 // clustering.test.ts — we reach the source file: out/test/suite → project root
 // → src/webview/workflow.js.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { deriveWorkflowView, computeColumnX, WORKFLOW_LEVELS } = require('../../../src/webview/workflow.js');
+const { deriveWorkflowView, computeColumnX, clampWorkflowLevel, WORKFLOW_LEVELS } = require('../../../src/webview/workflow.js');
 
 interface WfNode { id: string; name: string; file: string | null; line: number; isLibrary?: boolean; workflow?: Record<string, unknown>; }
 
 function n(id: string, file: string | null, stage: number, tier: string, rank: number, cluster: string): WfNode {
   return { id, name: id, file, line: 1, workflow: { rank, stage, tier, cluster, clusterName: cluster.toUpperCase() } };
+}
+
+// A large synthetic workflow graph with `count` internal nodes spread across a
+// fixed, small number of (stage, tier) cells and topic clusters — so level 9
+// renders `count` individual nodes (blows past any small cap) while level 0
+// collapses to a handful of cells. Reuses the `n()` node builder above.
+function makeBigWorkflowGraph(count: number) {
+  const tiers = ['backend', 'shared', 'frontend'];
+  const numStages = 6;
+  const numClusters = 8;
+  const nodes: WfNode[] = [];
+  for (let i = 0; i < count; i++) {
+    const stage = i % numStages;
+    const tier = tiers[i % tiers.length];
+    const cluster = 'c' + (i % numClusters);
+    nodes.push(n('n' + i, 'f' + stage + '.ts', stage, tier, i, cluster));
+  }
+  nodes.push({ id: 'lib::x', name: 'x', file: null, line: 0, isLibrary: true });
+  return {
+    nodes,
+    edges: [{ source: '::MAIN::0', target: 'n0' }],
+    workflow: { stageCount: numStages, dividerStage: numStages - 1 },
+  };
+}
+
+// The rendered-node count is the number of derived clusters — the same field
+// buildClusteredElements consumes and that the deriveWorkflowView tests assert on.
+function countRenderedNodes(view: { clusterMembers: Map<string, unknown> }): number {
+  return view.clusterMembers.size;
 }
 
 // 6 internal nodes across 3 stages / 2 tiers + a library node + a ::MAIN::0 entry edge.
@@ -126,5 +155,25 @@ suite('workflow.js — computeColumnX', () => {
   test('clamps out-of-range stage', () => {
     assert.strictEqual(computeColumnX(99, 3, W, M), 900);
     assert.strictEqual(computeColumnX(-1, 3, W, M), 100);
+  });
+});
+
+suite('workflow.js — clampWorkflowLevel', () => {
+  test('lowers the level until the derived node count fits', () => {
+    const data = makeBigWorkflowGraph(1200);
+    const clamped = clampWorkflowLevel(data, 9, 400);
+    assert.ok(clamped < 9, `expected clamp below 9, got ${clamped}`);
+    const view = deriveWorkflowView(data, clamped);
+    assert.ok(countRenderedNodes(view) <= 400, `clamped level ${clamped} renders ${countRenderedNodes(view)} nodes`);
+  });
+
+  test('level 0 is always allowed even when still above the cap', () => {
+    const data = makeBigWorkflowGraph(1200);
+    assert.strictEqual(clampWorkflowLevel(data, 0, 1), 0);
+  });
+
+  test('small graphs are never clamped', () => {
+    const small = makeBigWorkflowGraph(50);
+    assert.strictEqual(clampWorkflowLevel(small, 9, 400), 9);
   });
 });

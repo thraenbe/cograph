@@ -38,9 +38,10 @@ const settings = {
   nodeSize: 2.5,
   textSize: 1.5,
   linkThickness: 4,
-  centerForce: 0.025,
+  centerForce: 0.05,
   repelForce: 250,
   linkForce: 1,
+  userTunedForces: false,
   fileClusterForce: 0.2,
   folderRepelForce: 0.25,
   fileRepelForce: 0.25,
@@ -184,6 +185,10 @@ function applyWorkflowComplexity() {
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
+  // Bound the rendered node count on huge repos (issue #52 item 2): the slider
+  // may request more detail than the view can show, so lower the effective level
+  // until it fits WORKFLOW_MAX_NODES (level 0 is always allowed).
+  state.workflowLevel = clampWorkflowLevel(projectData, state.workflowLevel, WORKFLOW_MAX_NODES);
   const wv = deriveWorkflowView(projectData, state.workflowLevel);
   state.workflowStageCount = wv.stageCount;
   state.workflowDividerStage = wv.dividerStage;
@@ -297,6 +302,7 @@ function applyComplexity() {
 
 // ── Main entry ────────────────────────────────────────────────────────────────
 function renderGraph(data, isReanalysis = false) {
+  state.layoutStartedAt = Date.now();
   state.graphData = data;
   const projectData = { nodes: data.nodes.filter(n => !n.isLibrary), edges: data.edges.filter(e => !e.isLibraryEdge) };
   state.importanceScores = computeImportanceScores(projectData);

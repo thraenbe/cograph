@@ -155,6 +155,7 @@ export function getWebviewHtml(
   const timelineMode = opts.timelineMode === true;
   const webviewDir = vscode.Uri.joinPath(extensionUri, 'src', 'webview');
   const stateUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'state.js'));
+  const layoutTuningUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'layoutTuning.js'));
   const aggregateUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'aggregate.js'));
   const clusteringUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'clustering.js'));
   const workflowUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'workflow.js'));
@@ -401,6 +402,7 @@ export function getWebviewHtml(
     <ul id="ctx-menu-list"></ul>
   </div>
   <script nonce="${nonce}" src="${stateUri}"></script>
+  <script nonce="${nonce}" src="${layoutTuningUri}"></script>
   <script nonce="${nonce}" src="${aggregateUri}"></script>
   <script nonce="${nonce}" src="${clusteringUri}"></script>
   <script nonce="${nonce}" src="${workflowUri}"></script>

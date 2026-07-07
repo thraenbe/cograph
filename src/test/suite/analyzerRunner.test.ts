@@ -126,6 +126,29 @@ suite('AnalyzerRunner', () => {
     assert.strictEqual(meta.statuses.find(s => s.lang === 'typescript')!.status, 'empty');
   });
 
+  test('logs per-analyzer timing and attempt totals on a successful run', async function () {
+    this.timeout(5000);
+    stubPythonResolution(sandbox);
+    // Every analyzer emits a node and exits 0 → clean, single-attempt run.
+    stubSpawnAuto(sandbox, realSetTimeout, (_idx, proc) => emitNode(proc));
+    const { runner, log, result } = makeRunner(sandbox);
+
+    runner.run('/ws', { allowRetry: true });
+    await result;
+
+    const perfLines = log.getCalls().map(c => String(c.args[0])).filter(l => l.startsWith('[perf]'));
+    // One "<lang>: ok in <n>ms" line per analyzer …
+    assert.strictEqual(
+      perfLines.filter(l => /: ok in \d+ms$/.test(l)).length, 5,
+      'one timing line per analyzer',
+    );
+    // … plus one attempt summary carrying elapsed time and graph totals.
+    assert.ok(
+      perfLines.some(l => /analysis attempt 1: \d+ms total, \d+ nodes \/ \d+ edges/.test(l)),
+      'attempt summary line with totals',
+    );
+  });
+
   test('analyzer exit-nonzero is surfaced (logged + status), never swallowed', async function () {
     this.timeout(5000);
     stubPythonResolution(sandbox);

@@ -205,7 +205,10 @@ function fitToView() {
 // ── Drag (swimming effect) ────────────────────────────────────────────────────
 const drag = d3.drag()
   .on('start', (event, d) => {
-    if (state.layoutMode === 'dynamic' && !event.active && state.simulation)
+    // Large graphs freeze once settled (issue #52): don't reheat the whole
+    // simulation for a single drag — move the node directly instead.
+    if (state.layoutMode === 'dynamic' && dragShouldReheat(state.currentNodes.length)
+        && !event.active && state.simulation)
       state.simulation.alphaTarget(0.3).restart();
     d.fx = d.x;
     d.fy = d.y;
@@ -213,22 +216,32 @@ const drag = d3.drag()
   .on('drag', (event, d) => {
     d.fx = event.x;
     d.fy = event.y;
-    if (state.layoutMode === 'static') {
-      // Simulation stopped — sync x/y directly so ticked() renders correctly
+    if (state.layoutMode === 'static' || !dragShouldReheat(state.currentNodes.length)) {
+      // Simulation stopped (static, or frozen large graph) — sync x/y directly
+      // so ticked() renders correctly.
       d.x = event.x;
       d.y = event.y;
       ticked();
     }
   })
   .on('end', (event, d) => {
-    if (state.layoutMode === 'dynamic') {
+    if (state.layoutMode === 'dynamic' && dragShouldReheat(state.currentNodes.length)) {
       if (!event.active && state.simulation) state.simulation.alphaTarget(0);
       d.fx = null;
       d.fy = null; // release — node rejoins simulation
     }
-    // static: keep fx/fy pinned so node stays exactly where dropped
+    // static or frozen large graph: keep fx/fy pinned so node stays where dropped
     window.markDirty?.();
   });
+
+// Report webview layout settle time back to the host once per render. Guarded on
+// layoutStartedAt so repaint-only ticked() calls (drag, zoom) never re-post.
+function postLayoutMetrics() {
+  if (state.layoutStartedAt == null) { return; }
+  const ms = Date.now() - state.layoutStartedAt;
+  state.layoutStartedAt = null;
+  vscode.postMessage({ type: 'layout-metrics', ms, nodes: state.currentNodes.length });
+}
 
 // ── Tick ──────────────────────────────────────────────────────────────────────
 function ticked() {
@@ -271,10 +284,17 @@ function ticked() {
     this.setAttribute('y', d.y + nodeRadius(d) + 10);
   });
 
-  // Auto-fit once after initial settling
-  if (!state.hasFitted && state.simulation && state.simulation.alpha() < 0.1) {
-    state.hasFitted = true;
-    fitToView();
+  // Auto-fit once after initial settling; large graphs also freeze once settled.
+  if (state.simulation) {
+    const alpha = state.simulation.alpha();
+    if (!state.hasFitted && alpha < 0.1) {
+      state.hasFitted = true;
+      fitToView();
+      postLayoutMetrics();
+    }
+    if (shouldFreeze(alpha, state.currentNodes.length)) {
+      state.simulation.stop();
+    }
   }
 
   if (state.viewMode === 'workflow') { updateWorkflowDivider(); }
@@ -559,6 +579,16 @@ function startSimulation(allLinks) {
     return;
   }
   if (state.simulation) state.simulation.stop();
+  const n = state.currentNodes.length;
+  // Dynamic per-repo force defaults (#27): unless the user hand-tuned the force
+  // sliders, seed centering/repel from the graph size before building forces
+  // (the charge/x/y forces below read settings.* for this repo).
+  if (!settings.userTunedForces) {
+    const defaults = computeForceDefaults(n);
+    settings.centerForce = defaults.centerForce;
+    settings.repelForce = defaults.repelForce;
+    if (typeof syncForceSliders === 'function') syncForceSliders();
+  }
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;
   const H = svgEl.clientHeight || window.innerHeight;
@@ -575,10 +605,14 @@ function startSimulation(allLinks) {
     .force('center', d3.forceCenter(W / 2, H / 2).strength(0.001))
     .force('x', d3.forceX(W / 2).strength(settings.centerForce))
     .force('y', d3.forceY(H / 2).strength(settings.centerForce))
-    .force('collision', d3.forceCollide(d => nodeRadius(d) + 1))
     .velocityDecay(0.3)
-    .alphaDecay(0.02)
+    .alphaDecay(alphaDecayFor(n))
     .on('tick', ticked);
+  // Collision resolution is skipped for large graphs (it dominates tick cost);
+  // applied via simulation.force() after construction, the idiomatic d3 way.
+  if (useCollide(n)) {
+    state.simulation.force('collision', d3.forceCollide(d => nodeRadius(d) + 1));
+  }
 }
 
 const WORKFLOW_MARGIN_X = 90;

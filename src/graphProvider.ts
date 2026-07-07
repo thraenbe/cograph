@@ -327,6 +327,9 @@ export class GraphProvider {
       } else if (message.type === 'cancel-analysis') {
         this.analyzerRunner.killAll();
         this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false, cancelled: true });
+      } else if (message.type === 'layout-metrics') {
+        this.outputChannel.appendLine(
+          `[perf] webview layout settled in ${message.ms}ms (${message.nodes} nodes)`);
       } else if (message.type === 'open-chat') {
         // Focuses the Cograph activity-bar view. The current graph context is
         // already up-to-date — setCurrentGraph is invoked from loadGraph and
@@ -643,6 +646,11 @@ export class GraphProvider {
       this.showError('CoGraph: Failed to parse graph data.');
       return;
     }
+
+    const kb = Buffer.byteLength(stdout, 'utf8') / 1024;
+    const size = kb >= 1024 ? `${(kb / 1024).toFixed(2)} MB` : `${kb.toFixed(1)} KB`;
+    this.outputChannel.appendLine(
+      `[perf] payload: ${graph.nodes.length} nodes / ${graph.edges.length} edges, ${size}`);
 
     // A 0-node result is only a dead-end when NO skeleton is shown. With the
     // file-cluster skeleton up, the structure stays and analysis just adds nothing.

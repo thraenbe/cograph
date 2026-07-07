@@ -27,6 +27,7 @@ const state = {
   currentNodes: [],
   currentZoom: 1,
   hasFitted: false,
+  layoutStartedAt: null,           // Date.now() at renderGraph entry; nulled once metrics posted
   pendingReheat: false,
   layoutMode: 'dynamic',
   gitMode: true,

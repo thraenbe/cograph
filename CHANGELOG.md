@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Large graphs (≥800 rendered nodes) now settle and freeze instead of simulating indefinitely; dragging a node moves it directly without reheating the whole graph.
+- Force defaults now scale with repository size, and the Reset Layout button restores size-appropriate values.
+- Workflow view detail is clamped so huge repositories never render an unbounded node count.
+- The CoGraph output channel now logs per-analyzer wall time, payload size, and webview layout settle time.
+
+### Fixed
+- The initial center force (0.025) now matches the slider and reset default (0.05).
+
 ## [1.1.1] - 2026-07-03
 
 ### Fixed

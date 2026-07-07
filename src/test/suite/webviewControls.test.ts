@@ -745,6 +745,28 @@ suite('applySavedViewSettings()', () => {
 // ---------------------------------------------------------------------------
 
 suite('dynamic force defaults (#27)', () => {
+  let savedUserTunedForces: any;
+  let savedRepelForce: any;
+  let savedCenterForce: any;
+  let savedLinkForce: any;
+  let savedCurrentNodes: any;
+
+  setup(() => {
+    savedUserTunedForces = (global as any).settings.userTunedForces;
+    savedRepelForce = (global as any).settings.repelForce;
+    savedCenterForce = (global as any).settings.centerForce;
+    savedLinkForce = (global as any).settings.linkForce;
+    savedCurrentNodes = (global as any).state.currentNodes;
+  });
+
+  teardown(() => {
+    (global as any).settings.userTunedForces = savedUserTunedForces;
+    (global as any).settings.repelForce = savedRepelForce;
+    (global as any).settings.centerForce = savedCenterForce;
+    (global as any).settings.linkForce = savedLinkForce;
+    (global as any).state.currentNodes = savedCurrentNodes;
+  });
+
   test('force slider input marks settings.userTunedForces', () => {
     (global as any).settings.userTunedForces = false;
     const slider = dom.window.document.getElementById('slider-repel-force') as any;

@@ -302,6 +302,7 @@ export function getWebviewHtml(
         <input id="search" type="text" placeholder="Filter functions..." />
         <span id="btn-clear-search" class="clear-icon" title="Clear Search">&#x2715;</span>
       </div>
+      <div id="search-count" class="search-count"></div>
       <div class="toggle-row">
         <span>Show Orphans</span>
         <label class="switch"><input type="checkbox" id="toggle-orphans" checked /><span class="pill"></span></label>

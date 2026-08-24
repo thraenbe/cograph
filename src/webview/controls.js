@@ -26,6 +26,7 @@ document.getElementById('btn-layout-static')?.addEventListener('click', () => {
 // ── Filter controls ───────────────────────────────────────────────────────────
 const searchInput = document.getElementById('search');
 const btnClearSearch = document.getElementById('btn-clear-search');
+const searchCount = document.getElementById('search-count');
 
 searchInput?.addEventListener('input', (e) => {
   if (btnClearSearch) {
@@ -35,11 +36,8 @@ searchInput?.addEventListener('input', (e) => {
 });
 
 btnClearSearch?.addEventListener('click', () => {
-  if (searchInput) {
-    searchInput.value = '';
-    btnClearSearch.style.display = 'none';
-    applyFilters();
-  }
+  clearSearch();
+  searchInput?.focus();
 });
 
 document.getElementById('toggle-orphans')?.addEventListener('change', (e) => {
@@ -56,6 +54,31 @@ document.getElementById('toggle-empty-files')?.addEventListener('change', (e) =>
   settings.showEmptyFiles = e.target.checked;
   applyComplexity();
 });
+
+/** Empties the filter box; returns false if it was already empty, so Escape can move on to the panel. */
+function clearSearch() {
+  if (!searchInput || searchInput.value === '') return false;
+  searchInput.value = '';
+  if (btnClearSearch) btnClearSearch.style.display = 'none';
+  applyFilters();
+  updateSearchCount(null);
+  return true;
+}
+
+/** Tells the user how many nodes survived the current filter — silent until they type, red at zero. */
+function updateSearchCount(visibleIds) {
+  if (!searchCount) return;
+  if (!searchInput?.value) {
+    searchCount.style.display = 'none';
+    searchCount.textContent = '';
+    searchCount.classList.remove('search-count--none');
+    return;
+  }
+  const count = visibleIds ? visibleIds.size : 0;
+  searchCount.style.display = 'block';
+  searchCount.textContent = count === 1 ? '1 match' : `${count} matches`;
+  searchCount.classList.toggle('search-count--none', count === 0);
+}
 
 // ── Configuration controls ────────────────────────────────────────────────────
 document.getElementById('toggle-func-popup')?.addEventListener('change', (e) => {
@@ -370,24 +393,35 @@ document.getElementById('lib-doc-goto-btn')?.addEventListener('click', () => {
   vscode.postMessage({ type: 'open-docs', libraryName: d.libraryName, functionName: d.name, language: d.language });
 });
 
-// ── Function popup — Escape closes topmost ────────────────────────────────────
+// ── Global keyboard shortcuts ─────────────────────────────────────────────────
 document.addEventListener('keydown', (e) => {
-  // 1. Close topmost function popup on Escape
-  if (e.key === 'Escape' && state.funcPopups.size > 0) {
-    const top = [...state.funcPopups.values()].reduce((a, b) =>
-      parseInt(b.element.style.zIndex) > parseInt(a.element.style.zIndex) ? b : a);
-    closeFuncPopupInstance(top);
+  if (e.key === 'Escape') {
+    // Unwind order: topmost popup, then the filter query, then the panel.
+    if (state.funcPopups.size > 0) {
+      const top = [...state.funcPopups.values()].reduce((a, b) =>
+        parseInt(b.element.style.zIndex) > parseInt(a.element.style.zIndex) ? b : a);
+      closeFuncPopupInstance(top);
+      return;
+    }
+    if (clearSearch()) return;
+    if (settingsPanel?.classList.contains('open')) {
+      settingsPanel.classList.remove('open');
+      searchInput?.blur();
+    }
+    return;
   }
 
-  // 2. Focus search on Ctrl+F or Cmd+F
+  // Ctrl/Cmd+F — open the panel first, the box is display:none while it's closed.
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
     e.preventDefault();
-    document.getElementById('search')?.focus();
+    settingsPanel?.classList.add('open');
+    searchInput?.focus();
+    searchInput?.select();
   }
 });
 
 if (typeof module !== 'undefined') {
-  module.exports = { applyResizeDelta, applySavedViewSettings };
+  module.exports = { applyResizeDelta, applySavedViewSettings, clearSearch, updateSearchCount };
 }
 
 // ── Resize math helper ────────────────────────────────────────────────────────

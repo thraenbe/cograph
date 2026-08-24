@@ -181,6 +181,17 @@ body.vscode-light {
   border-color: var(--vscode-focusBorder, #007fd4);
 }
 
+.search-count {
+  display: none;
+  margin: -4px 0 8px;
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground, #858585);
+}
+
+.search-count--none {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+
 /* ── Toggle rows ── */
 .toggle-row {
   display: flex;

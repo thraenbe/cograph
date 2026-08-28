@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-28
+
 ### Added
 - Live match count under the function filter box, red when nothing matches.
 - Escape unwinds one level at a time: function popup, then filter query, then settings panel.

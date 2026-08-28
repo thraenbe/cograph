@@ -119,6 +119,7 @@ function applyFilters() {
 
   if (typeof tickFolderOverlay === 'function') tickFolderOverlay();
   if (typeof tickClassOverlay === 'function') tickClassOverlay();
+  if (typeof updateSearchCount === 'function') updateSearchCount(visibleSet);
 }
 
 // ── Display settings ──────────────────────────────────────────────────────────

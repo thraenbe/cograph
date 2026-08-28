@@ -15,6 +15,8 @@ function makeDOM() {
     <button id="btn-layout-dynamic"></button>
     <button id="btn-layout-static"></button>
     <input id="search" type="text" />
+    <span id="btn-clear-search" style="display:none"></span>
+    <div id="search-count"></div>
     <input id="toggle-orphans" type="checkbox" checked />
     <input id="toggle-libraries" type="checkbox" />
     <input id="toggle-arrows" type="checkbox" checked />
@@ -117,7 +119,7 @@ require('../../../src/webview/controls.js');
 
 // Also get applyResizeDelta / applySavedViewSettings for direct testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { applyResizeDelta, applySavedViewSettings } = require('../../../src/webview/controls.js');
+const { applyResizeDelta, applySavedViewSettings, clearSearch, updateSearchCount } = require('../../../src/webview/controls.js');
 
 // Load popups.js factory for textarea handler tests
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -729,5 +731,79 @@ suite('applySavedViewSettings()', () => {
     assert.strictEqual(st().clusterGroupBy, before.clusterGroupBy);
     assert.strictEqual(st().gitMode, before.gitMode);
     assert.strictEqual(st().folderMode, before.folderMode);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: filter box shortcuts + match count
+// ---------------------------------------------------------------------------
+
+suite('search box UX', () => {
+  const doc = dom.window.document;
+  const searchEl = () => doc.getElementById('search') as any;
+  const panel = () => doc.getElementById('settings-panel')!;
+  const countEl = () => doc.getElementById('search-count')!;
+
+  setup(() => {
+    searchEl().value = '';
+    panel().classList.remove('open');
+    (global as any).state.funcPopups = new Map();
+    updateSearchCount(null);
+  });
+
+  test('Ctrl+F opens the settings panel so the hidden search box is reachable', () => {
+    dispatchKey(doc, 'keydown', 'f', { ctrlKey: true });
+    assert.ok(panel().classList.contains('open'), 'panel must open — it is display:none while closed');
+    assert.strictEqual(doc.activeElement, searchEl());
+  });
+
+  test('Cmd+F behaves like Ctrl+F', () => {
+    dispatchKey(doc, 'keydown', 'f', { metaKey: true });
+    assert.ok(panel().classList.contains('open'));
+  });
+
+  test('Escape clears a non-empty query before closing the panel', () => {
+    panel().classList.add('open');
+    searchEl().value = 'foo';
+    dispatchKey(doc, 'keydown', 'Escape');
+    assert.strictEqual(searchEl().value, '');
+    assert.ok(panel().classList.contains('open'), 'first Escape only clears the query');
+    dispatchKey(doc, 'keydown', 'Escape');
+    assert.ok(!panel().classList.contains('open'), 'second Escape closes the panel');
+  });
+
+  test('Escape with an open function popup does not touch the query', () => {
+    panel().classList.add('open');
+    searchEl().value = 'foo';
+    let closed = false;
+    (global as any).closeFuncPopupInstance = () => { closed = true; };
+    (global as any).state.funcPopups = new Map([['a', { element: { style: { zIndex: '200' } } }]]);
+    dispatchKey(doc, 'keydown', 'Escape');
+    assert.ok(closed, 'popup takes priority');
+    assert.strictEqual(searchEl().value, 'foo');
+  });
+
+  test('clearSearch() returns false when the box is already empty', () => {
+    assert.strictEqual(clearSearch(), false);
+    searchEl().value = 'x';
+    assert.strictEqual(clearSearch(), true);
+  });
+
+  test('match count is hidden while the query is empty', () => {
+    updateSearchCount(new Set(['a', 'b']));
+    assert.strictEqual(countEl().style.display, 'none');
+    assert.strictEqual(countEl().textContent, '');
+  });
+
+  test('match count pluralizes and flags zero matches', () => {
+    searchEl().value = 'foo';
+    updateSearchCount(new Set(['a']));
+    assert.strictEqual(countEl().textContent, '1 match');
+    updateSearchCount(new Set(['a', 'b']));
+    assert.strictEqual(countEl().textContent, '2 matches');
+    assert.ok(!countEl().classList.contains('search-count--none'));
+    updateSearchCount(new Set());
+    assert.strictEqual(countEl().textContent, '0 matches');
+    assert.ok(countEl().classList.contains('search-count--none'));
   });
 });

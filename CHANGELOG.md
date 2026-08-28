@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Live match count under the function filter box, red when nothing matches.
+- Escape unwinds one level at a time: function popup, then filter query, then settings panel.
+
+### Fixed
+- Ctrl+F / Cmd+F opens the settings panel before focusing the filter box (the box is hidden with the panel, so the shortcut did nothing while it was closed).
+
 ## [1.1.1] - 2026-07-03
 
 ### Fixed

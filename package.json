@@ -216,25 +216,25 @@
   "dependencies": {
     "java-parser": "^2.0.5",
     "typescript": "^6.0.3",
-    "web-tree-sitter": "0.26.9"
+    "web-tree-sitter": "0.26.12"
   },
   "devDependencies": {
     "@types/jsdom": "^21.1.7",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.0.0",
     "@types/sinon": "^17.0.0",
-    "@types/vscode": "^1.64.0",
+    "@types/vscode": "^1.134.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.32.0",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "eslint": "^8.0.0",
     "glob": "^13.0.6",
     "jsdom": "^25.0.1",
     "mocha": "^10.4.0",
     "sinon": "^17.0.0",
-    "tree-sitter-cli": "0.26.9",
-    "tree-sitter-cpp": "^0.22.3"
+    "tree-sitter-cli": "0.26.12",
+    "tree-sitter-cpp": "^0.23.4"
   }
 }

@@ -239,6 +239,7 @@ const drag = d3.drag()
     d.fy = d.y;
   })
   .on('drag', (event, d) => {
+    const __t0 = __pb();
     d.fx = event.x;
     d.fy = event.y;
     if (dragMovesDirectly()) {
@@ -247,6 +248,7 @@ const drag = d3.drag()
       d.y = event.y;
       ticked();
     }
+    __pe('drag:move', __t0);
   })
   .on('end', (event, d) => {
     if (coolAfterDrag(event)) {
@@ -329,8 +331,13 @@ function tickedNow() {
   if (__perfT0) { perfTick(perfNow() - __perfT0); }
 }
 
+// perf.js span helpers, safe when perf.js is not loaded (unit tests).
+function __pb() { return (typeof perfBegin === 'function') ? perfBegin() : 0; }
+function __pe(name, t0) { if (t0) { perfEnd(name, t0); } }
+
 // ── Node event handlers ───────────────────────────────────────────────────────
 function onNodeMouseOver(event, d) {
+  const __t0 = __pb();
   if (typeof usesFrames === 'function' && usesFrames()) {
     state._frameHoverId = d.id;
     if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
@@ -353,9 +360,11 @@ function onNodeMouseOver(event, d) {
     .style('opacity', 1)
     .attr('font-size', `${11.5 * settings.textSize}px`)
     .attr('fill', getCSSVar('--cograph-label-hover'));
+  __pe('hover:over', __t0);
 }
 
 function onNodeMouseOut(event, d) {
+  const __t0 = __pb();
   if (state._frameHoverId) {
     state._frameHoverId = null;
     if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
@@ -374,9 +383,11 @@ function onNodeMouseOut(event, d) {
     .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
     .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
     .attr('fill', (d.isCluster || d.isSynthetic) ? getCSSVar('--cograph-label-cluster') : getCSSVar('--cograph-label-default'));
+  __pe('hover:out', __t0);
 }
 
 function onCloudMouseOver(event, d) {
+  const __t0 = __pb();
   if (typeof usesFrames === 'function' && usesFrames()) {
     state._frameHoverId = d.id;
     if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
@@ -400,9 +411,11 @@ function onCloudMouseOver(event, d) {
     .style('opacity', 1)
     .attr('font-size', `${11.5 * settings.textSize}px`)
     .attr('fill', getCSSVar('--cograph-label-hover'));
+  __pe('hover:over', __t0);
 }
 
 function onCloudMouseOut(event, d) {
+  const __t0 = __pb();
   if (state._frameHoverId) {
     state._frameHoverId = null;
     if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
@@ -422,6 +435,7 @@ function onCloudMouseOut(event, d) {
     .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
     .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
     .attr('fill', getCSSVar('--cograph-label-cluster'));
+  __pe('hover:out', __t0);
 }
 
 // ── Render sub-functions ──────────────────────────────────────────────────────

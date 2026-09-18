@@ -246,7 +246,8 @@
     "lint": "eslint src --ext ts",
     "build:cpp-grammar": "tree-sitter build --wasm node_modules/tree-sitter-cpp -o scripts/tree-sitter-cpp.wasm",
     "package": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce package",
-    "publish": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce publish"
+    "publish": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce publish",
+    "perf:bench": "npm run compile && node scripts/perf/build-page.cjs && node scripts/perf/run.mjs"
   },
   "dependencies": {
     "java-parser": "^2.0.5",
@@ -263,6 +264,7 @@
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.32.0",
+    "d3": "7.9.0",
     "esbuild": "^0.28.1",
     "eslint": "^8.0.0",
     "glob": "^13.0.6",

@@ -12,6 +12,11 @@ function createScheduler(opts) {
   const onTick = opts.onTick || (() => {});
   const tick = opts.tick;              // (rec) => {path, gen, nodes} | null
   const beforeTick = opts.beforeTick;  // optional per-record pre-step hook
+  // Optional instrumentation hooks (perf.js): loop started, one step's
+  // main-thread cost, loop ran dry. Absent → zero overhead.
+  const onWake = opts.onWake;
+  const onStep = opts.onStep;          // (ms, recordsTicked)
+  const onIdle = opts.onIdle;
 
   const recs = new Map();              // path -> SimRecord
   let running = false;
@@ -43,14 +48,20 @@ function createScheduler(opts) {
   }
 
   function loop() {
+    const t0 = onStep ? now() : 0;
     const out = step();
+    if (onStep && out.length) { onStep(now() - t0, out.length); }
     if (!paused && (out.length || pick().length)) { handle = raf(loop); }
-    else { running = false; }
+    else {
+      running = false;
+      if (onIdle && !paused) { onIdle(); }
+    }
   }
 
   function wake() {
     if (running || paused || !raf) { return; }
     running = true;
+    if (onWake) { onWake(); }
     handle = raf(loop);
   }
 

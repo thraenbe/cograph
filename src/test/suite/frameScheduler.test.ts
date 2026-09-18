@@ -27,6 +27,9 @@ function makeSched(over: any = {}) {
     }),
     beforeTick: over.beforeTick,
     onTick: (out: any[]) => results.push(out),
+    onWake: over.onWake,
+    onStep: over.onStep,
+    onIdle: over.onIdle,
   });
   return { sched, rafQueue, ticked, results, tickClock: () => clock };
 }
@@ -115,5 +118,33 @@ suite('frameScheduler', () => {
     sched.add(rec('/a', { alpha: 0.4 }));
     sched.add(rec('/b', { alpha: 0.9, settled: true }));
     assert.strictEqual(sched.maxAlpha((r: any) => r.alpha), 0.4);
+  });
+
+  test('instrumentation hooks: onWake once, onStep per ticking frame, onIdle when dry', () => {
+    const events: string[] = [];
+    const { sched, rafQueue } = makeSched({
+      onWake: () => events.push('wake'),
+      onStep: (ms: number, n: number) => events.push(`step:${n}:${ms >= 0}`),
+      onIdle: () => events.push('idle'),
+    });
+    sched.add(rec('/a'));
+    sched.add(rec('/b')); // already running → no second wake
+    let guard = 0;
+    while (rafQueue.length && guard++ < 50) { (rafQueue.shift() as () => void)(); }
+    assert.strictEqual(events.filter(e => e === 'wake').length, 1);
+    assert.strictEqual(events[events.length - 1], 'idle');
+    assert.strictEqual(events.filter(e => e === 'idle').length, 1);
+    const steps = events.filter(e => e.startsWith('step:'));
+    assert.ok(steps.length >= 7);
+    assert.strictEqual(steps[0], 'step:2:true');
+  });
+
+  test('pauseAll ends the loop without reporting idle', () => {
+    const events: string[] = [];
+    const { sched, rafQueue } = makeSched({ onIdle: () => events.push('idle') });
+    sched.add(rec('/a'));
+    sched.pauseAll();
+    while (rafQueue.length) { (rafQueue.shift() as () => void)(); }
+    assert.deepStrictEqual(events, []);
   });
 });

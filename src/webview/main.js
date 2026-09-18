@@ -140,6 +140,7 @@ function getVisibleNodeIds() {
 
 function applyFilters() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
+  const __t0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
   const visibleSet = getVisibleNodeIds();
   state.svgNodes.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgCloudNodes?.style('display', d => visibleSet.has(d.id) ? null : 'none');
@@ -156,6 +157,7 @@ function applyFilters() {
   if (typeof tickClassOverlay === 'function') tickClassOverlay();
   if (typeof updateSearchCount === 'function') updateSearchCount(visibleSet);
   if (typeof usesFrames === 'function' && usesFrames()) { tickFrames(); }
+  if (__t0) { perfEnd('applyFilters', __t0); }
 }
 
 // ── Display settings ──────────────────────────────────────────────────────────

@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saved node positions and pinned).
 - Local-only performance instrumentation behind `cograph.debug.perfLog`, plus
   `CoGraph: Load Synthetic Repo (Perf Dev)` to reproduce large-repo numbers.
+- `cograph.debug.perfLog` now covers the Shelf engine too: per-frame main-thread time
+  and settle time of the frame scheduler, plus hover, drag, filter and cross-link
+  timings in the `[perf]` report. Dev-only `npm run perf:bench` measures the real
+  webview page in headless Chrome (`scripts/perf/`).
 
 ### Fixed
 - Collapsing a folder whose descendants were still individually expanded could feed

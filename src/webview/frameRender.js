@@ -42,6 +42,12 @@ function ensureFrameScheduler() {
       // move during settle — they update on render / frame moves.
       for (const r of results) { applySimResult(r); }
     },
+    // perf.js hooks — each is one boolean check while perfLog is off.
+    onWake: () => { if (typeof perfMark === 'function') { perfMark('sim:start'); } },
+    onStep: (ms) => {
+      if (typeof perfTick === 'function') { perfTick(ms); perfFrame(ms); }
+    },
+    onIdle: () => { if (typeof perfSettled === 'function') { perfSettled(); } },
   });
   return __fr.sched;
 }
@@ -369,8 +375,10 @@ function tickFrame(path) {
 
 function tickFrames() {
   if (!state.frames) { return; }
+  const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
   for (const path of __fr.frameSel.keys()) { tickFrame(path); }
   updateCrossLinks();
+  if (__perfT0) { perfEnd('tickFrames', __perfT0); }
 }
 
 // ── Cross-frame links (aggregated bundles between title-bar ports) ────────────
@@ -380,6 +388,7 @@ function updateCrossLinks() {
     linkG.selectAll('line.cross-hover').remove();
     return;
   }
+  const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
   const { bundles, individual } = buildCrossLinks({
     cross: __fr.cross || [],
     frameOfId: id => { const n = __fr.byId.get(id); return n ? n._frame : null; },
@@ -417,6 +426,7 @@ function updateCrossLinks() {
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
     .attr('x1', d => d.x1).attr('y1', d => d.y1)
     .attr('x2', d => d.x2).attr('y2', d => d.y2);
+  if (__perfT0) { perfEnd('updateCrossLinks', __perfT0); }
 }
 
 // ── Teardown (leaving the frames engine / drill-down) ─────────────────────────

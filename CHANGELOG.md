@@ -26,8 +26,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saved node positions and pinned).
 - Local-only performance instrumentation behind `cograph.debug.perfLog`, plus
   `CoGraph: Load Synthetic Repo (Perf Dev)` to reproduce large-repo numbers.
+- **Annotate Graph (AI)** — every folder and file gets a one-sentence summary of what it
+  is responsible for, shown in a new hover card. Start it from the pinned card in the
+  CoGraph sidebar or with `CoGraph: Annotate Graph`. By default only a locally built
+  digest is sent (paths, function names with their signature lines, import names, leading
+  comments — no function bodies, and with Claude Code the AI cannot open files);
+  `cograph.graphIntelligence.annotate.readSource` lets the AI read source files
+  (read-only) for better summaries. You confirm an estimate before anything is sent, see
+  the running cost, and the run stops at `annotate.maxRunBudgetUsd` (default $2) keeping
+  what is done. Editing a file only marks its summary and its parent folders "outdated";
+  **Update** re-annotates just those. Summaries are stored locally in
+  `.cograph/annotations/`. Measured with Claude haiku: about $0.09 and 70 s for a
+  180-path repository.
+- **Hover card** for folders and files in both layout engines: name, path and static
+  facts (files · functions · languages), plus the AI summary once generated. It works
+  with AI features off.
 
 ### Fixed
+- Chat now checks the AI-features setting on the host side as well, not only in the
+  sidebar, so no code path can reach an AI provider while AI features are off.
 - Collapsing a folder whose descendants were still individually expanded could feed
   the renderer edges pointing at nodes that were never drawn (a d3 "node not found"
   crash in the classic layout). The visible-frontier mapping now checks the whole
@@ -39,6 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-node glow is dropped, re-renders reuse the existing simulation, and the
   overlay visibility pass runs once per tick instead of three times.
 - The drill-down box code moved from `folder.js` into `drilldown.js` (file-size split).
+- AI provider calls share one process helper (timeout, output cap, cancel). Annotate
+  Graph uses a new narrow call that never runs a write-capable CLI mode and skips the
+  CLI's default context, which cut a small haiku call from about $0.19 to $0.005.
 
 ## [1.2.0] - 2026-08-28
 

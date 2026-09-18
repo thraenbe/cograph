@@ -53,6 +53,7 @@ export interface LayoutMetrics {
   bboxAspect: number;
   inkRatio: number;                      // node area / bbox area (1 - whitespace)
   viewportCoverage: number;              // on-screen bbox area / viewport area
+  offscreenNodeRatio: number;            // nodes painted outside the viewport / nodes
   domNodes: number;
   heapMB: number | null;
 }

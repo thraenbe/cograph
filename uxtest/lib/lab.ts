@@ -60,6 +60,7 @@ async function wireNetwork(page: Page, origin: string, blocked: string[]): Promi
   await page.route('**/*', async (route) => {
     const url = route.request().url();
     if (url.startsWith(origin)) { return route.continue(); }
+    // Only hit while the HTML still references cdnjs; a vendored d3 is served by the lab server.
     if (/^https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/d3\//.test(url)) {
       return route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: d3Body });
     }

@@ -1,5 +1,5 @@
-// Lab server: serves the real webview HTML at / and the plain webview sources
-// under /ext/src/webview/. Bound to 127.0.0.1 on a random port.
+// Lab server: serves the real webview HTML at / and the webview resources
+// under /ext/{src/webview,dist/webview,media}/. Bound to 127.0.0.1 on a random port.
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -7,12 +7,17 @@ import type { AddressInfo } from 'net';
 import { renderWebviewHtml, REPO_ROOT, EXT_PREFIX, type BootConfig } from './vscodeStub';
 import { log } from '../lib/log';
 
-const WEBVIEW_DIR = path.join(REPO_ROOT, 'src', 'webview');
+// Everything a webview may legitimately load: the plain sources today, the
+// bundled/vendored output (dist/webview, e.g. a local d3) once perf lands it.
+const STATIC_ROOTS = ['src/webview', 'dist/webview', 'media'].map(r => path.join(REPO_ROOT, r));
 const MIME: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.json': 'application/json',
+  '.wasm': 'application/wasm',
+  '.map': 'application/json',
 };
 
 export interface LabServer {
@@ -33,13 +38,12 @@ function cfgFromQuery(url: URL): BootConfig {
   };
 }
 
-/** Resolve /ext/src/webview/<file> to disk; null when outside the webview dir. */
+/** Resolve /ext/<repo-relative file> to disk; null when outside the served roots. */
 export function resolveStatic(pathname: string): string | null {
   if (!pathname.startsWith(EXT_PREFIX + '/')) { return null; }
   const rel = decodeURIComponent(pathname.slice(EXT_PREFIX.length + 1));
   const abs = path.resolve(REPO_ROOT, rel);
-  if (abs !== WEBVIEW_DIR && !abs.startsWith(WEBVIEW_DIR + path.sep)) { return null; }
-  return abs;
+  return STATIC_ROOTS.some(root => abs.startsWith(root + path.sep)) ? abs : null;
 }
 
 function handle(origin: string, req: http.IncomingMessage, res: http.ServerResponse): void {

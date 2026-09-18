@@ -9,6 +9,7 @@ import { drainFps, type FpsWindow } from './fps';
 import { collectSnapshot } from '../metrics/collect';
 import { computeMetrics } from '../metrics/compute';
 import type { LayoutMetrics, Snapshot } from '../metrics/types';
+import { findingsFor, type Finding } from '../metrics/score';
 import { log } from './log';
 
 export interface StepRecord {
@@ -24,6 +25,7 @@ export interface StepRecord {
   screenshot: string | null;    // relative to the run dir
   snapshot: string | null;
   consoleErrors: string[];
+  findings: Finding[];
 }
 
 export interface StepOpts { settle?: boolean; metrics?: boolean; stillTimeoutMs?: number }
@@ -59,7 +61,7 @@ export class StepRecorder {
     const index = this.steps.length + 1;
     const base = `${String(index).padStart(2, '0')}-${slug(name)}`;
     const rec: StepRecord = { index, name, status: 'ok', videoAtMs: Date.now() - this.t0, durationMs: 0,
-      still: null, fps: null, metrics: null, screenshot: null, snapshot: null, consoleErrors: [] };
+      still: null, fps: null, metrics: null, screenshot: null, snapshot: null, consoleErrors: [], findings: [] };
     this.steps.push(rec);
     const started = Date.now();
     let failure: unknown = null;
@@ -76,7 +78,11 @@ export class StepRecorder {
     rec.durationMs = Date.now() - started;
     rec.consoleErrors = this.d.errors.slice(this.errCursor);
     this.errCursor = this.d.errors.length;
-    log.info('step', { index, name, status: rec.status, ms: rec.durationMs, settled: rec.still?.settled, note: rec.note });
+    if (rec.metrics && this.lastSnapshot) {
+      rec.findings = findingsFor(rec.metrics, { engine: this.lastSnapshot.engine, motion: this.lastSnapshot.motion,
+        settled: rec.still ? rec.still.settled : null, consoleErrors: rec.consoleErrors.length, longFrames: rec.fps?.longFrames ?? 0 });
+    }
+    log.info('step', { index, name, status: rec.status, ms: rec.durationMs, settled: rec.still?.settled, findings: rec.findings.map(f => f.rule), note: rec.note });
     if (failure) { throw failure; }
     return rec;
   }

@@ -1,0 +1,1784 @@
+{
+ "chrome": "Chrome/153.0.8010.47",
+ "date": "2026-09-18T12:23:25.215Z",
+ "results": [
+  {
+   "engine": "shelf",
+   "mode": "dynamic",
+   "fixture": "3k",
+   "graphNodes": 3000,
+   "graphEdges": 10000,
+   "payloadMB": 1.21,
+   "structuredCloneMs": 16.5,
+   "load": {
+    "syncMs": 53.2,
+    "toPaintMs": 66.7,
+    "settleWallMs": 2883,
+    "activeFrames": 170,
+    "scriptPerFrameMs": {
+     "n": 170,
+     "mean": 0.36,
+     "p50": 0.3,
+     "p95": 0.6,
+     "max": 2.4
+    },
+    "frameIntervalMs": {
+     "n": 171,
+     "mean": 16.67,
+     "p50": 16.7,
+     "p95": 16.7,
+     "max": 16.8
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 56.3,
+    "worstRenderMs": 54.5,
+    "renderedNodes": 1,
+    "dom": 39
+   },
+   "fourFrames": {
+    "syncMs": 118.9,
+    "toPaintMs": 229.6,
+    "settleWallMs": 10729.4,
+    "activeFrames": 341,
+    "scriptPerFrameMs": {
+     "n": 341,
+     "mean": 12.68,
+     "p50": 9.3,
+     "p95": 26.8,
+     "max": 78.9
+    },
+    "frameIntervalMs": {
+     "n": 342,
+     "mean": 30.99,
+     "p50": 33.3,
+     "p95": 50.1,
+     "max": 100
+    },
+    "longFrames": 15,
+    "worstLongFrameMs": 138.1,
+    "worstRenderMs": 138.1,
+    "renderedNodes": 805,
+    "dom": 5387,
+    "frames": 8
+   },
+   "expandAll": {
+    "syncMs": 279.7,
+    "toPaintMs": 522.5,
+    "settleWallMs": ">30000",
+    "activeFrames": 639,
+    "scriptPerFrameMs": {
+     "n": 639,
+     "mean": 9.91,
+     "p50": 8.9,
+     "p95": 16.3,
+     "max": 112.1
+    },
+    "frameIntervalMs": {
+     "n": 639,
+     "mean": 46.19,
+     "p50": 50,
+     "p95": 66.6,
+     "max": 183.3
+    },
+    "longFrames": 16,
+    "worstLongFrameMs": 359.2,
+    "worstRenderMs": 359.2,
+    "renderedNodes": 3000,
+    "dom": 20275,
+    "frames": 30
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 8.31,
+     "p50": 7.1,
+     "p95": 12.9,
+     "max": 44
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 93.18,
+     "p50": 83.4,
+     "p95": 133.3,
+     "max": 166.6
+    },
+    "fps": 10.73
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 35.44,
+     "p50": 32.7,
+     "p95": 46.9,
+     "max": 46.9
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 31.76,
+     "p50": 31.7,
+     "p95": 32.8,
+     "max": 32.8
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 57.82,
+     "p50": 53.4,
+     "p95": 131,
+     "max": 134
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 0,
+     "p50": 0,
+     "p95": 0,
+     "max": 0
+    },
+    "scriptPerFrameMs": {
+     "n": 60,
+     "mean": 8.84,
+     "p50": 8.7,
+     "p95": 13.2,
+     "max": 14.5
+    },
+    "frameIntervalMs": {
+     "n": 59,
+     "mean": 166.66,
+     "p50": 166.6,
+     "p95": 233.4,
+     "max": 233.4
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 77.13,
+    "p50": 78,
+    "p95": 128.4,
+    "max": 128.4
+   },
+   "errors": [],
+   "totalWallS": 66.8
+  },
+  {
+   "engine": "shelf",
+   "mode": "static",
+   "fixture": "3k",
+   "graphNodes": 3000,
+   "graphEdges": 10000,
+   "payloadMB": 1.21,
+   "structuredCloneMs": 7.7,
+   "load": {
+    "syncMs": 19.2,
+    "toPaintMs": 33.7,
+    "settleWallMs": 517.2,
+    "activeFrames": 31,
+    "scriptPerFrameMs": {
+     "n": 31,
+     "mean": 0.22,
+     "p50": 0.2,
+     "p95": 0.4,
+     "max": 0.5
+    },
+    "frameIntervalMs": {
+     "n": 32,
+     "mean": 16.67,
+     "p50": 16.7,
+     "p95": 16.8,
+     "max": 16.8
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 1,
+    "dom": 39
+   },
+   "fourFrames": {
+    "syncMs": 94.9,
+    "toPaintMs": 277.7,
+    "settleWallMs": 122.3,
+    "activeFrames": 0,
+    "scriptPerFrameMs": {
+     "n": 0
+    },
+    "frameIntervalMs": {
+     "n": 1,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.7,
+     "max": 16.7
+    },
+    "longFrames": 2,
+    "worstLongFrameMs": 156.2,
+    "worstRenderMs": 106.3,
+    "renderedNodes": 805,
+    "dom": 5387,
+    "frames": 8
+   },
+   "expandAll": {
+    "syncMs": 225.6,
+    "toPaintMs": 351.8,
+    "settleWallMs": 339.4,
+    "activeFrames": 1,
+    "scriptPerFrameMs": {
+     "n": 1,
+     "mean": 0.1,
+     "p50": 0.1,
+     "p95": 0.1,
+     "max": 0.1
+    },
+    "frameIntervalMs": {
+     "n": 2,
+     "mean": 16.65,
+     "p50": 16.7,
+     "p95": 16.7,
+     "max": 16.7
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 266.9,
+    "worstRenderMs": 266.9,
+    "renderedNodes": 3000,
+    "dom": 20275,
+    "frames": 30
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 1.44,
+     "p50": 1.2,
+     "p95": 2.5,
+     "max": 4
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 75,
+     "p50": 66.7,
+     "p95": 133.3,
+     "max": 150.1
+    },
+    "fps": 13.33
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 34.02,
+     "p50": 34.1,
+     "p95": 35.9,
+     "max": 35.9
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 40.9,
+     "p50": 35.4,
+     "p95": 68.4,
+     "max": 68.4
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 49.99,
+     "p50": 45.6,
+     "p95": 81.6,
+     "max": 96.6
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 0,
+     "p50": 0,
+     "p95": 0,
+     "max": 0
+    },
+    "scriptPerFrameMs": {
+     "n": 0
+    },
+    "frameIntervalMs": {
+     "n": 58,
+     "mean": 146.26,
+     "p50": 149.9,
+     "p95": 183.3,
+     "max": 183.4
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 78.47,
+    "p50": 97.8,
+    "p95": 107.9,
+    "max": 107.9
+   },
+   "errors": [],
+   "totalWallS": 21.2
+  },
+  {
+   "engine": "global",
+   "mode": "dynamic",
+   "fixture": "3k",
+   "graphNodes": 3000,
+   "graphEdges": 10000,
+   "payloadMB": 1.21,
+   "structuredCloneMs": 10.4,
+   "load": {
+    "syncMs": 21.1,
+    "toPaintMs": 33.7,
+    "settleWallMs": 5735.2,
+    "activeFrames": 340,
+    "scriptPerFrameMs": {
+     "n": 340,
+     "mean": 0.24,
+     "p50": 0.2,
+     "p95": 0.4,
+     "max": 1.8
+    },
+    "frameIntervalMs": {
+     "n": 341,
+     "mean": 16.76,
+     "p50": 16.7,
+     "p95": 16.8,
+     "max": 33.4
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 65.2,
+    "worstRenderMs": 0.6,
+    "renderedNodes": 1,
+    "dom": 31
+   },
+   "expandAll": {
+    "syncMs": 269.3,
+    "toPaintMs": 562.2,
+    "settleWallMs": 3858.6,
+    "activeFrames": 4,
+    "scriptPerFrameMs": {
+     "n": 4,
+     "mean": 131.48,
+     "p50": 128.4,
+     "p95": 215.6,
+     "max": 215.6
+    },
+    "frameIntervalMs": {
+     "n": 4,
+     "mean": 812.45,
+     "p50": 300,
+     "p95": 2616.5,
+     "max": 2616.5
+    },
+    "longFrames": 2,
+    "worstLongFrameMs": 336.2,
+    "worstRenderMs": 321,
+    "renderedNodes": 3000,
+    "dom": 20343,
+    "frames": 0
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 57.86,
+     "p50": 40.3,
+     "p95": 166.5,
+     "max": 206.8
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 335.97,
+     "p50": 266.6,
+     "p95": 633.3,
+     "max": 2866.4
+    },
+    "fps": 2.98
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 36.96,
+     "p50": 37.2,
+     "p95": 39.4,
+     "max": 39.4
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 38.74,
+     "p50": 37.1,
+     "p95": 45.8,
+     "max": 45.8
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 0.13,
+     "p50": 0.1,
+     "p95": 0.3,
+     "max": 0.4
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 1,
+     "p50": 1,
+     "p95": 1,
+     "max": 1
+    },
+    "scriptPerFrameMs": {
+     "n": 128,
+     "mean": 101.72,
+     "p50": 94,
+     "p95": 136.9,
+     "max": 239.4
+    },
+    "frameIntervalMs": {
+     "n": 127,
+     "mean": 236.21,
+     "p50": 216.7,
+     "p95": 383.3,
+     "max": 416.6
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 7.2,
+    "p50": 8.8,
+    "p95": 8.8,
+    "max": 8.8
+   },
+   "errors": [],
+   "totalWallS": 83.2
+  },
+  {
+   "engine": "global",
+   "mode": "dynamic",
+   "fixture": "1k",
+   "graphNodes": 1000,
+   "graphEdges": 3000,
+   "payloadMB": 0.35,
+   "structuredCloneMs": 2.3,
+   "load": {
+    "syncMs": 62.9,
+    "toPaintMs": 186.9,
+    "settleWallMs": 25239.4,
+    "activeFrames": 284,
+    "scriptPerFrameMs": {
+     "n": 284,
+     "mean": 35.1,
+     "p50": 29.6,
+     "p95": 57.2,
+     "max": 132.6
+    },
+    "frameIntervalMs": {
+     "n": 285,
+     "mean": 88.36,
+     "p50": 66.7,
+     "p95": 183.3,
+     "max": 400
+    },
+    "longFrames": 153,
+    "worstLongFrameMs": 361.9,
+    "worstRenderMs": 361.5,
+    "renderedNodes": 1000,
+    "dom": 6463
+   },
+   "expandAll": {
+    "syncMs": 52.4,
+    "toPaintMs": 110.9,
+    "settleWallMs": 22214,
+    "activeFrames": 284,
+    "scriptPerFrameMs": {
+     "n": 284,
+     "mean": 32.21,
+     "p50": 28.2,
+     "p95": 49.3,
+     "max": 159.6
+    },
+    "frameIntervalMs": {
+     "n": 285,
+     "mean": 77.89,
+     "p50": 66.7,
+     "p95": 149.9,
+     "max": 200
+    },
+    "longFrames": 90,
+    "worstLongFrameMs": 177.5,
+    "worstRenderMs": 177.2,
+    "renderedNodes": 1000,
+    "dom": 6463,
+    "frames": 0
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.64,
+     "p50": 0.5,
+     "p95": 1.7,
+     "max": 2
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 36.74,
+     "p50": 33.4,
+     "p95": 50.1,
+     "max": 66.7
+    },
+    "fps": 27.22
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 13.18,
+     "p50": 11.5,
+     "p95": 21.7,
+     "max": 21.7
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 11.92,
+     "p50": 12.7,
+     "p95": 13.8,
+     "max": 13.8
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 0.12,
+     "p50": 0.1,
+     "p95": 0.2,
+     "max": 0.3
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 1,
+     "p50": 1,
+     "p95": 1,
+     "max": 1
+    },
+    "scriptPerFrameMs": {
+     "n": 59,
+     "mean": 18.71,
+     "p50": 17.3,
+     "p95": 33.1,
+     "max": 38.6
+    },
+    "frameIntervalMs": {
+     "n": 118,
+     "mean": 35.03,
+     "p50": 33.2,
+     "p95": 66.7,
+     "max": 100
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 4.55,
+    "p50": 3.6,
+    "p95": 10.3,
+    "max": 10.3
+   },
+   "errors": [],
+   "totalWallS": 57.7
+  },
+  {
+   "engine": "shelf",
+   "mode": "static",
+   "fixture": "1k",
+   "graphNodes": 1000,
+   "graphEdges": 3000,
+   "payloadMB": 0.35,
+   "structuredCloneMs": 3.8,
+   "load": {
+    "syncMs": 133.6,
+    "toPaintMs": 252.7,
+    "settleWallMs": 527.7,
+    "activeFrames": 8,
+    "scriptPerFrameMs": {
+     "n": 8,
+     "mean": 1.02,
+     "p50": 0.8,
+     "p95": 2.3,
+     "max": 2.3
+    },
+    "frameIntervalMs": {
+     "n": 9,
+     "mean": 42.58,
+     "p50": 49.9,
+     "p95": 83.3,
+     "max": 83.3
+    },
+    "longFrames": 3,
+    "worstLongFrameMs": 162.5,
+    "worstRenderMs": 146,
+    "renderedNodes": 1000,
+    "dom": 6348
+   },
+   "fourFrames": {
+    "syncMs": 63.1,
+    "toPaintMs": 116.8,
+    "settleWallMs": 101.2,
+    "activeFrames": 1,
+    "scriptPerFrameMs": {
+     "n": 1,
+     "mean": 0.1,
+     "p50": 0.1,
+     "p95": 0.1,
+     "max": 0.1
+    },
+    "frameIntervalMs": {
+     "n": 2,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.7,
+     "max": 16.7
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 80.4,
+    "worstRenderMs": 80.4,
+    "renderedNodes": 703,
+    "dom": 4475,
+    "frames": 7
+   },
+   "expandAll": {
+    "syncMs": 84.4,
+    "toPaintMs": 116.7,
+    "settleWallMs": 114.4,
+    "activeFrames": 0,
+    "scriptPerFrameMs": {
+     "n": 0
+    },
+    "frameIntervalMs": {
+     "n": 1,
+     "mean": 16.6,
+     "p50": 16.6,
+     "p95": 16.6,
+     "max": 16.6
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 96.7,
+    "worstRenderMs": 96.7,
+    "renderedNodes": 1000,
+    "dom": 6348,
+    "frames": 10
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.71,
+     "p50": 0.6,
+     "p95": 1.9,
+     "max": 2.3
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 33.33,
+     "p50": 33.3,
+     "p95": 50.1,
+     "max": 66.7
+    },
+    "fps": 30
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 12.72,
+     "p50": 11.9,
+     "p95": 18.5,
+     "max": 18.5
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 14.78,
+     "p50": 11.9,
+     "p95": 27.2,
+     "max": 27.2
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 15.14,
+     "p50": 14.9,
+     "p95": 18.1,
+     "max": 25.4
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 0,
+     "p50": 0,
+     "p95": 0,
+     "max": 0
+    },
+    "scriptPerFrameMs": {
+     "n": 0
+    },
+    "frameIntervalMs": {
+     "n": 58,
+     "mean": 49.42,
+     "p50": 50,
+     "p95": 66.7,
+     "max": 66.7
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 29.95,
+    "p50": 39.8,
+    "p95": 40.9,
+    "max": 40.9
+   },
+   "errors": [],
+   "totalWallS": 10.2
+  },
+  {
+   "engine": "shelf",
+   "mode": "dynamic",
+   "fixture": "10k",
+   "graphNodes": 10000,
+   "graphEdges": 30000,
+   "payloadMB": 4.07,
+   "structuredCloneMs": 34.6,
+   "load": {
+    "syncMs": 67.6,
+    "toPaintMs": 82.9,
+    "settleWallMs": 2899.1,
+    "activeFrames": 170,
+    "scriptPerFrameMs": {
+     "n": 170,
+     "mean": 0.3,
+     "p50": 0.3,
+     "p95": 0.5,
+     "max": 0.7
+    },
+    "frameIntervalMs": {
+     "n": 171,
+     "mean": 16.67,
+     "p50": 16.7,
+     "p95": 16.8,
+     "max": 16.8
+    },
+    "longFrames": 2,
+    "worstLongFrameMs": 69.9,
+    "worstRenderMs": 68.8,
+    "renderedNodes": 1,
+    "dom": 39
+   },
+   "fourFrames": {
+    "syncMs": 107.5,
+    "toPaintMs": 182,
+    "settleWallMs": 13249.5,
+    "activeFrames": 510,
+    "scriptPerFrameMs": {
+     "n": 510,
+     "mean": 7.95,
+     "p50": 7.8,
+     "p95": 15.1,
+     "max": 91
+    },
+    "frameIntervalMs": {
+     "n": 511,
+     "mean": 25.7,
+     "p50": 16.7,
+     "p95": 50,
+     "max": 116.7
+    },
+    "longFrames": 13,
+    "worstLongFrameMs": 120.2,
+    "worstRenderMs": 120.2,
+    "renderedNodes": 907,
+    "dom": 5718,
+    "frames": 9
+   },
+   "expandAll": {
+    "syncMs": 861.9,
+    "toPaintMs": 1255.9,
+    "settleWallMs": ">30000",
+    "activeFrames": 327,
+    "scriptPerFrameMs": {
+     "n": 327,
+     "mean": 9.25,
+     "p50": 7.7,
+     "p95": 13.7,
+     "max": 161.6
+    },
+    "frameIntervalMs": {
+     "n": 327,
+     "mean": 88.07,
+     "p50": 83.3,
+     "p95": 100.1,
+     "max": 266.7
+    },
+    "longFrames": 6,
+    "worstLongFrameMs": 976.5,
+    "worstRenderMs": 976.5,
+    "renderedNodes": 10000,
+    "dom": 64959,
+    "frames": 100
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 12.13,
+     "p50": 10.7,
+     "p95": 18,
+     "max": 23.1
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 239.95,
+     "p50": 233.3,
+     "p95": 316.7,
+     "max": 333.4
+    },
+    "fps": 4.17
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 107.3,
+     "p50": 102,
+     "p95": 129.5,
+     "max": 129.5
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 101.38,
+     "p50": 100.1,
+     "p95": 110.4,
+     "max": 110.4
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 142.26,
+     "p50": 132.3,
+     "p95": 192.8,
+     "max": 281.9
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 0,
+     "p50": 0,
+     "p95": 0,
+     "max": 0
+    },
+    "scriptPerFrameMs": {
+     "n": 61,
+     "mean": 8.9,
+     "p50": 8.7,
+     "p95": 12.5,
+     "max": 16.6
+    },
+    "frameIntervalMs": {
+     "n": 60,
+     "mean": 454.43,
+     "p50": 449.9,
+     "p95": 566.7,
+     "max": 583.4
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 208.57,
+    "p50": 264.5,
+    "p95": 265.1,
+    "max": 265.1
+   },
+   "errors": [],
+   "totalWallS": 103.7
+  },
+  {
+   "engine": "shelf",
+   "mode": "static",
+   "fixture": "10k",
+   "graphNodes": 10000,
+   "graphEdges": 30000,
+   "payloadMB": 4.07,
+   "structuredCloneMs": 23.7,
+   "load": {
+    "syncMs": 49.9,
+    "toPaintMs": 63.5,
+    "settleWallMs": 511.4,
+    "activeFrames": 26,
+    "scriptPerFrameMs": {
+     "n": 26,
+     "mean": 0.17,
+     "p50": 0.2,
+     "p95": 0.2,
+     "max": 0.3
+    },
+    "frameIntervalMs": {
+     "n": 27,
+     "mean": 16.67,
+     "p50": 16.7,
+     "p95": 16.8,
+     "max": 16.8
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 51.3,
+    "worstRenderMs": 51.1,
+    "renderedNodes": 1,
+    "dom": 39
+   },
+   "fourFrames": {
+    "syncMs": 113.4,
+    "toPaintMs": 154.6,
+    "settleWallMs": 140.4,
+    "activeFrames": 0,
+    "scriptPerFrameMs": {
+     "n": 0
+    },
+    "frameIntervalMs": {
+     "n": 1,
+     "mean": 16.6,
+     "p50": 16.6,
+     "p95": 16.6,
+     "max": 16.6
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 124.4,
+    "worstRenderMs": 124.4,
+    "renderedNodes": 907,
+    "dom": 5718,
+    "frames": 9
+   },
+   "expandAll": {
+    "syncMs": 803.4,
+    "toPaintMs": 1123.3,
+    "settleWallMs": 1115.7,
+    "activeFrames": 0,
+    "scriptPerFrameMs": {
+     "n": 0
+    },
+    "frameIntervalMs": {
+     "n": 1,
+     "mean": 16.6,
+     "p50": 16.6,
+     "p95": 16.6,
+     "max": 16.6
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 928.4,
+    "worstRenderMs": 928.4,
+    "renderedNodes": 10000,
+    "dom": 64959,
+    "frames": 100
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 4.16,
+     "p50": 3.6,
+     "p95": 7.5,
+     "max": 10.9
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 196.01,
+     "p50": 183.3,
+     "p95": 266.7,
+     "max": 383.2
+    },
+    "fps": 5.1
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 102.82,
+     "p50": 102.9,
+     "p95": 109.4,
+     "max": 109.4
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 98.8,
+     "p50": 98.2,
+     "p95": 103,
+     "max": 103
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 137.49,
+     "p50": 126.6,
+     "p95": 195.8,
+     "max": 243
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 0,
+     "p50": 0,
+     "p95": 0,
+     "max": 0
+    },
+    "scriptPerFrameMs": {
+     "n": 0
+    },
+    "frameIntervalMs": {
+     "n": 62,
+     "mean": 437.62,
+     "p50": 433.4,
+     "p95": 566.7,
+     "max": 666.7
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 211.22,
+    "p50": 275.9,
+    "p95": 278.5,
+    "max": 278.5
+   },
+   "errors": [],
+   "totalWallS": 54.1
+  },
+  {
+   "engine": "global",
+   "mode": "dynamic",
+   "fixture": "10k",
+   "graphNodes": 10000,
+   "graphEdges": 30000,
+   "payloadMB": 4.07,
+   "structuredCloneMs": 25.7,
+   "load": {
+    "syncMs": 62.6,
+    "toPaintMs": 67.5,
+    "settleWallMs": 5732.2,
+    "activeFrames": 340,
+    "scriptPerFrameMs": {
+     "n": 340,
+     "mean": 0.26,
+     "p50": 0.3,
+     "p95": 0.4,
+     "max": 1.4
+    },
+    "frameIntervalMs": {
+     "n": 341,
+     "mean": 16.67,
+     "p50": 16.7,
+     "p95": 16.8,
+     "max": 16.8
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 64,
+    "worstRenderMs": 63.7,
+    "renderedNodes": 1,
+    "dom": 31
+   },
+   "expandAll": {
+    "syncMs": 770.3,
+    "toPaintMs": 1534,
+    "settleWallMs": 1534,
+    "activeFrames": 1,
+    "scriptPerFrameMs": {
+     "n": 1,
+     "mean": 150.4,
+     "p50": 150.4,
+     "p95": 150.4,
+     "max": 150.4
+    },
+    "frameIntervalMs": {
+     "n": 1,
+     "mean": 166.7,
+     "p50": 166.7,
+     "p95": 166.7,
+     "max": 166.7
+    },
+    "longFrames": 2,
+    "worstLongFrameMs": 906.5,
+    "worstRenderMs": 906.5,
+    "renderedNodes": 10000,
+    "dom": 64423,
+    "frames": 0
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 152.05,
+     "p50": 131.8,
+     "p95": 370.9,
+     "max": 614.3
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 1054.88,
+     "p50": 816.5,
+     "p95": 2833.3,
+     "max": 3116.5
+    },
+    "fps": 0.95
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 128.24,
+     "p50": 120.2,
+     "p95": 182.2,
+     "max": 182.2
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 116.66,
+     "p50": 116.9,
+     "p95": 123.1,
+     "max": 123.1
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 0.13,
+     "p50": 0.1,
+     "p95": 0.4,
+     "max": 0.5
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 1,
+     "p50": 1,
+     "p95": 1,
+     "max": 1
+    },
+    "scriptPerFrameMs": {
+     "n": 129,
+     "mean": 345.77,
+     "p50": 329.9,
+     "p95": 406.7,
+     "max": 820.3
+    },
+    "frameIntervalMs": {
+     "n": 128,
+     "mean": 759.21,
+     "p50": 699.9,
+     "p95": 1133.3,
+     "max": 1266.7
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 23,
+    "p50": 24.8,
+    "p95": 32.1,
+    "max": 32.1
+   },
+   "errors": [],
+   "totalWallS": 225.4
+  },
+  {
+   "engine": "shelf",
+   "mode": "dynamic",
+   "fixture": "fmt",
+   "graphNodes": 5171,
+   "graphEdges": 30152,
+   "payloadMB": 6.37,
+   "structuredCloneMs": 32.4,
+   "load": {
+    "syncMs": 462.6,
+    "toPaintMs": 1010.7,
+    "settleWallMs": 14734.2,
+    "activeFrames": 79,
+    "scriptPerFrameMs": {
+     "n": 79,
+     "mean": 71.42,
+     "p50": 62,
+     "p95": 103.6,
+     "max": 440.4
+    },
+    "frameIntervalMs": {
+     "n": 79,
+     "mean": 178.05,
+     "p50": 166.6,
+     "p95": 250,
+     "max": 616.7
+    },
+    "longFrames": 80,
+    "worstLongFrameMs": 555.4,
+    "worstRenderMs": 521.3,
+    "renderedNodes": 4332,
+    "dom": 27249
+   },
+   "fourFrames": {
+    "syncMs": 319.6,
+    "toPaintMs": 688.7,
+    "settleWallMs": ">30000",
+    "activeFrames": 232,
+    "scriptPerFrameMs": {
+     "n": 232,
+     "mean": 48.64,
+     "p50": 43.4,
+     "p95": 81.6,
+     "max": 238
+    },
+    "frameIntervalMs": {
+     "n": 232,
+     "mean": 127.22,
+     "p50": 116.7,
+     "p95": 200,
+     "max": 349.9
+    },
+    "longFrames": 176,
+    "worstLongFrameMs": 479.6,
+    "worstRenderMs": 474.3,
+    "renderedNodes": 3582,
+    "dom": 20408,
+    "frames": 8
+   },
+   "expandAll": {
+    "syncMs": 317.7,
+    "toPaintMs": 806.4,
+    "settleWallMs": 24636.6,
+    "activeFrames": 126,
+    "scriptPerFrameMs": {
+     "n": 126,
+     "mean": 71.98,
+     "p50": 63.1,
+     "p95": 93.3,
+     "max": 327.1
+    },
+    "frameIntervalMs": {
+     "n": 126,
+     "mean": 191.13,
+     "p50": 183.3,
+     "p95": 333.4,
+     "max": 450
+    },
+    "longFrames": 126,
+    "worstLongFrameMs": 402.7,
+    "worstRenderMs": 397.3,
+    "renderedNodes": 4332,
+    "dom": 27249,
+    "frames": 18
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 21.32,
+     "p50": 8.7,
+     "p95": 52.1,
+     "max": 211.9
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 185.41,
+     "p50": 183.3,
+     "p95": 316.7,
+     "max": 466.6
+    },
+    "fps": 5.39
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 47.56,
+     "p50": 46.2,
+     "p95": 54.1,
+     "max": 54.1
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 49.78,
+     "p50": 46.1,
+     "p95": 69.5,
+     "max": 69.5
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 81.28,
+     "p50": 71.7,
+     "p95": 135.9,
+     "max": 172
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 0,
+     "p50": 0,
+     "p95": 0,
+     "max": 0
+    },
+    "scriptPerFrameMs": {
+     "n": 59,
+     "mean": 1.22,
+     "p50": 1.2,
+     "p95": 1.7,
+     "max": 3.7
+    },
+    "frameIntervalMs": {
+     "n": 58,
+     "mean": 242.81,
+     "p50": 233.3,
+     "p95": 316.6,
+     "max": 333.4
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 106.28,
+    "p50": 112.4,
+    "p95": 134.3,
+    "max": 134.3
+   },
+   "errors": [],
+   "totalWallS": 106.1
+  },
+  {
+   "engine": "shelf",
+   "mode": "dynamic",
+   "fixture": "excalidraw",
+   "graphNodes": 3091,
+   "graphEdges": 6597,
+   "payloadMB": 2.43,
+   "structuredCloneMs": 7.3,
+   "load": {
+    "syncMs": 21.6,
+    "toPaintMs": 34.1,
+    "settleWallMs": 2850.2,
+    "activeFrames": 171,
+    "scriptPerFrameMs": {
+     "n": 171,
+     "mean": 0.3,
+     "p50": 0.3,
+     "p95": 0.5,
+     "max": 0.6
+    },
+    "frameIntervalMs": {
+     "n": 172,
+     "mean": 16.67,
+     "p50": 16.7,
+     "p95": 16.8,
+     "max": 16.8
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 1,
+    "dom": 44
+   },
+   "fourFrames": {
+    "syncMs": 84.1,
+    "toPaintMs": 157.3,
+    "settleWallMs": 11115.8,
+    "activeFrames": 511,
+    "scriptPerFrameMs": {
+     "n": 511,
+     "mean": 5.29,
+     "p50": 3.2,
+     "p95": 13.9,
+     "max": 115.3
+    },
+    "frameIntervalMs": {
+     "n": 512,
+     "mean": 21.58,
+     "p50": 16.7,
+     "p95": 33.4,
+     "max": 133.3
+    },
+    "longFrames": 11,
+    "worstLongFrameMs": 126.3,
+    "worstRenderMs": 125.9,
+    "renderedNodes": 923,
+    "dom": 3960,
+    "frames": 10
+   },
+   "expandAll": {
+    "syncMs": 268.3,
+    "toPaintMs": 402.7,
+    "settleWallMs": ">30000",
+    "activeFrames": 1620,
+    "scriptPerFrameMs": {
+     "n": 1620,
+     "mean": 1.3,
+     "p50": 1,
+     "p95": 3.1,
+     "max": 14
+    },
+    "frameIntervalMs": {
+     "n": 1620,
+     "mean": 18.3,
+     "p50": 16.7,
+     "p95": 33.3,
+     "max": 116.6
+    },
+    "longFrames": 7,
+    "worstLongFrameMs": 317.4,
+    "worstRenderMs": 317.4,
+    "renderedNodes": 3116,
+    "dom": 14814,
+    "frames": 99
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 3.46,
+     "p50": 3.2,
+     "p95": 6,
+     "max": 9.8
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 83.9,
+     "p50": 83.3,
+     "p95": 116.7,
+     "max": 133.4
+    },
+    "fps": 11.92
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 17.46,
+     "p50": 18,
+     "p95": 21.8,
+     "max": 21.8
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 17.16,
+     "p50": 18.5,
+     "p95": 22.8,
+     "max": 22.8
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 29.22,
+     "p50": 28.3,
+     "p95": 39.4,
+     "max": 63.1
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 0,
+     "p50": 0,
+     "p95": 0,
+     "max": 0
+    },
+    "scriptPerFrameMs": {
+     "n": 59,
+     "mean": 1.51,
+     "p50": 0.5,
+     "p95": 0.8,
+     "max": 32.5
+    },
+    "frameIntervalMs": {
+     "n": 58,
+     "mean": 96.83,
+     "p50": 100,
+     "p95": 116.8,
+     "max": 133.4
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 51.3,
+    "p50": 46.9,
+    "p95": 68.9,
+    "max": 68.9
+   },
+   "errors": [],
+   "totalWallS": 60.4
+  },
+  {
+   "engine": "shelf",
+   "mode": "dynamic",
+   "fixture": "nest",
+   "graphNodes": 4347,
+   "graphEdges": 6810,
+   "payloadMB": 3.06,
+   "structuredCloneMs": 9.9,
+   "load": {
+    "syncMs": 25.1,
+    "toPaintMs": 33.8,
+    "settleWallMs": 2849.9,
+    "activeFrames": 170,
+    "scriptPerFrameMs": {
+     "n": 170,
+     "mean": 0.32,
+     "p50": 0.3,
+     "p95": 0.6,
+     "max": 0.8
+    },
+    "frameIntervalMs": {
+     "n": 171,
+     "mean": 16.67,
+     "p50": 16.7,
+     "p95": 16.7,
+     "max": 16.8
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 1,
+    "dom": 44
+   },
+   "fourFrames": {
+    "syncMs": 54.3,
+    "toPaintMs": 109,
+    "settleWallMs": 8650,
+    "activeFrames": 510,
+    "scriptPerFrameMs": {
+     "n": 510,
+     "mean": 2.03,
+     "p50": 2,
+     "p95": 4.5,
+     "max": 9.5
+    },
+    "frameIntervalMs": {
+     "n": 511,
+     "mean": 16.83,
+     "p50": 16.7,
+     "p95": 16.8,
+     "max": 33.4
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 68.7,
+    "worstRenderMs": 68.7,
+    "renderedNodes": 367,
+    "dom": 1545,
+    "frames": 10
+   },
+   "expandAll": {
+    "syncMs": 624,
+    "toPaintMs": 767.9,
+    "settleWallMs": ">30000",
+    "activeFrames": 1558,
+    "scriptPerFrameMs": {
+     "n": 1558,
+     "mean": 0.41,
+     "p50": 0.4,
+     "p95": 0.6,
+     "max": 1.6
+    },
+    "frameIntervalMs": {
+     "n": 1558,
+     "mean": 18.77,
+     "p50": 16.7,
+     "p95": 33.4,
+     "max": 50.1
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 700.2,
+    "worstRenderMs": 700.2,
+    "renderedNodes": 5058,
+    "dom": 25225,
+    "frames": 683
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 2.94,
+     "p50": 2.8,
+     "p95": 3.8,
+     "max": 5.8
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 110.6,
+     "p50": 116.6,
+     "p95": 133.3,
+     "max": 150.1
+    },
+    "fps": 9.04
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 8.62,
+     "p50": 8.1,
+     "p95": 12.2,
+     "max": 12.2
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 7.6,
+     "p50": 7.4,
+     "p95": 8.9,
+     "max": 8.9
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 39.72,
+     "p50": 38.7,
+     "p95": 45.9,
+     "max": 76.7
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 0,
+     "p50": 0,
+     "p95": 0,
+     "max": 0
+    },
+    "scriptPerFrameMs": {
+     "n": 59,
+     "mean": 0.4,
+     "p50": 0.4,
+     "p95": 0.7,
+     "max": 1.2
+    },
+    "frameIntervalMs": {
+     "n": 58,
+     "mean": 119.25,
+     "p50": 116.7,
+     "p95": 133.4,
+     "max": 166.6
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 53.73,
+    "p50": 54.4,
+    "p95": 64.2,
+    "max": 64.2
+   },
+   "errors": [],
+   "totalWallS": 62
+  },
+  {
+   "engine": "shelf",
+   "mode": "static",
+   "fixture": "fmt",
+   "graphNodes": 5171,
+   "graphEdges": 30152,
+   "payloadMB": 6.37,
+   "structuredCloneMs": 25.8,
+   "load": {
+    "syncMs": 402.2,
+    "toPaintMs": 695.7,
+    "settleWallMs": 561.9,
+    "activeFrames": 1,
+    "scriptPerFrameMs": {
+     "n": 1,
+     "mean": 2.4,
+     "p50": 2.4,
+     "p95": 2.4,
+     "max": 2.4
+    },
+    "frameIntervalMs": {
+     "n": 2,
+     "mean": 74.95,
+     "p50": 116.6,
+     "p95": 116.6,
+     "max": 116.6
+    },
+    "longFrames": 4,
+    "worstLongFrameMs": 461.8,
+    "worstRenderMs": 461.7,
+    "renderedNodes": 4332,
+    "dom": 27249
+   },
+   "fourFrames": {
+    "syncMs": 233.4,
+    "toPaintMs": 349.7,
+    "settleWallMs": 335.2,
+    "activeFrames": 0,
+    "scriptPerFrameMs": {
+     "n": 0
+    },
+    "frameIntervalMs": {
+     "n": 1,
+     "mean": 16.6,
+     "p50": 16.6,
+     "p95": 16.6,
+     "max": 16.6
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 280,
+    "worstRenderMs": 278.5,
+    "renderedNodes": 3582,
+    "dom": 20408,
+    "frames": 8
+   },
+   "expandAll": {
+    "syncMs": 340.4,
+    "toPaintMs": 482.8,
+    "settleWallMs": 481.9,
+    "activeFrames": 0,
+    "scriptPerFrameMs": {
+     "n": 0
+    },
+    "frameIntervalMs": {
+     "n": 1,
+     "mean": 16.6,
+     "p50": 16.6,
+     "p95": 16.6,
+     "max": 16.6
+    },
+    "longFrames": 1,
+    "worstLongFrameMs": 395.9,
+    "worstRenderMs": 395.9,
+    "renderedNodes": 4332,
+    "dom": 27249,
+    "frames": 18
+   },
+   "panZoom": {
+    "handlerMs": {
+     "n": 90,
+     "mean": 1.97,
+     "p50": 1.7,
+     "p95": 3.4,
+     "max": 6.8
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 112.12,
+     "p50": 116.5,
+     "p95": 133.4,
+     "max": 166.7
+    },
+    "fps": 8.92
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 51.66,
+     "p50": 50.7,
+     "p95": 56.2,
+     "max": 56.2
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 53.14,
+     "p50": 51.2,
+     "p95": 61.6,
+     "max": 61.6
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 86.96,
+     "p50": 76.7,
+     "p95": 136.4,
+     "max": 159.4
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 0,
+     "p50": 0,
+     "p95": 0,
+     "max": 0
+    },
+    "scriptPerFrameMs": {
+     "n": 0
+    },
+    "frameIntervalMs": {
+     "n": 58,
+     "mean": 264.64,
+     "p50": 250,
+     "p95": 366.7,
+     "max": 399.9
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 106.58,
+    "p50": 109.9,
+    "p95": 130.9,
+    "max": 130.9
+   },
+   "errors": [],
+   "totalWallS": 31.9
+  }
+ ]
+}

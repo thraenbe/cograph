@@ -1,0 +1,343 @@
+# Task — Feature 1: Performance (workers, render hot paths, extension host)
+
+Planner: session `perf` (worktree s180, branch `termi/s180`, base `shelf-base` 9eda4c8).
+Date: 2026-09-18. Status: **PLAN — awaiting approval, no feature code written.**
+
+## Problem
+
+Bela: "make CoGraph as fast as possible using multithreading and more state of the art
+methods". The Shelf engine (P0-P5) cut layout work per frame, but until today there were
+**no real-Chromium numbers**, the frames path is uninstrumented (`[perf]` reports show 0
+tick samples under shelf), and everything — simulation, DOM writes, analysis merge, git —
+still runs on one thread per process.
+
+### Step 0 baseline (measured 2026-09-18, this worktree, before any change)
+
+Scratch harness (not in the repo yet, see W0): the real `getWebviewHtml()` page loaded from
+`file://` in **headless Chrome 153** (`--headless=new`, 1600×1000), `acquireVsCodeApi`
+stubbed, fixtures = `makeSyntheticRepo` 1k/3k/10k (same presets as
+`cograph.dev.loadSynthetic`) + 3 corpus repos analysed with this worktree's analyzers.
+`requestAnimationFrame` is wrapped before d3 loads, so "script ms/frame" = all rAF-driven
+main-thread JS per animation frame; "interval" = rAF-to-rAF time (16.7 = 60 fps).
+Machine: 22 cores, Linux. Caveat: headless Chrome rasterises in software, so
+**paint-bound numbers (interval, fps) are pessimistic vs. the editor's GPU raster; script
+numbers are representative.** One in-editor confirmation pass is part of W0.
+
+| Scenario (p50 / p95 / max unless noted) | shelf+dynamic 3k | shelf+static 3k | global+dynamic 3k |
+|---|---|---|---|
+| `structure`+`graph` message → paint | 67 ms | 34 ms | 34 ms |
+| 4 open frames (805 nodes, 5.4k DOM): script ms/frame during settle | **9.3 / 26.8 / 78.9** (target ≤ 2) | 0 (zero-tick) | n/a |
+| 4 open frames: wall-clock until settled | **10.7 s** (target ≤ 1 s) | 0.12 s | n/a |
+| 4 open frames: frame interval during settle | 33 / 50 / 100 ms | 16.7 | n/a |
+| Expand all (3 000 nodes, 20k DOM, 30 frames): sync / to-paint | 280 / 523 ms | 226 / 352 ms | 269 / 562 ms |
+| Expand all: settle | **> 30 s** (cap), 8.9 / 16.3 / 112 ms script | 0.34 s | 128 / 216 ms script per tick, ≈ 3 fps |
+| Pan/zoom, everything expanded: zoom handler / fps | 7.1 ms / **10.7 fps** | 1.2 ms / 13.3 fps | 40 ms / 3 fps (sim still running) |
+| Hover a node: mouseover / mouseout handler | **32.7 / 31.7 ms** | 34 / 35 ms | 37 / 37 ms |
+| Drag a node: handler per mousemove | **53 / 131 / 134 ms** | 46 / 82 / 97 ms | 0.1 ms (+94 ms tick/frame) |
+| Drag: frames until the DOM reflects the move | 0 (sync write) | 0 | 1 |
+| Search keystroke, sync | **78 / 128 ms** | 98 / 108 ms | 8.8 ms |
+| `graph` payload / `structuredClone` cost | 1.2 MB / 8-17 ms | | |
+
+1k shelf+dynamic (all 10 frames open by default): settle 16.8 s wall, 8.8 / 16.2 / 67 ms
+script per frame, interval 33 ms; drag handler 16 ms p50; hover 10.5 ms; keystroke 40 ms.
+10k and corpus rows (fmt, excalidraw, nest): see "Baseline addendum" at the end.
+
+Pure simulation cost (Node 22, same `localSim.js` + d3 7.9, no DOM), one frame settling
+from alpha 1 (170 ticks): 100 nodes = **63-94 ms total** (0.37 ms/tick); 400 nodes = 352 ms;
+1 000 nodes = 932 ms; 4 300 nodes = 6.9 s (40 ms/tick).
+
+Extension host, corpus repos (sequential here; the extension runs the 5 analyzers in
+parallel): excalidraw TS analyzer 2.6 s / 2.4 MB stdout / `JSON.parse` 10 ms; nest 2.0 s /
+3.1 MB / 17 ms; structure scan 9-47 ms. Known from the corpus table: django 8.9 s, pandas
+12.5 s, junit5 7.2 s, guava = Java analyzer OOM at ~85 s.
+
+### What the numbers say (this re-ranks the brief's candidate list)
+
+1. **The settle is frame-rate-bound, not CPU-bound.** A 100-node frame needs ~70 ms of sim
+   CPU but takes 3-10 s on screen because the scheduler does one tick per frame per rAF and
+   every tick pays a DOM pass. 4 frames × 0.37 ms = 1.5 ms of the 9.3 ms/frame is simulation;
+   **~85 % is per-tick DOM work** (`tickFrame` rewrites the frame chrome — fill, stroke,
+   title text, regex split — on every tick, then 4 `.each()` walks). A worker alone would
+   only remove the 1.5 ms. The win comes from the *combination*: sim free-runs off-thread
+   (settle ≈ 70 ms per frame, 30 frames / 4 workers < 1 s) and the main thread applies only
+   the positions that arrive (≤ 60 Hz, ~5 paints per frame instead of 170).
+2. **Interaction handlers are the worst offenders and the cheapest to fix.** Drag = 53 ms
+   per mousemove because `ticked()` → `tickFrames()` re-ticks *every* frame and
+   `updateCrossLinks()` rebuilds + re-joins all bundles; hover = 33 ms (3 full link passes +
+   `updateCrossLinks` on over *and* out); keystroke = 78-98 ms (6 full `display` passes +
+   `tickFrames`). All O(graph) for an O(1) change.
+3. **Pan/zoom is paint-bound** (handler 1-7 ms, 11-13 fps at 20k SVG elements in software
+   raster). Needs an in-editor number before we spend on Canvas; culling/LOD are cheap and
+   help either way.
+4. **Global engine at 3k = 128 ms/tick.** Unusable while settling; moving it to the same
+   worker makes the UI responsive, and the separation forces need an algorithmic fix.
+5. **Host and transport are not the bottleneck at corpus-typical sizes** (2-3 s analysis,
+   ≤ 17 ms parse, ≤ 17 ms clone). They matter for django/pandas-class repos and guava.
+
+## Constraints
+
+- File ownership per `00-common.md`; in `frameRender.js` only `syncFrameSims`,
+  `tickFrame(s)`, `updateCrossLinks`, culling. No panel HTML, no restyling, no tooltip layer.
+- `cograph.layout.workers: off` must be **byte-identical to today** and stays the unit-test
+  path. Settings patches are forwarded to sims **opaquely** (ux adds force keys).
+- New code in new modules (< 400 LOC, functions < 50 LOC), no `console.log`, explicit async
+  error handling, ≥ 80 % coverage on new code, version stays 1.3.0, CHANGELOG under
+  `[Unreleased]` only. Merge order puts perf **last** → one merge pass at the end.
+- **Finding that changes the agreed P6 design:** VS Code webviews can only start workers from
+  `blob:`/`data:` URIs ("You cannot directly load a worker from your extension's folder";
+  no `importScripts`/`import()` — VS Code Webview guide, *Using Web Workers*). The agreed
+  "`worker-src ${cspSource}`, no blob workers" cannot work. Required instead:
+  `fetch(simWorkerUri)` → `Blob` → `new Worker(URL.createObjectURL(blob))`, CSP
+  `worker-src blob:; connect-src ${webview.cspSource};`. `script-src` stays nonce-only;
+  the worker body is our own bundled file from `dist/webview/`, fetched from the webview's
+  own origin. **Needs Bela's OK (decision D1).**
+
+## Plan — workstreams in order of measured payoff
+
+Each W is a separate commit series and leaves the suite green; W1-W3 are the core of this
+push, W4-W6 are gated.
+
+### W0 — Instrument + reproducible bench (½ day) — prerequisite
+- `perf.js`: add `perfFrame(ms)` ring (main-thread ms per animation frame), `perfSpan(name,
+  fn)` helper; report gains `frame`, `settleByFrame`, `drag`, `hover` sections.
+- Hook the frames path: `frameScheduler` gets an optional `onStep(ms, n)` callback (pure,
+  injected) → `perfTick`/`perfFrame`; facade fires `perfSettled` when `maxAlpha` drops below
+  alphaMin for all records; `perfMeasure` around `renderFrameLayout`, `updateCrossLinks`,
+  hover and drag handlers. All behind `perfOn()` (one boolean when off).
+- `scripts/perf/` (dev-only, already excluded from the .vsix): the scratch harness from
+  Step 0 cleaned up — `build-page.cjs` (real HTML via `getWebviewHtml` with a `vscode` mock),
+  `bench.js` scenarios, `run.mjs` (CDP over Node's built-in `WebSocket`, **no new
+  dependency**), `npm run perf:bench`. Output = dated JSON + markdown table. If `uxtest`
+  ships its Playwright harness first, the scenarios move there and `scripts/perf` shrinks to
+  the page builder (coordinate via session-110).
+- One manual in-editor pass (F5, `perfLog` on, synthetic 3k/10k) to calibrate the
+  headless-vs-GPU paint gap; numbers appended to this file.
+
+### W1 — Main-thread hot paths (1-1½ days) — biggest win per line changed
+| # | Change | Where | Baseline → expected |
+|---|---|---|---|
+| 1 | `tickFrame` split: `tickFrameChrome` (transform, rect, colours, label) only on render / move / resize / theme; per-tick path = node/label/link position writes only | `frameRender.js` 307-368 | 9.3 → ~4 ms/frame (workers off) |
+| 2 | Drag under frames ticks **only the dragged node's frame** + re-routes only bundles touching it; rAF-coalesced | `rendering.js` `ticked` 265-271, `frameRender.js` | 53 → < 2 ms per mousemove |
+| 3 | `updateCrossLinks` dirty-tracking: bundle aggregation cached per render (`__fr.cross` is stable between renders), geometry recomputed only for frames flagged moved; hover builds `individual` only, no bundle re-join | `frameRender.js` 377-420, `crossLinks.js` (add `buildBundleIndex` / `routeBundles`) | removes the rebuild from every hover, drag and keystroke |
+| 4 | Hover: adjacency index `nodeId → [link elements]` built at render; hover toggles a class on the touched links + one root class for dimming instead of 3 full attr passes; label lookup via id map | `rendering.js` 333-425, 764-782; CSS rules appended at the end of `styles.css` (perf-only classes, **ask ux first**) | 33 → < 2 ms |
+| 5 | `getCSSVar` memo (Map, cleared on theme change / `applyDisplaySettings`); `isLightTheme` cached the same way | `rendering.js` 80-93 | removes `getComputedStyle` per datum on every render / git-update |
+| 6 | `getVisibleNodeIds`: memo keyed on a filter generation (query, hidden sets, node list identity); search text pushed from the `input` listener instead of read from the DOM; fix `tickDrilldownBoxes(vis)` ignoring its argument (`drilldown.js:141`) and `tickClassOverlay()` called without it (`main.js:156`) | `main.js` 104-139 | 1-2 O(N) scans per tick → 0 |
+| 7 | `applyFilters`: diff against the previous visible set, write `display` only on changed elements; no `tickFrames()`; 120 ms debounce on the search `input` handler lives in `controls.js` → **ux-owned, ask** (fallback: rAF-coalesce inside `applyFilters`) | `main.js` 141-159 | 78-98 → < 10 ms per keystroke |
+| 8 | Zoom handler: `updateTextVisibility` toggles one class on the root `<g>` only when `k` crosses the threshold (today: inline opacity on every label per zoom event) | `rendering.js` 63-69, 206-211 | 7 → < 0.5 ms |
+| 9 | `renderLabels`: rebuild tspans only when the label text/line count changed (stamp on the element) | `rendering.js` 584-607 | expand-all sync −15-25 % (measure) |
+| 10 | `syncFrameSims`: numeric slot-geometry hash instead of two sorted strings per frame; `frameScheduler.pick()` result reused by `loop()` | `frameRender.js` 240-295, 588-596; `frameScheduler.js` | small, removes per-rAF sort ×2 |
+
+### W2 — Worker pool for frame simulations (P6) (2-3 days)
+- **Modules (new):** `src/webview/simCore.js` (the d3-touching body of today's `localSim.js`
+  — `buildD3Sim`, clamp, slot pull — moved verbatim so both transports share it);
+  `src/webview/simWorker.js` (worker entry: owns `Map<frameId, rec>`, free-running tick loop
+  in ≤ 8 ms slices via `setTimeout(0)` so pin/destroy messages interleave; posts `positions`
+  at most once per 16 ms per frame plus a final one with `settled`);
+  `src/webview/simPool.js` (pool = `min(4, hardwareConcurrency − 1)`, least-loaded
+  assignment, blob bootstrap, crash → transparent fallback to the sync path with one
+  structured warning); `src/webview/localSimWorker.js` (the `localSim` API over a
+  **transport interface** `{post(msg, transfer), onMessage(cb)}`).
+  `localSim.js` keeps the synchronous implementation untouched apart from importing
+  `simCore` (`off` == today).
+- **Protocol** (gen-stamped, per frame): `create {frameId, gen, ids[], xyr:Float32Array,
+  fileIdx, links:Uint32Array, slots:Float32Array, inner, settings}` · `positions {frameId,
+  gen, alpha, buf:Float32Array(2n)}` (transferable; buffers ping-pong back via `recycle` to
+  avoid allocation) · `pin/release {frameId, gen, idx, x, y}` · `settings {frameId, patch}`
+  (opaque `Object.assign` + generic force re-application; unknown keys pass through) ·
+  `slots` · `resize` · `reheat {alpha|alphaTarget}` · `destroy` · `settled`. Main thread
+  drops any message whose `(frameId, gen)` is not current (same rule as the scheduler today).
+- **Scheduler:** `frameScheduler` gains a second mode behind an injected `transport`:
+  "≤ N in flight" replaces "≤ 4 ticks per rAF"; the rAF loop only drains the latest
+  positions per frame and calls the (now cheap, W1-1) `tickFrame`. Ranking unchanged.
+  Off-viewport frames get `pause` (no positions posts) — wires the existing, never-called
+  `setVisibility` + `frames.intersectsViewport` to the zoom transform.
+- **Drag:** optimistic — the drag handler writes the node on the main thread exactly as
+  today and posts `pin`; incoming positions skip the pinned index while the drag is active.
+- **Setting:** `cograph.layout.workers: "auto" | "on" | "off"` (default `auto` = on when
+  `Worker` + blob bootstrap succeed). Passed through `COGRAPH_CONFIG.workers` plus
+  `workerUri`. jsdom tests have no `Worker` → `auto` resolves to the sync path.
+- **Build / shipping:** third esbuild context (`platform: 'browser'`, `format: 'iife'`,
+  `src/webview/simWorker.js` → `dist/webview/simWorker.js`, bundles `d3-force` (+ its deps
+  `d3-quadtree`, `d3-dispatch`, `d3-timer`) as a new **npm dependency**, ~30 KB min).
+  `localResourceRoots` += `dist/webview` in all **three** panels (`graphProvider.ts` 160,
+  477, 598 — the brief says two; the timeline panel is the third). CSP per D1.
+  Dev/test fallback when `dist/webview/simWorker.js` is absent: sync path + one log line.
+- **Feel (decision D2):** with free-running workers a frame snaps into its settled layout
+  in ~100 ms (≈ 5 painted steps) instead of "swimming" for 3-10 s. Recommended; the
+  alternative is pacing the worker (e.g. 8 ticks per 16 ms) to keep visible motion.
+
+### W3 — Render ceiling, stage 1: culling + LOD (1 day), Canvas gated
+- Per-frame viewport culling: frames whose `abs` rect misses the (padded) viewport get
+  `display: none` on their `<g>`; recomputed on zoom end / rAF-throttled during zoom.
+- LOD by zoom: below a `k` threshold hide function labels and intra-frame links via root
+  classes (one style write, reuses W1-8's mechanism).
+- `will-change: transform` on the root `<g>` during an active pan gesture only.
+- **Gate for Canvas2D (W3b, not in this push unless approved):** if the in-editor pass
+  still shows < 45 fps pan/zoom at 3k expanded or < 30 fps at 10k after culling + LOD,
+  propose a Canvas2D layer for function nodes + intra-frame links above **2 000 visible
+  elements**, frames / slots / labels / bundles stay SVG; hit-testing through a d3-quadtree
+  per frame (hover/drag/click/context menu keep their handlers via a synthetic datum
+  lookup). Cost: every node interaction and the `annotate` hover card must go through the
+  lookup → coordinate with annotate. WebGL only if Canvas2D misses the gate.
+
+### W4 — Global engine (1½ days) — gated on D3
+- Single-sim mode in the same worker (`create` with `kind: 'global'`, same positions
+  buffer); the synchronous static-boot settle (60-150 ticks on the main thread at load,
+  `rendering.js` 653-663) moves off-thread with a progress-free "layout…" state.
+- Custom forces need worker-side equivalents: `createDrilldownSeparationForce` /
+  `createFileSeparationForce` rewritten over precomputed membership arrays (no per-tick
+  `filter`, one pass for centroid + extent), pair pruning by bounding-box overlap;
+  `tickFolderOverlay` stops allocating + sorting per tick (depth order cached per render).
+- Risk: the global engine has the most legacy call sites (`state.simulation.force(...)`
+  setters in `rendering.js` 731+ are being edited by ux) → do after ux has merged.
+
+### W5 — Extension host (1-1½ days, independent of the webview work)
+Cheap, measured-safe items first:
+1. Remove the double serialisation: `analyzerRunner` hands the merged object to
+   `handleAnalysisResult` instead of `JSON.stringify` → `JSON.parse` (`analyzerRunner.ts:133`,
+   `graphProvider.ts:716`). Internal callback signature only.
+2. `gitService`: `execFile` (async) instead of 3× `execFileSync` per refresh, the three
+   commands in parallel; fix the O(n²) `siblings.indexOf`; `git-update` sends only nodes
+   whose status changed (webview handler already patches by id).
+3. `cacheStore.writeCache`: async write, coalesced (latest wins); `buildManifest` with
+   `fs.promises.stat` in bounded parallel batches.
+4. `structureScanner`: async variant (`fs.promises.readdir`, bounded concurrency) used by
+   `show()`; sync export kept for tests / `measure.mjs`. Fix O(n²) `childFolders.includes`.
+5. Java analyzer OOM (guava): stop retaining every CST between passes (extract call sites
+   into plain objects, drop the CST) — already recorded in `tech-dept.md`; plus
+   `--max-old-space-size` sized from `os.totalmem()` for node analyzers.
+6. **Intra-language sharding** for large repos: when a language has > 400 files, split the
+   file list into `min(availableParallelism() − 1, 8)` shards through the existing
+   `--files` path and merge. Caveat: definitions must be visible across shards for call
+   resolution → two-phase (definitions pass shared via a temp JSON, then sharded call pass).
+   That is an analyzer change in 5 scripts → **only TS/JS + Python in this push**, the
+   rest follow if the numbers justify it. Expected: django/pandas 9-12 s → 2-3 s.
+7. Vendor d3 (`d3.min.js` copied to `dist/webview/` at bundle time, cdnjs removed from the
+   CSP): faster first paint, works offline, tightens the CSP. +280 KB in the .vsix (D4).
+Deferred: NDJSON streaming + incremental paint (large analyzer protocol change; the
+skeleton-first flow already hides most of the wait), `worker_threads` for merge (merge is
+< 20 ms at corpus sizes).
+
+### W6 — Transport + "state of the art" spike — not planned
+`structuredClone` of the 3k graph = 8-17 ms; typed-array payloads are not worth the
+protocol churn now (re-check with the 10k number). WASM / ForceAtlas2 / cosmos.gl spike only
+if Global@10k misses its target after W4; none of them fit the frame semantics.
+
+## Acceptance Criteria
+
+Measured with `npm run perf:bench` (headless Chrome) **and** confirmed once in the editor;
+before/after table appended to this file.
+
+| Metric (3k fixture unless noted) | Baseline | Target |
+|---|---|---|
+| Main-thread script per animation frame during settle, 4 open frames, workers on | 9.3 ms p50 / 26.8 p95 | ≤ 2 ms p50, ≤ 4 ms p95 |
+| A frame settles (wall-clock), workers on | 10.7 s (4 frames) | ≤ 1 s |
+| Expand-all settled, workers on | > 30 s | ≤ 2 s |
+| First stable layout after `structure` (default shelf+static) | 34-67 ms | stays < 1 s (also 10k) |
+| Drag: handler per mousemove / drag-to-paint | 53 ms / same frame but 150 ms frames | ≤ 2 ms / ≤ 1 frame at 60 fps |
+| Hover over / out | 33 / 32 ms | ≤ 2 ms |
+| Search keystroke (sync) | 78-98 ms | ≤ 10 ms |
+| Zoom handler | 1.2-7.1 ms | ≤ 0.5 ms |
+| Pan/zoom fps, all expanded | 11-13 fps headless | 60 fps in-editor with culling/LOD at typical zoom; else W3b gate fires |
+| Stale positions | — | never paint (unit-tested: old gen, destroyed frame, re-created frame) |
+| `workers: off` | — | position sequence identical to today's `localSim` for the same seed (golden test); all 746 existing tests untouched and green |
+| Global 3k script per frame during settle (W4) | 128 ms | ≤ 4 ms main thread |
+| Host: git refresh blocks the extension host | 3 sync subprocesses | 0 sync calls; guava completes or fails < 30 s without OOM |
+10k targets: proposed in the addendum once the 10k rows are in.
+
+## Test strategy
+- **Unit (mocha, existing harness):** `simProtocol.test.ts` (fake in-process transport:
+  create / positions / pin / release / settings-opaque / reheat / destroy / settled, gen
+  drop, buffer recycle), `simPool.test.ts` (assignment, crash fallback, `auto` resolution
+  without `Worker`), `localSimWorker.test.ts` (API parity with `localSim` — same suite run
+  against both implementations), golden-sequence test for `off`, `frameScheduler` in-flight
+  mode, `crossLinks` dirty routing, hover adjacency index, `getVisibleNodeIds` memo
+  invalidation, `applyFilters` diffing, `getCSSVar` cache invalidation, perf hooks emit
+  under frames; host: git async + delta payload, cache write coalescing, async scanner
+  parity with the sync one, shard merge == unsharded result on fixture repos.
+- **`simWorker.js` itself** is exercised in Node via the same message handler function
+  (exported), no real `Worker` needed; the blob bootstrap + CSP is covered by one bench
+  scenario (`workers=on` must report `positions` messages) and a manual smoke per OS.
+- **Regression:** full `npm test` before each commit series; `packageContribution.test.ts`
+  extended for the new setting; bench JSON diffed against the baseline in this file.
+
+## Risks
+- **Worker cannot start in some host** (old VS Code, web, policy) → `auto` falls back
+  silently to today's path; `on` logs one structured warning.
+- **Race class "stale result lands in a changed view"** → single rule (gen-stamped, drop on
+  mismatch), tested through the fake transport; positions never create nodes, only move
+  ids that still exist.
+- **Merge pain (perf merges last):** `frameRender.js`, `rendering.js`, `package.json`,
+  `webviewHtmlBuilder.ts`. Mitigation: new logic in new modules, touch the big files only
+  at call sites, land W1 early and re-merge `termi/s111` (ux) as soon as it is reported done.
+- **CSS classes for hover/LOD** touch ux territory → appended block, agreed with ux first.
+- **Headless numbers ≠ editor numbers** for paint → in-editor calibration in W0 before any
+  Canvas decision.
+- **Sharded analysis changes results** if cross-shard definitions are missed → equality
+  test against the unsharded run on 3 corpus repos; sharding stays off below the threshold.
+- `.vsix` size: + d3-force in the worker bundle (~30 KB) + vendored d3 (~280 KB).
+
+## Files touched
+New: `src/webview/simCore.js`, `simWorker.js`, `simPool.js`, `localSimWorker.js`,
+`hoverIndex.js` (W1-4), `visibility.js` (W1-6/7 memo + filter diff, culling helpers),
+`scripts/perf/*`, tests listed above.
+Edited (owned by perf): `localSim.js`, `frameScheduler.js`, `frameInteract.js`, `perf.js`,
+`esbuild.js`, `analyzerRunner.ts`, `structureScanner.ts`, `rendering.js` (tick/hover/zoom/
+labels only), `main.js` (`getVisibleNodeIds`, `applyFilters`), `frameRender.js` (allowed
+functions only), `crossLinks.js`, `drilldown.js` + `folder.js` (W4 only).
+Shared, minimal, appended: `webviewHtmlBuilder.ts` (CSP line, boot config keys, script
+list end), `graphProvider.ts` (`localResourceRoots` ×3, analysis callback, git-update
+delta), `gitService.ts`, `cacheStore.ts`, `package.json` (setting, `d3-force` dep,
+`perf:bench` script), `CHANGELOG.md`, `.ai/memory/decision.md`, `scripts/analyze_*.js|py`
+(W5-5/6 only). Nothing is deleted.
+
+## Decisions needed from Bela
+- **D1** Blob-bootstrapped worker + `worker-src blob:; connect-src ${cspSource}` (VS Code
+  leaves no alternative) — OK?
+- **D2** Settle feel with workers: snap in ~100 ms (recommended) vs paced visible motion.
+- **D3** Scope of this push: recommended **W0 + W1 + W2 + W3 + W5(1-5, 7)**; W4 (global
+  engine) and W5-6 (sharding) as a second round after the other three features merged;
+  W3b Canvas only if its gate fires.
+- **D4** Vendor d3 locally (+280 KB .vsix, removes the cdnjs dependency and CSP host).
+- **D5** `cograph.layout.workers` default `auto` (= on).
+
+## Out of Scope
+Panel HTML / controls / styling, force-setting semantics (ux); hover card (annotate);
+`uxtest/`; WebGL / WASM / GPU layout engines; NDJSON analyzer streaming; typed-array graph
+transport; changing layout results (shelf packing, slot geometry, force constants);
+release / version bump / corpus re-measure (`measure-all.sh` only when asked).
+
+## Baseline addendum (10k + corpus), 2026-09-18
+Raw data for all 12 runs: `.ai/plans/perf-baseline-2026-09-18.json`. Values are p50 unless
+noted; same harness and caveats as above.
+
+| Run | Expand-all sync / to-paint (nodes, DOM) | Settle script ms/frame (p50 / p95) | Settle wall (4 frames / all) | Pan-zoom fps | Hover over | Drag handler | Keystroke |
+|---|---|---|---|---|---|---|---|
+| shelf+dynamic 10k | 862 / 1 256 ms (10 000, 65k) | 7.8 / 15.1 | 13.2 s / > 30 s | 4.2 | 102 ms | 132 ms | 265 ms |
+| shelf+static 10k | 803 / 1 123 ms | 0 | 0.14 s / 1.1 s | 5.1 | 103 ms | 127 ms | 276 ms |
+| global+dynamic 10k | 770 / 1 534 ms | 150-330 ms per tick | not captured (frames > idle window) | 0.95 | 120 ms | 0.1 ms (+330 ms tick) | 25 ms |
+| global+dynamic 1k | 52 / 111 ms | 28-30 / 57 | 22-25 s | 27 | 11.5 ms | 0.1 ms (+17 ms tick) | 3.6 ms |
+| **fmt** (C++, 4 332 fns, 18 frames, big folders) dynamic | 318 / 806 ms (27k DOM) | **62 / 104** (max 440) | > 30 s / 24.6 s | 5.4 | 46 ms | 72 ms | 112 ms |
+| fmt static | 340 / 483 ms | 0 | 0.34 s / 0.48 s | 8.9 | 51 ms | 77 ms | 110 ms |
+| excalidraw (TS, 3 116 nodes, 99 frames) dynamic | 268 / 403 ms (15k DOM) | 3.2 / 13.9 (4 frames); 1.0 / 3.1 (all) | 11.1 s / > 30 s | 11.9 | 18 ms | 28 ms | 47 ms |
+| nest (TS, 5 058 nodes, 683 frames) dynamic | 624 / 768 ms (25k DOM) | 2.0 / 4.5; 0.4 / 0.6 | 8.7 s / > 30 s | 9.0 | 8 ms | 39 ms | 54 ms |
+
+Readings:
+- Interaction handlers scale linearly with graph size (hover 33 → 102 ms, drag 53 → 132 ms,
+  keystroke 78 → 265 ms from 3k → 10k): W1 turns them into O(touched).
+- Repos with **few, large folders** (fmt: up to ~1 500 functions in one frame) are the
+  shelf engine's worst case: 62 ms/frame on the main thread during settle. This is where
+  W2 pays most (pure sim for a 1 000-node frame = 5.5 ms/tick, off-thread).
+- Repos with **many small frames** (nest, excalidraw) are cheap per frame but take > 30 s
+  to finish because only 4 frames tick per rAF: W2's free-running pool fixes wall-clock.
+- Shelf+static (the default) is already zero-tick; its costs are render (expand-all
+  0.8-1.3 s at 10k), interaction handlers and paint → W1 + W3.
+- First stable layout after `structure` is 34-83 ms for collapsed repos at every size and
+  0.7-1.0 s for fmt (auto-expanded: < 200 files but 4 332 functions) → within target, fmt
+  borderline; W1-5/9 reduce its render cost.
+
+**Proposed 10k targets** (shelf, workers on): settle script ≤ 3 ms p50 / ≤ 6 ms p95 per
+frame; 4 open frames settled ≤ 1 s, expand-all settled ≤ 5 s; hover ≤ 3 ms; drag handler
+≤ 3 ms; keystroke ≤ 25 ms; expand-all to-paint ≤ 800 ms (from 1 256); pan/zoom ≥ 30 fps
+in-editor at fit-to-view with LOD, ≥ 55 fps zoomed in with culling — otherwise the W3b
+Canvas gate fires. Global@10k (W4): main thread ≤ 6 ms/frame while the worker settles.

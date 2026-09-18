@@ -637,7 +637,7 @@ function startSimulation(allLinks) {
     .force('link', d3.forceLink(allLinks).id(d => d.id)
       // Folder/file aggregated edges pull weakly and rest farther apart, so folders
       // separate instead of clumping; function-level edges keep full strength.
-      .distance(d => isFolderLink(d) ? 120 : 40)
+      .distance(d => isFolderLink(d) ? 120 : (settings.linkDistance ?? 40))
       .strength(d => {
         if (d.isLibraryEdge) { return settings.linkForce * 0.1 * 0.3; }
         return isFolderLink(d) ? settings.linkForce * 0.1 * 0.25 : settings.linkForce * 0.1;
@@ -646,8 +646,8 @@ function startSimulation(allLinks) {
     .force('center', d3.forceCenter(W / 2, H / 2).strength(0.001))
     .force('x', d3.forceX(W / 2).strength(settings.centerForce))
     .force('y', d3.forceY(H / 2).strength(settings.centerForce))
-    .force('collision', d3.forceCollide(d => nodeRadius(d) + 1))
-    .velocityDecay(0.3)
+    .force('collision', d3.forceCollide(d => nodeRadius(d) + (settings.collidePad ?? 1.5)))
+    .velocityDecay(settings.velocityDecay ?? 0.3)
     .alphaDecay(isBigGraph() ? 0.04 : 0.02)
     .on('tick', ticked)
     .on('end', () => { if (typeof perfSettled === 'function') { perfSettled(); } });

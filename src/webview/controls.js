@@ -99,9 +99,16 @@ document.getElementById('btn-reset-layout')?.addEventListener('click', () => {
     nodeSize: 2.5,
     textSize: 1.5,
     linkThickness: 4,
-    centerForce: 0.05,
+    centerForce: 0.025,
     repelForce: 250,
-    linkForce: 1
+    linkForce: 1,
+    fileClusterForce: 0.2,
+    folderRepelForce: 0.25,
+    fileRepelForce: 0.25,
+    linkDistance: 40,
+    velocityDecay: 0.3,
+    collidePad: 1.5,
+    slotPad: 0,
   };
 
   Object.assign(settings, defaults);
@@ -113,7 +120,14 @@ document.getElementById('btn-reset-layout')?.addEventListener('click', () => {
     'slider-link-thickness': { valId: 'val-link-thickness', value: defaults.linkThickness },
     'slider-center-force': { valId: 'val-center-force', value: defaults.centerForce },
     'slider-repel-force': { valId: 'val-repel-force', value: defaults.repelForce },
-    'slider-link-force': { valId: 'val-link-force', value: defaults.linkForce }
+    'slider-link-force': { valId: 'val-link-force', value: defaults.linkForce },
+    'slider-file-cluster': { valId: 'val-file-cluster', value: defaults.fileClusterForce },
+    'slider-folder-repel': { valId: 'val-folder-repel', value: defaults.folderRepelForce },
+    'slider-file-repel': { valId: 'val-file-repel', value: defaults.fileRepelForce },
+    'slider-link-distance': { valId: 'val-link-distance', value: defaults.linkDistance },
+    'slider-velocity-decay': { valId: 'val-velocity-decay', value: defaults.velocityDecay },
+    'slider-collide-pad': { valId: 'val-collide-pad', value: defaults.collidePad },
+    'slider-slot-pad': { valId: 'val-slot-pad', value: defaults.slotPad }
   })) {
     const slider = document.getElementById(key);
     const valEl = document.getElementById(val.valId);
@@ -150,13 +164,20 @@ wireSlider('slider-center-force', 'val-center-force', 'centerForce', rerunLayout
 wireSlider('slider-repel-force', 'val-repel-force', 'repelForce', rerunLayout);
 wireSlider('slider-link-force', 'val-link-force', 'linkForce', rerunLayout);
 wireSlider('slider-file-cluster', 'val-file-cluster', 'fileClusterForce', rerunLayout);
+wireSlider('slider-link-distance', 'val-link-distance', 'linkDistance', rerunLayout);
+wireSlider('slider-velocity-decay', 'val-velocity-decay', 'velocityDecay', rerunLayout);
+wireSlider('slider-collide-pad', 'val-collide-pad', 'collidePad', rerunLayout);
+wireSlider('slider-slot-pad', 'val-slot-pad', 'slotPad', rerunLayout);
 wireSlider('slider-folder-repel', 'val-folder-repel', 'folderRepelForce', rerunLayout);
 wireSlider('slider-file-repel', 'val-file-repel', 'fileRepelForce', rerunLayout);
 
-// "view more forces" shortcut — opens the gear settings panel (Center/Repel/Link forces)
-document.getElementById('btn-more-forces')?.addEventListener('click', (e) => {
+// "show more forces" — inline expander for the advanced force sliders.
+document.getElementById('btn-show-more-forces')?.addEventListener('click', (e) => {
   e.stopPropagation();
-  settingsPanel?.classList.add('open');
+  const adv = document.getElementById('forces-advanced');
+  const btn = e.currentTarget;
+  const open = adv?.classList.toggle('open');
+  if (btn) { btn.innerHTML = open ? 'show fewer forces \u25B4' : 'show more forces \u25BE'; }
 });
 
 // ── Collapsible legend headers ────────────────────────────────────────────────

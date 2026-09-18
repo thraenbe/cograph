@@ -44,6 +44,10 @@ const settings = {
   fileClusterForce: 0.2,
   folderRepelForce: 0.25,
   fileRepelForce: 0.25,
+  linkDistance: 40,   // shelf sims run this at 0.75x (localSim.lsLinkDistance)
+  velocityDecay: 0.3,
+  collidePad: 1.5,
+  slotPad: 0,
   openFunctionPopup: true,
 };
 
@@ -55,8 +59,9 @@ function updateLayoutButtons() {
   for (const e of ['shelf', 'global']) {
     document.getElementById(`btn-engine-${e}`)?.classList.toggle('active', state.layoutEngine === e);
   }
-  const forcesSection = document.getElementById('forces-section');
-  if (forcesSection) forcesSection.style.opacity = state.layoutMode === 'static' ? '0.4' : '1';
+  if (typeof updateForcesPanel === 'function') {
+    updateForcesPanel(state.layoutEngine, state.layoutMode);
+  }
   const hint = document.getElementById('layout-hint');
   if (hint) {
     const engine = state.layoutEngine === 'shelf' ? 'Folder frames & file slots' : 'One free-floating graph';
@@ -207,7 +212,9 @@ function rerunLayout() {
   state.simulation.force('link')
     .strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3
       : folderLink(d) ? settings.linkForce * 0.1 * 0.25 : settings.linkForce * 0.1)
-    .distance(d => folderLink(d) ? 120 : 40);
+    .distance(d => folderLink(d) ? 120 : (settings.linkDistance ?? 40));
+  state.simulation.force('collision')?.radius?.(d => nodeRadius(d) + (settings.collidePad ?? 1.5));
+  state.simulation.velocityDecay?.(settings.velocityDecay ?? 0.3);
   state.simulation.alpha(0.5).restart();
 }
 

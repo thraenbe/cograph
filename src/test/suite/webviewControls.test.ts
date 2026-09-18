@@ -61,6 +61,21 @@ function makeDOM() {
     <button id="btn-class-mode"></button>
     <input id="slider-folder-repel" type="range" value="0.25" /><span id="val-folder-repel">0.25</span>
     <input id="slider-file-repel" type="range" value="0.25" /><span id="val-file-repel">0.25</span>
+    <div id="panel-forces">
+      <p id="forces-hint" style="display:none"></p>
+      <div id="row-center-force"></div><div id="row-repel-force"></div><div id="row-link-force"></div>
+      <div id="row-file-cluster"><label id="label-file-cluster">File Cluster Force</label></div>
+      <div id="row-folder-repel"></div><div id="row-file-repel"></div>
+      <button id="btn-show-more-forces">show more forces</button>
+      <div id="forces-advanced">
+        <div id="row-link-distance"><input id="slider-link-distance" type="range" value="40" /><span id="val-link-distance">40</span></div>
+        <div id="row-velocity-decay"><input id="slider-velocity-decay" type="range" value="0.3" /><span id="val-velocity-decay">0.3</span></div>
+        <div id="row-collide-pad"><input id="slider-collide-pad" type="range" value="1.5" /><span id="val-collide-pad">1.5</span></div>
+        <div id="row-slot-pad"><input id="slider-slot-pad" type="range" value="0" /><span id="val-slot-pad">0</span></div>
+      </div>
+    </div>
+    <input id="slider-file-cluster" type="range" value="0.2" /><span id="val-file-cluster">0.2</span>
+    <button id="btn-reset-layout"></button>
     <button id="btn-save-graph"></button>
     <button id="btn-open-chat"></button>
   </body></html>`;
@@ -93,7 +108,8 @@ const dom = makeDOM();
   showOrphans: true, showLibraries: false, arrows: true,
   textFadeThreshold: 0.5, nodeSize: 2.5, textSize: 1.0, linkThickness: 4,
   centerForce: 1, repelForce: 50, linkForce: 1,
-  folderRepelForce: 0.25, fileRepelForce: 0.25,
+  folderRepelForce: 0.25, fileRepelForce: 0.25, fileClusterForce: 0.2,
+  linkDistance: 40, velocityDecay: 0.3, collidePad: 1.5, slotPad: 0,
 };
 (global as any).vscode = { postMessage: () => {} };
 
@@ -383,34 +399,50 @@ suite('Textarea keyboard handlers', () => {
 // still read it, causing undefined → NaN distance and all nodes collapsing.
 // ---------------------------------------------------------------------------
 
-suite('Link Distance removal regression', () => {
-  test('settings object has no linkDistance property', () => {
-    assert.strictEqual(
-      (global as any).settings.linkDistance,
-      undefined,
-      'linkDistance was removed — rendering must use a hardcoded value, not settings.linkDistance',
-    );
-  });
+suite('Advanced forces (show more forces)', () => {
+  const doc = dom.window.document;
 
-  test('slider-link-distance element does not exist in DOM', () => {
-    const slider = dom.window.document.getElementById('slider-link-distance');
-    assert.strictEqual(slider, null, 'slider-link-distance should not be present in the webview HTML');
-  });
-
-  test('wireSlider input event does not create settings.linkDistance', () => {
-    // Trigger every wired slider — none should write linkDistance onto settings
-    const sliderIds = [
-      'slider-text-size', 'slider-center-force', 'slider-repel-force', 'slider-link-force',
+  test('advanced sliders write their settings keys', () => {
+    const cases: Array<[string, string, string, number]> = [
+      ['slider-link-distance', 'linkDistance', '60', 60],
+      ['slider-velocity-decay', 'velocityDecay', '0.5', 0.5],
+      ['slider-collide-pad', 'collidePad', '4', 4],
+      ['slider-slot-pad', 'slotPad', '6', 6],
     ];
-    for (const id of sliderIds) {
-      const slider = dom.window.document.getElementById(id) as any;
-      if (slider) dispatch(slider, 'input');
+    for (const [id, key, raw, expected] of cases) {
+      const slider = doc.getElementById(id) as any;
+      slider.value = raw;
+      dispatch(slider, 'input');
+      assert.strictEqual((global as any).settings[key], expected, key);
     }
-    assert.strictEqual(
-      (global as any).settings.linkDistance,
-      undefined,
-      'no slider should write settings.linkDistance',
-    );
+  });
+
+  test('show-more button toggles the advanced container open class', () => {
+    const btn = doc.getElementById('btn-show-more-forces') as any;
+    const adv = doc.getElementById('forces-advanced')!;
+    adv.classList.remove('open');
+    btn.click();
+    assert.ok(adv.classList.contains('open'), 'first click opens');
+    assert.ok(btn.textContent!.includes('fewer'), 'button flips its label');
+    btn.click();
+    assert.ok(!adv.classList.contains('open'), 'second click closes');
+  });
+
+  test('reset restores every force to its canonical default (centerForce 0.025)', () => {
+    Object.assign((global as any).settings, {
+      centerForce: 0.9, fileClusterForce: 0.9, folderRepelForce: 9, fileRepelForce: 9,
+      linkDistance: 99, velocityDecay: 0.9, collidePad: 9, slotPad: 9,
+    });
+    doc.getElementById('btn-reset-layout')?.click();
+    const st = (global as any).settings;
+    assert.strictEqual(st.centerForce, 0.025);
+    assert.strictEqual(st.fileClusterForce, 0.2);
+    assert.strictEqual(st.folderRepelForce, 0.25);
+    assert.strictEqual(st.fileRepelForce, 0.25);
+    assert.strictEqual(st.linkDistance, 40);
+    assert.strictEqual(st.velocityDecay, 0.3);
+    assert.strictEqual(st.collidePad, 1.5);
+    assert.strictEqual(st.slotPad, 0);
   });
 });
 

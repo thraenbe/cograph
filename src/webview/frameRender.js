@@ -92,7 +92,6 @@ function renderFrameLayout(allLinks, visibleSet) {
   __fr.members = members;
   __fr.byId = new Map(state.currentNodes.map(n => [n.id, n]));
   if (applyPendingLayout()) { return; } // saved expansion differs → re-render scheduled
-  setFrameSliderNoops(true);
 
   // 2) Ownership stamp (includes per-file partition frames).
   const frameOfId = new Map();
@@ -450,7 +449,6 @@ function updateCrossLinks() {
 
 // ── Teardown (leaving the frames engine / drill-down) ─────────────────────────
 function teardownFrames() {
-  setFrameSliderNoops(false);
   if (__fr.sched) { __fr.sched.stop(); }
   for (const rec of __fr.sims.values()) { destroySim(rec); }
   __fr.sims.clear();
@@ -703,20 +701,6 @@ function renderFrameSlots(f, sub) {
 }
 
 // ── Settings glue ─────────────────────────────────────────────────────────────
-/** Grey out the two sliders that have no effect under frames (folder/file
- *  repel — separation is guaranteed by the packer). Handlers stay wired. */
-function setFrameSliderNoops(on) {
-  if (typeof document === 'undefined') { return; }
-  for (const id of ['slider-folder-repel', 'slider-file-repel']) {
-    const el = document.getElementById(id);
-    if (!el) { continue; }
-    el.disabled = on;
-    if (el.parentElement) {
-      el.parentElement.classList.toggle('is-noop', on);
-      el.parentElement.title = on ? 'Not used in framed layout' : '';
-    }
-  }
-}
 
 /** Node-size (and text) changes: refresh sim radii; collide reads d.r live. */
 function applyFrameDisplaySettings() {
@@ -734,7 +718,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     usesFrames, renderFrameLayout, tickFrames, tickFrame, teardownFrames,
     resetFrames, updateCrossLinks, syncFrameSims, applySimResult, applySimData,
-    applyPendingLayout, migrateV1IntoFrames, setFrameSliderNoops,
+    applyPendingLayout, migrateV1IntoFrames,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots,
     placeMembersInSlots,

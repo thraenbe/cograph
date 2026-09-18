@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (UX)
 - The language-colours toggle is labelled **Language** (was "Lang").
+- **One Forces box** in the left toolbar replaces the sliders split between the
+  folder panel and the gear settings panel. It shows only what the current
+  engine consumes (Shelf: Repel, Link, "Keep near file"; Global: those plus
+  Center, Folder Repel, File Repel), an inline **"show more forces"** expander
+  reveals advanced controls (Link Distance, Damping, Collision Padding and, in
+  Shelf, Slot Padding), and under Static motion the box shows a hint instead of
+  dead sliders. Reset now restores every force; the Center Force default is
+  0.025 everywhere (the gear panel used to show 0.05).
 - **Folder chrome redesign (Draft A "index tab")**, applied to both engines:
   every open folder shows its name in a tab at the top-left (folder glyph,
   ellipsis past 62 % of the frame width) with file/function counts in the free

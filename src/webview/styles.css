@@ -1271,8 +1271,15 @@ body.vscode-light {
   text-align: right;
 }
 
-/* Sliders without effect under the frames layout engine */
-.is-noop { opacity: 0.4; }
+/* Forces box (left toolbar): static hint + collapsed advanced sliders */
+.forces-hint {
+  margin: 2px 0 4px;
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.75;
+}
+#forces-advanced { display: none; }
+#forces-advanced.open { display: block; }
 
 /* Draft A folder chrome: index tab + counts strip (both engines) */
 .frame-tab-glyph { opacity: 0.7; }

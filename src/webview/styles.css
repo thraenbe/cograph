@@ -1273,3 +1273,48 @@ body.vscode-light {
 
 /* Sliders without effect under the frames layout engine */
 .is-noop { opacity: 0.4; }
+
+/* ── Hover card (hoverCard.js) — folder / file facts and AI summary ─────────── */
+.hover-card {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  max-width: 320px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--vscode-editorHoverWidget-border, rgba(127, 127, 127, 0.4));
+  background: var(--vscode-editorHoverWidget-background, #252526);
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground, #cccccc));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none; /* can never block a click, drag or zoom */
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  will-change: transform;
+}
+.hover-card.visible { visibility: visible; opacity: 1; }
+.hc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.hc-name { font-weight: 600; overflow-wrap: anywhere; }
+.hc-badge {
+  flex: none;
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  border: 1px solid currentColor;
+}
+.hc-path, .hc-facts, .hc-hint { font-size: 11px; opacity: 0.7; overflow-wrap: anywhere; }
+.hc-role {
+  justify-self: start;
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--vscode-badge-background, #4d4d4d);
+  color: var(--vscode-badge-foreground, #ffffff);
+}
+.hc-hint { font-style: italic; }

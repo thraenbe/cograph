@@ -176,6 +176,7 @@ export function getWebviewHtml(
   const controlsUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'controls.js'));
   const timelineUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'timeline.js'));
   const perfUri      = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'perf.js'));
+  const hoverCardUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverCard.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
 
@@ -460,6 +461,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${scriptUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${controlsUri}?v=${nonce}"></script>
   ${timelineScriptTag}
+  <script nonce="${nonce}" src="${hoverCardUri}?v=${nonce}"></script>
 </body>
 </html>`;
 }

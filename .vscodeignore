@@ -6,6 +6,7 @@
 .github/**
 docs/**
 prompts/**
+uxtest/**
 
 # The packaged runtime is dist/** (esbuild bundles — see esbuild.js). The
 # webview ships as plain JS straight from src/webview; everything else in

@@ -57,7 +57,7 @@ export function buildFileDigest(root: string, abs: string, language: string, ind
   const symbols: string[] = [];
   const seen = new Set<string>();
   for (const n of nodes) {
-    const sig = signatureOf(n, lines);
+    const sig = signatureOf(n, lines, language);
     if (!seen.has(sig)) { seen.add(sig); symbols.push(sig); }
     if (symbols.length >= MAX_SYMBOLS) { break; }
   }
@@ -103,12 +103,38 @@ function readLines(abs: string): string[] | null {
   }
 }
 
-/** The declaration line of a function, with string literals blanked; falls back to its name. */
-function signatureOf(n: GraphNode, lines: string[] | null): string {
+/** The declaration of a function — never its body — with string literals blanked; falls back to its name. */
+function signatureOf(n: GraphNode, lines: string[] | null, language: string): string {
   const raw = lines?.[n.line - 1]?.trim() ?? '';
-  const named = raw.includes(n.name) ? raw : n.name;
+  const named = raw.includes(n.name) ? cutBody(blankStrings(raw), n.name, language) : n.name;
   const owner = n.className && !named.includes(n.className) ? `${n.className}.` : '';
-  return (owner + blankStrings(named)).replace(/\s+/g, ' ').replace(/\s*[{:]\s*$/, '').slice(0, MAX_SIGNATURE_CHARS);
+  return (owner + named).replace(/\s+/g, ' ').trim().slice(0, MAX_SIGNATURE_CHARS);
+}
+
+/**
+ * Keep a declaration line up to where its body starts, so a one-line function
+ * (`function add(a, b) { return a + b; }`) contributes its signature only.
+ * Expects string literals to be blanked already, so brackets inside them cannot confuse the scan.
+ */
+export function cutBody(line: string, name: string, language: string): string {
+  const open = line.indexOf('(', line.indexOf(name) + name.length);
+  let end = open < 0 ? 0 : matchingParen(line, open) + 1;
+  if (open >= 0 && end === 0) { return line; } // parameters continue on the next line: no body here
+  const bodyStart = language === 'python' ? /:/ : /\{|=>|;/;
+  const rest = line.slice(end);
+  const cut = rest.search(bodyStart);
+  end += cut < 0 ? rest.length : cut;
+  return line.slice(0, end).trimEnd();
+}
+
+/** Index of the `)` closing the `(` at `open`, or -1 when it is not on this line. */
+function matchingParen(line: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < line.length; i++) {
+    if (line[i] === '(') { depth++; }
+    else if (line[i] === ')' && --depth === 0) { return i; }
+  }
+  return -1;
 }
 
 /** Replace the contents of quoted literals so a default value can never leak a secret. */

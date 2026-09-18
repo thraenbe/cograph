@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  buildDigestIndex, buildFileDigest, renderFileDigest, blankStrings, leadingComment, MAX_DIGEST_CHARS,
+  buildDigestIndex, buildFileDigest, renderFileDigest, blankStrings, cutBody, leadingComment, MAX_DIGEST_CHARS,
 } from '../../graphIntelligence/annotationDigest';
 import type { GraphData } from '../../graphProvider';
 
@@ -109,6 +109,27 @@ suite('annotationDigest', () => {
     const text = renderFileDigest(buildFileDigest(root, big, 'typescript', buildDigestIndex(g)));
     assert.ok(text.length <= MAX_DIGEST_CHARS, String(text.length));
     assert.match(text, /\(\+\d+ more\)/);
+  });
+
+  test('cutBody keeps the declaration and drops a same-line body', () => {
+    assert.strictEqual(cutBody('export function add(a: number, b: number) { return a + b; }', 'add', 'typescript'), 'export function add(a: number, b: number)');
+    assert.strictEqual(cutBody('async charge(user: User): Promise<Receipt> {', 'charge', 'typescript'), 'async charge(user: User): Promise<Receipt>');
+    assert.strictEqual(cutBody('export const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));', 'sleep', 'typescript'), 'export const sleep = (ms: number)');
+    assert.strictEqual(cutBody('const pick = ({ a, b }: Opts) => a ?? b;', 'pick', 'javascript'), 'const pick = ({ a, b }: Opts)');
+    assert.strictEqual(cutBody('def area(w: int, h: int) -> int: return w * h', 'area', 'python'), 'def area(w: int, h: int) -> int');
+    assert.strictEqual(cutBody('int add(int a, int b) { return a + b; }', 'add', 'cpp'), 'int add(int a, int b)');
+    assert.strictEqual(cutBody('public int size() { return this.n; }', 'size', 'java'), 'public int size()');
+    assert.strictEqual(cutBody('export function big(', 'big', 'typescript'), 'export function big(', 'multi-line parameters: nothing to cut');
+    assert.strictEqual(cutBody('class Billing extends Base {', 'Billing', 'typescript'), 'class Billing extends Base');
+  });
+
+  test('a one-line function never leaks its body into the digest', () => {
+    const one = path.join(root, 'src', 'one.ts');
+    fs.writeFileSync(one, 'export function token() { return process.env.API_TOKEN ?? fallbackSecret(); }\n');
+    const g: GraphData = { nodes: [{ id: 't', name: 'token', file: one, line: 1, language: 'typescript' }], edges: [] };
+    const text = renderFileDigest(buildFileDigest(root, one, 'typescript', buildDigestIndex(g)));
+    assert.ok(text.includes('export function token()'));
+    assert.ok(!text.includes('API_TOKEN') && !text.includes('fallbackSecret'), text);
   });
 
   test('blankStrings handles all quote kinds and escapes', () => {

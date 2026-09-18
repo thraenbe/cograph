@@ -173,26 +173,6 @@ function wireLegendToggle(headerId, bodyId) {
 wireLegendToggle('toggle-git-legend', 'git-legend-body');
 wireLegendToggle('toggle-folder-filters', 'folder-filters-body');
 
-// ── Cluster group-by controls ─────────────────────────────────────────────────
-// Three lenses: File (the folder drill-down — default), Class, Connect.
-const GROUP_BY_MODES = ['file', 'class', 'connect'];
-GROUP_BY_MODES.forEach(mode => {
-  document.getElementById(`btn-group-${mode}`)?.addEventListener('click', () => {
-    state.expandedClusters = new Set();
-    GROUP_BY_MODES.forEach(m =>
-      document.getElementById(`btn-group-${m}`)?.classList.toggle('active', m === mode)
-    );
-    if (mode === 'file') {
-      // File mode IS the folder drill-down.
-      if (typeof enterFileClusterMode === 'function') { enterFileClusterMode(); }
-    } else {
-      state.viewMode = 'cluster';
-      state.clusterGroupBy = mode;
-      applyComplexity();
-    }
-    window.markDirty?.();
-  });
-});
 
 // ── Git mode toggle ───────────────────────────────────────────────────────────
 function setGitLegendVisible(visible) {
@@ -331,8 +311,8 @@ function buildSavePayload() {
 }
 
 /** Restore saved display settings from a graph-loaded payload onto state + the
- *  control DOM (buildSavePayload's read-side mirror). Handles the legacy
- *  'connectivity'/'auto' → 'connect' rename. */
+ *  control DOM (buildSavePayload's read-side mirror). Any saved cluster lens
+ *  (removed Class/Connect, legacy 'connectivity'/'auto') loads as File. */
 function applySavedViewSettings(saved) {
   if (saved.complexityLevel !== undefined) {
     state.complexityLevel = saved.complexityLevel;
@@ -342,9 +322,9 @@ function applySavedViewSettings(saved) {
     if (valEl) { valEl.textContent = Number(saved.complexityLevel).toFixed(2); }
   }
   if (saved.clusterGroupBy !== undefined) {
-    // Back-compat: 'connectivity'/'auto' were renamed to 'connect'.
-    const legacy = { connectivity: 'connect', auto: 'connect' };
-    state.clusterGroupBy = legacy[saved.clusterGroupBy] ?? saved.clusterGroupBy;
+    // Only the File lens exists; saves from builds with the Class/Connect
+    // lenses (or the older 'connectivity'/'auto' names) load silently as File.
+    state.clusterGroupBy = 'file';
   }
   if (saved.gitMode !== undefined) {
     state.gitMode = saved.gitMode;

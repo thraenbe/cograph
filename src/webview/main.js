@@ -91,7 +91,7 @@ function setLayoutEngine(engine) {
   state.layoutEngine = engine;
   updateLayoutButtons();
   state.currentNodes.forEach(d => { d.fx = null; d.fy = null; });
-  if (engine === 'shelf' && (state.viewMode === 'workflow' || state.clusterGroupBy !== 'file')) {
+  if (engine === 'shelf' && state.viewMode === 'workflow') {
     if (typeof enterFileClusterMode === 'function') { enterFileClusterMode(); }
   } else if (typeof applyComplexity === 'function') {
     applyComplexity();
@@ -254,11 +254,9 @@ function applyComplexity() {
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
-  // Reaches here for 'connect', 'class', or 'file' without a structure tree
-  // (which falls back to plain file-structural clustering instead of the drill-down).
-  const clusterResult = state.clusterGroupBy === 'connect'
-    ? computeClusters(projectData, state.importanceScores, state.complexityLevel)
-    : computeStructuralClusters(projectData, state.clusterGroupBy, state.complexityLevel);
+  // Reaches here only for 'file' without a structure tree (falls back to plain
+  // file-structural clustering instead of the drill-down).
+  const clusterResult = computeStructuralClusters(projectData, 'file', state.complexityLevel);
   const elements = buildClusteredElements(projectData, clusterResult, state.complexityLevel, state.importanceScores, state.expandedClusters, degreeMap);
   const nodeToRendered = buildRenderedNodeMap(clusterResult.nodeToCluster, state.expandedClusters);
   if (settings.showLibraries) {
@@ -315,10 +313,10 @@ function applyComplexity() {
       }
     });
   }
-  // For structural modes, seed each cluster at the centroid of its members'
-  // current on-screen positions so the layout starts compact instead of random.
+  // Seed each cluster at the centroid of its members' current on-screen
+  // positions so the layout starts compact instead of random.
   const positionHints = new Map();
-  if (state.clusterGroupBy !== 'connect' && state.currentNodes.length > 0) {
+  if (state.currentNodes.length > 0) {
     const currentById = new Map(state.currentNodes.map(n => [n.id, n]));
     for (const [clusterId, members] of clusterResult.clusterMembers) {
       const pts = members

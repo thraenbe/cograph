@@ -57,9 +57,6 @@ function makeDOM() {
     <div class="func-resize-handle" data-dir="sw"></div>
     <input id="slider-complexity" type="range" value="0.99" />
     <span id="val-complexity">0.99</span>
-    <button id="btn-group-file" class="active"></button>
-    <button id="btn-group-class"></button>
-    <button id="btn-group-connect"></button>
     <button id="btn-folder-mode"></button>
     <button id="btn-class-mode"></button>
     <input id="slider-folder-repel" type="range" value="0.25" /><span id="val-folder-repel">0.25</span>
@@ -431,7 +428,7 @@ suite('Save Graph Layout button', () => {
     // controls.js reads these at click time from the global state object
     (global as any).state.currentNodes = [];
     (global as any).state.complexityLevel = 0.5;
-    (global as any).state.clusterGroupBy = 'connect';
+    (global as any).state.clusterGroupBy = 'file';
     (global as any).state.layoutMode = 'dynamic';
     (global as any).state.gitMode = false;
     (global as any).state.languageMode = false;
@@ -449,7 +446,7 @@ suite('Save Graph Layout button', () => {
       { id: 'b::fn::2', x: 30, y: 40 },
     ];
     (global as any).state.complexityLevel = 0.8;
-    (global as any).state.clusterGroupBy = 'class';
+    (global as any).state.clusterGroupBy = 'file';
     (global as any).state.layoutMode = 'static';
     (global as any).state.gitMode = true;
     (global as any).state.folderMode = true;
@@ -463,7 +460,7 @@ suite('Save Graph Layout button', () => {
     assert.strictEqual(msg.mode, 'save-as', 'button always triggers save-as (prompt)');
     assert.deepStrictEqual(msg.payload.settings, {
       complexityLevel: 0.8,
-      clusterGroupBy: 'class',
+      clusterGroupBy: 'file',
       layoutMode: 'static',
       gitMode: true,
       languageMode: false,
@@ -546,7 +543,7 @@ suite('Save Graph Layout button', () => {
     assert.strictEqual(posted.length, 1);
     assert.deepStrictEqual(posted[0].payload.nodePositions, {});
     // settings payload should still be populated
-    assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'connect');
+    assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'file');
   });
 });
 
@@ -577,67 +574,6 @@ suite('Open Chat button', () => {
     dom.window.document.getElementById('btn-open-chat')!.click();
     assert.strictEqual(posted.length, 1);
     assert.strictEqual(Object.keys(posted[0]).length, 1, 'message has exactly one key');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Suite: Group-by lens buttons (File / Class / Connect)
-// ---------------------------------------------------------------------------
-
-suite('Group-by lens buttons', () => {
-  const st = () => (global as any).state;
-  const doc = dom.window.document;
-  let savedApplyComplexity: any;
-  let savedEnterFileClusterMode: any;
-  let applyComplexityCalls: number;
-  let enterFileClusterModeCalls: number;
-
-  setup(() => {
-    savedApplyComplexity = (global as any).applyComplexity;
-    savedEnterFileClusterMode = (global as any).enterFileClusterMode;
-    applyComplexityCalls = 0;
-    enterFileClusterModeCalls = 0;
-    (global as any).applyComplexity = () => { applyComplexityCalls++; };
-    (global as any).enterFileClusterMode = () => { enterFileClusterModeCalls++; };
-    Object.assign(st(), {
-      viewMode: 'cluster', clusterGroupBy: 'file',
-      expandedClusters: new Set(['some-cluster']),
-    });
-  });
-
-  teardown(() => {
-    (global as any).applyComplexity = savedApplyComplexity;
-    (global as any).enterFileClusterMode = savedEnterFileClusterMode;
-  });
-
-  test('File click → delegates to enterFileClusterMode and clears expandedClusters', () => {
-    doc.getElementById('btn-group-file')!.click();
-    assert.strictEqual(enterFileClusterModeCalls, 1, 'file lens enters the drill-down');
-    assert.strictEqual(st().expandedClusters.size, 0, 'expanded clusters reset');
-    assert.strictEqual(applyComplexityCalls, 0, 'handler defers rendering to enterFileClusterMode');
-  });
-
-  test('Class click → viewMode=cluster, clusterGroupBy=class, applyComplexity called', () => {
-    st().viewMode = 'workflow'; // prove the lens click leaves workflow mode
-    doc.getElementById('btn-group-class')!.click();
-    assert.strictEqual(st().viewMode, 'cluster');
-    assert.strictEqual(st().clusterGroupBy, 'class');
-    assert.strictEqual(applyComplexityCalls, 1);
-    assert.strictEqual(enterFileClusterModeCalls, 0);
-  });
-
-  test('Connect click → clusterGroupBy=connect and applyComplexity called', () => {
-    doc.getElementById('btn-group-connect')!.click();
-    assert.strictEqual(st().viewMode, 'cluster');
-    assert.strictEqual(st().clusterGroupBy, 'connect');
-    assert.strictEqual(applyComplexityCalls, 1);
-  });
-
-  test('lens buttons toggle the active class exclusively', () => {
-    doc.getElementById('btn-group-class')!.click();
-    assert.ok(doc.getElementById('btn-group-class')!.classList.contains('active'));
-    assert.ok(!doc.getElementById('btn-group-file')!.classList.contains('active'));
-    assert.ok(!doc.getElementById('btn-group-connect')!.classList.contains('active'));
   });
 });
 
@@ -688,21 +624,18 @@ suite('applySavedViewSettings()', () => {
     doc.getElementById('btn-folder-mode')!.classList.add('active');
   });
 
-  test('legacy clusterGroupBy remap: connectivity → connect', () => {
-    applySavedViewSettings({ clusterGroupBy: 'connectivity' });
-    assert.strictEqual(st().clusterGroupBy, 'connect');
+  test('every saved lens value loads as file (class/connect/legacy names)', () => {
+    for (const legacy of ['class', 'connect', 'connectivity', 'auto', 'file']) {
+      st().clusterGroupBy = 'poison';
+      applySavedViewSettings({ clusterGroupBy: legacy });
+      assert.strictEqual(st().clusterGroupBy, 'file', `saved '${legacy}' must load as file`);
+    }
   });
 
-  test('legacy clusterGroupBy remap: auto → connect', () => {
-    applySavedViewSettings({ clusterGroupBy: 'auto' });
-    assert.strictEqual(st().clusterGroupBy, 'connect');
-  });
-
-  test('modern clusterGroupBy passes through; undefined leaves state untouched', () => {
-    applySavedViewSettings({ clusterGroupBy: 'class' });
-    assert.strictEqual(st().clusterGroupBy, 'class');
+  test('undefined clusterGroupBy leaves state untouched', () => {
+    st().clusterGroupBy = 'file';
     applySavedViewSettings({});
-    assert.strictEqual(st().clusterGroupBy, 'class', 'undefined key must not reset the lens');
+    assert.strictEqual(st().clusterGroupBy, 'file');
   });
 
   test('folderMode:false restore updates state and clears the button active class', () => {

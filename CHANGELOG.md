@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.0] - Unreleased
 
+### Removed
+- The **Class** and **Connect** group-by lenses. Group-by-File (the folder
+  drill-down) is the only lens; saved views that carry `class`, `connect` or the
+  older `connectivity`/`auto` values load silently as File. The separate OOP
+  **Class overlay** button is unchanged.
+
 ### Added
 - **Two independent layout toggles** — engine and motion. **Shelf | Global** picks
   the engine: Shelf packs every open folder into a nested, non-overlapping frame with

@@ -263,12 +263,6 @@ export function getWebviewHtml(
         <span id="val-complexity">1</span>
       </div>
       <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
-      <div class="tl-section-label">Group by</div>
-      <div class="btn-group">
-        <button id="btn-group-file"    class="tl-btn active" title="Navigate by folder (drill down)">File</button>
-        <button id="btn-group-class"   class="tl-btn"        title="Cluster by class">Class</button>
-        <button id="btn-group-connect" class="tl-btn"        title="Cluster by connection importance">Connect</button>
-      </div>
     </div>
     <div id="panel-git" class="tl-panel" style="display:none">
       <button id="btn-git-mode" class="tl-btn" title="Toggle git diff colors">Git</button>

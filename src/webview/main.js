@@ -47,27 +47,62 @@ const settings = {
   openFunctionPopup: true,
 };
 
-// ── Layout mode toggle ────────────────────────────────────────────────────────
-function setLayoutMode(mode) {
-  state.layoutMode = mode;
-  document.getElementById('btn-layout-dynamic')?.classList.toggle('active', mode === 'dynamic');
-  document.getElementById('btn-layout-static')?.classList.toggle('active', mode === 'static');
+// ── Layout toggles: engine (Shelf | Global) × motion (Dynamic | Static) ───────
+function updateLayoutButtons() {
+  for (const m of ['dynamic', 'static']) {
+    document.getElementById(`btn-layout-${m}`)?.classList.toggle('active', state.layoutMode === m);
+  }
+  for (const e of ['shelf', 'global']) {
+    document.getElementById(`btn-engine-${e}`)?.classList.toggle('active', state.layoutEngine === e);
+  }
   const forcesSection = document.getElementById('forces-section');
-  if (forcesSection) forcesSection.style.opacity = mode === 'dynamic' ? '1' : '0.4';
+  if (forcesSection) forcesSection.style.opacity = state.layoutMode === 'static' ? '0.4' : '1';
+  const hint = document.getElementById('layout-hint');
+  if (hint) {
+    const engine = state.layoutEngine === 'shelf' ? 'Folder frames & file slots' : 'One free-floating graph';
+    const motion = state.layoutMode === 'static' ? 'frozen' : 'settles live';
+    hint.textContent = `${engine} \u00b7 ${motion}`;
+  }
+}
+
+// Motion axis — classic semantics on either engine: static stops the simulation
+// (the frame facade pauses its scheduler) and pins nodes; dynamic releases them.
+function setLayoutMode(mode) {
+  if (!['dynamic', 'static'].includes(mode)) { mode = 'dynamic'; }
+  state.layoutMode = mode;
+  updateLayoutButtons();
 
   if (mode === 'static') {
     if (state.simulation) {
       state.simulation.stop();
       state.currentNodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
     }
-  } else {
-    state.currentNodes.forEach(d => { d.fx = null; d.fy = null; });
-    if (state.simulation) state.simulation.alpha(0.3).restart();
+    return;
   }
+  state.currentNodes.forEach(d => { d.fx = null; d.fy = null; });
+  if (state.simulation) state.simulation.alpha(0.3).restart();
 }
+
+// Engine axis — 'shelf' (folder frames; implies the File lens) | 'global'
+// (classic single simulation). Re-renders, then re-applies a static freeze so
+// the target engine honours the current motion mode.
+function setLayoutEngine(engine) {
+  if (!['shelf', 'global'].includes(engine)) { engine = 'global'; }
+  state.layoutEngine = engine;
+  updateLayoutButtons();
+  state.currentNodes.forEach(d => { d.fx = null; d.fy = null; });
+  if (engine === 'shelf' && (state.viewMode === 'workflow' || state.clusterGroupBy !== 'file')) {
+    if (typeof enterFileClusterMode === 'function') { enterFileClusterMode(); }
+  } else if (typeof applyComplexity === 'function') {
+    applyComplexity();
+  }
+  if (state.layoutMode === 'static') { setLayoutMode('static'); }
+}
+updateLayoutButtons(); // boot config may differ from the HTML's active buttons
 
 // ── Filters ───────────────────────────────────────────────────────────────────
 function getVisibleNodeIds() {
+  if (typeof perfCount === 'function') { perfCount('getVisibleNodeIds'); }
   const query = document.getElementById('search')?.value.toLowerCase() ?? '';
   const tlPredicate = state.timeline?.filterPredicate;
   const visible = new Set();
@@ -120,6 +155,7 @@ function applyFilters() {
   if (typeof tickFolderOverlay === 'function') tickFolderOverlay();
   if (typeof tickClassOverlay === 'function') tickClassOverlay();
   if (typeof updateSearchCount === 'function') updateSearchCount(visibleSet);
+  if (typeof usesFrames === 'function' && usesFrames()) { tickFrames(); }
 }
 
 // ── Display settings ──────────────────────────────────────────────────────────
@@ -149,6 +185,10 @@ function applyDisplaySettings() {
     .attr('font-size', function(d) { return `${(12 + 6 / (d.depth + 1)) * settings.textSize}px`; });
   state.svgClassBubbles?.selectAll('.class-bubble-label')
     .attr('font-size', `${11 * settings.textSize}px`);
+  if (typeof usesFrames === 'function' && usesFrames()
+      && typeof applyFrameDisplaySettings === 'function') {
+    applyFrameDisplaySettings();
+  }
   updateTextVisibility();
 }
 
@@ -452,6 +492,13 @@ window.addEventListener('message', (event) => {
     return;
   }
   if (message.type === 'reload-layout') {
+    if (typeof usesFrames === 'function' && usesFrames() && typeof resetFrames === 'function') {
+      resetFrames();          // drop packed rects → next render re-packs from scratch
+      state.hasFitted = false;
+      applyFileClusters();
+      window.clearDirty?.();
+      return;
+    }
     const svgEl = svg.node();
     const W = svgEl?.clientWidth || window.innerWidth;
     const H = svgEl?.clientHeight || window.innerHeight;
@@ -471,12 +518,34 @@ window.addEventListener('message', (event) => {
     __isDirty = false;
     return;
   }
+  if (message.type === 'config') {
+    // Live push of cograph.layout.defaultEngine / defaultMode (engine first —
+    // it re-renders; the motion freeze must land on the new engine).
+    if (['shelf', 'global'].includes(message.defaultEngine)) {
+      setLayoutEngine(message.defaultEngine);
+    }
+    if (['dynamic', 'static'].includes(message.defaultMode)) {
+      setLayoutMode(message.defaultMode);
+    }
+    return;
+  }
   if (message.type === 'graph-loaded') {
     const { settings: saved, nodePositions } = message.payload;
     if (!state.currentNodes.length || !nodePositions) { return; }
+    // Frames engine: renderFrameLayout consumes this via applyPendingLayout()
+    // (frame rects, expandedFolders, detailDepth) as the frames appear.
+    state.savedLayout = message.payload;
 
     // Apply saved display state (defined in controls.js).
     applySavedViewSettings(saved);
+
+    // Two-axis restore. Legacy payloads carried only layoutMode, where 'shelf'
+    // meant the frames engine with dynamic motion.
+    const savedEngine = ['shelf', 'global'].includes(saved.layoutEngine)
+      ? saved.layoutEngine
+      : (saved.layoutMode === 'shelf' ? 'shelf' : 'global');
+    const savedMotion = saved.layoutMode === 'static' ? 'static' : 'dynamic';
+    if (savedEngine !== state.layoutEngine) { setLayoutEngine(savedEngine); }
 
     // Apply saved node positions
     for (const n of state.currentNodes) {
@@ -489,10 +558,10 @@ window.addEventListener('message', (event) => {
       }
     }
 
-    if (saved.layoutMode === 'static') {
-      setLayoutMode('static');
-    } else {
+    if (savedMotion !== 'static') {
       // Use positions as starting points, then release into dynamic simulation
+      state.layoutMode = 'dynamic';
+      updateLayoutButtons();
       if (state.simulation) {
         state.simulation.alpha(0.1).restart();
         setTimeout(() => {
@@ -503,6 +572,7 @@ window.addEventListener('message', (event) => {
 
     // Re-apply clustering and colors so the restored state renders correctly
     applyComplexity();
+    if (savedMotion === 'static') { setLayoutMode('static'); } // pin AFTER the final render
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     // Restoring a saved graph is not a dirty change — sync local flag with extension
     __isDirty = false;

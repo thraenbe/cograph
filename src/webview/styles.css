@@ -249,32 +249,74 @@ body.vscode-light {
   transform: translateX(14px);
 }
 
-/* ── Layout mode toggle ── */
-.layout-toggle {
+/* ── Layout toggles: Engine (Shelf|Global) × Motion (Dynamic|Static) ── */
+.layout-group {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
+}
+
+.layout-group + .layout-group {
+  margin-top: 5px;
+}
+
+.layout-group-label {
+  flex: 0 0 44px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground, #8a8a8a);
+}
+
+.layout-toggle {
+  flex: 1;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--vscode-input-background, #2a2a2a);
+  border: 1px solid var(--vscode-widget-border, #444);
+  border-radius: 6px;
 }
 
 .layout-btn {
   flex: 1;
-  padding: 5px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 6px;
   font-size: 11px;
-  background: var(--vscode-button-secondaryBackground, #3a3a3a);
-  color: var(--vscode-foreground, #cccccc);
-  border: 1px solid var(--vscode-widget-border, #555);
+  background: transparent;
+  color: var(--vscode-descriptionForeground, #9a9a9a);
+  border: none;
   border-radius: 4px;
   cursor: pointer;
-  transition: background 0.1s, color 0.1s;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+}
+
+.layout-btn-icon {
+  font-size: 10px;
+  opacity: 0.85;
 }
 
 .layout-btn.active {
   background: var(--vscode-button-background, #0e639c);
   color: var(--vscode-button-foreground, #ffffff);
-  border-color: var(--vscode-button-background, #0e639c);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .layout-btn:hover:not(.active) {
   background: var(--vscode-list-hoverBackground, #2a2d2e);
+  color: var(--vscode-foreground, #cccccc);
+}
+
+.layout-hint {
+  margin: 6px 2px 0;
+  font-size: 9.5px;
+  font-style: italic;
+  color: var(--vscode-descriptionForeground, #8a8a8a);
+  opacity: 0.85;
 }
 
 /* ── Stub / disabled ── */
@@ -1228,3 +1270,6 @@ body.vscode-light {
   min-width: 30px;
   text-align: right;
 }
+
+/* Sliders without effect under the frames layout engine */
+.is-noop { opacity: 0.4; }

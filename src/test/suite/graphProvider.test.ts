@@ -827,7 +827,7 @@ suite('save-graph message handler', () => {
     const writtenPath = path.join(tmpDir, '.cograph', 'My Layout.json');
     assert.ok(fs.existsSync(writtenPath), `file should exist at ${writtenPath}`);
     const written = JSON.parse(fs.readFileSync(writtenPath, 'utf8'));
-    assert.strictEqual(written.version, 1);
+    assert.strictEqual(written.version, 2); // SAVED_LAYOUT_VERSION (layout v2, frames engine)
     assert.strictEqual(written.name, 'My Layout');
     assert.strictEqual(written.description, '');
     assert.ok(typeof written.savedAt === 'string' && written.savedAt.length > 0);

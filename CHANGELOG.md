@@ -5,7 +5,40 @@ All notable changes to CoGraph are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.3.0] - Unreleased
+
+### Added
+- **Two independent layout toggles** — engine and motion. **Shelf | Global** picks
+  the engine: Shelf packs every open folder into a nested, non-overlapping frame with
+  per-file slots and its own small force simulation (intra-folder calls only, at most
+  4 simulating at a time; dragging a node reheats only its folder; frames drag by the
+  title bar and resize from the border; selecting Shelf outside the File lens switches
+  to the File lens) — Global is the classic single simulation, unchanged.
+  **Dynamic | Static** picks the motion on either engine: continuously settling, or
+  frozen with nodes pinned where placed. Defaults: **Shelf + Static** — a
+  deterministic, motionless map out of the box; switch to Dynamic to let it breathe.
+  `cograph.layout.defaultEngine` (`shelf` | `global`) and `cograph.layout.defaultMode`
+  (`dynamic` | `static`) set the startup combination; saved layouts remember both.
+- Cross-folder calls render as one aggregated bundle per folder pair (weight on the
+  stroke, ports on the title bars); hovering a node shows its individual cross links.
+- Saved layouts v2: layouts now persist the drill-down expansion, detail depth and
+  the packed frame rectangles. v1 layouts still open (frames are derived from the
+  saved node positions and pinned).
+- Local-only performance instrumentation behind `cograph.debug.perfLog`, plus
+  `CoGraph: Load Synthetic Repo (Perf Dev)` to reproduce large-repo numbers.
+
+### Fixed
+- Collapsing a folder whose descendants were still individually expanded could feed
+  the renderer edges pointing at nodes that were never drawn (a d3 "node not found"
+  crash in the classic layout). The visible-frontier mapping now checks the whole
+  ancestor chain.
+
+### Changed
+- Large graphs (> 500 nodes) on the global engine: dragging pins the dragged node
+  instead of re-agitating the whole graph, ticks coalesce to animation frames, the
+  per-node glow is dropped, re-renders reuse the existing simulation, and the
+  overlay visibility pass runs once per tick instead of three times.
+- The drill-down box code moved from `folder.js` into `drilldown.js` (file-size split).
 
 ## [1.2.0] - 2026-08-28
 

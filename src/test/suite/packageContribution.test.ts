@@ -56,6 +56,37 @@ suite('package.json contributions', () => {
     assert.strictEqual(view.name, 'Cograph');
   });
 
+  test('declares cograph.debug.perfLog boolean setting, default false', () => {
+    const prop = pkg.contributes?.configuration?.properties?.['cograph.debug.perfLog'];
+    assert.ok(prop, 'cograph.debug.perfLog setting missing');
+    assert.strictEqual(prop.type, 'boolean');
+    assert.strictEqual(prop.default, false);
+  });
+
+  test('declares the two layout axes: defaultEngine (shelf) and defaultMode (static)', () => {
+    const engine = pkg.contributes?.configuration?.properties?.['cograph.layout.defaultEngine'];
+    assert.ok(engine, 'cograph.layout.defaultEngine setting missing');
+    assert.deepStrictEqual(engine.enum, ['shelf', 'global']);
+    assert.strictEqual(engine.default, 'shelf');
+    const mode = pkg.contributes?.configuration?.properties?.['cograph.layout.defaultMode'];
+    assert.ok(mode, 'cograph.layout.defaultMode setting missing');
+    assert.deepStrictEqual(mode.enum, ['dynamic', 'static']);
+    assert.strictEqual(mode.default, 'static');
+    assert.strictEqual(
+      pkg.contributes?.configuration?.properties?.['cograph.layout.engine'],
+      undefined,
+      'the pre-release cograph.layout.engine setting must be removed',
+    );
+  });
+
+  test('declares the cograph.dev.loadSynthetic command', () => {
+    const cmds = pkg.contributes?.commands ?? [];
+    assert.ok(
+      cmds.some((c: { command: string }) => c.command === 'cograph.dev.loadSynthetic'),
+      'cograph.dev.loadSynthetic command missing',
+    );
+  });
+
   test('view id matches SidebarProvider.viewType', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { SidebarProvider } = require('../../sidebarProvider');

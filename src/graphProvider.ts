@@ -79,6 +79,10 @@ export interface GraphData {
   workflow?: WorkflowGraphMeta;
 }
 
+/** Saved-layout schema: v2 adds settings.detailDepth, expandedFolders and
+ *  frames (parent-inner-local rects); nodePositions stay absolute as in v1. */
+export const SAVED_LAYOUT_VERSION = 2;
+
 export class GraphProvider {
   private panel: vscode.WebviewPanel | undefined;
   private timelinePanel: vscode.WebviewPanel | undefined;
@@ -309,6 +313,9 @@ export class GraphProvider {
           await vscode.window.showTextDocument(fileUri);
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
+      } else if (message.type === 'perf-report') {
+        // Local-only instrumentation (cograph.debug.perfLog) — see src/webview/perf.js.
+        this.outputChannel.appendLine(`[perf] ${JSON.stringify(message.report)}`);
       } else if (message.type === 'dirty-state') {
         this.setDirty(!!message.dirty);
       } else if (message.type === 'retry-analysis') {
@@ -364,7 +371,7 @@ export class GraphProvider {
         }
 
         const data = {
-          version: 1,
+          version: SAVED_LAYOUT_VERSION,
           name,
           description: '',
           savedAt: new Date().toISOString(),
@@ -427,8 +434,77 @@ export class GraphProvider {
     return !!this.panel;
   }
 
+  /**
+   * Dev-only (gated on cograph.debug.perfLog): open a webview fed by the
+   * deterministic synthetic-repo fixture instead of the workspace, so perf
+   * numbers are comparable across machines and phases (#50 Approach 3.1).
+   */
+  async showSyntheticFixture(): Promise<void> {
+    const cfg = vscode.workspace.getConfiguration('cograph');
+    if (!(cfg.get<boolean>('debug.perfLog', false) ?? false)) {
+      vscode.window.showInformationMessage(
+        'CoGraph: enable the "cograph.debug.perfLog" setting to use the synthetic fixture.',
+      );
+      return;
+    }
+    const pick = await vscode.window.showQuickPick(
+      [
+        { label: '1 000 nodes', folders: 10, filesPerFolder: 10, fnsPerFile: 10, edges: 3000 },
+        { label: '3 000 nodes', folders: 30, filesPerFolder: 10, fnsPerFile: 10, edges: 10000 },
+        { label: '10 000 nodes', folders: 100, filesPerFolder: 10, fnsPerFile: 10, edges: 30000 },
+      ],
+      { placeHolder: 'Synthetic repo size' },
+    );
+    if (!pick) { return; }
+    // Lazy require: fixture code stays out of the activation path.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { makeSyntheticRepo } = require('./test/fixtures/syntheticGraph');
+    const { structure, graph } = makeSyntheticRepo({
+      folders: pick.folders,
+      filesPerFolder: pick.filesPerFolder,
+      fnsPerFile: pick.fnsPerFile,
+      edges: pick.edges,
+      intraRatio: 0.95,
+      seed: 1,
+    });
+    const panel = vscode.window.createWebviewPanel(
+      'cograph-synthetic',
+      `CoGraph (synthetic ${pick.label})`,
+      vscode.ViewColumn.Beside,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview')],
+      },
+    );
+    panel.webview.html = getWebviewHtml(panel.webview, this.context.extensionUri);
+    panel.webview.onDidReceiveMessage((message) => {
+      if (message.type === 'perf-report') {
+        this.outputChannel.appendLine(`[perf synthetic ${pick.label}] ${JSON.stringify(message.report)}`);
+        this.outputChannel.show(true);
+      }
+    });
+    // Same delivery order as a real large repo: skeleton first, analysis after.
+    setTimeout(() => {
+      panel.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
+      panel.webview.postMessage({
+        type: 'graph', data: graph, gitAvailable: false, fileGitStatus: {}, isReanalysis: false,
+      });
+    }, 300);
+  }
+
   reloadLayout(): void {
     this.panel?.webview.postMessage({ type: 'reload-layout' });
+  }
+
+  /** Live-push cograph.layout.defaultMode to the open webview (no reopen needed). */
+  pushLayoutConfig(): void {
+    const cfg = vscode.workspace.getConfiguration('cograph');
+    this.panel?.webview.postMessage({
+      type: 'config',
+      defaultEngine: cfg.get<string>('layout.defaultEngine', 'shelf') ?? 'shelf',
+      defaultMode: cfg.get<string>('layout.defaultMode', 'static') ?? 'static',
+    });
   }
 
   setSidebarProvider(sidebar: SidebarProvider): void {

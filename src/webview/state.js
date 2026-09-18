@@ -1,4 +1,9 @@
 const state = {
+  // ── Boot config (injected via window.COGRAPH_CONFIG by webviewHtmlBuilder
+  // before this script loads). Node tests have no window → classic 'dynamic'. ──
+  perfEnabled: !!(typeof window !== 'undefined' && window.COGRAPH_CONFIG && window.COGRAPH_CONFIG.perf),
+  frames: null,          // FrameSet (folder-frames engine; see frames.js)
+  savedLayout: null,     // pending saved-layout payload consumed by the frames engine
   graphData: null,
   complexityLevel: 1,
   // Primary view: 'cluster' = the force graph (grouped per clusterGroupBy);
@@ -28,7 +33,11 @@ const state = {
   currentZoom: 1,
   hasFitted: false,
   pendingReheat: false,
-  layoutMode: 'dynamic',
+  // 'dynamic' | 'static' (classic single-simulation layout) | 'shelf' (frames)
+  // Motion axis: 'dynamic' | 'static' (classic semantics on either engine).
+  layoutMode: (typeof window !== 'undefined' && window.COGRAPH_CONFIG && window.COGRAPH_CONFIG.defaultMode) || 'dynamic',
+  // Engine axis: 'shelf' (folder frames, File lens) | 'global' (classic single sim).
+  layoutEngine: (typeof window !== 'undefined' && window.COGRAPH_CONFIG && window.COGRAPH_CONFIG.defaultEngine) || 'global',
   gitMode: true,
   languageMode: true,
   folderMode: true,

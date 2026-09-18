@@ -331,25 +331,23 @@ function visibleNodeIdOf(node, expandedFolders, parsedFolders, tree) {
   if (!fp) { return null; }
   const fileFolder = fcDirname(fp);
 
-  if (expandedFolders.has(fileFolder)) {
-    // Folder open + parsed → its functions are shown directly; open but unparsed →
-    // the collapsed file node is what's visible.
-    if (parsedFolders.has(fileFolder)) { return node.id; }
-    return 'file::' + fp;
-  }
-  // Folder closed → walk up to the deepest open ancestor; the collapsed folder
-  // just below it is what's visible.
+  // Walk the chain root → fileFolder: the FIRST collapsed folder on the path is
+  // the visible frontier. (Checking only the immediate folder is wrong — a
+  // still-"expanded" descendant of a collapsed ancestor is not visible, and an
+  // edge to its raw node id would point at a node the renderer never emitted.)
+  const chain = [];
   let current = fileFolder;
-  let child = null;
   while (current) {
-    if (expandedFolders.has(current)) { return 'folder::' + (child || current); }
+    chain.push(current);
     const info = tree.folders ? tree.folders[current] : null;
-    const parent = info ? info.parent : null;
-    if (!parent) { return 'folder::' + current; } // reached root, still collapsed
-    child = current;
-    current = parent;
+    current = info ? info.parent : null;
   }
-  return 'folder::' + fileFolder;
+  for (let i = chain.length - 1; i >= 0; i--) {
+    if (!expandedFolders.has(chain[i])) { return 'folder::' + chain[i]; }
+  }
+  // Whole chain open → the file's contents are on screen.
+  if (parsedFolders.has(fileFolder)) { return node.id; }
+  return 'file::' + fp;
 }
 
 /**
@@ -377,6 +375,7 @@ function buildWeightedEdges(graphData, expandedFolders, parsedFolders, tree) {
 function applyFileClusters() {
   if (typeof renderElements !== 'function') { return; }
   if (!state.structureTree) { return; }
+  if (typeof perfMark === 'function') { perfMark('skeleton:start'); }
   const nodeEls = buildSkeletonElements(
     state.structureTree, state.expandedFolders, state.parsedFolders, state.graphData, state.parsingFolders,
   );
@@ -384,6 +383,7 @@ function applyFileClusters() {
     state.graphData, state.expandedFolders, state.parsedFolders, state.structureTree,
   );
   renderElements([...nodeEls, ...edgeEls], new Map());
+  if (typeof perfMeasure === 'function') { perfMeasure('applyFileClusters', 'skeleton:start'); }
 }
 
 /**

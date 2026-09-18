@@ -52,6 +52,7 @@ const dividerG = g.append('g').attr('class', 'workflow-divider');  // back layer
 const folderG = g.append('g').attr('class', 'folder-bubbles');
 const fileG   = g.append('g').attr('class', 'file-circles');
 const classG  = g.append('g').attr('class', 'class-bubbles');
+const frameG = g.append('g').attr('class', 'frames');   // frames engine layer (empty in global path)
 const linkG = g.append('g').attr('class', 'links');
 const nodeG = g.append('g').attr('class', 'nodes');
 const labelG = g.append('g').attr('class', 'labels');
@@ -140,6 +141,33 @@ function chargeStrength(d) {
   return -settings.repelForce;
 }
 
+// ── Large-graph gate (P1 quick wins — issue #52) ──────────────────────────────
+// Below the threshold every path behaves exactly as before; above it drags are
+// local, ticks coalesce to animation frames and the per-node glow is dropped.
+const BIG_GRAPH_N = 500;
+function isBigGraph() { return state.currentNodes.length > BIG_GRAPH_N; }
+
+// Shared drag policy for every drag factory (node/file/folder/box/class).
+function reheatForDrag(event) {
+  if (state.layoutMode !== 'dynamic' || isBigGraph()) { return; }
+  if (!event.active && state.simulation) { state.simulation.alphaTarget(0.3).restart(); }
+}
+// True when the drag handler must write x/y itself (no simulation driving it).
+function dragMovesDirectly() { return state.layoutMode === 'static' || isBigGraph(); }
+// Returns true when the caller should release fx/fy (small dynamic graphs);
+// big graphs keep dragged nodes pinned where dropped instead of re-agitating.
+function coolAfterDrag(event) {
+  if (state.layoutMode !== 'dynamic' || isBigGraph()) { return false; }
+  if (!event.active && state.simulation) { state.simulation.alphaTarget(0); }
+  return true;
+}
+function glowAttr() { return isBigGraph() ? null : 'url(#glow)'; }
+
+// Links sit quieter inside shelf frames (slots already show the grouping).
+function linkRestOpacity() {
+  return (typeof usesFrames === 'function' && usesFrames()) ? 0.35 : 0.7;
+}
+
 // An edge touching a folder/file drill-down cluster node (vs a function↔function edge).
 function isFolderLink(d) {
   const s = d.source, t = d.target;
@@ -204,34 +232,46 @@ function fitToView() {
 
 // ── Drag (swimming effect) ────────────────────────────────────────────────────
 const drag = d3.drag()
+  .container(function () { return g.node(); }) // absolute coords (identity in global path)
   .on('start', (event, d) => {
-    if (state.layoutMode === 'dynamic' && !event.active && state.simulation)
-      state.simulation.alphaTarget(0.3).restart();
+    reheatForDrag(event);
     d.fx = d.x;
     d.fy = d.y;
   })
   .on('drag', (event, d) => {
     d.fx = event.x;
     d.fy = event.y;
-    if (state.layoutMode === 'static') {
-      // Simulation stopped — sync x/y directly so ticked() renders correctly
+    if (dragMovesDirectly()) {
+      // Simulation not driving this node — sync x/y directly so ticked() renders correctly
       d.x = event.x;
       d.y = event.y;
       ticked();
     }
   })
   .on('end', (event, d) => {
-    if (state.layoutMode === 'dynamic') {
-      if (!event.active && state.simulation) state.simulation.alphaTarget(0);
+    if (coolAfterDrag(event)) {
       d.fx = null;
       d.fy = null; // release — node rejoins simulation
     }
-    // static: keep fx/fy pinned so node stays exactly where dropped
+    // static / big graph: keep fx/fy pinned so node stays exactly where dropped
     window.markDirty?.();
   });
 
 // ── Tick ──────────────────────────────────────────────────────────────────────
+// Above the big-graph threshold manual tick requests (static drags, filter
+// changes) coalesce into one animation frame; d3's own timer already ticks at
+// most once per frame, so small graphs keep the synchronous path.
+let __tickPending = false;
 function ticked() {
+  if (typeof usesFrames === 'function' && usesFrames()) { tickFrames(); return; }
+  if (!isBigGraph()) { tickedNow(); return; }
+  if (__tickPending) { return; }
+  __tickPending = true;
+  requestAnimationFrame(() => { __tickPending = false; tickedNow(); });
+}
+
+function tickedNow() {
+  const __perfT0 = (typeof perfOn === 'function' && perfOn()) ? perfNow() : 0;
   state.svgLinks?.each(function (d) {
     const sx = d.source.x, sy = d.source.y;
     const tx = d.target.x, ty = d.target.y;
@@ -278,14 +318,23 @@ function ticked() {
   }
 
   if (state.viewMode === 'workflow') { updateWorkflowDivider(); }
-  tickFileCircles();        // global from folder.js (file circles — overlay AND drill-down)
+  // One visibility pass per tick, shared by every overlay (was 3× per tick).
+  const needsVis = state.svgFileCircles || state.svgDrilldownBoxes
+    || (state.classMode && state.svgClassBubbles);
+  const vis = needsVis ? getVisibleNodeIds() : null;
+  tickFileCircles(vis);     // global from folder.js (file circles — overlay AND drill-down)
   tickFolderOverlay();      // global from folder.js (connect/class folder bubbles)
-  tickDrilldownBoxes();     // global from folder.js (file-mode folder boxes)
-  tickClassOverlay();       // global from class.js
+  tickDrilldownBoxes(vis);  // global from drilldown.js (file-mode folder boxes)
+  tickClassOverlay(vis);    // global from class.js
+  if (__perfT0) { perfTick(perfNow() - __perfT0); }
 }
 
 // ── Node event handlers ───────────────────────────────────────────────────────
 function onNodeMouseOver(event, d) {
+  if (typeof usesFrames === 'function' && usesFrames()) {
+    state._frameHoverId = d.id;
+    if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
+  }
   d3.select(event.currentTarget)
     .style('fill', getCSSVar('--cograph-node-hover'))
     .attr('r', nodeRadius(d) * 1.15)
@@ -307,16 +356,20 @@ function onNodeMouseOver(event, d) {
 }
 
 function onNodeMouseOut(event, d) {
+  if (state._frameHoverId) {
+    state._frameHoverId = null;
+    if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
+  }
   d3.select(event.currentTarget)
     .style('fill', resolveNodeFill(d))
     .attr('r', nodeRadius(d))
-    .attr('filter', 'url(#glow)');
+    .attr('filter', glowAttr());
   const linkLibrary = getCSSVar('--cograph-link-library');
   const linkDefault = getCSSVar('--cograph-link-default');
   state.svgLinks
     ?.attr('stroke', l => l.isLibraryEdge ? linkLibrary : linkDefault)
     .attr('stroke-width', settings.linkThickness)
-    .attr('opacity', 0.7);
+    .attr('opacity', linkRestOpacity());
   state.svgLabels?.filter(l => l.id === d.id)
     .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
     .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
@@ -324,6 +377,10 @@ function onNodeMouseOut(event, d) {
 }
 
 function onCloudMouseOver(event, d) {
+  if (typeof usesFrames === 'function' && usesFrames()) {
+    state._frameHoverId = d.id;
+    if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
+  }
   d3.select(event.currentTarget)
     .style('fill', getCSSVar('--cograph-node-hover'))
     .attr('filter', 'url(#glow-hover)')
@@ -346,9 +403,13 @@ function onCloudMouseOver(event, d) {
 }
 
 function onCloudMouseOut(event, d) {
+  if (state._frameHoverId) {
+    state._frameHoverId = null;
+    if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
+  }
   d3.select(event.currentTarget)
     .style('fill', resolveClusterFill(d))
-    .attr('filter', 'url(#glow)')
+    .attr('filter', glowAttr())
     .transition().duration(120)
     .attr('d', generateNodeShapePath(d, nodeRadius(d)));
   const linkLibrary = getCSSVar('--cograph-link-library');
@@ -356,7 +417,7 @@ function onCloudMouseOut(event, d) {
   state.svgLinks
     ?.attr('stroke', l => l.isLibraryEdge ? linkLibrary : linkDefault)
     .attr('stroke-width', settings.linkThickness)
-    .attr('opacity', 0.7);
+    .attr('opacity', linkRestOpacity());
   state.svgLabels?.filter(l => l.id === d.id)
     .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
     .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
@@ -401,8 +462,8 @@ function edgeWeightScale(count) {
   return 1 + Math.log2(Math.max(1, count || 1)) * 0.6;
 }
 
-function renderLinks(allLinks, visibleSet) {
-  return linkG.selectAll('line')
+function renderLinks(allLinks, visibleSet, parent = linkG) {
+  return parent.selectAll('line')
     .data(allLinks)
     .join('line')
     .attr('stroke', d => d.isLibraryEdge ? getCSSVar('--cograph-link-library') : getCSSVar('--cograph-link-default'))
@@ -423,9 +484,9 @@ function renderLinks(allLinks, visibleSet) {
     .style('display', d => (visibleSet.has(d.source) && visibleSet.has(d.target)) ? null : 'none');
 }
 
-function renderNodes(visibleSet) {
-  return nodeG.selectAll('circle.regular-node')
-    .data(state.currentNodes.filter(n => !n.isLibrary && !n.isCluster && !n.isSynthetic && !n.isFileAnchor), d => d.id)
+function renderNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
+  return parent.selectAll('circle.regular-node')
+    .data(nodes.filter(n => !n.isLibrary && !n.isCluster && !n.isSynthetic && !n.isFileAnchor), d => d.id)
     .join(
       enter => enter.append('circle').attr('class', 'regular-node'),
       update => update,
@@ -435,7 +496,7 @@ function renderNodes(visibleSet) {
     .style('fill', d => resolveNodeFill(d))
     .attr('stroke', d => resolveNodeStroke(d))
     .attr('stroke-width', d => resolveNodeStrokeWidth(d))
-    .attr('filter', 'url(#glow)')
+    .attr('filter', glowAttr())
     .attr('cursor', 'pointer')
     .style('display', d => visibleSet.has(d.id) ? null : 'none')
     .call(drag)
@@ -451,10 +512,10 @@ function renderNodes(visibleSet) {
     .on('mouseout', onNodeMouseOut);
 }
 
-function renderCloudNodes(visibleSet) {
+function renderCloudNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
   const currentIds = new Set(state.currentNodes.map(n => n.id));
-  return nodeG.selectAll('path.cloud-node')
-    .data(state.currentNodes.filter(n => (n.isCluster || n.isSynthetic) && !n.isLibrary), d => d.id)
+  return parent.selectAll('path.cloud-node')
+    .data(nodes.filter(n => (n.isCluster || n.isSynthetic) && !n.isLibrary), d => d.id)
     .join(
       // No fade/morph transitions: a folder click triggers several rapid re-renders
       // (expand → parse spinner → graph-patch) that interrupt them, leaving cloud
@@ -463,12 +524,12 @@ function renderCloudNodes(visibleSet) {
       enter => enter.append('path').attr('class', 'cloud-node')
         .attr('d', d => generateNodeShapePath(d, nodeRadius(d)))
         .style('fill', d => resolveClusterFill(d))
-        .attr('filter', 'url(#glow)')
+        .attr('filter', glowAttr())
         .attr('cursor', 'pointer')
         .style('display', d => visibleSet.has(d.id) ? null : 'none')
         .style('opacity', 1),
       update => update
-        .attr('filter', 'url(#glow)')
+        .attr('filter', glowAttr())
         .style('display', d => visibleSet.has(d.id) ? null : 'none')
         .style('fill', d => resolveClusterFill(d))
         .style('opacity', 1)
@@ -520,9 +581,9 @@ function renderCloudNodes(visibleSet) {
     .on('mouseout', onCloudMouseOut);
 }
 
-function renderLabels(visibleSet) {
-  return labelG.selectAll('text')
-    .data(state.currentNodes.filter(n => !n.isLibrary && !n.isFileAnchor), d => d.id)
+function renderLabels(visibleSet, nodes = state.currentNodes, parent = labelG) {
+  return parent.selectAll('text')
+    .data(nodes.filter(n => !n.isLibrary && !n.isFileAnchor), d => d.id)
     .join('text')
     .each(function (d) {
       // Folder/file glyphs carry a dim second line with the count (e.g. "23 files").
@@ -546,18 +607,26 @@ function renderLabels(visibleSet) {
 }
 
 function startSimulation(allLinks) {
+  if (typeof perfMark === 'function') { perfMark('sim:start'); }
   // Workflow mode rebuilds with a fixed-column layout regardless of pendingReheat.
   if (state.viewMode === 'workflow') {
     startWorkflowSimulation(allLinks);
     return;
   }
-  if (state.pendingReheat && state.simulation) {
+  // Reuse the existing global simulation on a reanalysis reheat and, above the
+  // big-graph threshold, on every re-render (a folder-parse patch otherwise
+  // constructs a fresh simulation and re-settles the world).
+  const reusable = state.simulation && !state.simulation.isFrameFacade
+    && state.simulation._kind === 'global' && state.layoutMode !== 'static';
+  if (reusable && (state.pendingReheat || isBigGraph())) {
+    const alpha = state.pendingReheat ? 0.1 : 0.3;
     state.pendingReheat = false;
     state.simulation.nodes(state.currentNodes);
     state.simulation.force('link').links(allLinks);
-    state.simulation.alpha(0.1).restart();
+    state.simulation.alpha(alpha).restart();
     return;
   }
+  state.pendingReheat = false;
   if (state.simulation) state.simulation.stop();
   const svgEl = svg.node();
   const W = svgEl.clientWidth || window.innerWidth;
@@ -577,8 +646,21 @@ function startSimulation(allLinks) {
     .force('y', d3.forceY(H / 2).strength(settings.centerForce))
     .force('collision', d3.forceCollide(d => nodeRadius(d) + 1))
     .velocityDecay(0.3)
-    .alphaDecay(0.02)
-    .on('tick', ticked);
+    .alphaDecay(isBigGraph() ? 0.04 : 0.02)
+    .on('tick', ticked)
+    .on('end', () => { if (typeof perfSettled === 'function') { perfSettled(); } });
+  state.simulation._kind = 'global';
+  if (state.layoutMode === 'static') {
+    // Static boot on the global engine: the classic Static toggle assumed a
+    // prior dynamic settle — do a bounded synchronous settle, then freeze.
+    state.simulation.stop();
+    const maxTicks = isBigGraph() ? 60 : 150;
+    for (let i = 0; i < maxTicks && state.simulation.alpha() > 0.05; i++) {
+      state.simulation.tick();
+    }
+    state.currentNodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
+    ticked();
+  }
 }
 
 const WORKFLOW_MARGIN_X = 90;
@@ -604,7 +686,9 @@ function startWorkflowSimulation(allLinks) {
     .force('collision', d3.forceCollide(d => nodeRadius(d) + 4))
     .velocityDecay(0.4)
     .alphaDecay(0.03)
-    .on('tick', ticked);
+    .on('tick', ticked)
+    .on('end', () => { if (typeof perfSettled === 'function') { perfSettled(); } });
+  state.simulation._kind = 'workflow';
 }
 
 // Vertical dotted line dividing backend (left) from frontend (right), with captions.
@@ -712,7 +796,21 @@ function renderLibraryLabels(libNodeData, visibleSet) {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderElements(elements, positionHints = new Map()) {
+  if (typeof perfMark === 'function') { perfMark('render:start'); }
   const { allLinks, visibleSet } = prepareRenderData(elements, positionHints);
+  if (typeof usesFrames === 'function' && usesFrames()) {
+    renderFrameLayout(allLinks, visibleSet);
+  } else {
+    if (typeof teardownFrames === 'function') { teardownFrames(); }
+    renderGlobalLayout(allLinks, visibleSet);
+  }
+  if (state.gitMode) applyGitColors();
+  updateWorkflowDivider();
+  if (typeof perfMeasure === 'function') { perfMeasure('renderElements', 'render:start'); }
+}
+
+// The pre-frames render path, verbatim (single global simulation + overlays).
+function renderGlobalLayout(allLinks, visibleSet) {
   state.svgLinks = renderLinks(allLinks, visibleSet);
   state.svgNodes = renderNodes(visibleSet);
   state.svgCloudNodes = renderCloudNodes(visibleSet);
@@ -826,6 +924,4 @@ function renderElements(elements, positionHints = new Map()) {
     state.simulation?.force('classCluster', null);
   }
 
-  if (state.gitMode) applyGitColors();
-  updateWorkflowDivider();
 }

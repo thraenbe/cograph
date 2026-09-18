@@ -82,8 +82,12 @@ A planned AI-powered layer on top of the graph: natural-language questions about
 - **Python projects show nothing on Linux.** If VS Code is installed as a **snap**, its
   bundled runtime can interfere with analyzers — a deb/tarball install of VS Code avoids
   this. (CoGraph's bundled analyzers are pure-JS/WASM specifically to minimize this.)
-- **A large repo feels heavy.** Use the **Complexity** slider or the search filter; the
-  graph also engages folder-level clustering automatically on big projects.
+- **A large repo feels heavy.** Since 1.2.0 the **Shelf** engine packs each folder
+  into its own frame and only simulates open folders, so size hurts far less (it opens
+  in **Static** motion by default — click **Dynamic** to let it settle live). If needed,
+  use the **Detail** slider or the search filter — or switch the engine toggle to
+  **Global** for the classic layout (`cograph.layout.defaultEngine` /
+  `cograph.layout.defaultMode` set the startup combination).
 - **Some calls are missing.** Dynamic dispatch, `eval`, and computed/runtime-generated
   calls are not statically resolvable — see *Limitations*.
 

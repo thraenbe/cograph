@@ -71,9 +71,9 @@ function renderClassBubbles(classG, classByKey) {
 }
 
 // ── Tick update ───────────────────────────────────────────────────────────────
-function tickClassOverlay() {
+function tickClassOverlay(vis) {
   if (!state.classMode || !state.svgClassBubbles) return;
-  const visibleIds = getVisibleNodeIds();  // global from main.js
+  const visibleIds = vis || getVisibleNodeIds();  // global from main.js
 
   state.svgClassBubbles.each(function(d) {
     const points = d.nodes
@@ -154,22 +154,20 @@ function createClassDrag() {
     .on('start', function(event, d) {
       d._dragStart = { x: event.x, y: event.y };
       d._nodeStarts = d.nodes.map(n => ({ n, x: n.x ?? 0, y: n.y ?? 0 }));
-      if (state.layoutMode === 'dynamic' && !event.active && state.simulation)
-        state.simulation.alphaTarget(0.3).restart();
+      reheatForDrag(event);
       d.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; });
     })
     .on('drag', function(event, d) {
       const dx = event.x - d._dragStart.x, dy = event.y - d._dragStart.y;
       d._nodeStarts.forEach(({ n, x, y }) => {
         n.fx = x + dx; n.fy = y + dy;
-        if (state.layoutMode === 'static') { n.x = n.fx; n.y = n.fy; }
+        if (dragMovesDirectly()) { n.x = n.fx; n.y = n.fy; }
       });
-      if (state.layoutMode === 'static') ticked();
+      if (dragMovesDirectly()) ticked();
     })
     .on('end', function(event, d) {
       delete d._dragStart; delete d._nodeStarts;
-      if (state.layoutMode === 'dynamic') {
-        if (!event.active && state.simulation) state.simulation.alphaTarget(0);
+      if (coolAfterDrag(event)) {
         d.nodes.forEach(n => { n.fx = null; n.fy = null; });
       }
     });
@@ -187,8 +185,7 @@ function createClassResizeDrag() {
       d._resizeCenter = { x: cx, y: cy };
       d._resizeStartDist = Math.hypot(event.x - cx, event.y - cy) || 1;
       d._nodeStarts = d.nodes.map(n => ({ n, ox: (n.x ?? 0) - cx, oy: (n.y ?? 0) - cy }));
-      if (state.layoutMode === 'dynamic' && !event.active && state.simulation)
-        state.simulation.alphaTarget(0.3).restart();
+      reheatForDrag(event);
       d.nodes.forEach(n => { n.fx = n.x; n.fy = n.y; });
     })
     .on('drag', function(event, d) {
@@ -197,15 +194,14 @@ function createClassResizeDrag() {
       const scale = (Math.hypot(event.x - cx, event.y - cy) || 1) / d._resizeStartDist;
       d._nodeStarts.forEach(({ n, ox, oy }) => {
         n.fx = cx + ox * scale; n.fy = cy + oy * scale;
-        if (state.layoutMode === 'static') { n.x = n.fx; n.y = n.fy; }
+        if (dragMovesDirectly()) { n.x = n.fx; n.y = n.fy; }
       });
-      if (state.layoutMode === 'static') ticked();
+      if (dragMovesDirectly()) ticked();
     })
     .on('end', function(event, d) {
       const hadResize = !!d._nodeStarts;
       delete d._nodeStarts; delete d._resizeCenter; delete d._resizeStartDist;
-      if (hadResize && state.layoutMode === 'dynamic') {
-        if (!event.active && state.simulation) state.simulation.alphaTarget(0);
+      if (hadResize && coolAfterDrag(event)) {
         d.nodes.forEach(n => { n.fx = null; n.fy = null; });
       }
     });

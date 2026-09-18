@@ -161,15 +161,32 @@ export function getWebviewHtml(
   const highlightUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'highlight.js'));
   const renderingUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'rendering.js'));
   const folderUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'folder.js'));
+  const drilldownUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'drilldown.js'));
   const fileClustersUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'fileClusters.js'));
   const classUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'class.js'));
   const colorsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'colors.js'));
   const popupsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'popups.js'));
+  const framesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frames.js'));
+  const crossLinksUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'crossLinks.js'));
+  const localSimUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'localSim.js'));
+  const frameSchedulerUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameScheduler.js'));
+  const frameRenderUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameRender.js'));
+  const frameInteractUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameInteract.js'));
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
   const controlsUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'controls.js'));
   const timelineUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'timeline.js'));
+  const perfUri      = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'perf.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
+
+  // Boot config injected before state.js — no message-ordering race. Settings
+  // that do not exist yet fall back to their defaults.
+  const cfg = vscode.workspace.getConfiguration('cograph');
+  const bootConfig = {
+    defaultEngine: cfg.get<string>('layout.defaultEngine', 'shelf') ?? 'shelf',
+    defaultMode: cfg.get<string>('layout.defaultMode', 'static') ?? 'static',
+    perf: cfg.get<boolean>('debug.perfLog', false) ?? false,
+  };
 
   const timelinePanelHtml = timelineMode ? `
     <div id="tl-transport" role="toolbar" aria-label="Timeline playback" title="Replay graph construction from git history">
@@ -193,7 +210,7 @@ export function getWebviewHtml(
       </div>
     </div>` : '';
   const timelineScriptTag = timelineMode
-    ? `<script nonce="${nonce}" src="${timelineUri}"></script>`
+    ? `<script nonce="${nonce}" src="${timelineUri}?v=${nonce}"></script>`
     : '';
 
   return `<!DOCTYPE html>
@@ -207,7 +224,7 @@ export function getWebviewHtml(
              img-src ${webview.cspSource} data:;" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CoGraph</title>
-  <link rel="stylesheet" href="${stylesUri}" />
+  <link rel="stylesheet" href="${stylesUri}?v=${nonce}" />
   <script nonce="${nonce}"
     src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 </head>
@@ -216,10 +233,29 @@ export function getWebviewHtml(
   <div id="flow-notice">Dagre layout not available in D3 mode</div>
   <div id="top-left-controls">
     <div id="panel-layout" class="tl-panel">
-      <div class="layout-toggle">
-        <button id="btn-layout-dynamic" class="layout-btn active">&#9889; Dynamic</button>
-        <button id="btn-layout-static" class="layout-btn">&#9679; Static</button>
+      <div class="layout-group">
+        <span class="layout-group-label">Engine</span>
+        <div class="layout-toggle">
+          <button id="btn-engine-shelf" class="layout-btn active"
+            title="Shelf — every folder gets its own frame, files get slots. Tidy and deterministic.">
+            <span class="layout-btn-icon">&#9638;</span>Shelf</button>
+          <button id="btn-engine-global" class="layout-btn"
+            title="Global — the classic free-floating force layout.">
+            <span class="layout-btn-icon">&#9737;</span>Global</button>
+        </div>
       </div>
+      <div class="layout-group">
+        <span class="layout-group-label">Motion</span>
+        <div class="layout-toggle">
+          <button id="btn-layout-dynamic" class="layout-btn"
+            title="Dynamic — the layout settles live and reacts to drags.">
+            <span class="layout-btn-icon">&#9889;</span>Dynamic</button>
+          <button id="btn-layout-static" class="layout-btn active"
+            title="Static — nothing moves until you move it.">
+            <span class="layout-btn-icon">&#9679;</span>Static</button>
+        </div>
+      </div>
+      <p id="layout-hint" class="layout-hint">Folder frames &amp; file slots &#183; frozen</p>
     </div>
     <div id="panel-detail" class="tl-panel">
       <div class="tl-slider-header">
@@ -401,19 +437,28 @@ export function getWebviewHtml(
 <div id="ctx-menu" style="display:none">
     <ul id="ctx-menu-list"></ul>
   </div>
-  <script nonce="${nonce}" src="${stateUri}"></script>
-  <script nonce="${nonce}" src="${aggregateUri}"></script>
-  <script nonce="${nonce}" src="${clusteringUri}"></script>
-  <script nonce="${nonce}" src="${workflowUri}"></script>
-  <script nonce="${nonce}" src="${highlightUri}"></script>
-  <script nonce="${nonce}" src="${renderingUri}"></script>
-  <script nonce="${nonce}" src="${folderUri}"></script>
-  <script nonce="${nonce}" src="${fileClustersUri}"></script>
-  <script nonce="${nonce}" src="${classUri}"></script>
-  <script nonce="${nonce}" src="${colorsUri}"></script>
-  <script nonce="${nonce}" src="${popupsUri}"></script>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-  <script nonce="${nonce}" src="${controlsUri}"></script>
+  <script nonce="${nonce}">window.COGRAPH_CONFIG = ${JSON.stringify(bootConfig)};</script>
+  <script nonce="${nonce}" src="${stateUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${perfUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${aggregateUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${clusteringUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${workflowUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${highlightUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${renderingUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${folderUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${drilldownUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${fileClustersUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${classUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${colorsUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${popupsUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${framesUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${crossLinksUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${localSimUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${frameSchedulerUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${frameRenderUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${frameInteractUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${scriptUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${controlsUri}?v=${nonce}"></script>
   ${timelineScriptTag}
 </body>
 </html>`;

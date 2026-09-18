@@ -4,7 +4,7 @@ import * as assert from 'assert';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fc = require('../../../src/webview/fileClusters.js');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const folder = require('../../../src/webview/folder.js');
+const folder = require('../../../src/webview/drilldown.js');
 // jsdom is loaded at module scope: the first require is slow, and inside a
 // setup() hook it can blow the hook timeout.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -73,6 +73,21 @@ suite('drilldown folder paths', () => {
     assert.ok(folder.pathUnder('/p/a', '/p/a'));
     assert.ok(!folder.pathUnder('/p/c', '/p/a'));
     assert.ok(!folder.pathUnder('/p/ab', '/p/a'), 'prefix without separator is not "under"');
+  });
+
+  test('visibleNodeIdOf: an expanded descendant of a COLLAPSED ancestor maps to the frontier', () => {
+    // Regression: /p collapsed but /p/a still in expandedFolders (single-folder
+    // toggle) — a node in /p/a must map to folder::/p, never its raw id (the
+    // renderer emits no node for it; d3 forceLink would throw "node not found").
+    const tree = makeTree();
+    const node = { id: 'fnY', file: '/p/a/y.ts' };
+    const expanded = new Set(['/p/a']); // /p NOT expanded
+    const parsed = new Set(['/p', '/p/a']);
+    assert.strictEqual(fc.visibleNodeIdOf(node, expanded, parsed, tree), 'folder::/p');
+    // fully open chain → raw id (parsed) or file:: (unparsed)
+    const open = new Set(['/p', '/p/a']);
+    assert.strictEqual(fc.visibleNodeIdOf(node, open, parsed, tree), 'fnY');
+    assert.strictEqual(fc.visibleNodeIdOf(node, open, new Set(['/p']), tree), 'file::/p/a/y.ts');
   });
 
   test('ddNodePath returns the path a node is filed under', () => {

@@ -14,6 +14,8 @@ function makeDOM() {
     <div id="settings-panel"></div>
     <button id="btn-layout-dynamic"></button>
     <button id="btn-layout-static"></button>
+    <button id="btn-engine-shelf"></button>
+    <button id="btn-engine-global"></button>
     <input id="search" type="text" />
     <span id="btn-clear-search" style="display:none"></span>
     <div id="search-count"></div>
@@ -117,9 +119,9 @@ let rerunLayoutCallCount = 0;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 require('../../../src/webview/controls.js');
 
-// Also get applyResizeDelta / applySavedViewSettings for direct testing
+// Also get applyResizeDelta / applySavedViewSettings / buildSavePayload for direct testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { applyResizeDelta, applySavedViewSettings, clearSearch, updateSearchCount } = require('../../../src/webview/controls.js');
+const { applyResizeDelta, applySavedViewSettings, buildSavePayload, clearSearch, updateSearchCount } = require('../../../src/webview/controls.js');
 
 // Load popups.js factory for textarea handler tests
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -467,6 +469,8 @@ suite('Save Graph Layout button', () => {
       languageMode: false,
       folderMode: true,
       classMode: false,
+      detailDepth: undefined, // not set in this stub state (v2 adds it)
+      layoutEngine: undefined, // not set in this stub state (two-axis adds it)
     });
     assert.deepStrictEqual(msg.payload.nodePositions, {
       'a::fn::1': { x: 10, y: 20 },
@@ -805,5 +809,88 @@ suite('search box UX', () => {
     updateSearchCount(new Set());
     assert.strictEqual(countEl().textContent, '0 matches');
     assert.ok(countEl().classList.contains('search-count--none'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildSavePayload — saved-layout v2 (frames engine)
+// ---------------------------------------------------------------------------
+suite('buildSavePayload (layout v2)', () => {
+  let savedSerialize: unknown;
+
+  setup(() => {
+    savedSerialize = (global as any).serializeFrames;
+    (global as any).state.currentNodes = [
+      { id: 'fnA', x: 10, y: 20 },
+      { id: 'fnB', x: 30, y: 40, fx: 31, fy: 41 },
+    ];
+    (global as any).state.detailDepth = 0.6;
+    (global as any).state.layoutEngine = 'shelf';
+    (global as any).state.expandedFolders = new Set(['/p', '/p/a']);
+    (global as any).state.frames = { byPath: new Map([['/p/a', {}]]) };
+    (global as any).serializeFrames = () => ({ '/p/a': { x: 1, y: 2, w: 300, h: 200, pinned: true } });
+  });
+
+  teardown(() => {
+    (global as any).serializeFrames = savedSerialize;
+    (global as any).state.frames = null;
+    (global as any).state.expandedFolders = new Set();
+  });
+
+  test('carries v1 fields plus detailDepth, layoutEngine, expandedFolders and frames', () => {
+    const p = buildSavePayload();
+    assert.strictEqual(p.settings.detailDepth, 0.6);
+    assert.strictEqual(p.settings.layoutEngine, 'shelf');
+    assert.deepStrictEqual(p.expandedFolders, ['/p', '/p/a']);
+    assert.deepStrictEqual(p.frames, { '/p/a': { x: 1, y: 2, w: 300, h: 200, pinned: true } });
+    assert.deepStrictEqual(p.nodePositions.fnA, { x: 10, y: 20 });
+    assert.deepStrictEqual(p.nodePositions.fnB, { x: 30, y: 40 }, 'positions stay absolute');
+  });
+
+  test('no frames / no expansion → v1-shaped payload (plus detailDepth)', () => {
+    (global as any).state.frames = null;
+    (global as any).state.expandedFolders = new Set();
+    const p = buildSavePayload();
+    assert.strictEqual(p.frames, undefined);
+    assert.strictEqual(p.expandedFolders, undefined);
+    assert.ok(p.nodePositions);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Layout toggles — engine (Shelf | Global) × motion (Dynamic | Static)
+// ---------------------------------------------------------------------------
+suite('Layout toggles (engine × motion)', () => {
+  let savedSetLayoutMode: unknown;
+  let savedSetLayoutEngine: unknown;
+  let modeCalls: string[];
+  let engineCalls: string[];
+
+  setup(() => {
+    savedSetLayoutMode = (global as any).setLayoutMode;
+    savedSetLayoutEngine = (global as any).setLayoutEngine;
+    modeCalls = [];
+    engineCalls = [];
+    (global as any).setLayoutMode = (m: string) => modeCalls.push(m);
+    (global as any).setLayoutEngine = (e: string) => engineCalls.push(e);
+  });
+
+  teardown(() => {
+    (global as any).setLayoutMode = savedSetLayoutMode;
+    (global as any).setLayoutEngine = savedSetLayoutEngine;
+  });
+
+  test('engine buttons call setLayoutEngine', () => {
+    dispatch(dom.window.document.getElementById('btn-engine-shelf'), 'click');
+    dispatch(dom.window.document.getElementById('btn-engine-global'), 'click');
+    assert.deepStrictEqual(engineCalls, ['shelf', 'global']);
+    assert.deepStrictEqual(modeCalls, [], 'engine buttons never touch the motion axis');
+  });
+
+  test('motion buttons keep their classic wiring', () => {
+    dispatch(dom.window.document.getElementById('btn-layout-dynamic'), 'click');
+    dispatch(dom.window.document.getElementById('btn-layout-static'), 'click');
+    assert.deepStrictEqual(modeCalls, ['dynamic', 'static']);
+    assert.deepStrictEqual(engineCalls, [], 'motion buttons never touch the engine axis');
   });
 });

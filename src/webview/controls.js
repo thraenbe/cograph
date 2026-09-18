@@ -22,6 +22,14 @@ document.getElementById('btn-layout-static')?.addEventListener('click', () => {
   setLayoutMode('static');
   window.markDirty?.();
 });
+document.getElementById('btn-engine-shelf')?.addEventListener('click', () => {
+  setLayoutEngine('shelf');
+  window.markDirty?.();
+});
+document.getElementById('btn-engine-global')?.addEventListener('click', () => {
+  setLayoutEngine('global');
+  window.markDirty?.();
+});
 
 // ── Filter controls ───────────────────────────────────────────────────────────
 const searchInput = document.getElementById('search');
@@ -297,18 +305,29 @@ function buildSavePayload() {
   for (const n of state.currentNodes) {
     nodePositions[n.id] = { x: n.x ?? n.fx ?? 0, y: n.y ?? n.fy ?? 0 };
   }
-  return {
+  const payload = {
     settings: {
       complexityLevel: state.complexityLevel,
       clusterGroupBy: state.clusterGroupBy,
       layoutMode: state.layoutMode,
+      layoutEngine: state.layoutEngine,
       gitMode: state.gitMode,
       languageMode: state.languageMode,
       folderMode: state.folderMode,
       classMode: state.classMode,
+      detailDepth: state.detailDepth,
     },
     nodePositions,
   };
+  // Frames engine (v2 additions): drill-down expansion + packed frame rects
+  // (parent-inner-local). Node positions stay absolute as in v1.
+  if (state.expandedFolders && state.expandedFolders.size) {
+    payload.expandedFolders = [...state.expandedFolders].sort();
+  }
+  if (state.frames && typeof serializeFrames === 'function') {
+    payload.frames = serializeFrames(state.frames);
+  }
+  return payload;
 }
 
 /** Restore saved display settings from a graph-loaded payload onto state + the
@@ -421,7 +440,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 if (typeof module !== 'undefined') {
-  module.exports = { applyResizeDelta, applySavedViewSettings, clearSearch, updateSearchCount };
+  module.exports = { applyResizeDelta, applySavedViewSettings, buildSavePayload, clearSearch, updateSearchCount };
 }
 
 // ── Resize math helper ────────────────────────────────────────────────────────

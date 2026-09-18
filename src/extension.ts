@@ -34,15 +34,24 @@ export function activate(context: vscode.ExtensionContext) {
     provider.requestSave('save-as');
   });
 
+  // Dev-only fixture loader (no-op with a hint unless cograph.debug.perfLog is on).
+  const loadSyntheticCommand = vscode.commands.registerCommand('cograph.dev.loadSynthetic', () => {
+    void provider.showSyntheticFixture();
+  });
+
   // Re-push the AI-enabled state to the sidebar whenever the user toggles it,
   // so the gray-out clears/reapplies without reopening the view.
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration('cograph.graphIntelligence.enabled')) {
       sidebarProvider.refreshAiEnabled();
     }
+    if (e.affectsConfiguration('cograph.layout.defaultEngine')
+        || e.affectsConfiguration('cograph.layout.defaultMode')) {
+      provider.pushLayoutConfig();
+    }
   });
 
-  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, configListener);
+  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener);
 }
 
 export function deactivate() {}

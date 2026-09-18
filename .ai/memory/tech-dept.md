@@ -71,3 +71,10 @@ leaks a real save-listener and a `.git/index` file watcher (the "File Watcher
 Invalid handle" noise in test logs), and a future test that touches a
 reanalysis-scheduling path would re-load the gun. Fix shape: same captured
 `_disposeCallback` teardown pattern as gitIntegration.
+
+- 2026-08-24: folder.js split — drill-down box code extracted to drilldown.js (764 LOC
+  remain in folder.js; next cut: folderForces.js). New frames engine files kept modular
+  (frames.js ~470 LOC is over the 400 guideline — candidate: split persistence/queries).
+  Frames-engine follow-ups: CSS transition for repack moves; per-frame viewport culling
+  wired to the zoom transform (scheduler visibility hook exists, currently always-visible);
+  "always individual cross links" settings toggle; class bubbles inside frames.

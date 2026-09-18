@@ -11,5 +11,6 @@ cograph-*/
 linkedin.txt
 # Ad-hoc screenshots dropped at the repo root (committed assets live in docs/images/)
 /Screenshot*.png
-.cograph/# Termi session notes (auto-generated, not shared)
+# Termi session notes (auto-generated, not shared)
+.cograph/
 /project.md

@@ -18,14 +18,20 @@ function makeFakeSim(rec: any) {
     f.strength = (v: any) => { calls.push(['strength', v]); return f; };
     f.x = (v: any) => { calls.push(['x', v]); return f; };
     f.y = (v: any) => { calls.push(['y', v]); return f; };
+    f.distance = (v: any) => { calls.push(['distance', v]); return f; };
+    f.radius = (v: any) => { calls.push(['radius', v]); return f; };
     return f;
   };
   forces.set('charge', spy());
   forces.set('x', spy());
   forces.set('y', spy());
   forces.set('link', spy());
+  forces.set('collide', spy());
+  const decays: any[] = [];
   const sim: any = {
     stopped: false,
+    decays,
+    velocityDecay(v: number) { decays.push(v); return sim; },
     alpha(v?: number) { if (v === undefined) { return alpha; } alpha = v; return sim; },
     alphaMin: () => 0.001,
     alphaTarget(v?: number) { if (v === undefined) { return target; } target = v; return sim; },
@@ -120,12 +126,30 @@ suite('localSim', () => {
     const rec = ls.createSim(FRAME, members(2), [], { repelForce: 250 }, deps);
     rec.settled = true;
     rec.sim.alpha(0.0005);
-    ls.applySettings(rec, { repelForce: 100, centerForce: 0.5, linkForce: 2 });
+    ls.applySettings(rec, { repelForce: 100, linkForce: 2, linkDistance: 60, velocityDecay: 0.5, collidePad: 4 });
     assert.deepStrictEqual(rec.sim.force('charge').calls.pop(), ['strength', -15]); // repel × 0.15 (slot-scale charge)
-    assert.deepStrictEqual(rec.sim.force('x').calls.pop(), ['strength', 0.5]);
-    assert.deepStrictEqual(rec.sim.force('link').calls.pop(), ['strength', 0.2]);
+    assert.deepStrictEqual(rec.sim.force('link').calls.pop(), ['distance', 45]); // shelf runs linkDistance at 0.75x
+    assert.deepStrictEqual(rec.sim.decays.pop(), 0.5);
+    const radiusCall = rec.sim.force('collide').calls.pop();
+    assert.strictEqual(radiusCall[0], 'radius');
+    assert.strictEqual(radiusCall[1]({ r: 10 }), 14, 'collide radius = r + collidePad');
     assert.strictEqual(rec.settled, false);
     assert.ok(rec.sim.alpha() >= 0.3, 'reheated');
+  });
+
+  test('centerForce patch is a no-op in the shelf (dead plumbing dropped)', () => {
+    const rec = ls.createSim(FRAME, members(1), [], {}, deps);
+    ls.applySettings(rec, { centerForce: 0.5 });
+    assert.strictEqual(rec.sim.force('x').calls.length, 0, 'no x-force call');
+    assert.strictEqual(rec.sim.force('y').calls.length, 0, 'no y-force call');
+  });
+
+  test('slotPad insets the hard clamp from the slot walls', () => {
+    const rec = ls.createSim(FRAME, members(1), [], { slotPad: 5 }, deps, new Map([['n0', { x: -50, y: 150 }]]));
+    const n = rec.nodes[0];
+    assert.strictEqual(n.x, 15, 'clamped to r + slotPad');
+    ls.applySettings(rec, { slotPad: 20 });
+    assert.strictEqual(n.x, 30, 'slotPad patch re-clamps immediately');
   });
 
   test('resizeSim clamps nodes into the new rect and reheats', () => {

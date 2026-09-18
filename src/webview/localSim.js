@@ -18,10 +18,11 @@ function initialPosition(i, rect) {
 /** Clamp every free node inside its slot (or the inner rect when it has no
  *  slot), killing outward velocity at the walls. */
 function hardClamp(rec) {
+  const pad = (rec.settings && rec.settings.slotPad) || 0;
   for (const n of rec.nodes) {
     if (n.fx != null) { continue; }
     const b = (rec.slotById && rec.slotById.get(n.id)) || { x: 0, y: 0, w: rec.inner.w, h: rec.inner.h };
-    const r = Math.min(n.r, Math.min(b.w, b.h) / 2);
+    const r = Math.min(n.r + pad, Math.min(b.w, b.h) / 2);
     if (n.x < b.x + r) { n.x = b.x + r; if (n.vx < 0) { n.vx = 0; } }
     else if (n.x > b.x + b.w - r) { n.x = b.x + b.w - r; if (n.vx > 0) { n.vx = 0; } }
     if (n.y < b.y + r) { n.y = b.y + r; if (n.vy < 0) { n.vy = 0; } }
@@ -57,6 +58,10 @@ function lsClampForce(rec) {
   return function () { hardClamp(rec); };
 }
 
+function lsLinkDistance(s) {
+  return (s.linkDistance ?? 40) * 0.75;
+}
+
 /** The ONLY function that touches d3. */
 function buildD3Sim(rec, d3lib) {
   const s = rec.settings;
@@ -64,13 +69,15 @@ function buildD3Sim(rec, d3lib) {
   // repel just pins everything to the walls (the "picture frame" artefact).
   return d3lib.forceSimulation(rec.nodes)
     .force('link', d3lib.forceLink(rec.links).id(d => d.id)
-      .distance(30).strength((s.linkForce ?? 1) * 0.1))
+      // linkDistance is a shared setting; slots are tighter than the global
+      // canvas, so the shelf runs at 0.75x (30 at the default of 40).
+      .distance(lsLinkDistance(s)).strength((s.linkForce ?? 1) * 0.1))
     .force('charge', d3lib.forceManyBody()
       .strength(-(s.repelForce ?? 250) * 0.15).distanceMax(140))
-    .force('collide', d3lib.forceCollide(d => d.r + 1.5))
+    .force('collide', d3lib.forceCollide(d => d.r + (s.collidePad ?? 1.5)))
     .force('slotPull', lsSlotPull(rec))
     .force('clamp', lsClampForce(rec))
-    .velocityDecay(0.3)
+    .velocityDecay(s.velocityDecay ?? 0.3)
     .alphaDecay(0.04)   // local graphs are small — settle fast
     .stop();            // ticked manually by the scheduler
 }
@@ -158,12 +165,13 @@ function applySettings(rec, patch) {
   const sim = rec.sim;
   const s = rec.settings;
   if (sim && sim.force) {
+    // No centerForce mapping: the shelf has no x/y force — slots anchor nodes.
     if (patch.repelForce !== undefined) { sim.force('charge')?.strength?.(-s.repelForce * 0.15); }
-    if (patch.centerForce !== undefined) {
-      sim.force('x')?.strength?.(s.centerForce);
-      sim.force('y')?.strength?.(s.centerForce);
-    }
     if (patch.linkForce !== undefined) { sim.force('link')?.strength?.(s.linkForce * 0.1); }
+    if (patch.linkDistance !== undefined) { sim.force('link')?.distance?.(lsLinkDistance(s)); }
+    if (patch.collidePad !== undefined) { sim.force('collide')?.radius?.((d) => d.r + s.collidePad); }
+    if (patch.velocityDecay !== undefined) { sim.velocityDecay?.(s.velocityDecay); }
+    if (patch.slotPad !== undefined) { hardClamp(rec); }
   }
   unsettle(rec);
 }

@@ -87,8 +87,23 @@ function renderFrameLayout(allLinks, visibleSet) {
 
   // 1) Frames from the current visible members.
   const members = collectMembers(state.currentNodes, tree, settings.nodeSize);
+  const prevAbs = new Map();
+  if (state.frames && state.frames.byPath) {
+    for (const [p2, f2] of state.frames.byPath) {
+      if (f2.abs) { prevAbs.set(p2, { x: f2.abs.x, y: f2.abs.y }); }
+    }
+  }
   const upd = updateFrames(state.frames, tree, state.expandedFolders, members);
   state.frames = upd.frames;
+  // Re-pack animation: frames that already existed and were MOVED by this
+  // layout pass glide to their new spot (drags/sim ticks stay instant).
+  __fr.animateMoves = new Set();
+  for (const [p2, f2] of upd.frames.byPath) {
+    const was = prevAbs.get(p2);
+    if (was && f2.abs && (Math.abs(was.x - f2.abs.x) > 0.5 || Math.abs(was.y - f2.abs.y) > 0.5)) {
+      __fr.animateMoves.add(p2);
+    }
+  }
   __fr.members = members;
   __fr.byId = new Map(state.currentNodes.map(n => [n.id, n]));
   if (applyPendingLayout()) { return; } // saved expansion differs → re-render scheduled
@@ -324,7 +339,12 @@ function tickFrame(path) {
   const f = state.frames && state.frames.byPath.get(path);
   const sub = __fr.frameSel.get(path);
   if (!f || !sub) { return; }
-  sub.attr('transform', `translate(${f.abs.x},${f.abs.y})`);
+  const glide = __fr.animateMoves && __fr.animateMoves.delete(path);
+  if (glide && sub.transition) {
+    sub.transition('frame-move').duration(200).attr('transform', `translate(${f.abs.x},${f.abs.y})`);
+  } else {
+    sub.attr('transform', `translate(${f.abs.x},${f.abs.y})`);
+  }
   if (f.kind === 'root') {
     sub.select('.folder-bubble-shape')
       .attr('d', rectPath(0, 0, f.abs.w, f.abs.h))

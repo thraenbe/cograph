@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Fixed
+- Re-packs animate: when expanding a folder forces siblings to move, the moved
+  frames glide (~200 ms) to their new spot instead of jumping. Drags and
+  simulation motion stay instant.
 - Static-mode label clutter in dense file slots: slot labels ellipsize to their
   slot's width (the function count is always kept), and function labels inside
   slots holding more than 12 functions stay hidden until you zoom in past 1.5x.

@@ -942,6 +942,10 @@ export class GraphProvider {
     sessionId: string | null,
     onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
   ): Promise<GraphIntelligenceResult> {
+    // Host-side gate: the sidebar already blocks chat-send, but no caller may reach a provider while AI is off.
+    if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
+      throw new Error('AI features are off — enable them in CoGraph settings to use Chat.');
+    }
     const { result, workspaceRoot } = await this.invokeProvider(prompt, providerId, sessionId, onProgress);
     this.cachedGraph = result.graph;
     this.cachedNodes = result.graph.nodes.filter(n => !n.isLibrary);

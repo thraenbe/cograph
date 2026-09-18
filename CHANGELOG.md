@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.0] - Unreleased
 
+### Changed (UX)
+- The language-colours toggle is labelled **Language** (was "Lang").
+
 ### Removed
 - The **Class** and **Connect** group-by lenses. Group-by-File (the folder
   drill-down) is the only lens; saved views that carry `class`, `connect` or the

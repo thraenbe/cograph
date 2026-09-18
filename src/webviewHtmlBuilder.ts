@@ -290,7 +290,7 @@ export function getWebviewHtml(
       </div>
     </div>
     <div id="panel-lang" class="tl-panel">
-      <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Lang</button>
+      <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Language</button>
       <div id="language-legend"></div>
     </div>
     <div id="panel-folder" class="tl-panel">

@@ -175,6 +175,7 @@ export function getWebviewHtml(
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
   const controlsUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'controls.js'));
   const timelineUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'timeline.js'));
+  const frameChromeUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameChrome.js'));
   const perfUri      = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'perf.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
@@ -445,6 +446,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${classUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${colorsUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${popupsUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${frameChromeUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${framesUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${crossLinksUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${localSimUri}?v=${nonce}"></script>

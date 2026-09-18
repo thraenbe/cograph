@@ -130,10 +130,12 @@ function circlePath(R) {
   return `M ${-R} 0 A ${R} ${R} 0 1 0 ${R} 0 A ${R} ${R} 0 1 0 ${-R} 0 Z`;
 }
 
-// Shape selector for the cloud-node layer: files → circle, everything else
-// (folders and connectivity/structural clusters) → cloud silhouette.
+// Shape selector for the cloud-node layer: files → circle, collapsed folders →
+// compact closed-folder silhouette (matches the open frames' tab chrome),
+// everything else (structural clusters) → cloud silhouette.
 function generateNodeShapePath(d, R) {
   if (d.isFileCluster) { return circlePath(R); }
+  if (d.isFolderCluster && typeof closedFolderPath === 'function') { return closedFolderPath(R); }
   return generateCloudPath(R, bumpCountFor(d));
 }
 
@@ -869,12 +871,16 @@ function renderGlobalLayout(allLinks, visibleSet) {
     });
     state.svgFolderBubbles.each(function(d) {
       d3.select(this).select('.folder-bubble-shape')
-        .attr('rx', 8).attr('stroke-width', 1.5).attr('pointer-events', 'all');
+        .attr('stroke-width', 1.5).attr('pointer-events', 'all');
       d3.select(this).select('.folder-bubble-titlebar')
         .attr('pointer-events', 'all').attr('cursor', 'grab');
+      d3.select(this).select('.frame-tab-glyph')
+        .attr('fill', isLightTheme() ? '#333333' : '#cccccc');
+      d3.select(this).select('.frame-tab-counts')
+        .attr('fill', isLightTheme() ? '#333333' : '#cccccc');
       d3.select(this).select('.folder-bubble-label')
-        .attr('font-size', `${(12 + 6 / (d.depth + 1)) * settings.textSize}px`)
-        .attr('text-anchor', 'middle').attr('font-weight', '600')
+        .attr('font-size', `${12 * settings.textSize}px`)
+        .attr('text-anchor', 'start').attr('font-weight', '600')
         .attr('dominant-baseline', 'central')
         .attr('fill', isLightTheme() ? '#333333' : '#cccccc').attr('pointer-events', 'none');
     });

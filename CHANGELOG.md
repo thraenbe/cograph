@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (UX)
 - The language-colours toggle is labelled **Language** (was "Lang").
+- **Folder chrome redesign (Draft A "index tab")**, applied to both engines:
+  every open folder shows its name in a tab at the top-left (folder glyph,
+  ellipsis past 62 % of the frame width) with file/function counts in the free
+  strip right of the tab (compact "N · M" when narrow); collapsed folders draw
+  as a small closed-folder silhouette instead of a cloud; cross-folder bundles
+  attach at the tab's shoulder; folder colours gain ~14 points of saturation.
+  The whole top strip stays the drag hit-area.
 
 ### Removed
 - The **Class** and **Connect** group-by lenses. Group-by-File (the folder

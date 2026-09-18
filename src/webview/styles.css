@@ -1273,3 +1273,7 @@ body.vscode-light {
 
 /* Sliders without effect under the frames layout engine */
 .is-noop { opacity: 0.4; }
+
+/* Draft A folder chrome: index tab + counts strip (both engines) */
+.frame-tab-glyph { opacity: 0.7; }
+.frame-tab-counts { font-size: 10px; opacity: 0.75; }

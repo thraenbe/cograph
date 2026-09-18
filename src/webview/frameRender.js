@@ -112,13 +112,19 @@ function renderFrameLayout(allLinks, visibleSet) {
   const sel = frameG.selectAll('g.frame').data(frameData, f => f.path).join(
     enter => {
       const grp = enter.append('g').attr('class', 'frame');
-      grp.append('rect').attr('class', 'folder-bubble-shape')
-        .attr('rx', 8).attr('stroke-width', 1.5).attr('pointer-events', 'all');
-      grp.append('rect').attr('class', 'folder-bubble-titlebar')
-        .attr('rx', 8).attr('pointer-events', 'all').attr('cursor', 'grab');
+      grp.append('path').attr('class', 'folder-bubble-shape')
+        .attr('stroke-width', 1.5).attr('pointer-events', 'all');
+      // Draft A chrome: the tab is purely visual; the transparent titlebar
+      // rect below keeps the whole 30px strip as the drag hit-area.
+      const tab = grp.append('g').attr('class', 'frame-tab').attr('pointer-events', 'none');
+      tab.append('path').attr('class', 'frame-tab-shape');
+      tab.append('path').attr('class', 'frame-tab-glyph').attr('d', FOLDER_GLYPH);
+      tab.append('text').attr('class', 'frame-tab-counts').attr('text-anchor', 'end');
       grp.append('text').attr('class', 'folder-bubble-label')
-        .attr('text-anchor', 'middle').attr('font-weight', '600')
+        .attr('text-anchor', 'start').attr('font-weight', '600')
         .attr('dominant-baseline', 'central').attr('pointer-events', 'none');
+      grp.append('rect').attr('class', 'folder-bubble-titlebar')
+        .attr('fill', 'transparent').attr('pointer-events', 'all').attr('cursor', 'grab');
       grp.append('g').attr('class', 'f-slots');
       grp.append('g').attr('class', 'f-links');
       grp.append('g').attr('class', 'f-nodes');
@@ -151,9 +157,11 @@ function renderFrameLayout(allLinks, visibleSet) {
     l._t = __fr.byId.get(typeof l.target === 'object' ? l.target.id : l.target) || null;
   }
   __fr.frameDom = new Map();
+  __fr.counts = new Map();
   for (const f of frameData) {
     const sub = __fr.frameSel.get(f.path);
     const memberNodes = (members.get(f.path) || []).map(m => m._ref).filter(Boolean);
+    __fr.counts.set(f.path, memberCounts(memberNodes));
     renderFrameSlots(f, sub);
     const circles = renderNodes(visibleSet, memberNodes, sub.select('g.f-nodes'));
     const clouds = renderCloudNodes(visibleSet, memberNodes, sub.select('g.f-nodes'));
@@ -163,13 +171,14 @@ function renderFrameLayout(allLinks, visibleSet) {
     __fr.frameDom.set(f.path, { sub, circles, clouds, labels, links });
     if (f.kind === 'root') {
       // Subtle dashed outline + name: root-level files stop looking like
-      // stray debris floating outside every frame.
+      // stray debris floating outside every frame. No tab, no drag strip.
       sub.select('.folder-bubble-shape')
         .style('display', null)
         .attr('fill', 'none')
         .attr('stroke-dasharray', '6 5')
         .attr('stroke-opacity', 0.25)
         .attr('pointer-events', 'none');
+      sub.select('g.frame-tab').style('display', 'none');
       sub.select('.folder-bubble-titlebar').style('display', 'none');
       sub.select('.folder-bubble-label')
         .style('display', null)
@@ -311,7 +320,7 @@ function tickFrame(path) {
   sub.attr('transform', `translate(${f.abs.x},${f.abs.y})`);
   if (f.kind === 'root') {
     sub.select('.folder-bubble-shape')
-      .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', f.abs.h)
+      .attr('d', rectPath(0, 0, f.abs.w, f.abs.h))
       .attr('stroke', (typeof isLightTheme === 'function' && isLightTheme()) ? '#666666' : '#9fb0c3');
     sub.select('.folder-bubble-label')
       .attr('x', 10).attr('y', -10)
@@ -320,16 +329,29 @@ function tickFrame(path) {
   if (f.kind !== 'root') {
     const depth = (state.structureTree.folders[f.path]?.depth) ?? 1;
     const hue = (typeof ddHue === 'function') ? ddHue(f.path) : 0;
+    const name = f.path.split(/[\\/]+/).filter(Boolean).pop() || f.path;
+    const tw = tabWidth(name, f.abs.w);
+    const mutedFill = (typeof isLightTheme === 'function' && isLightTheme()) ? '#333333' : '#cccccc';
     sub.select('.folder-bubble-shape')
-      .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', f.abs.h)
+      .attr('d', tabBodyPath(0, 0, f.abs.w, f.abs.h, tw))
       .attr('fill', folderFillColor(depth, hue))
       .attr('stroke', folderStrokeColor(depth, hue));
-    sub.select('.folder-bubble-titlebar')
-      .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', 30)
+    sub.select('.frame-tab-shape')
+      .attr('d', tabOnlyPath(0, 0, tw))
       .attr('fill', folderTitlebarColor(depth, hue));
+    sub.select('.frame-tab-glyph')
+      .attr('transform', 'translate(9,6) scale(0.85)')
+      .attr('fill', mutedFill);
     sub.select('.folder-bubble-label')
-      .attr('x', f.abs.w / 2).attr('y', 15)
-      .text(f.path.split(/[\\/]+/).filter(Boolean).pop() || f.path);
+      .attr('x', TAB.TEXT_X).attr('y', TAB.TEXT_Y)
+      .text(cutLabel(name, tabChars(tw)));
+    const cnt = __fr.counts && __fr.counts.get(path);
+    sub.select('.frame-tab-counts')
+      .attr('x', f.abs.w - 4).attr('y', TAB.H - 6)
+      .attr('fill', mutedFill)
+      .text(cnt ? countsText(cnt.files, cnt.fns, f.abs.w - tw - TAB.CNT_PAD) : '');
+    sub.select('.folder-bubble-titlebar')
+      .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', 30);
   }
   const ox = f.abs.x, oy = f.abs.y;
   const dom = __fr.frameDom && __fr.frameDom.get(path);
@@ -386,9 +408,16 @@ function updateCrossLinks() {
     frameAt: p => {
       const f = state.frames.byPath.get(p);
       if (!f) { return null; }
-      const titleRect = f.kind === 'root'
-        ? { x: f.abs.x, y: f.abs.y, w: f.abs.w, h: 0 }
-        : titleBarRect(f);
+      // Ports sit on the tab (its right shoulder faces the free strip), not
+      // the full-width strip — bundles visually attach to the folder's name.
+      let titleRect;
+      if (f.kind === 'root') {
+        titleRect = { x: f.abs.x, y: f.abs.y, w: f.abs.w, h: 0 };
+      } else {
+        const name = p.split(/[\\/]+/).filter(Boolean).pop() || p;
+        const tw = Math.min(tabWidth(name, f.abs.w) + 12, f.abs.w);
+        titleRect = { x: f.abs.x, y: f.abs.y, w: tw, h: TAB.H };
+      }
       return { abs: f.abs, titleRect };
     },
     absPosOf: id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; },

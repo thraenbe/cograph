@@ -119,10 +119,10 @@ push, W4-W6 are gated.
 | 1 | `tickFrame` split: `tickFrameChrome` (transform, rect, colours, label) only on render / move / resize / theme; per-tick path = node/label/link position writes only | `frameRender.js` 307-368 | 9.3 → ~4 ms/frame (workers off) |
 | 2 | Drag under frames ticks **only the dragged node's frame** + re-routes only bundles touching it; rAF-coalesced | `rendering.js` `ticked` 265-271, `frameRender.js` | 53 → < 2 ms per mousemove |
 | 3 | `updateCrossLinks` dirty-tracking: bundle aggregation cached per render (`__fr.cross` is stable between renders), geometry recomputed only for frames flagged moved; hover builds `individual` only, no bundle re-join | `frameRender.js` 377-420, `crossLinks.js` (add `buildBundleIndex` / `routeBundles`) | removes the rebuild from every hover, drag and keystroke |
-| 4 | Hover: adjacency index `nodeId → [link elements]` built at render; hover toggles a class on the touched links + one root class for dimming instead of 3 full attr passes; label lookup via id map | `rendering.js` 333-425, 764-782; CSS rules appended at the end of `styles.css` (perf-only classes, **ask ux first**) | 33 → < 2 ms |
+| 4 | Hover: adjacency index `nodeId → [link elements]` built at render; hover toggles a class on the touched links + one root class for dimming instead of 3 full attr passes; label lookup via id map | `rendering.js` 333-425, 764-782; CSS rules in perf's own delimited block at the end of `styles.css` (ruling R-a) | 33 → < 2 ms |
 | 5 | `getCSSVar` memo (Map, cleared on theme change / `applyDisplaySettings`); `isLightTheme` cached the same way | `rendering.js` 80-93 | removes `getComputedStyle` per datum on every render / git-update |
 | 6 | `getVisibleNodeIds`: memo keyed on a filter generation (query, hidden sets, node list identity); search text pushed from the `input` listener instead of read from the DOM; fix `tickDrilldownBoxes(vis)` ignoring its argument (`drilldown.js:141`) and `tickClassOverlay()` called without it (`main.js:156`) | `main.js` 104-139 | 1-2 O(N) scans per tick → 0 |
-| 7 | `applyFilters`: diff against the previous visible set, write `display` only on changed elements; no `tickFrames()`; 120 ms debounce on the search `input` handler lives in `controls.js` → **ux-owned, ask** (fallback: rAF-coalesce inside `applyFilters`) | `main.js` 141-159 | 78-98 → < 10 ms per keystroke |
+| 7 | `applyFilters`: diff against the previous visible set, write `display` only on changed elements; no `tickFrames()`; rAF-coalesced inside `applyFilters` (ruling R-b: no debounce in `controls.js`) | `main.js` 141-159 | 78-98 → < 10 ms per keystroke |
 | 8 | Zoom handler: `updateTextVisibility` toggles one class on the root `<g>` only when `k` crosses the threshold (today: inline opacity on every label per zoom event) | `rendering.js` 63-69, 206-211 | 7 → < 0.5 ms |
 | 9 | `renderLabels`: rebuild tspans only when the label text/line count changed (stamp on the element) | `rendering.js` 584-607 | expand-all sync −15-25 % (measure) |
 | 10 | `syncFrameSims`: numeric slot-geometry hash instead of two sorted strings per frame; `frameScheduler.pick()` result reused by `loop()` | `frameRender.js` 240-295, 588-596; `frameScheduler.js` | small, removes per-rAF sort ×2 |
@@ -290,6 +290,23 @@ list end), `graphProvider.ts` (`localResourceRoots` ×3, analysis callback, git-
 delta), `gitService.ts`, `cacheStore.ts`, `package.json` (setting, `d3-force` dep,
 `perf:bench` script), `CHANGELOG.md`, `.ai/memory/decision.md`, `scripts/analyze_*.js|py`
 (W5-5/6 only). Nothing is deleted.
+
+## Orchestrator rulings (session-110, 2026-09-18) — supersede the text above where they differ
+- **R-a** Hover / LOD CSS classes go in perf's **own delimited block at the END of
+  `styles.css`** (`/* ── perf: hover + LOD (session perf) ── */ … /* ── /perf ── */`); no
+  need to ask ux.
+- **R-b** **No debounce in `controls.js`.** W1-7 uses the fallback: rAF-coalesce inside
+  `applyFilters` (last call wins, one filter pass per animation frame).
+- **R-c** `scripts/perf/` stays small (page builder + scenarios + CDP runner); migrating the
+  scenarios into `uxtest` is round 2. The uxtest thin slice is usable for cross-checks:
+  branch `termi/s180-2` @ 42a1ef1, `openLab()` in `uxtest/README.md`, example
+  `uxtest/examples/baseline.spec.ts`
+  (`npm run uxtest -- --project examples --repo synthetic-3k`).
+- **R-d** ux (session-111) lands one isolated `localSim.js` commit (new force keys
+  `linkDistance` / `velocityDecay` / `collidePad` / `slotPad` + removal of the dead Center
+  plumbing). session-110 sends the SHA; perf **cherry-picks it before W2** so `simCore.js`
+  is extracted from that version (the worker's opaque settings patch then covers the new
+  keys without a second pass).
 
 ## Decisions needed from Bela
 - **D1** Blob-bootstrapped worker + `worker-src blob:; connect-src ${cspSource}` (VS Code

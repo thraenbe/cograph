@@ -208,7 +208,11 @@ function resolveClusterFill(d) {
 function updateTextVisibility() {
   if (!state.svgLabels) return;
   const opacity = state.currentZoom >= settings.textFadeThreshold ? 1 : 0;
-  state.svgLabels.style('opacity', opacity);
+  // B6: labels inside dense file slots (frames engine) stay hidden until the
+  // viewer zooms close enough to read them.
+  const denseZoom = (typeof DENSE !== 'undefined') ? DENSE.LABEL_ZOOM : Infinity;
+  state.svgLabels.style('opacity', d =>
+    (d && d._denseSlot && state.currentZoom < denseZoom) ? 0 : opacity);
   state.svgLibLabels?.style('opacity', opacity);
 }
 

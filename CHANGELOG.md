@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attach at the tab's shoulder; folder colours gain ~14 points of saturation.
   The whole top strip stays the drag hit-area.
 
+### Fixed
+- Static-mode label clutter in dense file slots: slot labels ellipsize to their
+  slot's width (the function count is always kept), and function labels inside
+  slots holding more than 12 functions stay hidden until you zoom in past 1.5x.
+
 ### Removed
 - The **Class** and **Connect** group-by lenses. Group-by-File (the folder
   drill-down) is the only lens; saved views that carry `class`, `connect` or the

@@ -161,6 +161,12 @@ function renderFrameLayout(allLinks, visibleSet) {
     const sub = __fr.frameSel.get(f.path);
     const memberNodes = (members.get(f.path) || []).map(m => m._ref).filter(Boolean);
     __fr.counts.set(f.path, memberCounts(memberNodes));
+    // B6: functions in a dense slot hide their labels until zoomed in.
+    for (const m of (members.get(f.path) || [])) {
+      if (!m._ref) { continue; }
+      const slot = f.slots && f.slotOf ? f.slots.get(f.slotOf.get(m.id)) : null;
+      m._ref._denseSlot = !!(slot && (slot.count || 0) > DENSE.SLOT_N);
+    }
     renderFrameSlots(f, sub);
     const circles = renderNodes(visibleSet, memberNodes, sub.select('g.f-nodes'));
     const clouds = renderCloudNodes(visibleSet, memberNodes, sub.select('g.f-nodes'));
@@ -185,6 +191,8 @@ function renderFrameLayout(allLinks, visibleSet) {
         .attr('opacity', 0.5);
     }
   }
+
+  if (typeof updateTextVisibility === 'function') { updateTextVisibility(); }
 
   // 5) Flat selections for every existing consumer (filters, git, hover…).
   state.svgNodes = frameG.selectAll('circle.regular-node');
@@ -682,7 +690,7 @@ function renderFrameSlots(f, sub) {
       .attr('x', d.x + 6).attr('y', d.y + 11)
       .attr('font-size', `${9 * settings.textSize}px`)
       .attr('fill', color).attr('fill-opacity', 0.9)
-      .text(d.count ? `${slotBasename(d.file)} · ${d.count}` : slotBasename(d.file));
+      .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize));
   });
   sel.on('dblclick', (event, d) => {
     event.stopPropagation();

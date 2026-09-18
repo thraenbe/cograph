@@ -59,6 +59,18 @@ function rectPath(x, y, w, h, r = 8) {
     `a${r} ${r} 0 0 1 ${r} ${-r}Z`;
 }
 
+// Dense-slot labelling (B6): slots holding more than SLOT_N functions hide
+// their function labels until the viewer zooms past LABEL_ZOOM.
+const DENSE = { SLOT_N: 12, LABEL_ZOOM: 1.5 };
+
+/** Slot label "name · N", name ellipsized so the whole text fits slotW.
+ *  charW is the approximate glyph width at the label's font size. */
+function slotLabelText(name, count, slotW, charW) {
+  const suffix = count ? ` · ${count}` : '';
+  const budget = Math.max(2, Math.floor((slotW - 12) / charW) - suffix.length);
+  return cutLabel(name, budget) + suffix;
+}
+
 /** Counts for the free strip right of the tab: long form while it fits,
  *  compact "N · M" when the strip is narrow. */
 function countsText(files, fns, freeW) {
@@ -91,7 +103,7 @@ function closedFolderPath(r) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    TAB, FOLDER_GLYPH, tabWidth, tabChars, cutLabel,
+    TAB, DENSE, FOLDER_GLYPH, tabWidth, tabChars, cutLabel, slotLabelText,
     tabBodyPath, tabOnlyPath, rectPath, countsText, memberCounts, closedFolderPath,
   };
 }

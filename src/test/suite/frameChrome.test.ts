@@ -91,6 +91,23 @@ suite('frameChrome — counts', () => {
     assert.strictEqual(c.fns, 3, 'only parsed functions count');
   });
 
+  test('slotLabelText truncates the name, never the count (B6)', () => {
+    assert.strictEqual(fc.slotLabelText('main.js', 5, 160, 5), 'main.js · 5');
+    const tight = fc.slotLabelText('averylongfilename.test.ts', 196, 70, 5);
+    assert.ok(tight.endsWith(' · 196'), tight);
+    assert.ok(tight.length * 5 <= 70, `must fit 70px, got "${tight}"`);
+    assert.ok(tight.includes('…'), 'name ellipsized');
+  });
+
+  test('slotLabelText keeps at least two name characters', () => {
+    const t = fc.slotLabelText('abcdef', 9, 0, 5);
+    assert.ok(t.startsWith('a…'), t);
+  });
+
+  test('DENSE thresholds exported for the label zoom gate', () => {
+    assert.ok(fc.DENSE.SLOT_N >= 1 && fc.DENSE.LABEL_ZOOM > 0);
+  });
+
   test('memberCounts tolerates empty/missing input', () => {
     assert.deepStrictEqual(fc.memberCounts([]), { files: 0, fns: 0 });
     assert.deepStrictEqual(fc.memberCounts(undefined), { files: 0, fns: 0 });

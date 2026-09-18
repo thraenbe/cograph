@@ -6,6 +6,8 @@ import type { GraphIntelligenceResult, ProgressEvent } from './graphIntelligence
 import type { GraphData } from './graphProvider';
 import { PROVIDER_CATALOG, getProviderInfo, findProviderForModel } from './graphIntelligence/provider';
 import { ChatStore, type ChatMessage, DEFAULT_CHAT_KEY } from './graphIntelligence/chatStore';
+import { ANNOTATION_CARD_CSS, ANNOTATION_CARD_SCRIPT } from './graphIntelligence/annotationCard';
+import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
 
 export interface SavedGraphMeta {
   name: string;
@@ -38,6 +40,10 @@ export interface GraphController {
     onProgress?: (ev: ProgressEvent) => void,
   ): Promise<GraphIntelligenceResult>;
   showWorkflowGraph?(graph: GraphData, filePath: string, name: string): Promise<void>;
+  annotateGraph?(providerId: string): Promise<unknown>;
+  cancelAnnotate?(): void;
+  annotationStatus?(): AnnotationStatus;
+  onAnnotationStatus?(listener: (s: AnnotationStatus) => void): { dispose(): void };
 }
 
 /** Filename of the special, pinned AI Workflow Graph inside `.cograph/`. */
@@ -99,8 +105,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     };
     webviewView.webview.html = this._buildHtml(webviewView.webview);
 
+    const annotateSub = this._graphController.onAnnotationStatus?.((status) => {
+      this._view?.webview.postMessage({ type: 'annotate-status', status });
+    });
+
     webviewView.onDidDispose(() => {
       this._view = undefined;
+      annotateSub?.dispose();
       this._graphController.abortIntelligence?.();
     });
 
@@ -111,6 +122,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           this._view?.webview.postMessage({ type: 'provider-catalog', catalog: PROVIDER_CATALOG });
           this._sendActiveModel();
           this._sendAiEnabled();
+          this._sendAnnotateStatus();
           // Restore previously-saved splitter height.
           const savedHeight = this._workspaceState?.get<number>(SidebarProvider.STATE_KEY_GRAPHS_HEIGHT);
           if (typeof savedHeight === 'number' && savedHeight > 0) {
@@ -251,6 +263,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             break;
           }
           await this._generateWorkflow();
+          break;
+        case 'annotate-generate':
+        case 'annotate-update':
+          if (!this._aiEnabled()) {
+            await this._openAiSettings();
+            break;
+          }
+          await this._annotateGraph();
+          break;
+        case 'annotate-cancel':
+          // Deliberately not gated: stopping a run must work even if AI was just switched off.
+          this._graphController.cancelAnnotate?.();
           break;
         case 'open-ai-settings':
           await this._openAiSettings();
@@ -568,6 +592,29 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /** Push the Annotate Graph card state (also sent on every status change via the subscription). */
+  private _sendAnnotateStatus(): void {
+    const status = this._graphController.annotationStatus?.();
+    if (status) { this._view?.webview.postMessage({ type: 'annotate-status', status }); }
+  }
+
+  /** Start, resume or update annotations. The controller confirms an estimate with the user first. */
+  private async _annotateGraph(): Promise<void> {
+    if (!this._graphController.annotateGraph) {
+      vscode.window.showErrorMessage('CoGraph: Annotate Graph is not available.');
+      return;
+    }
+    const provider = vscode.workspace.getConfiguration('cograph')
+      .get<string>('graphIntelligence.provider', 'claude-code');
+    try {
+      await this._graphController.annotateGraph(provider);
+    } catch (err) {
+      vscode.window.showErrorMessage(`CoGraph: Annotate Graph failed — ${(err as Error).message}`);
+    } finally {
+      this._sendAnnotateStatus();
+    }
+  }
+
   private _postWorkflowStatus(status: 'before' | 'generating' | 'ready', detail?: string): void {
     this._view?.webview.postMessage({ type: 'workflow-status', status, detail });
   }
@@ -841,7 +888,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       animation: wf-slide 1.1s ease-in-out infinite;
     }
     @keyframes wf-slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
-
+${ANNOTATION_CARD_CSS}
     .card-name {
       font-size: 12px;
       font-weight: 600;
@@ -1705,6 +1752,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
+${ANNOTATION_CARD_SCRIPT}
     function renderCards(graphs, query) {
       const list = document.getElementById('graph-list');
       const workflow = graphs.find(g => g.isWorkflow);
@@ -1713,7 +1761,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         ? rest.filter(g => g.name.toLowerCase().includes(query) || g.description.toLowerCase().includes(query))
         : rest;
 
-      let html = workflow ? renderWorkflowCard(workflow) : '';
+      let html = (workflow ? renderWorkflowCard(workflow) : '') + renderAnnotateCard();
       if (filtered.length === 0) {
         if (query) { html += '<div class="empty-state">No matches.</div>'; }
         else if (!rest.length) { html += '<div class="empty-state">No saved graphs yet.</div>'; }
@@ -1735,6 +1783,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       list.innerHTML = html;
 
       wireWorkflowCard(list);
+      wireAnnotateCard(list);
 
       list.querySelectorAll('.graph-card').forEach(card => {
         card.addEventListener('click', () => {
@@ -1827,6 +1876,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           const d = document.getElementById('wf-detail');
           if (d) { d.textContent = msg.detail; }
         }
+      } else if (msg.type === 'annotate-status') {
+        onAnnotateStatus(msg);
       } else if (msg.type === 'ai-enabled') {
         aiEnabled = !!msg.enabled;
         document.body.classList.toggle('ai-disabled', !aiEnabled);

@@ -53,6 +53,10 @@ export function activate(context: vscode.ExtensionContext) {
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration('cograph.graphIntelligence.enabled')) {
       sidebarProvider.refreshAiEnabled();
+      // Switching AI off mid-run stops the run; the summaries already saved are kept.
+      if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
+        provider.cancelAnnotate();
+      }
       provider.refreshAnnotations();
     }
     if (e.affectsConfiguration('cograph.layout.defaultEngine')

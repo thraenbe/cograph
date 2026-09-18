@@ -3,9 +3,12 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { MAX_OUTPUT_BYTES } from '../analyzerRunner';
-import type { GraphIntelligenceProvider, GraphIntelligenceRequest, GraphIntelligenceResult } from './provider';
+import type {
+  GraphIntelligenceProvider, GraphIntelligenceRequest, GraphIntelligenceResult, JsonRequest, JsonResult,
+} from './provider';
 import { ProgressEvent } from './progressParser';
-import { extractCographResult } from './jsonRepair';
+import { extractCographResult, extractJsonObject } from './jsonRepair';
+import { runCliStream, ensureCliBinary } from './cliProcess';
 
 const WRAPPER_PROMPT = `Read ./.cograph/.intelligence-request.json. It holds the user's request under "prompt" and the current code graph under "graph" (nodes and edges). Fulfill the user's request.
 
@@ -130,6 +133,21 @@ export class CodexStreamParser {
   }
 }
 
+/** CLI arguments for `runJson`; the prompt is read from stdin (`-`). Exported for tests. */
+export function buildCodexJsonArgs(req: JsonRequest): string[] {
+  const args = ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', '--cd', req.workspaceRoot];
+  if (req.model && req.model !== 'default') { args.push('--model', req.model); }
+  args.push('-');
+  return args;
+}
+
+/** Prompt for `runJson`: instructions, task, then the schema the reply must match. Exported for tests. */
+export function buildCodexJsonPrompt(req: JsonRequest): string {
+  const fileRule = req.tools === 'none' ? 'Do not open or search any files. ' : '';
+  return `${req.systemPrompt}\n\n${req.prompt}\n\n${fileRule}Your final reply MUST be a single JSON object `
+    + `matching this JSON Schema, with no code fence and no prose outside it:\n${JSON.stringify(req.schema)}`;
+}
+
 export class CodexCliProvider implements GraphIntelligenceProvider {
   readonly id = 'codex';
   readonly displayName = 'OpenAI Codex';
@@ -170,6 +188,46 @@ export class CodexCliProvider implements GraphIntelligenceProvider {
     }
     const base = extractCographResult(finalEvent, 'Codex');
     return { ...base, sessionId: latestSessionId };
+  }
+
+  /**
+   * Narrow structured call. Codex has no schema flag we rely on and no way to
+   * switch tools off, so the JSON shape is enforced by the prompt and the CLI
+   * always runs in the read-only sandbox (never `--full-auto`). Codex reports no
+   * cost, so `usage` stays undefined.
+   */
+  async runJson(req: JsonRequest, signal?: AbortSignal): Promise<JsonResult> {
+    ensureCliBinary('codex', 'Codex CLI not found on PATH. Install from https://github.com/openai/codex');
+    const config = vscode.workspace.getConfiguration('cograph');
+    const timeoutMs = config.get<number>('graphIntelligence.timeoutMs', 300_000);
+
+    let finalEvent: (ProgressEvent & { kind: 'result' }) | null = null;
+    let errorEvent: (ProgressEvent & { kind: 'error' }) | null = null;
+    const parser = new CodexStreamParser((ev) => {
+      if (ev.kind === 'result') { finalEvent = ev; }
+      else if (ev.kind === 'error') { errorEvent = ev; }
+      req.onProgress?.(ev);
+    });
+
+    await runCliStream({
+      command: 'codex',
+      args: buildCodexJsonArgs(req),
+      cwd: req.workspaceRoot,
+      label: 'Codex',
+      timeoutMs,
+      stdin: buildCodexJsonPrompt(req),
+      signal,
+      onStdout: (text) => parser.feed(text),
+      onStderr: (text) => this.outputChannel.append(`[codex stderr] ${text}`),
+      onEnd: () => parser.flush(),
+    });
+
+    if (errorEvent) {
+      const e = errorEvent as ProgressEvent & { kind: 'error' };
+      throw new Error(`Codex: ${e.subtype} — ${e.message}`);
+    }
+    if (!finalEvent) { throw new Error('Codex closed without emitting a result.'); }
+    return { data: extractJsonObject(finalEvent as ProgressEvent & { kind: 'result' }, 'Codex') };
   }
 
   private ensureCodexBinary(): void {

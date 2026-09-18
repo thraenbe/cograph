@@ -24,10 +24,46 @@ export interface GraphIntelligenceResult {
   sessionId?: string | null;
 }
 
+/**
+ * Narrow structured call: a prompt plus a JSON schema in, one parsed object out.
+ * Unlike `run()` it never ships the graph and never runs in a write-capable mode.
+ */
+export interface JsonRequest {
+  prompt: string;
+  /**
+   * Replaces the CLI's default system prompt. Measured on Claude Code 2.1: the
+   * default prompt plus the user's MCP servers and skills cost ~$0.19 per haiku
+   * call; a short replacement costs ~$0.005.
+   */
+  systemPrompt: string;
+  /** JSON Schema the reply must match. */
+  schema: Record<string, unknown>;
+  workspaceRoot: string;
+  model?: string;
+  maxTurns?: number;
+  maxBudgetUsd?: number;
+  /** 'none' = the model gets no tools; 'read-only' = it may open and search files. */
+  tools: 'none' | 'read-only';
+  onProgress?: (ev: ProgressEvent) => void;
+}
+
+export interface JsonUsage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+export interface JsonResult {
+  data: unknown;
+  /** Undefined when the provider does not report usage (Codex). */
+  usage?: JsonUsage;
+}
+
 export interface GraphIntelligenceProvider {
   readonly id: string;
   readonly displayName: string;
   run(req: GraphIntelligenceRequest, signal?: AbortSignal): Promise<GraphIntelligenceResult>;
+  runJson?(req: JsonRequest, signal?: AbortSignal): Promise<JsonResult>;
 }
 
 export interface ProviderModelInfo {

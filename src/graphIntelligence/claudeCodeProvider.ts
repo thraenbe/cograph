@@ -3,9 +3,12 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { MAX_OUTPUT_BYTES } from '../analyzerRunner';
-import type { GraphIntelligenceProvider, GraphIntelligenceRequest, GraphIntelligenceResult } from './provider';
+import type {
+  GraphIntelligenceProvider, GraphIntelligenceRequest, GraphIntelligenceResult, JsonRequest, JsonResult,
+} from './provider';
 import { StreamJsonParser, ProgressEvent } from './progressParser';
-import { extractCographResult } from './jsonRepair';
+import { extractCographResult, extractJsonObject } from './jsonRepair';
+import { runCliStream, ensureCliBinary } from './cliProcess';
 
 const WRAPPER_PROMPT = `Read ./.cograph/.intelligence-request.json. It holds the user's request under "prompt" and the current code graph under "graph" (nodes and edges). Fulfill the user's request.
 
@@ -40,6 +43,34 @@ const COGRAPH_SCHEMA = {
     },
   },
 };
+
+const CLAUDE_NOT_FOUND =
+  'Claude Code CLI not found on PATH. Install from https://docs.anthropic.com/en/docs/claude-code';
+
+/** Read-only built-in tools granted when the caller opts into source reading. */
+const READ_ONLY_TOOLS = 'Read,Grep,Glob';
+
+/** CLI arguments for `runJson`. Exported for tests. */
+export function buildJsonArgs(req: JsonRequest): string[] {
+  const args: string[] = [
+    '-p',
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--json-schema', JSON.stringify(req.schema),
+    '--tools', req.tools === 'read-only' ? READ_ONLY_TOOLS : '',
+    // Drop the default prompt, MCP servers and skills: they are dead weight here
+    // and dominate the cost of a small call.
+    '--system-prompt', req.systemPrompt,
+    '--strict-mcp-config',
+    '--disable-slash-commands',
+    '--no-session-persistence',
+    // The structured-output step counts as a turn, so digest mode needs > 1.
+    '--max-turns', String(req.maxTurns ?? (req.tools === 'read-only' ? 10 : 4)),
+  ];
+  if (req.model && req.model !== 'default') { args.push('--model', req.model); }
+  if (req.maxBudgetUsd !== undefined) { args.push('--max-budget-usd', String(req.maxBudgetUsd)); }
+  return args;
+}
 
 export class ClaudeCodeProvider implements GraphIntelligenceProvider {
   readonly id = 'claude-code';
@@ -81,6 +112,46 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
     }
     const base = extractCographResult(finalEvent);
     return { ...base, sessionId: latestSessionId };
+  }
+
+  /**
+   * Narrow structured call. The prompt travels over stdin (no command-line length
+   * limit, nothing written to disk). Tools are off unless the caller opts into
+   * read-only; no write-capable tool or permission mode is ever passed.
+   */
+  async runJson(req: JsonRequest, signal?: AbortSignal): Promise<JsonResult> {
+    ensureCliBinary('claude', CLAUDE_NOT_FOUND);
+    const config = vscode.workspace.getConfiguration('cograph');
+    const timeoutMs = config.get<number>('graphIntelligence.timeoutMs', 300_000);
+
+    let finalEvent: (ProgressEvent & { kind: 'result' }) | null = null;
+    let errorEvent: (ProgressEvent & { kind: 'error' }) | null = null;
+    const parser = new StreamJsonParser((ev) => {
+      if (ev.kind === 'result') { finalEvent = ev; }
+      else if (ev.kind === 'error') { errorEvent = ev; }
+      req.onProgress?.(ev);
+    });
+
+    await runCliStream({
+      command: 'claude',
+      args: buildJsonArgs(req),
+      cwd: req.workspaceRoot,
+      label: 'Claude Code',
+      timeoutMs,
+      stdin: req.prompt,
+      signal,
+      onStdout: (text) => parser.feed(text),
+      onStderr: (text) => this.outputChannel.append(`[stderr] ${text}`),
+      onEnd: () => parser.flush(),
+    });
+
+    if (errorEvent) {
+      const e = errorEvent as ProgressEvent & { kind: 'error' };
+      throw new Error(`Claude Code: ${e.subtype} — ${e.message}`);
+    }
+    if (!finalEvent) { throw new Error('Claude Code closed without emitting a result.'); }
+    const done = finalEvent as ProgressEvent & { kind: 'result' };
+    return { data: extractJsonObject(done, 'Claude Code'), usage: done.usage };
   }
 
   private ensureClaudeBinary(): void {

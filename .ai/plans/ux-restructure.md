@@ -118,13 +118,29 @@ Proposed design (Bela to confirm):
 ### S6 — Hooks + handoff
 - Keep `g.frame` bound with `path`, slot rects with `filePath`; new `.frame-tab` class —
   documented for annotate's `hoverCard.js`.
-- Selector changes for uxtest (msg to session-110): REMOVED ids `btn-group-file`,
-  `btn-group-class`, `btn-group-connect`; sliders `slider-file-cluster`,
-  `slider-folder-repel`, `slider-file-repel` MOVE into `#forces-section`;
-  `btn-more-forces` text changes; `btn-language-mode` text "Language"; NEW
-  `.frame-tab`, `#forces-hint`, `#btn-show-more-forces`, advanced-force slider ids
-  (`slider-link-distance`, `slider-velocity-decay`, `slider-collide-pad`,
-  `slider-slot-pad`).
+- Selector changes for uxtest (AS BUILT, 2026-09-18 — forces box lives in the
+  LEFT TOOLBAR per Bela's decision, not the gear panel):
+  - REMOVED ids: `btn-group-file`, `btn-group-class`, `btn-group-connect`,
+    `btn-more-forces`, `forces-section` (gear panel's Forces section is gone).
+  - MOVED: `slider-center-force`/`slider-repel-force`/`slider-link-force`
+    (gear panel → `#panel-forces`) and `slider-file-cluster`/
+    `slider-folder-repel`/`slider-file-repel` (`#panel-folder` →
+    `#panel-forces`); each now sits in a `#row-<name>` container div.
+  - NEW ids: `panel-forces`, `forces-hint`, `btn-show-more-forces`,
+    `forces-advanced` (class `open` when expanded), `label-file-cluster`
+    (text "Keep near file" in Shelf), rows `row-center-force`,
+    `row-repel-force`, `row-link-force`, `row-file-cluster`,
+    `row-folder-repel`, `row-file-repel`, `row-link-distance`,
+    `row-velocity-decay`, `row-collide-pad`, `row-slot-pad`, and sliders/vals
+    `slider-link-distance`, `slider-velocity-decay`, `slider-collide-pad`,
+    `slider-slot-pad` (+ matching `val-*`). Row visibility is engine×motion
+    dependent (forcesPanel.js).
+  - CHANGED: `btn-language-mode` text is "Language"; `.folder-bubble-shape`
+    is now a `<path>` (was `<rect>`) on frames, drill-down boxes and folder
+    bubbles; `.folder-bubble-titlebar` is a transparent drag strip; NEW visual
+    classes `.frame-tab`, `.frame-tab-shape`, `.frame-tab-glyph`,
+    `.frame-tab-counts`, `.forces-hint`; `.is-noop` styling removed; collapsed
+    folder `path.cloud-node` now draws a closed-folder silhouette.
 
 ## Test strategy
 

@@ -16,6 +16,9 @@ import type { SidebarProvider } from './sidebarProvider';
 import { createProvider, getProviderInfo } from './graphIntelligence/provider';
 import type { GraphIntelligenceProvider, GraphIntelligenceResult } from './graphIntelligence/provider';
 import { buildWorkflowPrompt, normalizeWorkflowModel } from './graphIntelligence/workflowPrompt';
+import { AnnotationService } from './graphIntelligence/annotationService';
+import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
+import type { RunResult } from './graphIntelligence/annotationRunner';
 
 /**
  * Per-node annotations produced by the AI Workflow Graph generation. All fields
@@ -108,6 +111,15 @@ export class GraphProvider {
   private graphReadyPromise: Promise<void> | undefined;
   private intelController: AbortController | undefined;
   private _providerFactory?: (id: string, ch: vscode.OutputChannel) => GraphIntelligenceProvider;
+  /** AI folder/file summaries for the hover card; kept out of GraphData and graph-patch. */
+  private readonly annotations = new AnnotationService({
+    getRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    getStructure: () => this.currentStructure,
+    getGraph: () => this.cachedGraph,
+    post: (msg) => { this.panel?.webview.postMessage(msg); },
+    log: (line) => this.outputChannel.appendLine(line),
+    createProvider: (id) => (this._providerFactory ?? createProvider)(id, this.outputChannel),
+  });
 
   private get outputChannel() {
     if (!this._outputChannel) {
@@ -334,6 +346,9 @@ export class GraphProvider {
       } else if (message.type === 'cancel-analysis') {
         this.analyzerRunner.killAll();
         this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false, cancelled: true });
+      } else if (message.type === 'get-annotations') {
+        // The hover card asks once it has loaded, so this can never race `graph`/`structure`.
+        this.annotations.refresh();
       } else if (message.type === 'open-chat') {
         // Focuses the Cograph activity-bar view. The current graph context is
         // already up-to-date — setCurrentGraph is invoked from loadGraph and
@@ -839,6 +854,8 @@ export class GraphProvider {
     this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
     if (structure) { writeCache(workspaceRoot, this.cachedGraph, structure); }
     this.panel?.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: files, fileGitStatus: this.gitService.fileStatuses });
+    // Changed files only turn their summaries "outdated"; nothing is re-sent to the AI here.
+    this.annotations.refresh();
   }
 
   /** Re-parse only the files that changed since the cache was written, then patch + rewrite the cache. */
@@ -1016,6 +1033,42 @@ export class GraphProvider {
       fileGitStatus: this.gitService.fileStatuses,
       isReanalysis: true,
     });
+  }
+
+  // ── Annotate Graph ────────────────────────────────────────────────────────
+
+  /**
+   * Generate, resume or update the AI summaries. Opens the panel and waits for the
+   * graph first; the user confirms an estimate before anything is sent.
+   */
+  async annotateGraph(providerId: string): Promise<RunResult | null> {
+    if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
+      throw new Error('AI features are off — enable them in CoGraph settings to annotate the graph.');
+    }
+    if (!this.panel) { this.show(); }
+    if (!this.panel) { throw new Error('Failed to open graph panel.'); }
+    await this.waitForGraphReady();
+    return this.annotations.annotate(providerId, async (text) => {
+      const choice = await vscode.window.showInformationMessage(text, { modal: true }, 'Annotate');
+      return choice === 'Annotate';
+    });
+  }
+
+  cancelAnnotate(): void {
+    this.annotations.cancel();
+  }
+
+  annotationStatus(): AnnotationStatus {
+    return this.annotations.status();
+  }
+
+  onAnnotationStatus(listener: (s: AnnotationStatus) => void): { dispose(): void } {
+    return this.annotations.onStatus(listener);
+  }
+
+  /** Re-read annotations and the AI-enabled flag and push both to the webview and sidebar. */
+  refreshAnnotations(): void {
+    this.annotations.refresh();
   }
 
   abortIntelligence(): void {

@@ -39,11 +39,21 @@ export function activate(context: vscode.ExtensionContext) {
     void provider.showSyntheticFixture();
   });
 
+  const annotateCommand = vscode.commands.registerCommand('cograph.annotateGraph', async () => {
+    const providerId = vscode.workspace.getConfiguration('cograph').get<string>('graphIntelligence.provider', 'claude-code');
+    try {
+      await provider.annotateGraph(providerId);
+    } catch (err) {
+      vscode.window.showErrorMessage(`CoGraph: Annotate Graph failed — ${(err as Error).message}`);
+    }
+  });
+
   // Re-push the AI-enabled state to the sidebar whenever the user toggles it,
   // so the gray-out clears/reapplies without reopening the view.
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration('cograph.graphIntelligence.enabled')) {
       sidebarProvider.refreshAiEnabled();
+      provider.refreshAnnotations();
     }
     if (e.affectsConfiguration('cograph.layout.defaultEngine')
         || e.affectsConfiguration('cograph.layout.defaultMode')) {
@@ -51,7 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener);
+  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener, annotateCommand);
 }
 
 export function deactivate() {}

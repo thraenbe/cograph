@@ -48,6 +48,13 @@ const CLAUDE_NOT_FOUND =
 /** Read-only built-in tools granted when the caller opts into source reading. */
 const READ_ONLY_TOOLS = 'Read,Grep,Glob';
 
+/**
+ * Short structured replies gain nothing from extended thinking. Measured with haiku:
+ * thinking was ~4x the output tokens of a 40-file batch (cost and latency) with no
+ * visible difference in the summaries. Exported for tests.
+ */
+export const JSON_CALL_ENV: Record<string, string> = { MAX_THINKING_TOKENS: '0' };
+
 /** CLI arguments for `runJson`. Exported for tests. */
 export function buildJsonArgs(req: JsonRequest): string[] {
   const args: string[] = [
@@ -137,6 +144,7 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
       label: 'Claude Code',
       timeoutMs,
       stdin: req.prompt,
+      env: JSON_CALL_ENV,
       signal,
       onStdout: (text) => parser.feed(text),
       onStderr: (text) => this.outputChannel.append(`[stderr] ${text}`),

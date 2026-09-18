@@ -8,6 +8,8 @@ export interface CliStreamOptions {
   /** Human name used in error messages, e.g. "Claude Code" or "Codex". */
   label: string;
   timeoutMs: number;
+  /** Extra environment variables for the child, on top of the extension host's. */
+  env?: Record<string, string>;
   /** Written to the child's stdin, which is then closed. Omit to leave stdin ignored. */
   stdin?: string;
   signal?: AbortSignal;
@@ -29,7 +31,7 @@ export function runCliStream(opts: CliStreamOptions): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const proc = cp.spawn(opts.command, opts.args, {
       cwd: opts.cwd,
-      env: process.env,
+      env: opts.env ? { ...process.env, ...opts.env } : process.env,
       stdio: [opts.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
 

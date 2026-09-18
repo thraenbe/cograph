@@ -3,7 +3,7 @@ import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { EventEmitter } from 'events';
 import { runCliStream, ensureCliBinary } from '../../graphIntelligence/cliProcess';
-import { ClaudeCodeProvider, buildJsonArgs } from '../../graphIntelligence/claudeCodeProvider';
+import { ClaudeCodeProvider, buildJsonArgs, JSON_CALL_ENV } from '../../graphIntelligence/claudeCodeProvider';
 import { CodexCliProvider, buildCodexJsonArgs, buildCodexJsonPrompt } from '../../graphIntelligence/codexCliProvider';
 import { extractJsonObject } from '../../graphIntelligence/jsonRepair';
 import type { JsonRequest } from '../../graphIntelligence/provider';
@@ -63,6 +63,22 @@ suite('cliProcess.runCliStream', () => {
     await p;
     assert.deepStrictEqual(spawn.firstCall.args[2].stdio, ['pipe', 'pipe', 'pipe']);
     assert.ok(proc.stdin.end.calledOnceWithExactly('hello'));
+  });
+
+  test('extra env is layered on top of the host environment', async () => {
+    const p = runCliStream(baseOpts({ env: { MAX_THINKING_TOKENS: '0' } }));
+    proc.emit('close', 0);
+    await p;
+    const env = spawn.firstCall.args[2].env;
+    assert.strictEqual(env.MAX_THINKING_TOKENS, '0');
+    assert.strictEqual(env.PATH, process.env.PATH, 'PATH must survive, or the CLI is not found');
+  });
+
+  test('without extra env the host environment is passed through untouched', async () => {
+    const p = runCliStream(baseOpts());
+    proc.emit('close', 0);
+    await p;
+    assert.strictEqual(spawn.firstCall.args[2].env, process.env);
   });
 
   test('forwards stderr', async () => {
@@ -195,6 +211,14 @@ suite('ClaudeCodeProvider.runJson', () => {
     assert.deepStrictEqual(res.usage, { inputTokens: 10, outputTokens: 5, costUsd: 0.004 });
     assert.strictEqual(spawn.firstCall.args[0], 'claude');
     assert.ok(proc.stdin.end.calledOnceWithExactly('summarise'));
+  });
+
+  test('runs with extended thinking switched off', async () => {
+    const p = new ClaudeCodeProvider(channel).runJson(jsonReq());
+    emitResult({ subtype: 'success', result: '', structured_output: { files: {} } });
+    await p;
+    assert.deepStrictEqual(JSON_CALL_ENV, { MAX_THINKING_TOKENS: '0' });
+    assert.strictEqual(spawn.firstCall.args[2].env.MAX_THINKING_TOKENS, '0');
   });
 
   test('repairs JSON from the result text when structured output is absent', async () => {

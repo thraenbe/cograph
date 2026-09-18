@@ -1,8 +1,6 @@
 import * as vscode from 'vscode';
-import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { MAX_OUTPUT_BYTES } from '../analyzerRunner';
 import type {
   GraphIntelligenceProvider, GraphIntelligenceRequest, GraphIntelligenceResult, JsonRequest, JsonResult,
 } from './provider';
@@ -133,6 +131,8 @@ export class CodexStreamParser {
   }
 }
 
+const CODEX_NOT_FOUND = 'Codex CLI not found on PATH. Install from https://github.com/openai/codex';
+
 /** CLI arguments for `runJson`; the prompt is read from stdin (`-`). Exported for tests. */
 export function buildCodexJsonArgs(req: JsonRequest): string[] {
   const args = ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', '--cd', req.workspaceRoot];
@@ -155,7 +155,7 @@ export class CodexCliProvider implements GraphIntelligenceProvider {
   constructor(private readonly outputChannel: vscode.OutputChannel) {}
 
   async run(req: GraphIntelligenceRequest, signal?: AbortSignal): Promise<GraphIntelligenceResult> {
-    this.ensureCodexBinary();
+    ensureCliBinary('codex', CODEX_NOT_FOUND);
 
     const cographDir = path.join(req.workspaceRoot, '.cograph');
     const tempFile = path.join(cographDir, '.intelligence-request.json');
@@ -197,7 +197,7 @@ export class CodexCliProvider implements GraphIntelligenceProvider {
    * cost, so `usage` stays undefined.
    */
   async runJson(req: JsonRequest, signal?: AbortSignal): Promise<JsonResult> {
-    ensureCliBinary('codex', 'Codex CLI not found on PATH. Install from https://github.com/openai/codex');
+    ensureCliBinary('codex', CODEX_NOT_FOUND);
     const config = vscode.workspace.getConfiguration('cograph');
     const timeoutMs = config.get<number>('graphIntelligence.timeoutMs', 300_000);
 
@@ -230,15 +230,6 @@ export class CodexCliProvider implements GraphIntelligenceProvider {
     return { data: extractJsonObject(finalEvent as ProgressEvent & { kind: 'result' }, 'Codex') };
   }
 
-  private ensureCodexBinary(): void {
-    const result = cp.spawnSync('codex', ['--version'], { stdio: 'ignore' });
-    if (result.error) {
-      throw new Error(
-        'Codex CLI not found on PATH. Install from https://github.com/openai/codex',
-      );
-    }
-  }
-
   private spawnStream(req: GraphIntelligenceRequest, parser: CodexStreamParser, signal?: AbortSignal): Promise<void> {
     const config = vscode.workspace.getConfiguration('cograph');
     const timeoutMs = config.get<number>('graphIntelligence.timeoutMs', 300_000);
@@ -263,66 +254,19 @@ export class CodexCliProvider implements GraphIntelligenceProvider {
     }
     args.push(WRAPPER_PROMPT);
 
-    return new Promise<void>((resolve, reject) => {
-      const proc = cp.spawn('codex', args, {
-        cwd: req.workspaceRoot,
-        env: process.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-
-      let totalBytes = 0;
-      let killed = false;
-
-      proc.stdout.on('data', (chunk: Buffer) => {
-        totalBytes += chunk.length;
-        if (totalBytes > MAX_OUTPUT_BYTES) {
-          killed = true;
-          proc.kill('SIGTERM');
-          reject(new Error('Codex response exceeded maximum output size.'));
-          return;
-        }
-        const text = chunk.toString();
+    return runCliStream({
+      command: 'codex',
+      args,
+      cwd: req.workspaceRoot,
+      label: 'Codex',
+      timeoutMs,
+      signal,
+      onStdout: (text) => {
         this.outputChannel.append(text);
         parser.feed(text);
-      });
-
-      proc.stderr.on('data', (chunk: Buffer) => {
-        this.outputChannel.append(`[codex stderr] ${chunk.toString()}`);
-      });
-
-      const timer = setTimeout(() => {
-        killed = true;
-        proc.kill('SIGTERM');
-        reject(new Error(`Codex timed out after ${Math.round(timeoutMs / 1000)}s.`));
-      }, timeoutMs);
-
-      const onAbort = () => {
-        killed = true;
-        try { proc.kill('SIGTERM'); } catch { /* already exited */ }
-        setTimeout(() => {
-          try { proc.kill('SIGKILL'); } catch { /* gone */ }
-        }, 1000);
-        reject(new Error('Request cancelled.'));
-      };
-      signal?.addEventListener('abort', onAbort, { once: true });
-
-      proc.on('error', (err) => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        reject(new Error(`Failed to start Codex: ${err.message}`));
-      });
-
-      proc.on('close', (code) => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        if (killed) { return; }
-        parser.flush();
-        if (code !== 0 && code !== null) {
-          reject(new Error(`Codex exited with code ${code}.`));
-          return;
-        }
-        resolve();
-      });
+      },
+      onStderr: (text) => this.outputChannel.append(`[codex stderr] ${text}`),
+      onEnd: () => parser.flush(),
     });
   }
 }

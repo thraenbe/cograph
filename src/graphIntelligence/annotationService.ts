@@ -17,13 +17,21 @@ export interface AnnotationHost {
   post(msg: AnnotationsMessage): void;
   log(line: string): void;
   createProvider(id: string): GraphIntelligenceProvider;
+  /** True while a background analysis is still filling the graph. Optional: absent means never. */
+  isAnalyzing?(): boolean;
+  /** Called once each time the background analysis ends (finished, failed, cancelled or panel closed). */
+  onAnalysisIdle?(listener: () => void): { dispose(): void };
 }
+
+export const WAITING_NOTE = 'Waiting for the code analysis to finish…';
 
 export const AI_OFF_MESSAGE = 'AI features are off — enable them in CoGraph settings to annotate the graph.';
 
 function aiEnabled(): boolean {
   return vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false);
 }
+
+interface PreparedRun { root: string; tree: StructureTree; graph: GraphData; plan: RunPlan; options: RunOptions; }
 
 /** Owns the annotation store, staleness and runs for one workspace. */
 export class AnnotationService {
@@ -118,46 +126,88 @@ export class AnnotationService {
   cancel(): void { this.controller?.abort(); }
 
   /**
-   * Run (or resume, or update) annotations. `confirm` is shown the estimate and
-   * must return true before anything leaves the machine.
+   * Run (or resume, or update) annotations. Waits for a background analysis to end
+   * first, so every digest has its symbols and the estimate is exact. `confirm` is
+   * shown the estimate and must return true before anything leaves the machine.
    */
   async annotate(providerId: string, confirm: (text: string) => Promise<boolean>): Promise<RunResult | null> {
     if (!aiEnabled()) { throw new Error(AI_OFF_MESSAGE); }
     if (this.running) { return null; }
+    this.controller = new AbortController();
+    const signal = this.controller.signal;
+    try {
+      if (!(await this.waitForAnalysis(signal))) {
+        this.note = 'Cancelled before anything was sent.';
+        return null;
+      }
+      const run = this.prepare();
+      if (!run) { return null; }
+      const model = this.model(providerId);
+      this.note = 'Waiting for your confirmation…';
+      this.publish();
+      if (!(await confirm(describePlan(run.plan, run.options, providerId, model))) || signal.aborted) {
+        this.note = undefined;
+        return null;
+      }
+      return await this.execute(providerId, model, run, signal);
+    } finally {
+      this.controller = undefined;
+      this.progress = undefined;
+      this.refresh();
+    }
+  }
+
+  /** Resolves true once no background analysis is running, false when cancelled while waiting. */
+  private waitForAnalysis(signal: AbortSignal): Promise<boolean> {
+    if (!this.host.isAnalyzing?.() || !this.host.onAnalysisIdle) { return Promise.resolve(true); }
+    this.note = WAITING_NOTE;
+    this.publish();
+    return new Promise<boolean>((resolve) => {
+      const finish = (ok: boolean) => {
+        sub.dispose();
+        signal.removeEventListener('abort', onAbort);
+        this.note = undefined;
+        resolve(ok);
+      };
+      const onAbort = () => finish(false);
+      const sub = this.host.onAnalysisIdle!(() => finish(true));
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  /** Everything a run needs, or null (with a note) when there is nothing to do. Sends nothing. */
+  private prepare(): PreparedRun | null {
     const root = this.host.getRoot();
     const tree = this.host.getStructure();
     const graph = this.host.getGraph();
     if (!root || !tree || !graph) { throw new Error('Open the CoGraph graph first, so there is something to annotate.'); }
-
     this.refresh();
     const plan = this.plan();
     if (!plan || (plan.files.length === 0 && plan.folders.length === 0)) {
       this.note = 'Everything is up to date.';
-      this.publish();
       return null;
     }
-    const options = this.options();
-    const model = this.model(providerId);
-    if (!(await confirm(describePlan(plan, options, providerId, model)))) { return null; }
+    return { root, tree, graph, plan, options: this.options() };
+  }
 
+  private async execute(providerId: string, model: string, run: PreparedRun, signal: AbortSignal): Promise<RunResult> {
+    const { root, tree, graph, plan, options } = run;
     const provider = this.host.createProvider(providerId);
     if (!provider.runJson) { throw new Error(`${provider.displayName} does not support Annotate Graph.`); }
     const data = this.data!;
     data.provider = providerId;
     data.model = model;
-    this.controller = new AbortController();
     this.note = undefined;
     this.host.log(`[annotate] start provider=${providerId} model=${model} files=${plan.files.length} folders=${plan.folders.length} readSource=${options.readSource}`);
     try {
       const result = await executeRun({
-        root, tree, graph, data, stale: this.stale, options,
-        signal: this.controller.signal,
+        root, tree, graph, data, stale: this.stale, options, signal,
         save: (d) => { d.generatedAt = new Date().toISOString(); saveAnnotations(root, d); },
         onProgress: (p) => { this.progress = p; this.publish(); },
-        callJson: (req: CallRequest, signal): Promise<JsonResult> => provider.runJson!({
+        callJson: (req: CallRequest, sig): Promise<JsonResult> => provider.runJson!({
           prompt: req.prompt, systemPrompt: ANNOTATE_SYSTEM_PROMPT, schema: SUMMARY_SCHEMA,
           workspaceRoot: root, model, tools: req.tools, maxBudgetUsd: req.maxBudgetUsd,
-        }, signal),
+        }, sig),
       });
       this.note = describeResult(result);
       this.host.log(`[annotate] done files=${result.filesDone} folders=${result.foldersDone} pending=${result.pending.length} costUsd=${result.costUsd.toFixed(4)} costKnown=${result.costKnown}`);
@@ -166,10 +216,6 @@ export class AnnotationService {
       this.note = `Stopped: ${(err as Error).message}`;
       this.host.log(`[annotate] failed: ${(err as Error).message}`);
       throw err;
-    } finally {
-      this.controller = undefined;
-      this.progress = undefined;
-      this.refresh();
     }
   }
 

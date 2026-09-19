@@ -34,7 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cograph.graphIntelligence.annotate.readSource` lets the AI read source files
   (read-only) for better summaries. You confirm an estimate before anything is sent, see
   the running cost, and the run stops at `annotate.maxRunBudgetUsd` (default $2) keeping
-  what is done. Editing a file only marks its summary and its parent folders "outdated";
+  what is done. A run started while the code analysis is still going waits for it, so
+  every summary is written from the complete graph. Editing a file only marks its summary
+  and its parent folders "outdated";
   **Update** re-annotates just those. Summaries are stored locally in
   `.cograph/annotations/`. Measured with Claude haiku: about $0.09 and 70 s for a
   180-path repository.

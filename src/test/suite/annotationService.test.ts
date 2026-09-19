@@ -6,7 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { scanStructure } from '../../structureScanner';
 import { annotationsPath } from '../../graphIntelligence/annotationStore';
-import { AnnotationService, AI_OFF_MESSAGE, describePlan, describeResult } from '../../graphIntelligence/annotationService';
+import { AnnotationService, AI_OFF_MESSAGE, WAITING_NOTE, describePlan, describeResult } from '../../graphIntelligence/annotationService';
 import type { AnnotationHost } from '../../graphIntelligence/annotationService';
 import type { AnnotationsMessage, AnnotationStatus } from '../../graphIntelligence/annotationTypes';
 import type { GraphIntelligenceProvider, JsonRequest, JsonResult } from '../../graphIntelligence/provider';
@@ -185,6 +185,69 @@ suite('AnnotationService', () => {
     const res = await svc.annotate('claude-code', yes);
     assert.deepStrictEqual(res?.pending, [], 'the result is computed from the live set, not a detached copy');
     assert.strictEqual(svc.status().stale, 0);
+  });
+
+  /** A host whose background analysis is running until `finish()` is called. */
+  function analyzingHost() {
+    let analyzing = true;
+    let graphReady = false;
+    const listeners = new Set<() => void>();
+    const main = path.join(root, 'src', 'main.ts');
+    const h: AnnotationHost = {
+      ...host,
+      // Until the full pass lands, the graph has no functions for main.ts.
+      getGraph: () => ({ nodes: graphReady ? [{ id: 'x', name: 'x', file: main, line: 2 }] : [], edges: [] }),
+      isAnalyzing: () => analyzing,
+      onAnalysisIdle: (l) => { listeners.add(l); return { dispose: () => listeners.delete(l) }; },
+    };
+    const finish = () => { analyzing = false; graphReady = true; for (const l of [...listeners]) { l(); } };
+    return { h, finish, listeners };
+  }
+
+  test('a run requested during background analysis waits, then plans and confirms on the complete graph', async () => {
+    stubConfig(sandbox, { 'graphIntelligence.enabled': true });
+    const { h, finish, listeners } = analyzingHost();
+    const svc = new AnnotationService(h);
+    const confirm = sinon.stub().resolves(true);
+    const pending = svc.annotate('claude-code', confirm);
+    await new Promise(r => setTimeout(r, 10));
+
+    assert.strictEqual(svc.status().state, 'running');
+    assert.strictEqual(svc.status().note, WAITING_NOTE);
+    assert.ok(confirm.notCalled, 'no estimate while the graph is still incomplete');
+    assert.strictEqual(requests.length, 0);
+
+    finish();
+    const res = await pending;
+    assert.ok(confirm.calledOnce);
+    assert.strictEqual(res?.filesDone, 3);
+    assert.ok(requests[0].prompt.includes('symbols: export const x = 1'), 'digests carry the symbols parsed meanwhile');
+    assert.strictEqual(listeners.size, 0, 'the idle listener is released');
+  });
+
+  test('cancel while waiting for the analysis: nothing confirmed, nothing sent', async () => {
+    stubConfig(sandbox, { 'graphIntelligence.enabled': true });
+    const { h, listeners } = analyzingHost();
+    const svc = new AnnotationService(h);
+    const confirm = sinon.stub().resolves(true);
+    const pending = svc.annotate('claude-code', confirm);
+    await new Promise(r => setTimeout(r, 10));
+    svc.cancel();
+    assert.strictEqual(await pending, null);
+    assert.ok(confirm.notCalled && createProvider.notCalled);
+    assert.strictEqual(svc.running, false);
+    assert.strictEqual(svc.status().note, 'Cancelled before anything was sent.');
+    assert.strictEqual(listeners.size, 0);
+  });
+
+  test('a second request while one is waiting is ignored', async () => {
+    stubConfig(sandbox, { 'graphIntelligence.enabled': true });
+    const { h, finish } = analyzingHost();
+    const svc = new AnnotationService(h);
+    const first = svc.annotate('claude-code', yes);
+    assert.strictEqual(await svc.annotate('claude-code', yes), null);
+    finish();
+    assert.strictEqual((await first)?.filesDone, 3);
   });
 
   test('nothing to do: no confirm, no provider', async () => {

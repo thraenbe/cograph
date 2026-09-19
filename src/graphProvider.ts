@@ -111,6 +111,9 @@ export class GraphProvider {
   private graphReadyPromise: Promise<void> | undefined;
   private intelController: AbortController | undefined;
   private _providerFactory?: (id: string, ch: vscode.OutputChannel) => GraphIntelligenceProvider;
+  /** True while a background analysis (first full pass or cache reconcile) is still filling the graph. */
+  private backgroundParsing = false;
+  private readonly analysisIdleListeners = new Set<() => void>();
   /** AI folder/file summaries for the hover card; kept out of GraphData and graph-patch. */
   private readonly annotations = new AnnotationService({
     getRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -119,7 +122,21 @@ export class GraphProvider {
     post: (msg) => { this.panel?.webview.postMessage(msg); },
     log: (line) => this.outputChannel.appendLine(line),
     createProvider: (id) => (this._providerFactory ?? createProvider)(id, this.outputChannel),
+    isAnalyzing: () => this.backgroundParsing,
+    onAnalysisIdle: (listener) => {
+      this.analysisIdleListeners.add(listener);
+      return { dispose: () => this.analysisIdleListeners.delete(listener) };
+    },
   });
+
+  /** Read-only view of the background-parse state (Annotate Graph waits for it to end). */
+  get isAnalyzing(): boolean { return this.backgroundParsing; }
+
+  private setBackgroundParsing(on: boolean): void {
+    this.backgroundParsing = on;
+    if (on) { return; }
+    for (const listener of [...this.analysisIdleListeners]) { listener(); }
+  }
 
   private get outputChannel() {
     if (!this._outputChannel) {
@@ -225,6 +242,7 @@ export class GraphProvider {
       for (const timer of this.incrementalTimers.values()) { clearTimeout(timer); }
       this.incrementalTimers.clear();
       this.analyzerRunner.killAll();
+      this.setBackgroundParsing(false);
       this.cachedNodes = [];
       this.cachedGraph = undefined;
       this.graphReadyPromise = undefined;
@@ -345,6 +363,7 @@ export class GraphProvider {
         this.parseSubset(workspaceRoot, filePath ? [filePath] : [], path.dirname(filePath));
       } else if (message.type === 'cancel-analysis') {
         this.analyzerRunner.killAll();
+        this.setBackgroundParsing(false);
         this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false, cancelled: true });
       } else if (message.type === 'get-annotations') {
         // The hover card asks once it has loaded, so this can never race `graph`/`structure`.
@@ -434,6 +453,7 @@ export class GraphProvider {
     if (autoEngage) {
       // Paint the skeleton immediately; the analyzer enriches it in the background.
       this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
+      this.setBackgroundParsing(true);
       setTimeout(() => {
         this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
         this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
@@ -707,6 +727,7 @@ export class GraphProvider {
 
   /** Show error in the panel (if alive) and as a VS Code notification. */
   private showError(message: string): void {
+    this.setBackgroundParsing(false); // a failed analysis must not leave waiters hanging
     if (this.panel) {
       this.panel.webview.html = getErrorHtml(message);
     }
@@ -747,6 +768,7 @@ export class GraphProvider {
     const fileGitStatus = this.gitService.fileStatuses;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
     this.cachedGraph = graph;
+    this.setBackgroundParsing(false); // the full pass delivered: the graph is complete
     if (this.currentStructure) { writeCache(workspaceRoot, graph, this.currentStructure); }
     if (this.graphReadyResolve) {
       this.graphReadyResolve();
@@ -861,12 +883,14 @@ export class GraphProvider {
   /** Re-parse only the files that changed since the cache was written, then patch + rewrite the cache. */
   private async reconcileChangedFiles(workspaceRoot: string, structure: StructureTree, changed: string[]): Promise<void> {
     if (!this.panel || changed.length === 0) { return; }
+    this.setBackgroundParsing(true);
     this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
     try {
       await this.reparseAndPatch(workspaceRoot, changed, structure);
     } catch (err: unknown) {
       this.outputChannel.appendLine(`Cache reconcile failed: ${(err as Error).message}`);
     } finally {
+      this.setBackgroundParsing(false);
       this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
     }
   }

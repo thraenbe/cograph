@@ -71,7 +71,7 @@ export const ANNOTATION_CARD_SCRIPT = `
       if (state === 'running') {
         var total = s.total || 0, done = s.done || 0;
         var pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-        var detail = total > 0 ? (done + ' / ' + total + ' · ' + anCost(s)) : 'starting…';
+        var detail = total > 0 ? (done + ' / ' + total + ' · ' + anCost(s)) : (s.note || 'starting…');
         return open + '><div class="an-row">' + title + 'Annotating graph</span>'
           + '<button class="an-btn" data-an="cancel" title="Stop and keep what is done">Cancel</button></div>'
           + '<div class="an-sub">' + anEsc(detail) + '</div>'

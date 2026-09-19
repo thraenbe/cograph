@@ -72,6 +72,14 @@ suite('Annotate Graph sidebar card (client script)', () => {
     assert.deepStrictEqual(p.posted, [{ type: 'annotate-cancel' }]);
   });
 
+  test('waiting for the code analysis: the note replaces the progress line, Cancel still works', () => {
+    const p = makePage(true);
+    p.status({ ...IDLE, state: 'running', note: 'Waiting for the code analysis to finish…' });
+    assert.match(p.card().textContent ?? '', /Waiting for the code analysis to finish…/);
+    click(p.card().querySelector('.an-btn')!);
+    assert.deepStrictEqual(p.posted, [{ type: 'annotate-cancel' }]);
+  });
+
   test('running with Codex says the cost is not reported', () => {
     const p = makePage(true);
     p.status({ ...IDLE, state: 'running', done: 1, total: 4, costKnown: false });

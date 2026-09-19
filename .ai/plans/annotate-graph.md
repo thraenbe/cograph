@@ -345,9 +345,11 @@ Coverage of the new modules under plain mocha + c8: 95.5 % lines, 88 % branches.
 Left open, consciously:
 
 - **Codex path is mock-tested only**; `codex` is not installed on this machine.
-- **Partial graph.** If a run starts while the background parse of a large repo is still going,
-  files not parsed yet get a digest without symbols (path, size, leading comment only). Fixing
-  it needs a "full analysis done" signal from `analyzerRunner.ts`, which belongs to `perf`.
+- ~~Partial graph.~~ **Closed 2026-09-19** (orchestrator follow-up): `GraphProvider` tracks its own
+  background-parse state (first full pass and cache reconcile; cleared on result, failure,
+  cancel and panel close). A run requested meanwhile waits ("Waiting for the code analysis to
+  finish…", cancellable) and only then plans, shows the estimate and sends, so every digest has
+  its symbols and the estimate is exact. No change to `analyzerRunner.ts`.
 - **Not verified in a running VS Code window.** All behaviour is covered by unit, jsdom and
   extension-host tests; nobody has hovered a real graph yet. The `.frame-tab` row is written
   against the ux session's description and must be re-checked after merging `ux`.

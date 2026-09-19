@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { EventEmitter } from 'events';
 import { GraphProvider } from '../../graphProvider';
 import { scanStructure } from '../../structureScanner';
 import { writeCache } from '../../cacheStore';
@@ -151,6 +152,36 @@ suite('GraphProvider — Annotate Graph', () => {
     provider.setProviderFactoryForTesting((() => ({ id: 'claude-code', displayName: 'Claude Code', runJson })) as any);
     assert.strictEqual(await provider.annotateGraph('claude-code'), null);
     assert.ok(runJson.notCalled);
+  });
+
+  test('isAnalyzing: false once a valid cache has painted the complete graph', async () => {
+    const { provider } = await openGraph(false);
+    assert.strictEqual(provider.isAnalyzing, false);
+  });
+
+  test('isAnalyzing: true while the first full pass runs, false again when the panel closes', () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-annotate-'));
+    fs.mkdirSync(path.join(tmp, 'src'));
+    fs.writeFileSync(path.join(tmp, 'src', 'a.ts'), 'export function a() {}\n'); // no cache → analyzer starts
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmp } }]);
+    sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
+    sandbox.stub(rawCp, 'spawn').callsFake(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const proc = new EventEmitter() as any; // never exits: the analysis stays "running"
+      proc.stdout = new EventEmitter(); proc.stderr = new EventEmitter(); proc.kill = sinon.stub();
+      return proc;
+    });
+    fakePanel = makeFakePanel();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    sandbox.stub(vscode.window, 'createWebviewPanel').returns(fakePanel as any);
+    stubAiConfig(sandbox, true);
+
+    const provider = new GraphProvider(makeFakeContext());
+    provider.show();
+    assert.strictEqual(provider.isAnalyzing, true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fakePanel as any)._disposeCallback();
+    assert.strictEqual(provider.isAnalyzing, false, 'a closed panel must release anyone waiting for the analysis');
   });
 
   test('status listeners are notified and can be disposed', async () => {

@@ -123,16 +123,8 @@ function hcPlace(x, y, w, h, vw, vh) {
   return { left: Math.max(HOVER_MARGIN, Math.round(left)), top: Math.max(HOVER_MARGIN, Math.round(top)) };
 }
 
-/**
- * Wire the card to a document. `env` = { doc, win, getState, post } so tests can
- * inject jsdom; the webview calls it once with its globals (see bottom).
- */
-function createHoverCard(env) {
-  const doc = env.doc, win = env.win;
-  const ann = { root: '', aiEnabled: false, files: {}, folders: {}, stale: new Set() };
-  let counts = null, timer = null, pendingKey = null, shownKey = null;
-  let px = 0, py = 0;
-
+/** The card's DOM: built once, filled with textContent on every open. */
+function hcBuildElement(doc) {
   const card = doc.createElement('div');
   card.className = 'hover-card';
   card.setAttribute('role', 'tooltip');
@@ -148,6 +140,20 @@ function createHoverCard(env) {
   card.append(head, parts.path, parts.role, parts.summary, parts.hint, parts.facts);
   parts.badge.textContent = 'outdated';
   doc.body.appendChild(card);
+  return { card, parts };
+}
+
+/**
+ * Wire the card to a document. `env` = { doc, win, getState, post } so tests can
+ * inject jsdom; the webview calls it once with its globals (see bottom).
+ */
+function createHoverCard(env) {
+  const doc = env.doc, win = env.win;
+  const ann = { root: '', aiEnabled: false, files: {}, folders: {}, stale: new Set() };
+  let counts = null, timer = null, pendingKey = null, shownKey = null;
+  let px = 0, py = 0;
+
+  const { card, parts } = hcBuildElement(doc);
 
   function hide() {
     if (timer) { win.clearTimeout(timer); timer = null; }

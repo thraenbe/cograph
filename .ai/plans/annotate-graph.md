@@ -1,7 +1,7 @@
 # Task: AI "Annotate Graph" (feature 3 of the four-feature push)
 
 Planner: session-178, 2026-09-18. Base: `shelf-base` (9eda4c8), branch `termi/s178`.
-Status: **plan only, no feature code written. Waiting for approval.**
+Status: **approved 2026-09-18, implemented. See "Outcome and deviations" at the end.**
 
 ## Problem
 
@@ -305,3 +305,50 @@ No files deleted.
 
 Perf work, panel or forces restructure, folder visuals, Workflow changes, Chat changes, analyzer
 changes, function and class annotations, sharing annotations, release and version bump.
+
+---
+
+## Outcome and deviations from the plan (executor + reviewer, 2026-09-19)
+
+Decisions relayed after approval: Q1 free, Q6 yes (file backgrounds at 600 ms), Q7 yes as a
+separate commit (`0fed4e4`). Q2 to Q5 are v2.
+
+Deviations, all deliberate:
+
+- **Prompt over stdin, not argv.** A 40-file batch is ~25 kB; Windows caps a command line at
+  32 k characters. Nothing is written to disk either way.
+- **The CLI's default context is dropped** (`--system-prompt`, `--strict-mcp-config`,
+  `--disable-slash-commands`). Measured: the default prompt plus the user's MCP servers and
+  skills cost $0.195 for one tiny haiku call; the lean call costs $0.005.
+- **Extended thinking is off** for the narrow call (`MAX_THINKING_TOKENS=0`). It was ~4x the
+  output tokens with no visible quality difference. Not an A/B on the same repo: this repo ran
+  with thinking, express without.
+- **`annotate-cancel` is not gated** on the AI setting: stopping a run must always work.
+  Switching AI off mid-run cancels the run instead.
+- **Digest fix found by a test:** a one-line function sent its body, because the digest took
+  the whole declaration line. The line is now cut where the body starts (`11ddc28`).
+- **Codex caveat, stated in the setting and the confirm dialog:** Codex has no tools-off
+  switch, so even in digest mode the Codex CLI itself can read workspace files (read-only
+  sandbox). Digest-only is a hard guarantee with Claude Code only.
+- **Shelf file slots always use the 600 ms delay.** Their labels are `pointer-events: none`, so
+  the pointer lands on the slot background. Folder headers and collapsed glyphs use 300 ms.
+
+Real-cost test (haiku, total spend about $0.54, batch size 40 kept):
+
+| Repo | Paths | Cost | Time | Pending | Thinking |
+|---|---|---|---|---|---|
+| this repo | 105 files + 8 folders | $0.248 | 181 s | 0 | on |
+| express | 141 files + 41 folders | $0.092 | 69 s | 0 | off |
+
+Coverage of the new modules under plain mocha + c8: 95.5 % lines, 88 % branches.
+
+Left open, consciously:
+
+- **Codex path is mock-tested only**; `codex` is not installed on this machine.
+- **Partial graph.** If a run starts while the background parse of a large repo is still going,
+  files not parsed yet get a digest without symbols (path, size, leading comment only). Fixing
+  it needs a "full analysis done" signal from `analyzerRunner.ts`, which belongs to `perf`.
+- **Not verified in a running VS Code window.** All behaviour is covered by unit, jsdom and
+  extension-host tests; nobody has hovered a real graph yet. The `.frame-tab` row is written
+  against the ux session's description and must be re-checked after merging `ux`.
+- No timeout escalation to SIGKILL (SIGTERM only), as before the refactor.

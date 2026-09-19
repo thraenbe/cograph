@@ -161,6 +161,32 @@ suite('AnnotationService', () => {
     assert.strictEqual(second.plan()?.files.length, 0);
   });
 
+  test('status before the graph panel exists: summaries on disk are counted, pending is unknown (0)', async () => {
+    stubConfig(sandbox, { 'graphIntelligence.enabled': true });
+    await new AnnotationService(host).annotate('claude-code', yes);
+    const early = new AnnotationService({ ...host, getStructure: () => undefined });
+    const st = early.status();
+    assert.strictEqual(st.annotated, 5);
+    assert.strictEqual(st.pending, 0);
+    assert.strictEqual(st.totalFiles, 0);
+  });
+
+  test('a refresh in the middle of a run (file saved) does not detach the run from the stale set', async () => {
+    stubConfig(sandbox, { 'graphIntelligence.enabled': true });
+    const svc = new AnnotationService(host);
+    await svc.annotate('claude-code', yes);
+    fs.writeFileSync(path.join(root, 'src', 'core', 'a.ts'), '// rewritten\nexport const y = 2;\n');
+    svc.refresh();
+    let refreshed = false;
+    respond = async (req) => {
+      if (!refreshed) { refreshed = true; svc.refresh(); } // what reparseAndPatch does on save
+      return { data: { summaries: pathsIn(req.prompt).map(p => ({ path: p, summary: `Now ${p}.` })) }, usage: { inputTokens: 1, outputTokens: 1, costUsd: 0.01 } };
+    };
+    const res = await svc.annotate('claude-code', yes);
+    assert.deepStrictEqual(res?.pending, [], 'the result is computed from the live set, not a detached copy');
+    assert.strictEqual(svc.status().stale, 0);
+  });
+
   test('nothing to do: no confirm, no provider', async () => {
     stubConfig(sandbox, { 'graphIntelligence.enabled': true });
     const svc = new AnnotationService(host);

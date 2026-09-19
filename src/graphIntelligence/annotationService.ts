@@ -28,7 +28,8 @@ function aiEnabled(): boolean {
 /** Owns the annotation store, staleness and runs for one workspace. */
 export class AnnotationService {
   private data: AnnotationFile | undefined;
-  private stale = new Set<string>();
+  /** Mutated in place, never replaced: a running executeRun holds this same set. */
+  private readonly stale = new Set<string>();
   private controller: AbortController | undefined;
   private progress: RunProgress | undefined;
   private note: string | undefined;
@@ -55,7 +56,8 @@ export class AnnotationService {
       const data = this.data ?? loadAnnotations(root);
       this.data = data;
       const res = reconcile(root, tree, data);
-      this.stale = res.stale;
+      this.stale.clear();
+      for (const rel of res.stale) { this.stale.add(rel); }
       if (res.dirty && !this.running) { saveAnnotations(root, data); }
     } catch (err) {
       this.host.log(`[annotate] refresh failed: ${(err as Error).message}`);
@@ -80,6 +82,10 @@ export class AnnotationService {
   }
 
   status(): AnnotationStatus {
+    // The sidebar can ask before the graph panel exists; read the store so an
+    // already-annotated workspace does not look empty.
+    const root = this.host.getRoot();
+    if (!this.data && root) { this.data = loadAnnotations(root); }
     const tree = this.host.getStructure();
     const totalFiles = tree?.totalFiles ?? 0;
     const totalFolders = tree ? Object.keys(tree.folders).length : 0;
@@ -90,7 +96,8 @@ export class AnnotationService {
       totalFolders,
       annotated,
       stale: this.stale.size,
-      pending: Math.max(0, totalFiles + totalFolders - annotated),
+      // Unknown until the structure is scanned (graph panel opened once).
+      pending: tree ? Math.max(0, totalFiles + totalFolders - annotated) : 0,
       done: this.progress?.done,
       total: this.progress?.total,
       costUsd: this.progress?.costUsd,

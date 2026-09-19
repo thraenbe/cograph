@@ -27,6 +27,7 @@ async function centerOf(page: Page, css: string): Promise<Point> {
 
 export async function clickSel(page: Page, name: SelName): Promise<void> {
   const css = await need(page, name);
+  await reveal(page, css);
   const p = await centerOf(page, css);
   await glideTo(page, p);
   await page.mouse.click(p.x, p.y);
@@ -35,6 +36,7 @@ export async function clickSel(page: Page, name: SelName): Promise<void> {
 /** Range inputs cannot be typed into: set the value and fire the events the webview listens to. */
 export async function setSlider(page: Page, name: SelName, value: number): Promise<void> {
   const css = await need(page, name);
+  await reveal(page, css);
   const box = await page.locator(css).first().boundingBox();
   if (box) { await glideTo(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }); }
   await page.locator(css).first().evaluate((el, v) => {
@@ -94,25 +96,34 @@ export async function wheelZoom(page: Page, at: Point, deltaY: number, ticks = 4
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/** Runs in the page. A background point: on the svg, not over any node, frame or panel. */
+/** Runs in the page. A point where a double-click means "fit": the bare svg if any is
+ *  visible, else a folder box (rendering.js fits on every svg target except nodes). */
 function findBackgroundInPage(): { x: number; y: number } | null {
   const svg = document.querySelector('#graph svg');
   if (!svg) { return null; }
   const W = window.innerWidth, H = window.innerHeight;
-  for (let gy = 1; gy < 12; gy++) {
-    for (let gx = 11; gx >= 1; gx--) {
-      const x = Math.round((gx / 12) * W), y = Math.round((gy / 12) * H);
-      if (document.elementFromPoint(x, y) === svg) { return { x, y }; }
+  let fallback: { x: number; y: number } | null = null;
+  for (let gy = 1; gy < 20; gy++) {
+    for (let gx = 29; gx >= 1; gx--) {
+      const x = Math.round((gx / 30) * W), y = Math.round((gy / 20) * H);
+      const el = document.elementFromPoint(x, y);
+      if (el === svg) { return { x, y }; }
+      if (!fallback && el && svg.contains(el) && el.tagName !== 'circle' && !el.classList.contains('cloud-node')
+        && !el.closest('.file-slot') && (el.classList.contains('folder-bubble-shape') || el.tagName === 'rect')) { fallback = { x, y }; }
     }
   }
-  return null;
+  return fallback;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 export async function backgroundPoint(page: Page): Promise<Point> {
-  const p = await page.evaluate(findBackgroundInPage);
-  if (!p) { throw new SkipStep('no free background point on screen'); }
-  return p;
+  // Right after a re-render the canvas can be momentarily covered; give it a moment.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const p = await page.evaluate(findBackgroundInPage);
+    if (p) { return p; }
+    await page.waitForTimeout(100);
+  }
+  throw new SkipStep('no free background point on screen');
 }
 
 /** The product's own fit gesture: double-click the canvas background. */
@@ -120,4 +131,104 @@ export async function fitToView(page: Page): Promise<void> {
   const p = await backgroundPoint(page);
   await glideTo(page, p);
   await page.mouse.dblclick(p.x, p.y);
+}
+
+export async function rightClick(page: Page, p: Point): Promise<void> {
+  await glideTo(page, p);
+  await page.mouse.click(p.x, p.y, { button: 'right' });
+}
+
+/** Labels of the open context menu (empty when it is closed). */
+export async function ctxMenuLabels(page: Page): Promise<string[]> {
+  if (!await page.locator(SEL.ctxMenu.css).isVisible()) { return []; }
+  return (await page.locator(SEL.ctxMenuItems.css).allTextContents()).map(s => s.trim());
+}
+
+export async function ctxMenuClick(page: Page, label: string | RegExp): Promise<void> {
+  const item = page.locator(SEL.ctxMenuItems.css).filter({ hasText: label }).first();
+  if (await item.count() === 0) { throw new SkipStep(`context menu has no item ${String(label)}`); }
+  const box = await item.boundingBox();
+  if (!box) { throw new Error(`context menu item not visible: ${String(label)}`); }
+  const p = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await glideTo(page, p);
+  await page.mouse.click(p.x, p.y);
+}
+
+/** Toggle a pill switch: the checkbox itself is visually hidden, its label is the target. */
+export async function toggleSwitch(page: Page, name: SelName): Promise<boolean> {
+  const css = await need(page, name);
+  await reveal(page, css);
+  const label = page.locator(`label.switch:has(${css})`).first();
+  const box = await (await label.count() > 0 ? label : page.locator(css).first()).boundingBox();
+  if (!box) { throw new SkipStep(`switch not visible: ${name}`); }
+  const p = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await glideTo(page, p);
+  await page.mouse.click(p.x, p.y);
+  return page.locator(css).first().isChecked();
+}
+
+export async function typeInto(page: Page, name: SelName, text: string): Promise<void> {
+  await clickSel(page, name);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type(text, { delay: 40 });
+}
+
+export async function hoverPoint(page: Page, p: Point, holdMs = 400): Promise<void> {
+  await glideTo(page, p);
+  await page.waitForTimeout(holdMs);
+}
+
+export async function isVisible(page: Page, name: SelName): Promise<boolean> {
+  const sel: { css: string } = SEL[name];
+  const loc = page.locator(sel.css).first();
+  return (await loc.count()) > 0 && loc.isVisible();
+}
+
+/** Open the gear panel if it is closed (any click outside closes it again). */
+export async function openSettings(page: Page): Promise<void> {
+  if (await page.locator(`${SEL.settingsPanel.css}.open`).count() > 0) { return; }
+  const p = await centerOf(page, SEL.settingsBtn.css);
+  await glideTo(page, p);
+  await page.mouse.click(p.x, p.y);
+  await page.waitForTimeout(150);
+}
+
+/** Controls living in the gear panel are only clickable while it is open. */
+async function reveal(page: Page, css: string): Promise<void> {
+  const inSettings = await page.locator(css).first().evaluate((el, panelCss) => !!el.closest(panelCss), SEL.settingsPanel.css);
+  if (inSettings) { await openSettings(page); }
+}
+
+export interface FrameHit { path: string; title: Point; rect: { x: number; y: number; w: number; h: number } }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/** Runs in the page. A folder box whose title strip is fully on screen: a shelf frame
+ *  (g.frame, not the root) or a drill-down box of the global engine (g.folder-bubble). */
+function locateFrameInPage(pick: 'smallest' | 'largest'): FrameHit | null {
+  let best: FrameHit | null = null, bestArea = 0;
+  document.querySelectorAll('#graph g.frame, #graph g.folder-bubble').forEach((grp) => {
+    const d = (grp as any).__data__;
+    const path = d ? String(d.path ?? d.folderPath ?? '') : '';
+    if (!path || (d && d.kind === 'root')) { return; }
+    const shape = grp.querySelector(':scope > .folder-bubble-shape');
+    const grip = grp.querySelector(':scope > .frame-tab, :scope > .folder-bubble-titlebar');
+    if (!shape || !grip) { return; }
+    const r = shape.getBoundingClientRect(), t = grip.getBoundingClientRect();
+    if (r.width < 40 || t.width < 10 || t.left < 210 || t.top < 0 || t.right > window.innerWidth || t.bottom > window.innerHeight) { return; }
+    const title = { x: t.left + Math.min(t.width / 2, 60), y: t.top + t.height / 2 };
+    const top = document.elementFromPoint(title.x, title.y);
+    if (!top || !grp.contains(top)) { return; } // covered by a panel or another frame
+    const area = r.width * r.height;
+    if (!best || (pick === 'largest' ? area > bestArea : area < bestArea)) {
+      best = { path, title, rect: { x: r.left, y: r.top, w: r.width, h: r.height } }; bestArea = area;
+    }
+  });
+  return best;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+export async function locateFrame(page: Page, pick: 'smallest' | 'largest' = 'smallest'): Promise<FrameHit> {
+  const hit = await page.evaluate(locateFrameInPage, pick);
+  if (!hit) { throw new SkipStep('no folder frame with a visible title on screen'); }
+  return hit;
 }

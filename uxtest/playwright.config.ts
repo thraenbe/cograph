@@ -11,6 +11,8 @@ export default defineConfig({
   retries: 0,
   timeout: 10 * 60 * 1000,
   reporter: [['list']],
+  // A missing element must fail the step in seconds, not hang until the test timeout.
+  use: { actionTimeout: 10000 },
   projects: [
     { name: 'lab', testMatch: /scenarios\/.*\.spec\.ts$/, use: { browserName: 'chromium', headless: process.env.UXTEST_HEADED !== '1' } },
     { name: 'examples', testMatch: /examples\/.*\.spec\.ts$/, use: { browserName: 'chromium', headless: process.env.UXTEST_HEADED !== '1' } },

@@ -57,11 +57,13 @@ function applySimResult(r) {
 
 function applySimData(r, f) {
   const io = frInnerOrigin(f);
+  if (!state.slotPlacedIds) { state.slotPlacedIds = new Set(); }
   for (const ln of r.nodes) {
     const sn = ln._ref;
     if (!sn) { continue; }
     sn.x = io.x + ln.x;
     sn.y = io.y + ln.y;
+    state.slotPlacedIds.add(ln.id); // sim-written = deliberately placed
   }
 }
 
@@ -491,6 +493,8 @@ function teardownFrames() {
     state.simulation = null;
     state.pendingReheat = false;
   }
+  if (state.slotPlacedIds) { state.slotPlacedIds.clear(); }
+  __fr.slotRects = null;
   // state.frames is kept: returning from workflow/global restores stable rects.
 }
 
@@ -500,10 +504,18 @@ function resetFrames() {
   state.frames = null;
 }
 
-/** Grid-place every member whose absolute position is missing or outside its
- *  slot interior. Positions already inside their slot (drags, saved layouts,
- *  settled sims) are left alone. */
+/** Grid-place slot members. A member keeps its position only when it was
+ *  explicitly PLACED before (grid, settled sim, saved layout — tracked by id
+ *  in state.slotPlacedIds so graph patches replacing node objects don't lose
+ *  it) AND it still lies inside its slot interior. Never-placed seed clouds
+ *  always grid (the F1 blob: a seed cloud inside a big slot used to pass as
+ *  "already placed"). In Static motion a slot whose rect moved or resized
+ *  re-grids its members outright — their old coordinates belong to nowhere. */
 function placeMembersInSlots(members) {
+  if (!state.slotPlacedIds) { state.slotPlacedIds = new Set(); }
+  const placed = state.slotPlacedIds;
+  const prevRects = __fr.slotRects || new Map();
+  const nextRects = new Map();
   for (const [path, mems] of members) {
     const f = state.frames.byPath.get(path);
     if (!f) { continue; }
@@ -516,25 +528,47 @@ function placeMembersInSlots(members) {
       if (!bySlot.has(key)) { bySlot.set(key, []); }
       bySlot.get(key).push(m);
     }
-    for (const group of bySlot.values()) {
+    for (const [key, group] of bySlot) {
       const interior = slotInteriorFor(f, group[0].id);
       if (!interior) { continue; }
       const absRect = { x: io.x + interior.x, y: io.y + interior.y, w: interior.w, h: interior.h };
-      const loose = group.filter(m => {
+      const rectKey = path + '\u0000' + key;
+      nextRects.set(rectKey, absRect);
+      const prev = prevRects.get(rectKey);
+      const rectChanged = prev && (
+        Math.abs(prev.x - absRect.x) > 0.5 || Math.abs(prev.y - absRect.y) > 0.5
+        || Math.abs(prev.w - absRect.w) > 0.5 || Math.abs(prev.h - absRect.h) > 0.5);
+      const regridAll = rectChanged && state.layoutMode === 'static';
+      let loose = group.filter(m => {
         const sn = m._ref;
-        return !sn || !Number.isFinite(sn.x)
-          || sn.x < absRect.x || sn.x > absRect.x + absRect.w
+        if (!sn || !Number.isFinite(sn.x)) { return true; }
+        if (regridAll) { return true; }
+        if (!placed.has(m.id)) { return true; } // seed position, never placed
+        return sn.x < absRect.x || sn.x > absRect.x + absRect.w
           || sn.y < absRect.y || sn.y > absRect.y + absRect.h;
       });
       if (!loose.length) { continue; }
+      // Static: gridding only the loose subset would drop newcomers onto the
+      // cells stamped members already occupy — the grid IS the arrangement,
+      // so any loose member re-grids the whole slot. Dynamic leaves the rest
+      // to the simulation.
+      if (state.layoutMode === 'static' && loose.length < group.length) {
+        loose = group;
+      }
       const grid = gridPositions(loose, absRect);
       for (const m of loose) {
         const sn = m._ref;
         const p = grid.get(m.id);
-        if (sn && p) { sn.x = p.x; sn.y = p.y; }
+        if (sn && p) {
+          sn.x = p.x; sn.y = p.y;
+          // Static pins follow the grid, or the pin snaps the node right back.
+          if (sn.fx != null) { sn.fx = p.x; sn.fy = p.y; }
+          placed.add(m.id);
+        }
       }
     }
   }
+  __fr.slotRects = nextRects;
 }
 
 // ── Saved layouts (v2 frames / v1 migration) ──────────────────────────────────
@@ -746,7 +780,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     usesFrames, renderFrameLayout, tickFrames, tickFrame, teardownFrames,
     resetFrames, updateCrossLinks, syncFrameSims, applySimResult, applySimData,
-    applyPendingLayout, migrateV1IntoFrames,
+    applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots,
     placeMembersInSlots,

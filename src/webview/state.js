@@ -14,6 +14,10 @@ const state = {
   // Drill-down is active when clusterGroupBy === 'file' && viewMode !== 'workflow'
   // && a structure tree is loaded (see isDrilldown()).
   clusterGroupBy: 'file',
+  // Node ids whose position was deliberately placed (slot grid, settled sim,
+  // drag, saved layout). Keyed by id so graph patches that replace node
+  // objects keep the information. See frameRender.placeMembersInSlots.
+  slotPlacedIds: new Set(),
   workflowLevel: 0,                // 0..9 detail level when viewMode === 'workflow'
   workflowStageCount: 1,
   workflowDividerStage: 0,

@@ -348,7 +348,10 @@ function renderGraph(data, isReanalysis = false) {
   state.importanceScores = computeImportanceScores(projectData);
   state.expandedClusters = new Set();
   state.expandedLibClusters = new Set();
-  if (!isReanalysis) { state.hasFitted = false; }
+  if (!isReanalysis) {
+    state.hasFitted = false;
+    if (state.slotPlacedIds) { state.slotPlacedIds.clear(); } // new graph, new placements
+  }
 
   // Detect the AI Workflow Graph (its presence is marked by graph.workflow).
   // Workflow payloads route here even while the drill-down is active (see
@@ -552,7 +555,9 @@ window.addEventListener('message', (event) => {
     const savedMotion = saved.layoutMode === 'static' ? 'static' : 'dynamic';
     if (savedEngine !== state.layoutEngine) { setLayoutEngine(savedEngine); }
 
-    // Apply saved node positions
+    // Apply saved node positions (stamped: a saved position is a placement,
+    // so the shelf grid must not overwrite it)
+    if (!state.slotPlacedIds) { state.slotPlacedIds = new Set(); }
     for (const n of state.currentNodes) {
       const pos = nodePositions[n.id];
       if (pos) {
@@ -560,6 +565,7 @@ window.addEventListener('message', (event) => {
         n.y = pos.y;
         n.fx = pos.x;
         n.fy = pos.y;
+        state.slotPlacedIds.add(n.id);
       }
     }
 

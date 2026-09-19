@@ -135,6 +135,7 @@ document.getElementById('btn-reset-layout')?.addEventListener('click', () => {
     if (valEl) valEl.textContent = val.value;
   }
 
+  state.userZoomed = false; // Reset Layout re-arms the automatic fit
   applyDisplaySettings();
   rerunLayout();
 });

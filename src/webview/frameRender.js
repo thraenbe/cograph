@@ -160,7 +160,10 @@ function renderFrameLayout(allLinks, visibleSet) {
   sel.select('.folder-bubble-label')
     .attr('font-size', `${12 * settings.textSize}px`)
     .attr('fill', (typeof isLightTheme === 'function' && isLightTheme()) ? '#333333' : '#cccccc');
-  sel.select('.folder-bubble-titlebar').call(createFrameTitleDrag(frameDragDeps()));
+  const titleDrag = createFrameTitleDrag(frameDragDeps())
+    .on('start.fitguard', () => { state._frameInteracting = true; })
+    .on('end.fitguard', () => { state._frameInteracting = false; });
+  sel.select('.folder-bubble-titlebar').call(titleDrag);
   sel.select('.folder-bubble-shape').call(createFrameResizeDrag());
   sel.on('contextmenu', onFrameContextMenu);
 
@@ -235,7 +238,30 @@ function renderFrameLayout(allLinks, visibleSet) {
   }
 
   tickFrames();
-  if (!state.hasFitted) { state.hasFitted = true; fitToView(); }
+  if (!state.hasFitted) {
+    state.hasFitted = true;
+    fitToView();
+  } else {
+    const svgEl = (typeof svg !== 'undefined' && svg.node) ? svg.node() : null;
+    const vw = (svgEl && svgEl.clientWidth) || (typeof window !== 'undefined' ? window.innerWidth : 0);
+    const vh = (svgEl && svgEl.clientHeight) || (typeof window !== 'undefined' ? window.innerHeight : 0);
+    if (shouldRefit(frameBounds(state.frames), state.currentZoom || 1, vw, vh,
+      state.userZoomed, state._frameInteracting)) {
+      // The layout outgrew what the viewer currently sees and they haven't
+      // taken the viewport — fit again (F2).
+      fitToView();
+    }
+  }
+}
+
+/** Re-fit only while the viewport is still the automatic one: never after a
+ *  user zoom/pan gesture, never during a frame drag/resize, and only when the
+ *  layout overflows the CURRENT view by >30% in either dimension. Comparing
+ *  against the live zoom (not the last fitted bounds) keeps progressive loads
+ *  — many small graph patches — from ratcheting past a stale baseline. */
+function shouldRefit(bounds, k, viewW, viewH, userZoomed, interacting) {
+  if (userZoomed || interacting || !bounds || !k || !viewW || !viewH) { return false; }
+  return bounds.w * k > viewW * 1.3 || bounds.h * k > viewH * 1.3;
 }
 
 function frameDragDeps() {
@@ -652,6 +678,7 @@ function createFrameResizeDrag() {
   const EDGE = 12;
   return d3.drag()
     .container(function () { return g.node(); })
+    .on('start', function () { state._frameInteracting = true; })
     .filter(function (event, f) {
       const [mx, my] = d3.pointer(event, g.node());
       return (mx - f.abs.x < EDGE) || (f.abs.x + f.abs.w - mx < EDGE)
@@ -669,6 +696,7 @@ function createFrameResizeDrag() {
       updateCrossLinks();
     })
     .on('end', function () {
+      state._frameInteracting = false;
       if (typeof window !== 'undefined') { window.markDirty?.(); }
     });
 }
@@ -780,7 +808,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     usesFrames, renderFrameLayout, tickFrames, tickFrame, teardownFrames,
     resetFrames, updateCrossLinks, syncFrameSims, applySimResult, applySimData,
-    applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots,
+    applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots,
     placeMembersInSlots,

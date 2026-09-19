@@ -96,6 +96,7 @@ function setLayoutEngine(engine) {
   state.layoutEngine = engine;
   updateLayoutButtons();
   state.currentNodes.forEach(d => { d.fx = null; d.fy = null; });
+  state.userZoomed = false; // an engine switch re-lays out — allow auto-fit
   if (engine === 'shelf' && state.viewMode === 'workflow') {
     if (typeof enterFileClusterMode === 'function') { enterFileClusterMode(); }
   } else if (typeof applyComplexity === 'function') {
@@ -350,6 +351,7 @@ function renderGraph(data, isReanalysis = false) {
   state.expandedLibClusters = new Set();
   if (!isReanalysis) {
     state.hasFitted = false;
+    state.userZoomed = false;
     if (state.slotPlacedIds) { state.slotPlacedIds.clear(); } // new graph, new placements
   }
 
@@ -503,6 +505,7 @@ window.addEventListener('message', (event) => {
     if (typeof usesFrames === 'function' && usesFrames() && typeof resetFrames === 'function') {
       resetFrames();          // drop packed rects → next render re-packs from scratch
       state.hasFitted = false;
+      state.userZoomed = false;
       applyFileClusters();
       window.clearDirty?.();
       return;

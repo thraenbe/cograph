@@ -65,6 +65,9 @@ const zoomBehavior = d3.zoom()
   .on('zoom', (event) => {
     g.attr('transform', event.transform);
     state.currentZoom = event.transform.k;
+    // A gesture (wheel/drag/pinch) has a sourceEvent; programmatic fits don't.
+    // Once the user takes the viewport, automatic re-fits stop (see F2).
+    if (event.sourceEvent) { state.userZoomed = true; }
     updateTextVisibility();
   });
 

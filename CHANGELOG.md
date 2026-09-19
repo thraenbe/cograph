@@ -26,6 +26,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Fixed
+- **Shelf+Static first load rendered big file slots as overlapping blobs**
+  (the true B1/B2 mechanism, found by the UX test harness on click's
+  tests/test_options.py): the slot placer treated a node's random seed
+  position as deliberate whenever it happened to fall inside the slot.
+  Placement is now an explicit per-id stamp (grid, settled simulation, drag or
+  saved layout); unstamped nodes always grid, and in Static motion a slot
+  whose rect moved, resized or gained members re-grids as a whole.
+- **The first load fitted the viewport to the folder skeleton, not the final
+  graph**: ingesting the functions grew the frames far past the fitted view,
+  leaving much of the graph off-screen until a manual double-click. The view
+  now re-fits automatically when the layout outgrows the last fit by >30% -
+  but only while the viewport is still automatic: never after the user zooms
+  or pans (Reset Layout and an engine switch re-arm it), and never during a
+  frame drag or resize.
 - Re-packs animate: when expanding a folder forces siblings to move, the moved
   frames glide (~200 ms) to their new spot instead of jumping. Drags and
   simulation motion stay instant.

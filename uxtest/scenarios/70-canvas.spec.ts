@@ -1,0 +1,89 @@
+// 70 — Canvas: pan, zoom, drag a node, drag a folder by its title, resize a
+// frame, expand/collapse folder + file, the three context menus. Drags are
+// checked for collateral movement (H4 / T3: nothing outside the folder may move).
+import { scenario } from '../lib/scenario';
+import { backgroundPoint, clickNode, ctxMenuClick, ctxMenuLabels, dragBy, fitToView, locateFrame, locateNode, rightClick, wheelZoom } from '../lib/actions';
+import { SkipStep, type StepRecord } from '../lib/step';
+import { maxDisplacement } from '../metrics/compute';
+import type { Snapshot } from '../metrics/types';
+
+function collateral(rec: StepRecord, before: Snapshot | null, after: Snapshot | null, keep: (frame: string | null, id: string) => boolean): void {
+  if (!before || !after) { return; }
+  const d = maxDisplacement(before, after, n => keep(n.frame, n.id));
+  rec.note = `${rec.note ?? ''} collateral: ${d.moved} node(s) moved, max ${d.max}px`.trim();
+  if (d.moved > 0) { rec.findings.push({ rule: 'collateral-movement', severity: 'high', ref: 'H4/T3', message: `${d.moved} node(s) outside the dragged folder moved (max ${d.max}px)` }); }
+}
+
+scenario('canvas', { largeOk: true }, async ({ page, ux }, combo) => {
+  await ux.step('Fit', async () => { await fitToView(page); });
+  await ux.step('Zoom in (wheel)', async () => { await wheelZoom(page, await backgroundPoint(page), -240, 3); });
+  await ux.step('Pan (drag background)', async () => { await dragBy(page, await backgroundPoint(page), -120, 60); });
+  await ux.step('Zoom out + fit', async () => { await wheelZoom(page, await backgroundPoint(page), 240, 3); await fitToView(page); });
+
+  await ux.step('Zoom into the smallest folder for node work', async () => {
+    const f = await locateFrame(page, 'smallest');
+    await wheelZoom(page, { x: f.rect.x + f.rect.w / 2, y: f.rect.y + f.rect.h / 2 }, -240, 5);
+  });
+
+  let before = ux.lastSnapshot;
+  let draggedFrame: string | null = null, draggedId = '';
+  const dragNode = await ux.step('Drag one function node', async () => {
+    const n = await locateNode(page, { kind: 'fn' });
+    draggedId = n.id;
+    draggedFrame = before?.nodes.find(x => x.id === n.id)?.frame ?? null;
+    await dragBy(page, n, 24, 18);
+  });
+  if (dragNode.status === 'ok') {
+    collateral(dragNode, before, ux.lastSnapshot, (frame, id) => id !== draggedId && (combo.engine === 'shelf' ? frame !== draggedFrame : combo.motion === 'static'));
+  }
+
+  await ux.step('Fit before folder work', async () => { await fitToView(page); });
+  before = ux.lastSnapshot;
+  let movedPath = '';
+  const dragFrame = await ux.step('Drag a folder by its title', async () => {
+    const f = await locateFrame(page, 'smallest');
+    movedPath = f.path;
+    await dragBy(page, f.title, 70, 50);
+  });
+  if (dragFrame.status === 'ok' && combo.engine === 'shelf') {
+    collateral(dragFrame, before, ux.lastSnapshot, frame => !!frame && frame !== movedPath && !frame.startsWith(movedPath + '/') && !movedPath.startsWith(frame + '/'));
+  }
+
+  await ux.step('Resize a frame from its bottom-right corner', async () => {
+    if (combo.engine !== 'shelf') { throw new SkipStep('frame resize exists only in the shelf engine'); }
+    const f = await locateFrame(page, 'smallest');
+    await dragBy(page, { x: f.rect.x + f.rect.w - 4, y: f.rect.y + f.rect.h - 4 }, 60, 40);
+  });
+
+  await ux.step('Folder context menu', async () => {
+    const f = await locateFrame(page, 'smallest');
+    await rightClick(page, f.title);
+    if ((await ctxMenuLabels(page)).length === 0) { throw new Error('folder context menu did not open'); }
+  }, { metrics: false });
+  await ux.step('Context menu → Collapse folder', async () => { await ctxMenuClick(page, /collapse folder/i); });
+  await ux.step('Fit after collapse', async () => { await fitToView(page); });
+
+  await ux.step('Click a collapsed folder to expand it', async () => { await clickNode(page, { kind: 'folder', pick: 'largest' }); });
+  await ux.step('Folder glyph context menu → Only show this folder', async () => {
+    const n = await locateNode(page, { kind: 'folder', pick: 'largest' });
+    await rightClick(page, n);
+    await ctxMenuClick(page, /only show/i);
+  });
+  await ux.step('Context menu → Show all', async () => {
+    const f = await locateFrame(page, 'largest');
+    await rightClick(page, f.title);
+    await ctxMenuClick(page, /show all/i);
+  });
+
+  // Expanding a collapsed FILE is covered by 75-lazy-expand: with an eager host every file is parsed up front.
+  await ux.step('File slot context menu', async () => {
+    const slot = page.locator('#graph g.file-slot').first();
+    if (await slot.count() === 0) { throw new SkipStep('no file slot rendered'); }
+    const box = await slot.boundingBox();
+    if (!box) { throw new SkipStep('file slot off screen'); }
+    await rightClick(page, { x: box.x + 20, y: box.y + 6 });
+    if ((await ctxMenuLabels(page)).length === 0) { throw new SkipStep('slot context menu did not open at that point'); }
+    await page.keyboard.press('Escape');
+    await page.mouse.click(box.x + box.width / 2, 2);
+  }, { metrics: false });
+});

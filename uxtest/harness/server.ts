@@ -4,12 +4,12 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { AddressInfo } from 'net';
-import { renderWebviewHtml, REPO_ROOT, EXT_PREFIX, type BootConfig } from './vscodeStub';
+import { renderWebviewHtml, EXT_ROOT, EXT_PREFIX, type BootConfig } from './vscodeStub';
 import { log } from '../lib/log';
 
 // Everything a webview may legitimately load: the plain sources today, the
 // bundled/vendored output (dist/webview, e.g. a local d3) once perf lands it.
-const STATIC_ROOTS = ['src/webview', 'dist/webview', 'media'].map(r => path.join(REPO_ROOT, r));
+const STATIC_ROOTS = ['src/webview', 'dist/webview', 'media'].map(r => path.join(EXT_ROOT, r));
 const MIME: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -42,7 +42,7 @@ function cfgFromQuery(url: URL): BootConfig {
 export function resolveStatic(pathname: string): string | null {
   if (!pathname.startsWith(EXT_PREFIX + '/')) { return null; }
   const rel = decodeURIComponent(pathname.slice(EXT_PREFIX.length + 1));
-  const abs = path.resolve(REPO_ROOT, rel);
+  const abs = path.resolve(EXT_ROOT, rel);
   return STATIC_ROOTS.some(root => abs.startsWith(root + path.sep)) ? abs : null;
 }
 

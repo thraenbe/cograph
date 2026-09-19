@@ -34,17 +34,19 @@ if (flag('all-repos')) {
 if (value('engine')) { env.UXTEST_ENGINES = value('engine'); }
 if (value('motion')) { env.UXTEST_MOTIONS = value('motion'); }
 if (value('corpus')) { env.UXTEST_CORPUS = value('corpus'); }
+if (value('ext-root')) { env.UXTEST_EXT_ROOT = path.resolve(value('ext-root')); }
 if (value('workers')) { env.UXTEST_WORKERS = value('workers'); }
 if (flag('headed')) { env.UXTEST_HEADED = '1'; }
 if (flag('strict')) { env.UXTEST_STRICT = '1'; }
 if (flag('reanalyze')) { env.UXTEST_REANALYZE = '1'; }
 
 // The lab serves the compiled html builder + analyzers glue from out/.
-const builder = path.join(root, 'out', 'webviewHtmlBuilder.js');
-const src = path.join(root, 'src', 'webviewHtmlBuilder.ts');
+const extRoot = env.UXTEST_EXT_ROOT ?? root;
+const builder = path.join(extRoot, 'out', 'webviewHtmlBuilder.js');
+const src = path.join(extRoot, 'src', 'webviewHtmlBuilder.ts');
 const stale = !existsSync(builder) || statSync(builder).mtimeMs < statSync(src).mtimeMs;
 if (stale && !flag('no-compile')) {
-  const tsc = spawnSync('npm', ['run', 'compile'], { cwd: root, stdio: 'inherit' });
+  const tsc = spawnSync('npm', ['run', 'compile'], { cwd: extRoot, stdio: 'inherit' });
   if (tsc.status !== 0) { fail('npm run compile failed'); }
 }
 

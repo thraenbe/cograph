@@ -88,6 +88,7 @@ npm run uxtest -- [flags]
   --strict            findings fail the run (default: observational)
   --workers N         parallel workers (default 2)
   --corpus <dir>      corpus root (default ~/cograph/test-projects)
+  --ext-root <dir>    run against ANOTHER CoGraph checkout/worktree (its out/ + src/webview)
   --reanalyze         ignore the analyzer cache
   --run-id <id>       artifacts folder name (default: timestamp)
   --no-compile        skip the automatic `npm run compile`

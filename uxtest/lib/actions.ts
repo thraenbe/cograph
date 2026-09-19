@@ -37,6 +37,8 @@ export async function clickSel(page: Page, name: SelName): Promise<void> {
 export async function setSlider(page: Page, name: SelName, value: number): Promise<void> {
   const css = await need(page, name);
   await reveal(page, css);
+  // ux UI: force rows that do not apply to the current engine × motion are hidden, not removed.
+  if (!await page.locator(css).first().isVisible()) { throw new SkipStep(`control hidden in this engine/motion: ${name}`); }
   const box = await page.locator(css).first().boundingBox();
   if (box) { await glideTo(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }); }
   await page.locator(css).first().evaluate((el, v) => {
@@ -204,31 +206,41 @@ export interface FrameHit { path: string; title: Point; rect: { x: number; y: nu
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /** Runs in the page. A folder box whose title strip is fully on screen: a shelf frame
  *  (g.frame, not the root) or a drill-down box of the global engine (g.folder-bubble). */
-function locateFrameInPage(pick: 'smallest' | 'largest'): FrameHit | null {
+function locateFrameInPage(pick: 'smallest' | 'largest'): { hit: FrameHit | null; why: Record<string, number> } {
   let best: FrameHit | null = null, bestArea = 0;
+  const why: Record<string, number> = { groups: 0, root: 0, noGrip: 0, tooSmall: 0, offscreen: 0, covered: 0 };
   document.querySelectorAll('#graph g.frame, #graph g.folder-bubble').forEach((grp) => {
+    why.groups++;
     const d = (grp as any).__data__;
     const path = d ? String(d.path ?? d.folderPath ?? '') : '';
-    if (!path || (d && d.kind === 'root')) { return; }
+    if (!path || (d && d.kind === 'root')) { why.root++; return; }
     const shape = grp.querySelector(':scope > .folder-bubble-shape');
     const grip = grp.querySelector(':scope > .frame-tab, :scope > .folder-bubble-titlebar');
-    if (!shape || !grip) { return; }
+    if (!shape || !grip) { why.noGrip++; return; }
     const r = shape.getBoundingClientRect(), t = grip.getBoundingClientRect();
-    if (r.width < 40 || t.width < 10 || t.left < 210 || t.top < 0 || t.right > window.innerWidth || t.bottom > window.innerHeight) { return; }
-    const title = { x: t.left + Math.min(t.width / 2, 60), y: t.top + t.height / 2 };
+    if (r.width < 40 || t.width < 10 || t.height < 3) { why.tooSmall++; return; }
+    // Only the part of the title strip right of the left toolbar and above the caption is grabbable.
+    const vl = Math.max(t.left, 215), vr = Math.min(t.right, window.innerWidth - 10);
+    if (vr - vl < 30 || t.top < 0 || t.bottom > window.innerHeight - 40) { why.offscreen++; return; }
+    const title = { x: vl + Math.min((vr - vl) / 2, 60), y: t.top + t.height / 2 };
     const top = document.elementFromPoint(title.x, title.y);
-    if (!top || !grp.contains(top)) { return; } // covered by a panel or another frame
+    if (!top || !grp.contains(top)) { why.covered++; return; } // under a panel or another frame
     const area = r.width * r.height;
     if (!best || (pick === 'largest' ? area > bestArea : area < bestArea)) {
       best = { path, title, rect: { x: r.left, y: r.top, w: r.width, h: r.height } }; bestArea = area;
     }
   });
-  return best;
+  return { hit: best, why };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 export async function locateFrame(page: Page, pick: 'smallest' | 'largest' = 'smallest'): Promise<FrameHit> {
-  const hit = await page.evaluate(locateFrameInPage, pick);
-  if (!hit) { throw new SkipStep('no folder frame with a visible title on screen'); }
-  return hit;
+  let why: Record<string, number> = {};
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const res = await page.evaluate(locateFrameInPage, pick);
+    if (res.hit) { return res.hit; }
+    why = res.why;
+    await page.waitForTimeout(100);
+  }
+  throw new SkipStep(`no folder frame with a grabbable title on screen ${JSON.stringify(why)}`);
 }

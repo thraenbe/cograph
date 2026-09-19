@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
-import { renderWebviewHtml, scriptListFromHtml, REPO_ROOT } from '../harness/vscodeStub';
+import { renderWebviewHtml, scriptListFromHtml, EXT_ROOT as REPO_ROOT } from '../harness/vscodeStub';
 import { resolveStatic, startServer } from '../harness/server';
 import { cutPatch, FakeHost, readSourceSlice, type GraphLite } from '../harness/fakeHost';
 import { SEL, RUNTIME_ONLY, TIMELINE_ONLY, type SelName } from '../selectors';

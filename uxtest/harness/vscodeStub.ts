@@ -12,7 +12,10 @@ export interface BootConfig {
 }
 
 export const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const BUILDER = path.join(REPO_ROOT, 'out', 'webviewHtmlBuilder.js');
+/** The CoGraph checkout under test. Defaults to this repo; point UXTEST_EXT_ROOT at another
+ *  worktree/branch checkout (needs `npm run compile` there) to run the same suite against it. */
+export const EXT_ROOT = process.env.UXTEST_EXT_ROOT ? path.resolve(process.env.UXTEST_EXT_ROOT) : REPO_ROOT;
+const BUILDER = path.join(EXT_ROOT, 'out', 'webviewHtmlBuilder.js');
 
 let currentCfg: Record<string, unknown> = {};
 let hookInstalled = false;

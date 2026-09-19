@@ -81,7 +81,9 @@ svg.on('dblclick', (event) => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function getCSSVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  // Read from <body>: VS Code puts the theme class there (body.vscode-light),
+  // so documentElement never sees the light-theme --cograph-* overrides.
+  return getComputedStyle(document.body || document.documentElement).getPropertyValue(name).trim();
 }
 
 function nodeRadius(d) {

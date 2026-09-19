@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Fixed
+- Light themes now reach JS-painted colours: theme variables are read from
+  `<body>` (where VS Code sets `vscode-light`), so nodes, links and labels no
+  longer keep the dark palette in a light theme.
 - **Shelf+Static first load rendered big file slots as overlapping blobs**
   (the true B1/B2 mechanism, found by the UX test harness on click's
   tests/test_options.py): the slot placer treated a node's random seed

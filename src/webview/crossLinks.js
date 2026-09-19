@@ -53,21 +53,18 @@ function portOn(title, toward) {
   };
 }
 
+const clIdOf = (e) => (e && e.id !== undefined ? e.id : e);
+
 /**
- * Aggregate cross links per frame pair.
- *   cross: link objects (source/target as ids or node objects)
- *   frameOfId(id) → frame path;  frameAt(path) → {abs, titleRect}
- *   absPosOf(id) → {x,y}|null (for hover-individual links)
- * Returns { bundles: [{key,a,b,count,pending,x1,y1,x2,y2}], individual: [...] }.
+ * Aggregate cross links into one record per frame pair, sorted by key.
+ * Depends only on link ownership — stable between renders, so callers cache
+ * it and re-run only routeBundles when frames move.
  */
-function buildCrossLinks(opts) {
-  const { cross, frameOfId, frameAt, absPosOf, hoverId } = opts;
+function aggregateCrossPairs(cross, frameOfId) {
   const byPair = new Map();
   for (const l of cross) {
-    const sId = l.source && l.source.id !== undefined ? l.source.id : l.source;
-    const tId = l.target && l.target.id !== undefined ? l.target.id : l.target;
-    const a = frameOfId(sId);
-    const b = frameOfId(tId);
+    const a = frameOfId(clIdOf(l.source));
+    const b = frameOfId(clIdOf(l.target));
     if (a == null || b == null || a === b) { continue; }
     const key = pairKey(a, b);
     let agg = byPair.get(key);
@@ -75,53 +72,101 @@ function buildCrossLinks(opts) {
     agg.count += l._count ?? 1;
     if (l.pending) { agg.pending = true; }
   }
-  const contains = (p, q) => q !== p && (q.startsWith(p + '/') || q.startsWith(p + '\\'));
+  return [...byPair.keys()].sort().map(k => byPair.get(k));
+}
+
+const clContains = (p, q) => q !== p && (q.startsWith(p + '/') || q.startsWith(p + '\\'));
+
+/** Port geometry for one aggregated pair, or null when a frame is gone. */
+function routeBundle(agg, frameAt) {
+  const fa = frameAt(agg.a);
+  const fb = frameAt(agg.b);
+  if (!fa || !fb) { return null; }
+  let p1, p2;
+  if (clContains(agg.a, agg.b) || clContains(agg.b, agg.a)) {
+    // Ancestor ↔ descendant (a parent's direct files calling into a child):
+    // titlebar-to-titlebar would cross the whole parent. Short line instead:
+    // from the descendant's titlebar port to the nearest ancestor edge.
+    const dIsB = clContains(agg.a, agg.b);
+    const desc = dIsB ? fb : fa;
+    const anc = dIsB ? fa : fb;
+    const ancCentre = { x: anc.abs.x + anc.abs.w / 2, y: anc.abs.y + anc.abs.h / 2 };
+    const pd = portOn(desc.titleRect, ancCentre);
+    const pa = nearestEdgePoint(anc.abs, pd);
+    p1 = dIsB ? pa : pd;
+    p2 = dIsB ? pd : pa;
+  } else {
+    const ca = { x: fa.abs.x + fa.abs.w / 2, y: fa.abs.y + fa.abs.h / 2 };
+    const cb = { x: fb.abs.x + fb.abs.w / 2, y: fb.abs.y + fb.abs.h / 2 };
+    p1 = portOn(fa.titleRect, cb);
+    p2 = portOn(fb.titleRect, ca);
+  }
+  return { ...agg, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
+}
+
+function routeBundles(aggs, frameAt) {
   const bundles = [];
-  for (const key of [...byPair.keys()].sort()) {
-    const agg = byPair.get(key);
-    const fa = frameAt(agg.a);
-    const fb = frameAt(agg.b);
-    if (!fa || !fb) { continue; }
-    let p1, p2;
-    if (contains(agg.a, agg.b) || contains(agg.b, agg.a)) {
-      // Ancestor ↔ descendant (a parent's direct files calling into a child):
-      // titlebar-to-titlebar would cross the whole parent. Short line instead:
-      // from the descendant's titlebar port to the nearest ancestor edge.
-      const dIsB = contains(agg.a, agg.b);
-      const desc = dIsB ? fb : fa;
-      const anc = dIsB ? fa : fb;
-      const ancCentre = { x: anc.abs.x + anc.abs.w / 2, y: anc.abs.y + anc.abs.h / 2 };
-      const pd = portOn(desc.titleRect, ancCentre);
-      const pa = nearestEdgePoint(anc.abs, pd);
-      p1 = dIsB ? pa : pd;
-      p2 = dIsB ? pd : pa;
-    } else {
-      const ca = { x: fa.abs.x + fa.abs.w / 2, y: fa.abs.y + fa.abs.h / 2 };
-      const cb = { x: fb.abs.x + fb.abs.w / 2, y: fb.abs.y + fb.abs.h / 2 };
-      p1 = portOn(fa.titleRect, cb);
-      p2 = portOn(fb.titleRect, ca);
-    }
-    bundles.push({ ...agg, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+  for (const agg of aggs) {
+    const b = routeBundle(agg, frameAt);
+    if (b) { bundles.push(b); }
   }
+  return bundles;
+}
+
+/** node id → the cross links touching it (hover looks up O(degree)). */
+function indexCrossByNode(cross) {
+  const byNode = new Map();
+  const add = (id, l) => {
+    const arr = byNode.get(id);
+    if (arr) { arr.push(l); } else { byNode.set(id, [l]); }
+  };
+  for (const l of cross) {
+    const sId = clIdOf(l.source);
+    const tId = clIdOf(l.target);
+    add(sId, l);
+    if (tId !== sId) { add(tId, l); }
+  }
+  return byNode;
+}
+
+/** Individual lines for the hovered node out of `links` (any superset). */
+function individualLinksFor(links, hoverId, absPosOf) {
   const individual = [];
-  if (hoverId != null && absPosOf) {
-    for (const l of cross) {
-      const sId = l.source && l.source.id !== undefined ? l.source.id : l.source;
-      const tId = l.target && l.target.id !== undefined ? l.target.id : l.target;
-      if (sId !== hoverId && tId !== hoverId) { continue; }
-      const p1 = absPosOf(sId);
-      const p2 = absPosOf(tId);
-      if (!p1 || !p2) { continue; }
-      individual.push({
-        source: sId, target: tId,
-        count: l._count ?? 1, pending: !!l.pending,
-        x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
-      });
-    }
+  if (hoverId == null || !absPosOf) { return individual; }
+  for (const l of links) {
+    const sId = clIdOf(l.source);
+    const tId = clIdOf(l.target);
+    if (sId !== hoverId && tId !== hoverId) { continue; }
+    const p1 = absPosOf(sId);
+    const p2 = absPosOf(tId);
+    if (!p1 || !p2) { continue; }
+    individual.push({
+      source: sId, target: tId,
+      count: l._count ?? 1, pending: !!l.pending,
+      x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
+    });
   }
-  return { bundles, individual };
+  return individual;
+}
+
+/**
+ * Aggregate cross links per frame pair (one-shot composition of the helpers).
+ *   cross: link objects (source/target as ids or node objects)
+ *   frameOfId(id) → frame path;  frameAt(path) → {abs, titleRect}
+ *   absPosOf(id) → {x,y}|null (for hover-individual links)
+ * Returns { bundles: [{key,a,b,count,pending,x1,y1,x2,y2}], individual: [...] }.
+ */
+function buildCrossLinks(opts) {
+  const { cross, frameOfId, frameAt, absPosOf, hoverId } = opts;
+  return {
+    bundles: routeBundles(aggregateCrossPairs(cross, frameOfId), frameAt),
+    individual: individualLinksFor(cross, hoverId, absPosOf),
+  };
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { splitEdgesByFrame, buildCrossLinks, portOn, pairKey, nearestEdgePoint, CL_SEP };
+  module.exports = {
+    splitEdgesByFrame, buildCrossLinks, portOn, pairKey, nearestEdgePoint, CL_SEP,
+    aggregateCrossPairs, routeBundle, routeBundles, indexCrossByNode, individualLinksFor,
+  };
 }

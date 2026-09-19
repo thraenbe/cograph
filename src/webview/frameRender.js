@@ -20,6 +20,12 @@ const __fr = {
   byId: new Map(),        // node id -> node object (current render)
   cross: [],              // cross-frame link objects (current render)
   members: new Map(),     // frame path -> member records (current render)
+  crossFor: null,         // the __fr.cross array the two caches below were built from
+  crossAgg: null,         // aggregated frame pairs (crossLinks.aggregateCrossPairs)
+  crossByNode: null,      // node id -> cross links (hover lookup)
+  posDirty: new Set(),    // frame paths awaiting a coalesced position write
+  posRaf: 0,
+  hoverDrawn: false,      // cross-hover lines currently in the DOM
 };
 
 function frInnerOrigin(f) { return innerOrigin(f); } // frames.js global
@@ -58,7 +64,9 @@ function applySimResult(r) {
   const f = state.frames && state.frames.byPath.get(r.path);
   if (!f) { return; }
   applySimData(r, f);
-  tickFrame(r.path);
+  // Frame geometry does not move during settle: positions only, no chrome.
+  tickFramePositions(r.path);
+  if (state._frameHoverId != null) { updateCrossHover(); }
 }
 
 function applySimData(r, f) {
@@ -259,7 +267,7 @@ function syncFrameSims(members) {
       if (existing.inner.w !== f.inner.w || existing.inner.h !== f.inner.h) {
         resizeSim(existing, f.inner);
       }
-      if (slotSignature(slots) !== slotSignature(existing.slotById)) {
+      if (!sameSlotGeometry(slots, existing.slotById)) {
         updateSlots(existing, slots);       // geometry changed → clamp + reheat
       } else {
         existing.slotById = slots;          // identical geometry → refresh reference
@@ -300,6 +308,18 @@ function syncFrameSims(members) {
   state.simulation._kind = 'frames';
 }
 
+/** Slot maps equal by geometry — no sorting or string building per render. */
+function sameSlotGeometry(a, b) {
+  const na = a ? a.size : 0, nb = b ? b.size : 0;
+  if (na !== nb) { return false; }
+  if (!na) { return true; }
+  for (const [k, r] of a) {
+    const q = b.get(k);
+    if (!q || q.x !== r.x || q.y !== r.y || q.w !== r.w || q.h !== r.h) { return false; }
+  }
+  return true;
+}
+
 function intraLinkIdsFor(path) {
   const out = [];
   const idOf = (e) => (typeof e === 'object' && e !== null) ? e.id : e;
@@ -310,7 +330,15 @@ function intraLinkIdsFor(path) {
 }
 
 // ── Per-tick DOM writes ───────────────────────────────────────────────────────
+// Chrome (transform, rect, colours, title) changes only on render / frame
+// move / resize / settings; member positions change on every simulation step.
+// tickFrame = both; the scheduler and node drags use tickFramePositions alone.
 function tickFrame(path) {
+  tickFrameChrome(path);
+  tickFramePositions(path);
+}
+
+function tickFrameChrome(path) {
   const f = state.frames && state.frames.byPath.get(path);
   const sub = __fr.frameSel.get(path);
   if (!f || !sub) { return; }
@@ -337,6 +365,12 @@ function tickFrame(path) {
       .attr('x', f.abs.w / 2).attr('y', 15)
       .text(f.path.split(/[\\/]+/).filter(Boolean).pop() || f.path);
   }
+}
+
+function tickFramePositions(path) {
+  const f = state.frames && state.frames.byPath.get(path);
+  const sub = __fr.frameSel.get(path);
+  if (!f || !sub) { return; }
   const ox = f.abs.x, oy = f.abs.y;
   const dom = __fr.frameDom && __fr.frameDom.get(path);
   const circles = dom ? dom.circles : sub.select('g.f-nodes').selectAll('circle.regular-node');
@@ -373,6 +407,29 @@ function tickFrame(path) {
   });
 }
 
+/**
+ * Node-drag fast path (rendering.js ticked(d)): only the dragged node's frame
+ * changes, so re-write that frame's positions — coalesced to one write per
+ * animation frame — instead of re-ticking every frame and all cross links.
+ */
+function tickFrameOfNode(d) {
+  const path = d && d._frame;
+  if (!path || !__fr.frameSel.has(path)) { tickFrames(); return; }
+  __fr.posDirty.add(path);
+  if (__fr.posRaf) { return; }
+  if (typeof requestAnimationFrame !== 'function') { flushFramePositions(); return; }
+  __fr.posRaf = requestAnimationFrame(flushFramePositions);
+}
+
+function flushFramePositions() {
+  __fr.posRaf = 0;
+  const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
+  for (const path of __fr.posDirty) { tickFramePositions(path); }
+  __fr.posDirty.clear();
+  if (state._frameHoverId != null) { updateCrossHover(); }
+  if (__perfT0) { perfEnd('drag:flush', __perfT0); }
+}
+
 function tickFrames() {
   if (!state.frames) { return; }
   const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
@@ -382,27 +439,48 @@ function tickFrames() {
 }
 
 // ── Cross-frame links (aggregated bundles between title-bar ports) ────────────
+// Bundles depend on frame geometry only (render / frame move / resize); the
+// hovered node's individual links depend on the hover id and node positions.
+// The pair aggregation and the per-node index are cached per render.
 function updateCrossLinks() {
   if (!state.frames || !usesFrames()) {
     linkG.selectAll('line.cross-bundle').remove();
     linkG.selectAll('line.cross-hover').remove();
+    __fr.hoverDrawn = false;
     return;
   }
   const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
-  const { bundles, individual } = buildCrossLinks({
-    cross: __fr.cross || [],
-    frameOfId: id => { const n = __fr.byId.get(id); return n ? n._frame : null; },
-    frameAt: p => {
-      const f = state.frames.byPath.get(p);
-      if (!f) { return null; }
-      const titleRect = f.kind === 'root'
-        ? { x: f.abs.x, y: f.abs.y, w: f.abs.w, h: 0 }
-        : titleBarRect(f);
-      return { abs: f.abs, titleRect };
-    },
-    absPosOf: id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; },
-    hoverId: state._frameHoverId ?? null,
-  });
+  updateCrossBundles();
+  updateCrossHover();
+  if (__perfT0) { perfEnd('updateCrossLinks', __perfT0); }
+}
+
+function crossCaches() {
+  const cross = __fr.cross || [];
+  if (__fr.crossFor !== cross) {
+    __fr.crossFor = cross;
+    __fr.crossAgg = aggregateCrossPairs(cross, crossFrameOfId);
+    __fr.crossByNode = indexCrossByNode(cross);
+  }
+  return __fr;
+}
+
+function crossFrameOfId(id) {
+  const n = __fr.byId.get(id);
+  return n ? n._frame : null;
+}
+
+function crossFrameAt(p) {
+  const f = state.frames.byPath.get(p);
+  if (!f) { return null; }
+  const titleRect = f.kind === 'root'
+    ? { x: f.abs.x, y: f.abs.y, w: f.abs.w, h: 0 }
+    : titleBarRect(f);
+  return { abs: f.abs, titleRect };
+}
+
+function updateCrossBundles() {
+  const bundles = routeBundles(crossCaches().crossAgg, crossFrameAt);
   const linkDefault = getCSSVar('--cograph-link-default');
   linkG.selectAll('line.cross-bundle').data(bundles, d => d.key).join('line')
     .attr('class', 'cross-bundle')
@@ -418,6 +496,17 @@ function updateCrossLinks() {
       if (!t) { t = document.createElementNS('http://www.w3.org/2000/svg', 'title'); this.appendChild(t); }
       t.textContent = d.pending ? `${d.count}+ calls (parsing…)` : `${d.count} calls`;
     });
+}
+
+/** The hovered node's individual cross links — O(degree) via the node index. */
+function updateCrossHover() {
+  if (!state.frames || !usesFrames()) { return; }
+  const hoverId = state._frameHoverId ?? null;
+  const touching = hoverId == null ? [] : (crossCaches().crossByNode.get(hoverId) || []);
+  const individual = individualLinksFor(touching, hoverId,
+    id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; });
+  if (!individual.length && !__fr.hoverDrawn) { return; }
+  __fr.hoverDrawn = individual.length > 0;
   linkG.selectAll('line.cross-hover').data(individual).join('line')
     .attr('class', 'cross-hover')
     .attr('stroke', getCSSVar('--cograph-link-hover'))
@@ -426,7 +515,6 @@ function updateCrossLinks() {
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
     .attr('x1', d => d.x1).attr('y1', d => d.y1)
     .attr('x2', d => d.x2).attr('y2', d => d.y2);
-  if (__perfT0) { perfEnd('updateCrossLinks', __perfT0); }
 }
 
 // ── Teardown (leaving the frames engine / drill-down) ─────────────────────────
@@ -713,11 +801,12 @@ function applyFrameDisplaySettings() {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    usesFrames, renderFrameLayout, tickFrames, tickFrame, teardownFrames,
-    resetFrames, updateCrossLinks, syncFrameSims, applySimResult, applySimData,
+    usesFrames, renderFrameLayout, tickFrames, tickFrame, tickFrameChrome,
+    tickFramePositions, tickFrameOfNode, teardownFrames,
+    resetFrames, updateCrossLinks, updateCrossBundles, updateCrossHover, syncFrameSims, applySimResult, applySimData,
     applyPendingLayout, migrateV1IntoFrames, setFrameSliderNoops,
     applyFrameDisplaySettings, createFrameResizeDrag,
-    slotSignature, slotColor, slotBasename, renderFrameSlots,
+    slotSignature, slotColor, slotBasename, renderFrameSlots, sameSlotGeometry,
     placeMembersInSlots,
   };
 }

@@ -101,10 +101,27 @@ function setLayoutEngine(engine) {
 updateLayoutButtons(); // boot config may differ from the HTML's active buttons
 
 // ── Filters ───────────────────────────────────────────────────────────────────
+// Memoised (visibility.js): tick paths call this 1-2× per simulation tick, so
+// the O(N) scan only re-runs when the query, a filter setting, the folder
+// filters or the node list actually changed. A timeline predicate carries
+// hidden state → bypasses the memo.
+const __visMemo = (typeof createVisibleMemo === 'function') ? createVisibleMemo() : null;
+let __searchEl;
 function getVisibleNodeIds() {
-  if (typeof perfCount === 'function') { perfCount('getVisibleNodeIds'); }
-  const query = document.getElementById('search')?.value.toLowerCase() ?? '';
+  if (__searchEl === undefined) { __searchEl = document.getElementById('search'); }
+  const query = __searchEl?.value.toLowerCase() ?? '';
   const tlPredicate = state.timeline?.filterPredicate;
+  if (!__visMemo) { return computeVisibleNodeIds(query, tlPredicate); }
+  return __visMemo.get({
+    query, volatile: !!tlPredicate,
+    showLibraries: settings.showLibraries, existingFilesOnly: settings.existingFilesOnly,
+    showOrphans: settings.showOrphans, nodes: state.currentNodes, connected: state.connectedNodeIds,
+    onlyShowFolder: state.onlyShowFolder, hiddenFolders: state.hiddenFolders,
+  }, () => computeVisibleNodeIds(query, tlPredicate));
+}
+
+function computeVisibleNodeIds(query, tlPredicate) {
+  if (typeof perfCount === 'function') { perfCount('getVisibleNodeIds'); }
   const visible = new Set();
   state.currentNodes.forEach(n => {
     if (n.isLibrary) {
@@ -138,10 +155,39 @@ function getVisibleNodeIds() {
   return visible;
 }
 
+// Bursts (key repeat, timeline frames) collapse to one pass per animation
+// frame; a single call still applies synchronously. Only elements whose
+// visibility flipped are written (visibility.js).
+const __filterGate = (typeof createBurstGate === 'function')
+  ? createBurstGate(typeof requestAnimationFrame === 'function' ? (cb) => requestAnimationFrame(cb) : null)
+  : null;
+const __filterApplier = (typeof createFilterApplier === 'function') ? createFilterApplier() : null;
+
 function applyFilters() {
+  if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
+  if (__filterGate) { __filterGate.run(applyFiltersNow); } else { applyFiltersNow(); }
+}
+
+function applyFiltersNow() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
   const __t0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
   const visibleSet = getVisibleNodeIds();
+  if (__filterApplier) {
+    __filterApplier.apply({
+      nodes: [state.svgNodes, state.svgCloudNodes, state.svgLabels, state.svgLibNodes, state.svgLibLabels],
+      links: state.svgLinks,
+    }, visibleSet);
+  } else {
+    applyFiltersFull(visibleSet);
+  }
+
+  if (typeof tickFolderOverlay === 'function') tickFolderOverlay();
+  if (typeof tickClassOverlay === 'function') tickClassOverlay(visibleSet);
+  if (typeof updateSearchCount === 'function') updateSearchCount(visibleSet);
+  if (__t0) { perfEnd('applyFilters', __t0); }
+}
+
+function applyFiltersFull(visibleSet) {
   state.svgNodes.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgCloudNodes?.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgLabels.style('display', d => visibleSet.has(d.id) ? null : 'none');
@@ -152,15 +198,8 @@ function applyFilters() {
     const tgt = d.target?.id ?? d.target;
     return (visibleSet.has(src) && visibleSet.has(tgt)) ? null : 'none';
   });
-
-  if (typeof tickFolderOverlay === 'function') tickFolderOverlay();
-  if (typeof tickClassOverlay === 'function') tickClassOverlay();
-  if (typeof updateSearchCount === 'function') updateSearchCount(visibleSet);
-  if (typeof usesFrames === 'function' && usesFrames()) { tickFrames(); }
-  if (__t0) { perfEnd('applyFilters', __t0); }
 }
 
-// ── Display settings ──────────────────────────────────────────────────────────
 function applyDisplaySettings() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
   state.svgNodes

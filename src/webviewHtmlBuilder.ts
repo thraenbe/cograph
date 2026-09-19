@@ -176,6 +176,9 @@ export function getWebviewHtml(
   const controlsUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'controls.js'));
   const timelineUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'timeline.js'));
   const perfUri      = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'perf.js'));
+  const hotCacheUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hotCache.js'));
+  const hoverIndexUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverIndex.js'));
+  const visibilityUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'visibility.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
 
@@ -440,6 +443,9 @@ export function getWebviewHtml(
   <script nonce="${nonce}">window.COGRAPH_CONFIG = ${JSON.stringify(bootConfig)};</script>
   <script nonce="${nonce}" src="${stateUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${perfUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${hotCacheUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${hoverIndexUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${visibilityUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${aggregateUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${clusteringUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${workflowUri}?v=${nonce}"></script>

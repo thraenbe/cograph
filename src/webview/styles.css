@@ -1273,3 +1273,12 @@ body.vscode-light {
 
 /* Sliders without effect under the frames layout engine */
 .is-noop { opacity: 0.4; }
+
+/* ── perf: hover + LOD (session perf) ─────────────────────────────────────────
+   Toggled by hoverIndex.js: one class on the root <g> dims every link, the
+   hovered node's own links carry .cg-hl. Replaces per-link attribute passes. */
+#graph g.cg-hovering g.links > line:not(.cg-hl):not(.cross-bundle):not(.cross-hover),
+#graph g.cg-hovering g.f-links > line:not(.cg-hl) { opacity: 0.15; }
+#graph g.cg-hovering line.cg-hl { stroke: var(--cograph-link-hover); opacity: 1; }
+#graph g.cg-hovering line.cg-hl.cg-hl-w { stroke-width: var(--cg-hl-width, 1.5); }
+/* ── /perf ── */

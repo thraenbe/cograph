@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timings in the `[perf]` report. Dev-only `npm run perf:bench` measures the real
   webview page in headless Chrome (`scripts/perf/`).
 
+### Changed
+- **Interaction cost no longer grows with graph size.** Hovering a node highlights only
+  its own links (was three passes over every link: 33 ms → 0.2 ms at 3 000 nodes,
+  100 ms → 0.5 ms at 10 000); dragging a node re-draws only its own folder frame
+  (53 ms → 0.1 ms per mouse move, 60 fps while dragging); typing in the search box
+  touches only the elements whose visibility flipped (78 ms → 10 ms); zooming no longer
+  rewrites every label's opacity. Cross-folder bundles are re-routed only when a frame
+  moves, and theme colours are read once per render instead of once per element.
+
 ### Fixed
 - Collapsing a folder whose descendants were still individually expanded could feed
   the renderer edges pointing at nodes that were never drawn (a d3 "node not found"

@@ -77,8 +77,13 @@ svg.on('dblclick', (event) => {
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function getCSSVar(name) {
+function readCSSVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+// Memoised (hotCache.js): it is called from per-element d3 accessors. Dropped
+// on theme changes and at every render start.
+function getCSSVar(name) {
+  return (typeof cssVarCached === 'function') ? cssVarCached(name, readCSSVar) : readCSSVar(name);
 }
 
 function nodeRadius(d) {
@@ -203,9 +208,17 @@ function resolveClusterFill(d) {
   return getCSSVar('--cograph-node-cluster');
 }
 
+// Runs on every zoom event: only rewrite label opacity when the fade threshold
+// is actually crossed (or a render swapped the label selections).
+const __textVis = { opacity: null, labels: null, libLabels: null };
 function updateTextVisibility() {
   if (!state.svgLabels) return;
   const opacity = state.currentZoom >= settings.textFadeThreshold ? 1 : 0;
+  if (__textVis.opacity === opacity && __textVis.labels === state.svgLabels
+      && __textVis.libLabels === (state.svgLibLabels ?? null)) { return; }
+  __textVis.opacity = opacity;
+  __textVis.labels = state.svgLabels;
+  __textVis.libLabels = state.svgLibLabels ?? null;
   state.svgLabels.style('opacity', opacity);
   state.svgLibLabels?.style('opacity', opacity);
 }
@@ -246,7 +259,7 @@ const drag = d3.drag()
       // Simulation not driving this node — sync x/y directly so ticked() renders correctly
       d.x = event.x;
       d.y = event.y;
-      ticked();
+      ticked(d);
     }
     __pe('drag:move', __t0);
   })
@@ -264,8 +277,13 @@ const drag = d3.drag()
 // changes) coalesce into one animation frame; d3's own timer already ticks at
 // most once per frame, so small graphs keep the synchronous path.
 let __tickPending = false;
-function ticked() {
-  if (typeof usesFrames === 'function' && usesFrames()) { tickFrames(); return; }
+function ticked(movedNode) {
+  if (typeof usesFrames === 'function' && usesFrames()) {
+    // A node drag only moves its own frame's members (frameRender fast path).
+    if (movedNode && typeof tickFrameOfNode === 'function') { tickFrameOfNode(movedNode); }
+    else { tickFrames(); }
+    return;
+  }
   if (!isBigGraph()) { tickedNow(); return; }
   if (__tickPending) { return; }
   __tickPending = true;
@@ -336,28 +354,42 @@ function __pb() { return (typeof perfBegin === 'function') ? perfBegin() : 0; }
 function __pe(name, t0) { if (t0) { perfEnd(name, t0); } }
 
 // ── Node event handlers ───────────────────────────────────────────────────────
+// Link highlighting is O(degree): hoverIndex.js toggles one class on the root
+// <g> (dims every link via CSS) plus a class on the hovered node's own links.
+const __hover = (typeof createHoverIndex === 'function') ? createHoverIndex() : null;
+
+function hoverLinksOn(d, hlWidth) {
+  if (!__hover) { return; }
+  __hover.sync(state.svgLinks, state.svgLabels);
+  __hover.highlight(g.node(), d.id, hlWidth);
+}
+
+function hoverLinksOff() {
+  if (__hover) { __hover.clear(); }
+}
+
+function hoverLabelSel(d) {
+  const el = __hover ? __hover.labelOf(d.id) : null;
+  return el ? d3.select(el) : null;
+}
+
+function hoverCrossLinks(id) {
+  if (id != null && !(typeof usesFrames === 'function' && usesFrames())) { return; }
+  if (id == null && !state._frameHoverId) { return; }
+  state._frameHoverId = id;
+  if (typeof updateCrossHover === 'function') { updateCrossHover(); }
+}
+
 function onNodeMouseOver(event, d) {
   const __t0 = __pb();
-  if (typeof usesFrames === 'function' && usesFrames()) {
-    state._frameHoverId = d.id;
-    if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
-  }
+  hoverCrossLinks(d.id);
   d3.select(event.currentTarget)
     .style('fill', getCSSVar('--cograph-node-hover'))
     .attr('r', nodeRadius(d) * 1.15)
     .attr('filter', 'url(#glow-hover)');
-  const linkHover   = getCSSVar('--cograph-link-hover');
-  const linkLibrary = getCSSVar('--cograph-link-library');
-  const linkDefault = getCSSVar('--cograph-link-default');
-  state.svgLinks
-    ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-      ? linkHover : l.isLibraryEdge ? linkLibrary : linkDefault)
-    .attr('stroke-width', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-      ? Math.max(1.5, settings.linkThickness) : settings.linkThickness)
-    .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-      ? 1 : 0.15);
-  state.svgLabels?.filter(l => l.id === d.id)
-    .style('opacity', 1)
+  hoverLinksOn(d, Math.max(1.5, settings.linkThickness));
+  hoverLabelSel(d)
+    ?.style('opacity', 1)
     .attr('font-size', `${11.5 * settings.textSize}px`)
     .attr('fill', getCSSVar('--cograph-label-hover'));
   __pe('hover:over', __t0);
@@ -365,50 +397,30 @@ function onNodeMouseOver(event, d) {
 
 function onNodeMouseOut(event, d) {
   const __t0 = __pb();
-  if (state._frameHoverId) {
-    state._frameHoverId = null;
-    if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
-  }
+  hoverCrossLinks(null);
   d3.select(event.currentTarget)
     .style('fill', resolveNodeFill(d))
     .attr('r', nodeRadius(d))
     .attr('filter', glowAttr());
-  const linkLibrary = getCSSVar('--cograph-link-library');
-  const linkDefault = getCSSVar('--cograph-link-default');
-  state.svgLinks
-    ?.attr('stroke', l => l.isLibraryEdge ? linkLibrary : linkDefault)
-    .attr('stroke-width', settings.linkThickness)
-    .attr('opacity', linkRestOpacity());
-  state.svgLabels?.filter(l => l.id === d.id)
-    .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
-    .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
+  hoverLinksOff();
+  hoverLabelSel(d)
+    ?.style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
+    .attr('font-size', `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
     .attr('fill', (d.isCluster || d.isSynthetic) ? getCSSVar('--cograph-label-cluster') : getCSSVar('--cograph-label-default'));
   __pe('hover:out', __t0);
 }
 
 function onCloudMouseOver(event, d) {
   const __t0 = __pb();
-  if (typeof usesFrames === 'function' && usesFrames()) {
-    state._frameHoverId = d.id;
-    if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
-  }
+  hoverCrossLinks(d.id);
   d3.select(event.currentTarget)
     .style('fill', getCSSVar('--cograph-node-hover'))
     .attr('filter', 'url(#glow-hover)')
     .transition().duration(120)
     .attr('d', generateNodeShapePath(d, nodeRadius(d) * 1.15));
-  const linkHover   = getCSSVar('--cograph-link-hover');
-  const linkLibrary = getCSSVar('--cograph-link-library');
-  const linkDefault = getCSSVar('--cograph-link-default');
-  state.svgLinks
-    ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-      ? linkHover : l.isLibraryEdge ? linkLibrary : linkDefault)
-    .attr('stroke-width', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-      ? Math.max(1.5, settings.linkThickness) : settings.linkThickness)
-    .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-      ? 1 : 0.15);
-  state.svgLabels?.filter(l => l.id === d.id)
-    .style('opacity', 1)
+  hoverLinksOn(d, Math.max(1.5, settings.linkThickness));
+  hoverLabelSel(d)
+    ?.style('opacity', 1)
     .attr('font-size', `${11.5 * settings.textSize}px`)
     .attr('fill', getCSSVar('--cograph-label-hover'));
   __pe('hover:over', __t0);
@@ -416,24 +428,16 @@ function onCloudMouseOver(event, d) {
 
 function onCloudMouseOut(event, d) {
   const __t0 = __pb();
-  if (state._frameHoverId) {
-    state._frameHoverId = null;
-    if (typeof updateCrossLinks === 'function') { updateCrossLinks(); }
-  }
+  hoverCrossLinks(null);
   d3.select(event.currentTarget)
     .style('fill', resolveClusterFill(d))
     .attr('filter', glowAttr())
     .transition().duration(120)
     .attr('d', generateNodeShapePath(d, nodeRadius(d)));
-  const linkLibrary = getCSSVar('--cograph-link-library');
-  const linkDefault = getCSSVar('--cograph-link-default');
-  state.svgLinks
-    ?.attr('stroke', l => l.isLibraryEdge ? linkLibrary : linkDefault)
-    .attr('stroke-width', settings.linkThickness)
-    .attr('opacity', linkRestOpacity());
-  state.svgLabels?.filter(l => l.id === d.id)
-    .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
-    .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
+  hoverLinksOff();
+  hoverLabelSel(d)
+    ?.style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
+    .attr('font-size', `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
     .attr('fill', getCSSVar('--cograph-label-cluster'));
   __pe('hover:out', __t0);
 }
@@ -601,6 +605,10 @@ function renderLabels(visibleSet, nodes = state.currentNodes, parent = labelG) {
     .join('text')
     .each(function (d) {
       // Folder/file glyphs carry a dim second line with the count (e.g. "23 files").
+      // Rebuilt only when the text changed — not on every re-render.
+      const sig = `${d.label}\n${d._sub || ''}`;
+      if (this.__labelSig === sig) { return; }
+      this.__labelSig = sig;
       const t = d3.select(this);
       t.selectAll('tspan').remove();
       t.append('tspan').text(d.label);
@@ -777,22 +785,11 @@ function renderLibraryNodes(libNodeData, visibleSet) {
     })
     .on('mouseover', (event, d) => {
       d3.select(event.currentTarget).attr('fill', getCSSVar('--cograph-node-hover'));
-      const linkHover   = getCSSVar('--cograph-link-hover');
-      const linkLibrary = getCSSVar('--cograph-link-library');
-      const linkDefault = getCSSVar('--cograph-link-default');
-      state.svgLinks
-        ?.attr('stroke', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-          ? linkHover : l.isLibraryEdge ? linkLibrary : linkDefault)
-        .attr('opacity', l => (l.source?.id ?? l.source) === d.id || (l.target?.id ?? l.target) === d.id
-          ? 1 : 0.15);
+      hoverLinksOn(d, null); // library hover recolours + dims, widths stay
     })
-    .on('mouseout', (event, d) => {
+    .on('mouseout', (event) => {
       d3.select(event.currentTarget).attr('fill', getCSSVar('--cograph-node-library'));
-      const linkLibrary = getCSSVar('--cograph-link-library');
-      const linkDefault = getCSSVar('--cograph-link-default');
-      state.svgLinks
-        ?.attr('stroke', l => l.isLibraryEdge ? linkLibrary : linkDefault)
-        .attr('opacity', 0.7);
+      hoverLinksOff();
     });
 }
 
@@ -811,6 +808,7 @@ function renderLibraryLabels(libNodeData, visibleSet) {
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderElements(elements, positionHints = new Map()) {
   if (typeof perfMark === 'function') { perfMark('render:start'); }
+  if (typeof invalidateCssVars === 'function') { invalidateCssVars(); }
   const { allLinks, visibleSet } = prepareRenderData(elements, positionHints);
   if (typeof usesFrames === 'function' && usesFrames()) {
     renderFrameLayout(allLinks, visibleSet);

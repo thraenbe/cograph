@@ -1,7 +1,7 @@
 # Task — Feature 1: Performance (workers, render hot paths, extension host)
 
 Planner: session `perf` (worktree s180, branch `termi/s180`, base `shelf-base` 9eda4c8).
-Date: 2026-09-18. Status: **PLAN — awaiting approval, no feature code written.**
+Date: 2026-09-18. Status: **APPROVED 2026-09-18 (D1 yes, D2 snap, D3 W0+W1+W2+W3+W5[1-5,7], D4 yes, D5 auto) — executor phase; results log at the end.**
 
 ## Problem
 
@@ -358,3 +358,41 @@ frame; 4 open frames settled ≤ 1 s, expand-all settled ≤ 5 s; hover ≤ 3 ms
 ≤ 3 ms; keystroke ≤ 25 ms; expand-all to-paint ≤ 800 ms (from 1 256); pan/zoom ≥ 30 fps
 in-editor at fit-to-view with LOD, ≥ 55 fps zoomed in with culling — otherwise the W3b
 Canvas gate fires. Global@10k (W4): main thread ≤ 6 ms/frame while the worker settles.
+
+## Results log (executor phase)
+
+### W0 — instrumentation + bench (commit 5c68e59, 2026-09-18)
+`npm run perf:bench` reproduces the Step-0 baseline within noise (3k shelf+dynamic: 9.1 ms
+script/frame, drag 61 ms, hover 52/33 ms, keystroke 82 ms). `[perf]` reports under shelf now
+carry tick / frame / settle samples. In-editor calibration pass still open (needs a display
+session with F5; headless numbers are used meanwhile).
+
+### W1 — main-thread hot paths (2026-09-19) — headless Chrome 153, p50 unless noted
+| Metric | Fixture | Before | After |
+|---|---|---|---|
+| Hover over / out handler | 3k | 32.7 / 31.7 ms | **0.2 / 0.1 ms** |
+| | 10k static | 103 / 98 ms | **0.5 / 0.4 ms** |
+| | fmt static | 51 / 51 ms | **0.3 / 0.3 ms** |
+| Drag handler per mousemove (p50 / p95) | 3k dynamic | 53 / 131 ms | **0.1 / 0.3 ms** |
+| | 10k static | 127 / 196 ms | **0.1 / 0.2 ms** |
+| | fmt static | 77 / 136 ms | **0.2 / 0.3 ms** |
+| Drag: frame interval while dragging | 3k static | 150 ms (≈ 7 fps) | **16.7 ms (60 fps)**, 1.2 ms script/frame |
+| Drag: frames until the DOM shows the move | all | 0 (sync, but 150 ms frames) | 1 (rAF-coalesced, same paint) |
+| Search keystroke (sync) | 3k dynamic / static | 78 / 98 ms | **9.7 / 14.8 ms** |
+| | 10k static | 276 ms | **33.6 ms** |
+| | fmt static | 110 ms | **14.4 ms** |
+| Zoom handler | 3k static / 10k static | 1.2 / 3.6 ms | **0.1 / 0.1 ms** |
+| Expand-all sync / to-paint | 3k dynamic | 280 / 523 ms | 161 / 374 ms |
+| Settle script per frame (4 frames) | 3k dynamic | 9.3 ms | 8.7 ms (unchanged — see note) |
+
+Notes: (1) the chrome split alone barely moves settle cost: of the ~9 ms per frame, ~3.5 ms
+is the 4 sims (200 nodes each ≈ 0.9 ms/tick in-browser) and ~5 ms the position writes for
+800 nodes + 2 500 links + labels — both only go away with W2 (sim off-thread, ~5 position
+paints per frame instead of 170). (2) Keystroke cost that remains is the full-pass fallback
+on the first character (> 25 % of nodes flip) + `getVisibleNodeIds`; subsequent narrowing
+keystrokes take the diff path. 10k target (≤ 25 ms) missed by 9 ms on that first character.
+(3) Pan/zoom fps unchanged (paint-bound) → W3. (4) Found, not fixed (not perf scope):
+`getCSSVar` reads `documentElement`, so the `body.vscode-light` overrides of the
+`--cograph-*` tokens never reach JS-set colours; the new CSS hover rule uses `var()` and
+therefore shows the correct light-theme hover colour.
+Tests: 777 passing (was 752), lint 0 errors.

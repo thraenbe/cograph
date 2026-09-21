@@ -7,7 +7,7 @@ import { openLab, type Lab, type LabOpts } from './lab';
 import { matrix, strict, type Combo } from './matrix';
 import { loadConfig, loadRepo, sizeClass } from './corpus';
 
-export interface ScenarioOpts extends Pick<LabOpts, 'hostMode' | 'timeline' | 'gitFixture' | 'theme'> {
+export interface ScenarioOpts extends Pick<LabOpts, 'hostMode' | 'timeline' | 'gitFixture' | 'theme' | 'annotations'> {
   perEngine?: boolean;          // false → run once per repo on the first selected engine
   perMotion?: boolean;
   largeOk?: boolean;            // run on 'large' repos too (default: only smoke-class scenarios do)
@@ -32,7 +32,7 @@ export function scenario(name: string, opts: ScenarioOpts, body: ScenarioBody): 
       test.skip(repo.functions === 0, `${c.repo}: analyzers produced no functions`);
       test.skip(!opts.largeOk && sizeClass(repo.functions) === 'large', `${c.repo}: large repo, scenario not marked largeOk`);
       const lab = await openLab({ ...c, repo, scenario: name, browser, hostMode: opts.hostMode, timeline: opts.timeline,
-        gitFixture: opts.gitFixture, theme: opts.theme });
+        gitFixture: opts.gitFixture, theme: opts.theme, annotations: opts.annotations });
       try { await body(lab, c); }
       finally {
         const run = await lab.close();

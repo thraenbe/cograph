@@ -1,7 +1,7 @@
 // Deterministic host-side fixtures derived from an analyzed repo: workflow
 // metadata, timeline history, and a legacy (v1) saved layout.
 import type { AnalyzedRepo } from './analyze';
-import type { GraphLite, GraphNodeLite } from '../harness/fakeHost';
+import type { AnnotationsFixture, GraphLite, GraphNodeLite } from '../harness/fakeHost';
 
 const fns = (repo: AnalyzedRepo): GraphNodeLite[] => repo.graph.nodes.filter(n => !n.isLibrary && n.file);
 
@@ -47,4 +47,29 @@ export function gitFixture(repo: AnalyzedRepo): { gitAvailable: boolean; fileGit
   const fileGitStatus: Record<string, unknown> = {};
   files.forEach((f, i) => { fileGitStatus[f] = { unstaged: i % 2 === 0 ? 'modified' : 'added', staged: null }; });
   return { gitAvailable: true, fileGitStatus };
+}
+
+const posix = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '');
+const relTo = (root: string, abs: string): string => (posix(abs) === posix(root) ? '.' : posix(abs).startsWith(posix(root) + '/') ? posix(abs).slice(posix(root).length + 1) : posix(abs));
+
+/** What the real host answers to `get-annotations`: summaries for the biggest folder and two
+ *  of its files, one of them stale. AI stays OFF — these are canned strings, nothing is generated. */
+export function annotationsFixture(repo: AnalyzedRepo): AnnotationsFixture & { folderRel: string; fileRel: string; staleRel: string } {
+  const byDir = new Map<string, string[]>();
+  for (const n of fns(repo)) {
+    const file = posix(n.file as string), dir = file.slice(0, file.lastIndexOf('/'));
+    const list = byDir.get(dir) ?? [];
+    if (!list.includes(file)) { list.push(file); }
+    byDir.set(dir, list);
+  }
+  // The root frame has no grabbable header, so annotate the biggest folder below it.
+  const [dir, files] = [...byDir.entries()].filter(([d]) => d !== posix(repo.root))
+    .sort((a, b) => b[1].length - a[1].length || b[0].split('/').length - a[0].split('/').length)[0] ?? ['', []]; // ties → deepest (leaf headers are never covered)
+  const folderRel = relTo(repo.root, dir), fileRel = relTo(repo.root, files[0] ?? ''), staleRel = relTo(repo.root, files[1] ?? files[0] ?? '');
+  return {
+    root: repo.root, aiEnabled: false, folderRel, fileRel, staleRel,
+    folders: { [folderRel]: { summary: 'uxtest: canned folder summary.', role: 'core' } },
+    files: { [fileRel]: { summary: 'uxtest: canned file summary.', role: 'module' }, [staleRel]: { summary: 'uxtest: canned but outdated summary.' } },
+    stale: [staleRel],
+  };
 }

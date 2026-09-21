@@ -86,7 +86,13 @@ export const SEL = {
   // popups
   libPopup: { css: '#lib-doc-popup' },
   libPopupClose: { css: '#lib-doc-close' },
-  hoverCard: { css: '.hover-card', optional: true, note: 'annotate: hoverCard.js' },
+  hoverCard: { css: '.hover-card', optional: true, note: 'annotate: hoverCard.js (element exists from load; .visible while shown)' },
+  hoverCardVisible: { css: '.hover-card.visible', optional: true, note: 'annotate' },
+  hoverCardName: { css: '.hover-card .hc-name', optional: true, note: 'annotate' },
+  hoverCardPath: { css: '.hover-card .hc-path', optional: true, note: 'annotate' },
+  hoverCardFacts: { css: '.hover-card .hc-facts', optional: true, note: 'annotate' },
+  hoverCardSummary: { css: '.hover-card .hc-summary', optional: true, note: 'annotate' },
+  hoverCardBadge: { css: '.hover-card .hc-badge', optional: true, note: 'annotate: stale badge, hidden via display:none' },
 
   // timeline transport (timeline HTML only)
   tlPlay: { css: '#btn-timeline-play' },
@@ -100,4 +106,4 @@ export type SelName = keyof typeof SEL;
 /** Selectors only present in the timeline variant of the HTML. */
 export const TIMELINE_ONLY: SelName[] = ['tlPlay', 'tlReset', 'tlPos', 'tlSpeed'];
 /** Selectors created at runtime by the renderer (absent from the static HTML). */
-export const RUNTIME_ONLY: SelName[] = ['svg', 'frame', 'frameTitle', 'frameTab', 'fileSlot', 'fnNode', 'clusterNode', 'ctxMenuItems', 'hoverCard'];
+export const RUNTIME_ONLY: SelName[] = ['svg', 'frame', 'frameTitle', 'frameTab', 'fileSlot', 'fnNode', 'clusterNode', 'ctxMenuItems', 'hoverCard', 'hoverCardVisible', 'hoverCardName', 'hoverCardPath', 'hoverCardFacts', 'hoverCardSummary', 'hoverCardBadge'];

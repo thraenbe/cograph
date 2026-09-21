@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { startServer, type LabServer } from '../harness/server';
-import { FakeHost, type HostMode, type LoggedMessage } from '../harness/fakeHost';
+import { FakeHost, type AnnotationsFixture, type HostMode, type LoggedMessage } from '../harness/fakeHost';
 import { attachHost, postToWebview } from '../harness/hostBridge';
 import { REPO_ROOT } from '../harness/vscodeStub';
 import { loadConfig, loadRepo, sizeClass, type UxConfig } from './corpus';
@@ -29,6 +29,7 @@ export interface LabOpts {
   theme?: ThemeKind;
   timeline?: boolean;
   gitFixture?: { gitAvailable: boolean; fileGitStatus: Record<string, unknown> };
+  annotations?: AnnotationsFixture | ((repo: AnalyzedRepo) => AnnotationsFixture);
   outDir?: string;                      // default uxtest/artifacts/<runId>/<repo>/<scenario>-<engine>-<motion>
   keepSnapshots?: boolean;              // default true
 }
@@ -99,7 +100,8 @@ export async function openLab(o: LabOpts): Promise<Lab> {
   page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error') { errors.push(`console.error: ${m.text()}`); } });
 
-  const host = new FakeHost({ graph: repo.graph, structure: repo.structure, mode: o.hostMode ?? 'eager', ...(o.gitFixture ?? {}) });
+  const host = new FakeHost({ graph: repo.graph, structure: repo.structure, mode: o.hostMode ?? 'eager', ...(o.gitFixture ?? {}),
+    annotations: typeof o.annotations === 'function' ? o.annotations(repo) : o.annotations });
   await wireNetwork(page, server.origin, blocked);
   await attachTheme(page, o.theme ?? 'dark');
   await attachOverlay(page);

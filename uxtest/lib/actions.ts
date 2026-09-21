@@ -68,6 +68,11 @@ function locateNodeInPage(q: NodePick): { x: number; y: number; id: string; labe
   if (!best) { return null; }
   const hit = best as { el: Element; d: any };
   const r = hit.el.getBoundingClientRect();
+  // Glyphs are not convex (folder silhouette with a tab): pick a point that really hits the element.
+  for (const [fx, fy] of [[0.5, 0.5], [0.5, 0.65], [0.35, 0.6], [0.65, 0.6], [0.5, 0.35], [0.3, 0.3]]) {
+    const x = r.left + r.width * fx, y = r.top + r.height * fy;
+    if (document.elementFromPoint(x, y) === hit.el) { return { x, y, id: String(hit.d.id), label: String(hit.d.name ?? hit.d.label ?? hit.d.id) }; }
+  }
   return { x: r.left + r.width / 2, y: r.top + r.height / 2, id: String(hit.d.id), label: String(hit.d.name ?? hit.d.label ?? hit.d.id) };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -206,7 +211,8 @@ export interface FrameHit { path: string; title: Point; rect: { x: number; y: nu
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /** Runs in the page. A folder box whose title strip is fully on screen: a shelf frame
  *  (g.frame, not the root) or a drill-down box of the global engine (g.folder-bubble). */
-function locateFrameInPage(pick: 'smallest' | 'largest'): { hit: FrameHit | null; why: Record<string, number> } {
+function locateFrameInPage(q: { pick: 'smallest' | 'largest'; pathSuffix?: string }): { hit: FrameHit | null; why: Record<string, number> } {
+  const pick = q.pick;
   let best: FrameHit | null = null, bestArea = 0;
   const why: Record<string, number> = { groups: 0, root: 0, noGrip: 0, tooSmall: 0, offscreen: 0, covered: 0 };
   document.querySelectorAll('#graph g.frame, #graph g.folder-bubble').forEach((grp) => {
@@ -214,6 +220,7 @@ function locateFrameInPage(pick: 'smallest' | 'largest'): { hit: FrameHit | null
     const d = (grp as any).__data__;
     const path = d ? String(d.path ?? d.folderPath ?? '') : '';
     if (!path || (d && d.kind === 'root')) { why.root++; return; }
+    if (q.pathSuffix && !path.replace(/\\/g, '/').endsWith(q.pathSuffix)) { why.otherPath = (why.otherPath ?? 0) + 1; return; }
     const shape = grp.querySelector(':scope > .folder-bubble-shape');
     const grip = grp.querySelector(':scope > .frame-tab, :scope > .folder-bubble-titlebar');
     if (!shape || !grip) { why.noGrip++; return; }
@@ -222,9 +229,14 @@ function locateFrameInPage(pick: 'smallest' | 'largest'): { hit: FrameHit | null
     // Only the part of the title strip right of the left toolbar and above the caption is grabbable.
     const vl = Math.max(t.left, 215), vr = Math.min(t.right, window.innerWidth - 10);
     if (vr - vl < 30 || t.top < 0 || t.bottom > window.innerHeight - 40) { why.offscreen++; return; }
-    const title = { x: vl + Math.min((vr - vl) / 2, 60), y: t.top + t.height / 2 };
-    const top = document.elementFromPoint(title.x, title.y);
-    if (!top || !grp.contains(top)) { why.covered++; return; } // under a panel or another frame
+    // Child frames, tabs and labels can sit on top of parts of the strip: probe along it.
+    let title: { x: number; y: number } | null = null;
+    for (const fx of [0.5, 0.25, 0.75, 0.1, 0.9]) {
+      const cand = { x: vl + (vr - vl) * fx, y: t.top + t.height / 2 };
+      const top = document.elementFromPoint(cand.x, cand.y);
+      if (top && grp.contains(top)) { title = cand; break; }
+    }
+    if (!title) { why.covered++; return; }
     const area = r.width * r.height;
     if (!best || (pick === 'largest' ? area > bestArea : area < bestArea)) {
       best = { path, title, rect: { x: r.left, y: r.top, w: r.width, h: r.height } }; bestArea = area;
@@ -234,13 +246,13 @@ function locateFrameInPage(pick: 'smallest' | 'largest'): { hit: FrameHit | null
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export async function locateFrame(page: Page, pick: 'smallest' | 'largest' = 'smallest'): Promise<FrameHit> {
+export async function locateFrame(page: Page, pick: 'smallest' | 'largest' = 'smallest', pathSuffix?: string): Promise<FrameHit> {
   let why: Record<string, number> = {};
   for (let attempt = 0; attempt < 15; attempt++) {
-    const res = await page.evaluate(locateFrameInPage, pick);
+    const res = await page.evaluate(locateFrameInPage, { pick, pathSuffix });
     if (res.hit) { return res.hit; }
     why = res.why;
     await page.waitForTimeout(100);
   }
-  throw new SkipStep(`no folder frame with a grabbable title on screen ${JSON.stringify(why)}`);
+  throw new SkipStep(`no folder frame${pathSuffix ? ` ending in "${pathSuffix}"` : ''} with a grabbable title on screen ${JSON.stringify(why)}`);
 }

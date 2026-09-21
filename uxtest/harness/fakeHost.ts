@@ -21,6 +21,15 @@ export interface FakeHostOpts {
   parseDelayMs?: number;
   gitAvailable?: boolean;
   fileGitStatus?: Record<string, unknown>;
+  /** Reply to `get-annotations` (annotate's hover card). Default: AI off, nothing annotated. */
+  annotations?: AnnotationsFixture;
+}
+
+export interface AnnotationsFixture {
+  root: string; aiEnabled: boolean;
+  files: Record<string, { summary?: string; role?: string }>;
+  folders: Record<string, { summary?: string; role?: string }>;
+  stale: string[];
 }
 
 const MAX_SOURCE_LINES = 60;
@@ -92,6 +101,8 @@ export class FakeHost {
       case 'save-graph':
         this.saved.push(msg);
         return [{ message: { type: 'clear-dirty' } }];
+      case 'get-annotations':
+        return [{ message: { type: 'annotations', ...(this.opts.annotations ?? { root: '', aiEnabled: false, files: {}, folders: {}, stale: [] }) } }];
       case 'cancel-analysis':
         return [{ message: { type: 'analysis-state', backgroundParsing: false, cancelled: true } }];
       default:

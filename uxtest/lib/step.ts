@@ -46,6 +46,12 @@ export interface RecorderDeps {
 /** Thrown by a scenario to mark a step as skipped (e.g. a selector the ux session removed). */
 export class SkipStep extends Error {}
 
+/** Thrown by a scenario when the PRODUCT misbehaves: the step is recorded with this finding and the
+ *  run goes on (observational policy); --strict turns high findings into failures. */
+export class StepFinding extends Error {
+  constructor(readonly finding: Finding) { super(finding.message); }
+}
+
 export function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'step';
 }
@@ -70,6 +76,7 @@ export class StepRecorder {
     this.steps.push(rec);
     const started = Date.now();
     let failure: unknown = null;
+    let reported: Finding | null = null;
     try {
       await setCaption(this.d.page, `${index}. ${name}`);
       const pre = this.d.target ? await this.d.target() : this.d.page;
@@ -77,6 +84,7 @@ export class StepRecorder {
       await action();
     } catch (err) {
       if (err instanceof SkipStep) { rec.status = 'skipped'; rec.note = err.message; }
+      else if (err instanceof StepFinding) { reported = err.finding; rec.note = err.message; }
       else { rec.status = 'failed'; rec.note = String((err as Error).message ?? err); failure = err; }
     }
     try { await this.measure(rec, base, opts); }
@@ -88,6 +96,7 @@ export class StepRecorder {
       rec.findings = findingsFor(rec.metrics, { engine: this.lastSnapshot.engine, motion: this.lastSnapshot.motion,
         settled: rec.still ? rec.still.settled : null, consoleErrors: rec.consoleErrors.length, longFrames: rec.fps?.longFrames ?? 0 });
     }
+    if (reported) { rec.findings.push(reported); }
     log.info('step', { index, name, status: rec.status, ms: rec.durationMs, settled: rec.still?.settled, findings: rec.findings.map(f => f.rule), note: rec.note });
     if (failure) { throw failure; }
     return rec;

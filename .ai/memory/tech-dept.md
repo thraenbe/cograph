@@ -118,3 +118,8 @@ reanalysis-scheduling path would re-load the gun. Fix shape: same captured
   (counter-scale the tab text/glyph against the zoom transform below a
   threshold). No action yet per orchestrator.
 
+- **2026-09-21 — Global never fully stills at defaults on click.** ~0.9 px/tick
+  residual jitter at alpha 0, driven by forceCollide (which ignores alpha) on a
+  dense layout — pre-existing, source of uxtest 'did-not-settle' findings.
+  Round-2 item (perf/layout tuning), measured during the F12 investigation.
+

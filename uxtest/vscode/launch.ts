@@ -113,6 +113,11 @@ export async function launchVsCode(repo: string, scenario: string, settings: Rec
       catch (err) { log.warn('video-save-failed', { error: String(err) }); }
     }
     const outputLog = collectOutputLog(userDataDir, outDir);
+    // The throw-away profile + repo copy were created by this launch; keep them only for debugging.
+    if (process.env.UXTEST_KEEP_TMP !== '1') {
+      try { fs.rmSync(tmp, { recursive: true, force: true }); }
+      catch (err) { log.warn('tmp-cleanup-failed', { tmp, error: String(err) }); }
+    }
     const run: VsCodeRun = { repo: name, scenario, tier: 'vscode', startedAt: startedAt.toISOString(), durationMs: Date.now() - startedAt.getTime(),
       video: videoRel, steps: ux.steps, outputLog, engine: 'vscode', motion: 'real', functions: 0, sizeClass: 'n/a', hostMode: 'real',
       hostLog: [], consoleErrors: errors, blockedRequests: [], perfReport };

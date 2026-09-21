@@ -83,6 +83,8 @@ function ensureFrameScheduler() {
       if (f) { syncPins(rec, frInnerOrigin(f), simApi()); }
     },
     onPauseChange: (paused) => { const a = simApi(); if (a.setPaused) { a.setPaused(paused); } },
+    // Frames on screen get the simulation slots first (W3 culling knows them).
+    prefer: (rec) => __cull.culler.isVisible(rec.path),
     // Nothing free to move (no members, or every member pinned): settle at once.
     isInert: (rec) => !rec.nodes.some(n => n.fx == null),
     // Per-step work touches ONLY the frames that ticked. File slots and
@@ -427,6 +429,9 @@ function tickFramePositions(path) {
   const f = state.frames && state.frames.byPath.get(path);
   const sub = __fr.frameSel.get(path);
   if (!f || !sub) { return; }
+  // Off-screen (culled) frames keep simulating into the node data, but their
+  // DOM is written once when they scroll back into view.
+  if (!__cull.culler.isVisible(path)) { __cull.stale.add(path); return; }
   const ox = f.abs.x, oy = f.abs.y;
   const dom = __fr.frameDom && __fr.frameDom.get(path);
   const circles = dom ? dom.circles : sub.select('g.f-nodes').selectAll('circle.regular-node');
@@ -489,9 +494,93 @@ function flushFramePositions() {
 function tickFrames() {
   if (!state.frames) { return; }
   const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
+  applyFrameCulling();            // render / frame move / resize change what is on screen
   for (const path of __fr.frameSel.keys()) { tickFrame(path); }
   updateCrossLinks();
   if (__perfT0) { perfEnd('tickFrames', __perfT0); }
+}
+
+// ── Viewport culling + level of detail (W3) ──────────────────────────────────
+// Pan/zoom is paint- and layout-bound (20k-65k SVG elements). Frames outside
+// the (padded) viewport and, below a zoom factor, whole layers — labels, then
+// intra-frame links, then the function nodes (a sub-2px node carries no
+// information; the coloured file slots remain) — are DETACHED from the document
+// (frameCull.js: display:none subtrees still cost Blink on every scale change).
+const FR_CULL_PAD_PX = 240;      // keep a margin so a pan does not pop frames in
+const FR_LOD_LINKS_AT = 0.4;
+const FR_LOD_NODES_AT = 0.3;
+// Below the links threshold only the strongest cross-folder bundles are drawn:
+// at fit-to-view 1 300 translucent viewport-spanning lines cost 45 ms per frame
+// (10k fixture: 16 → 50 fps without them) and read as a hairball anyway.
+const FR_LOD_MAX_BUNDLES = 200;
+const __cull = {
+  culler: (typeof createFrameCuller === 'function') ? createFrameCuller() : { update: () => ({ shown: [], hidden: [] }), isVisible: () => true, reset() {} },
+  dom: (typeof createDomCuller === 'function') ? createDomCuller() : null,
+  lod: (typeof createLod === 'function') ? createLod() : null,
+  want: { labels: true, links: true, nodes: true, slotLabels: true },
+  stale: new Set(),              // culled frames whose positions changed meanwhile
+  raf: 0,
+  frameSelFor: null,             // the frameSel map the culler state belongs to
+};
+
+/** Called by the zoom handler: at most one culling pass per animation frame. */
+function onFramesZoom() {
+  if (__cull.raf || typeof requestAnimationFrame !== 'function') { return; }
+  __cull.raf = requestAnimationFrame(() => { __cull.raf = 0; applyFrameCulling(); });
+}
+
+function applyFrameCulling() {
+  if (!state.frames || !usesFrames() || !__cull.dom || typeof viewportRect !== 'function') { return; }
+  const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
+  if (__cull.frameSelFor !== __fr.frameSel) {       // re-render: fresh, attached, full-detail <g>s
+    __cull.frameSelFor = __fr.frameSel;
+    __cull.culler.reset();
+    __cull.stale.clear();
+    __cull.dom.reset(frameG.node(), [...__fr.frameSel].map(([path, sel]) => [path, sel.node()]));
+  }
+  const svgEl = svg.node();
+  const t = d3.zoomTransform(svgEl);
+  const view = viewportRect(t, svgEl.clientWidth || window.innerWidth, svgEl.clientHeight || window.innerHeight, FR_CULL_PAD_PX);
+  const lod = __cull.lod.update(t.k, { labels: settings.textFadeThreshold ?? 0.5, links: FR_LOD_LINKS_AT, nodes: FR_LOD_NODES_AT });
+  const bundlesChanged = __cull.want.links !== lod.links;
+  __cull.want = { labels: lod.labels, links: lod.links, nodes: lod.nodes, slotLabels: lod.nodes };
+
+  const { shown, hidden } = __cull.culler.update(state.frames.byPath.values(), view);
+  for (const path of hidden) { __cull.dom.hide(path); }
+  for (const path of shown) {
+    __cull.dom.applyLod(path, __cull.want);         // while still detached: no layout work
+    __cull.dom.show(path);
+    __cull.stale.delete(path);
+    tickFrame(path);                                // chrome + positions may both be stale
+  }
+  if (lod.changed || hidden.length || shown.length) {
+    for (const path of __cull.dom.paths()) {
+      if (__cull.culler.isVisible(path)) { __cull.dom.applyLod(path, __cull.want); }
+    }
+  }
+  if (bundlesChanged) { updateCrossBundles(); }
+  if (shown.length && __fr.sched) { __fr.sched.wake(); }
+  if (__perfT0) { perfEnd('cull', __perfT0); }
+}
+
+/** Before any re-render (rendering.js renderElements): everything back in the document. */
+function restoreFrameDom() {
+  if (__cull.dom) { __cull.dom.restoreAll(); }
+  __cull.culler.reset();
+  __cull.stale.clear();
+}
+
+/** Hovered label while the labels layer is parked: lend it to the frame <g>. */
+function borrowHoverLabel(el, frame, on) {
+  const sub = frame && __fr.frameSel.get(frame);
+  if (!el || !sub) { return; }
+  if (on && !el.isConnected && sub.node().isConnected) {
+    el.__lodHome = el.parentNode;
+    sub.node().appendChild(el);
+  } else if (!on && el.__lodHome) {
+    el.__lodHome.appendChild(el);
+    el.__lodHome = null;
+  }
 }
 
 // ── Cross-frame links (aggregated bundles between title-bar ports) ────────────
@@ -536,7 +625,11 @@ function crossFrameAt(p) {
 }
 
 function updateCrossBundles() {
-  const bundles = routeBundles(crossCaches().crossAgg, crossFrameAt);
+  let aggs = crossCaches().crossAgg;
+  if (!__cull.want.links && aggs.length > FR_LOD_MAX_BUNDLES) {
+    aggs = [...aggs].sort((a, b) => b.count - a.count || (a.key < b.key ? -1 : 1)).slice(0, FR_LOD_MAX_BUNDLES);
+  }
+  const bundles = routeBundles(aggs, crossFrameAt);
   const linkDefault = getCSSVar('--cograph-link-default');
   linkG.selectAll('line.cross-bundle').data(bundles, d => d.key).join('line')
     .attr('class', 'cross-bundle')
@@ -862,7 +955,7 @@ function applyFrameDisplaySettings() {
 if (typeof module !== 'undefined') {
   module.exports = {
     usesFrames, renderFrameLayout, tickFrames, tickFrame, tickFrameChrome,
-    tickFramePositions, tickFrameOfNode, teardownFrames,
+    tickFramePositions, tickFrameOfNode, onFramesZoom, applyFrameCulling, restoreFrameDom, borrowHoverLabel, teardownFrames,
     resetFrames, updateCrossLinks, updateCrossBundles, updateCrossHover, syncFrameSims, applySimResult, applySimData,
     applyPendingLayout, migrateV1IntoFrames, setFrameSliderNoops,
     applyFrameDisplaySettings, createFrameResizeDrag,

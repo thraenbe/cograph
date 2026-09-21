@@ -142,43 +142,146 @@
     R.expandAll.frames = state.frames ? state.frames.byPath.size : 0;
     R.expandAll.links = state.currentLinks ? state.currentLinks.length : undefined;
 
-    // 4) pan/zoom: 90 frames of programmatic zoom transforms
-    {
-      const zt = [];
-      B.rec = []; B.acc = 0;
-      const base = d3.zoomTransform(svg.node());
-      for (let i = 0; i < 90; i++) {
-        await raf();
-        const t0 = performance.now();
-        const k = base.k * (1 + 0.4 * Math.sin(i / 14));
-        svg.call(zoomBehavior.transform, d3.zoomIdentity.translate(base.x + 3 * i, base.y + 2 * i).scale(k));
-        zt.push(performance.now() - t0);
+    // 4) pan/zoom: 90 frames of programmatic zoom transforms, at two views:
+    //    the working view the engine left us in, and fit-to-view (everything visible).
+    async function panZoomAt(base) {
+      // mixed = the original scenario (comparable with the baseline); pan and
+      // zoom separately, because SVG re-rasterises on scale changes only.
+      const motions = {
+        mixed: (i) => d3.zoomIdentity.translate(base.x + 3 * i, base.y + 2 * i).scale(base.k * (1 + 0.4 * Math.sin(i / 14))),
+        pan: (i) => d3.zoomIdentity.translate(base.x + 4 * i, base.y + 3 * i).scale(base.k),
+        zoom: (i) => { const k = base.k * (1 + 0.4 * Math.sin(i / 14)); const W = svg.node().clientWidth / 2, H = svg.node().clientHeight / 2;
+          return d3.zoomIdentity.translate(W - (W - base.x) * k / base.k, H - (H - base.y) * k / base.k).scale(k); },
+      };
+      const out = { k: r2(base.k) };
+      for (const [name, at] of Object.entries(motions)) {
+        const zt = [];
+        B.rec = []; B.acc = 0;
+        for (let i = 0; i < 90; i++) {
+          await raf();
+          const t0 = performance.now();
+          svg.call(zoomBehavior.transform, at(i));
+          zt.push(performance.now() - t0);
+        }
+        const rec = B.rec; B.rec = null;
+        svg.call(zoomBehavior.transform, base);
+        await paint();
+        const iv = stats(rec.slice(2).map(f => f.dt));
+        if (name === 'mixed') { out.handlerMs = stats(zt); out.frameIntervalMs = iv; out.fps = r2(1000 / iv.mean); }
+        else { out[name + 'Fps'] = r2(1000 / iv.mean); }
+        out[name + 'ScriptMs'] = stats(rec.map(f => f.script)).p50;
       }
-      const rec = B.rec; B.rec = null;
-      svg.call(zoomBehavior.transform, base);
-      R.panZoom = { handlerMs: stats(zt), frameIntervalMs: stats(rec.slice(2).map(f => f.dt)) };
-      R.panZoom.fps = r2(1000 / R.panZoom.frameIntervalMs.mean);
+      out.visibleFrames = document.querySelectorAll('#graph g.frame').length;   // culled frames are detached
+      out.lod = ['f-labels', 'f-links'].filter(c => !document.querySelector(`#graph g.frame g.${c}`)).map(c => 'no-' + c.slice(2))
+        .concat(document.querySelector('#graph g.frame circle.regular-node') ? [] : ['no-nodes']).join(' ') || 'full';
+      out.domAttached = document.querySelectorAll('#graph *').length;
+      return out;
+    }
+    R.panZoom = await panZoomAt(d3.zoomTransform(svg.node()));
+    if (typeof fitToView === 'function') {
+      const before = d3.zoomTransform(svg.node());
+      fitToView();
+      await sleep(900); // 500 ms transition
+      R.panZoomFit = await panZoomAt(d3.zoomTransform(svg.node()));
+      svg.call(zoomBehavior.transform, before);
+      await paint();
+    }
+
+    // 4a) integrity: a re-render while layers are parked / frames culled must lose nothing
+    if (R.engine === 'shelf' && typeof fitToView === 'function' && typeof applyFileClusters === 'function') {
+      const before = d3.zoomTransform(svg.node());
+      const count = () => ({ frames: state.frames.byPath.size,
+        nodes: state.svgNodes.size(), labels: state.svgLabels.size(), links: state.svgLinks.size() });
+      const expected = count();
+      fitToView(); await sleep(900);
+      const parkedAtFit = document.querySelectorAll('#graph g.frame circle.regular-node').length;
+      applyFileClusters();                       // re-render in the fully parked state
+      await paint();
+      const afterRerender = count();
+      const W = svg.node().clientWidth, H = svg.node().clientHeight;
+      svg.call(zoomBehavior.transform, d3.zoomIdentity.translate(W / 2, H / 2).scale(1.2)); // zoom in: layers must come back
+      await paint(); await paint();
+      const attached = [...document.querySelectorAll('#graph g.frame')];
+      R.lodIntegrity = {
+        ok: JSON.stringify(expected) === JSON.stringify(afterRerender)
+          && attached.length > 0 && attached.every(f => f.querySelector('g.f-labels') && f.querySelector('g.f-links') && f.querySelector('g.f-slots')),
+        expected, afterRerender, circlesAttachedAtFit: parkedAtFit, framesAttachedZoomedIn: attached.length,
+      };
+      svg.call(zoomBehavior.transform, before);
+      await paint();
     }
 
     // 4b) optional paint probe (?probe=lod): which SVG layers cost the frames?
-    if (P.get('probe') === 'lod') {
+    if (P.get('probe') === 'lod' || P.get('probe') === 'lodfit') {
       if (typeof setLayoutMode === 'function') { setLayoutMode('static'); await paint(); await sleep(400); }
+      if (P.get('probe') === 'lodfit') { fitToView(); await sleep(900); }
       const fpsNow = async () => {
         const base = d3.zoomTransform(svg.node());
         B.rec = []; B.acc = 0;
         for (let i = 0; i < 60; i++) {
           await raf();
-          svg.call(zoomBehavior.transform, d3.zoomIdentity.translate(base.x + 3 * i, base.y + 2 * i).scale(base.k * (1 + 0.2 * Math.sin(i / 10))));
+          const k = base.k * (1 + 0.4 * Math.sin(i / 14)); const W = svg.node().clientWidth / 2, H = svg.node().clientHeight / 2;
+          svg.call(zoomBehavior.transform, d3.zoomIdentity.translate(W - (W - base.x) * k / base.k, H - (H - base.y) * k / base.k).scale(k)); // zoom-only
         }
         const rec = B.rec; B.rec = null;
         svg.call(zoomBehavior.transform, base);
         return r2(1000 / stats(rec.slice(2).map(f => f.dt)).mean);
       };
-      const hide = (sel, on) => document.querySelectorAll(sel).forEach(el => { el.style.display = on ? 'none' : ''; });
-      const layers = [['labels', 'g.f-labels, g.labels'], ['links', 'g.f-links'], ['nodes', 'g.f-nodes'], ['slots', 'g.f-slots'], ['bundles', 'line.cross-bundle']];
-      R.lodProbe = { k: r2(d3.zoomTransform(svg.node()).k), all: await fpsNow() };
-      for (const [name, sel] of layers) { hide(sel, true); R.lodProbe['minus_' + name] = await fpsNow(); }
-      for (const [, sel] of layers) { hide(sel, false); }
+      const parkedEls = [];
+      const hide = (sel) => document.querySelectorAll(sel).forEach(el => { parkedEls.push([el, el.parentNode, el.nextSibling]); el.remove(); }); // detach, like the engine
+      const layers = [['markers', null], ['bundles', 'line.cross-bundle'], ['slotLabels', 'g.f-slots text'], ['labels', 'g.f-labels, g.labels'], ['links', 'g.f-links'], ['nodes', 'g.f-nodes'], ['slots', 'g.f-slots'], ['frames', 'g.frame'], ['svg', '#graph svg > g']];
+      R.lodProbe = { k: r2(d3.zoomTransform(svg.node()).k), bundles: document.querySelectorAll('line.cross-bundle').length, all: await fpsNow() };
+      for (const [name, sel] of layers) {
+        if (name === 'markers') { document.querySelectorAll('line.cross-bundle').forEach(el => el.removeAttribute('marker-end')); }
+        else { hide(sel); }
+        R.lodProbe['minus_' + name] = await fpsNow();
+      }
+      parkedEls.reverse().forEach(([el, parent, next]) => { try { parent.insertBefore(el, next && next.parentNode === parent ? next : null); } catch (e) { /* parent gone */ } });
+    }
+
+    // 4c) optional floor probe (?probe=floor): where does a pan/zoom frame go when
+    //     (almost) nothing is painted? Separates SVG cost from page/compositor cost.
+    if (P.get('probe') === 'floor') {
+      if (typeof setLayoutMode === 'function') { setLayoutMode('static'); await paint(); await sleep(400); }
+      const loop = async (fn) => {
+        B.rec = []; B.acc = 0;
+        for (let i = 0; i < 60; i++) { await raf(); fn(i); }
+        const rec = B.rec; B.rec = null;
+        return r2(1000 / stats(rec.slice(2).map(f => f.dt)).mean);
+      };
+      const rootG = document.querySelector('#graph svg > g');
+      const svgEl = document.querySelector('#graph svg');
+      const base = d3.zoomTransform(svg.node());
+      const zoomStep = (i) => svg.call(zoomBehavior.transform, d3.zoomIdentity.translate(base.x + 3 * i, base.y + 2 * i).scale(base.k));
+      const probeEl = document.createElement('div');
+      probeEl.style.cssText = 'position:fixed;left:0;top:0;width:4px;height:4px;';
+      document.body.appendChild(probeEl);
+      const F = {};
+      F.idle = await loop(() => {});
+      F.htmlMutation = await loop((i) => { probeEl.style.background = i % 2 ? '#111' : '#222'; });
+      F.zoom = await loop(zoomStep);
+      rootG.style.display = 'none';
+      F.zoomRootHidden = await loop(zoomStep);
+      rootG.style.display = '';
+      svgEl.style.display = 'none';
+      F.zoomSvgHidden = await loop(zoomStep);
+      svgEl.style.display = '';
+      // detach everything but the visible frames: is it the size of the DOM?
+      const hiddenFrames = [...document.querySelectorAll('#graph g.frame')].filter(el => el.style.display === 'none');
+      const parents = hiddenFrames.map(el => [el, el.parentNode, el.nextSibling]);
+      hiddenFrames.forEach(el => el.remove());
+      F.zoomCulledDetached = await loop(zoomStep);
+      const scaleStep = (i) => { const k = base.k * (1 + 0.4 * Math.sin(i / 14)); const W = svg.node().clientWidth / 2, H = svg.node().clientHeight / 2;
+        svg.call(zoomBehavior.transform, d3.zoomIdentity.translate(W - (W - base.x) * k / base.k, H - (H - base.y) * k / base.k).scale(k)); };
+      F.scaleCulledDetached = await loop(scaleStep);
+      F.scaleCulledDetachedNoBundles = await (async () => { const b = [...document.querySelectorAll('line.cross-bundle')]; b.forEach(el => { el.style.display = 'none'; });
+        const v = await loop(scaleStep); b.forEach(el => { el.style.display = ''; }); return v; })();
+      parents.reverse().forEach(([el, parent, next]) => parent.insertBefore(el, next));
+      F.scaleCulledHidden = await loop(scaleStep);
+      svg.call(zoomBehavior.transform, base);
+      probeEl.remove();
+      F.dom = document.querySelectorAll('*').length;
+      R.floorProbe = F;
     }
 
     // 5) hover: mouseover/mouseout on a function node

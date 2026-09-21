@@ -55,14 +55,18 @@ suite('viewCull', () => {
       { shown: [], hidden: ['/new'] });
   });
 
-  test('LOD thresholds with hysteresis', () => {
+  test('LOD: three layers with hysteresis (labels → links → function nodes)', () => {
     const lod = vc.createLod({ band: 0.1 });
-    assert.deepStrictEqual(lod.update(1, 0.5, 0.2), { labels: true, links: true, changed: false });
-    assert.deepStrictEqual(lod.update(0.47, 0.5, 0.2), { labels: true, links: true, changed: false }, 'inside the band: keep');
-    assert.deepStrictEqual(lod.update(0.44, 0.5, 0.2), { labels: false, links: true, changed: true });
-    assert.deepStrictEqual(lod.update(0.47, 0.5, 0.2), { labels: false, links: true, changed: false }, 'must reach the threshold to re-appear');
-    assert.deepStrictEqual(lod.update(0.1, 0.5, 0.2), { labels: false, links: false, changed: true });
-    assert.deepStrictEqual(lod.update(0.5, 0.5, 0.2), { labels: true, links: true, changed: true });
-    assert.deepStrictEqual(lod.current(), { labels: true, links: true });
+    const at = { labels: 0.5, links: 0.4, nodes: 0.3 };
+    assert.deepStrictEqual(lod.update(1, at), { labels: true, links: true, nodes: true, changed: false });
+    assert.deepStrictEqual(lod.update(0.47, at), { labels: true, links: true, nodes: true, changed: false }, 'inside the band: keep');
+    assert.deepStrictEqual(lod.update(0.44, at), { labels: false, links: true, nodes: true, changed: true });
+    assert.deepStrictEqual(lod.update(0.47, at), { labels: false, links: true, nodes: true, changed: false }, 'must reach the threshold to re-appear');
+    assert.deepStrictEqual(lod.update(0.31, at), { labels: false, links: false, nodes: true, changed: true });
+    assert.deepStrictEqual(lod.update(0.1, at), { labels: false, links: false, nodes: false, changed: true });
+    assert.deepStrictEqual(lod.update(0.35, at), { labels: false, links: false, nodes: true, changed: true });
+    assert.deepStrictEqual(lod.update(0.6, at), { labels: true, links: true, nodes: true, changed: true });
+    assert.deepStrictEqual(lod.current(), { labels: true, links: true, nodes: true });
+    assert.deepStrictEqual(vc.createLod().update(0.01, {}), { labels: true, links: true, nodes: true, changed: false }, 'no thresholds → everything drawn');
   });
 });

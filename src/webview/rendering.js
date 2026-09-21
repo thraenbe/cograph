@@ -66,6 +66,7 @@ const zoomBehavior = d3.zoom()
     g.attr('transform', event.transform);
     state.currentZoom = event.transform.k;
     updateTextVisibility();
+    if (typeof onFramesZoom === 'function') { onFramesZoom(); } // W3: culling + LOD
   });
 
 svg.call(zoomBehavior);
@@ -368,8 +369,10 @@ function hoverLinksOff() {
   if (__hover) { __hover.clear(); }
 }
 
-function hoverLabelSel(d) {
+function hoverLabelSel(d, on) {
   const el = __hover ? __hover.labelOf(d.id) : null;
+  // Labels layer parked by the zoom LOD (frameRender W3): lend the label to its frame.
+  if (el && on !== undefined && typeof borrowHoverLabel === 'function') { borrowHoverLabel(el, d._frame, on); }
   return el ? d3.select(el) : null;
 }
 
@@ -388,7 +391,7 @@ function onNodeMouseOver(event, d) {
     .attr('r', nodeRadius(d) * 1.15)
     .attr('filter', 'url(#glow-hover)');
   hoverLinksOn(d, Math.max(1.5, settings.linkThickness));
-  hoverLabelSel(d)
+  hoverLabelSel(d, true)
     ?.style('opacity', 1)
     .attr('font-size', `${11.5 * settings.textSize}px`)
     .attr('fill', getCSSVar('--cograph-label-hover'));
@@ -403,7 +406,7 @@ function onNodeMouseOut(event, d) {
     .attr('r', nodeRadius(d))
     .attr('filter', glowAttr());
   hoverLinksOff();
-  hoverLabelSel(d)
+  hoverLabelSel(d, false)
     ?.style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
     .attr('font-size', `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
     .attr('fill', (d.isCluster || d.isSynthetic) ? getCSSVar('--cograph-label-cluster') : getCSSVar('--cograph-label-default'));
@@ -419,7 +422,7 @@ function onCloudMouseOver(event, d) {
     .transition().duration(120)
     .attr('d', generateNodeShapePath(d, nodeRadius(d) * 1.15));
   hoverLinksOn(d, Math.max(1.5, settings.linkThickness));
-  hoverLabelSel(d)
+  hoverLabelSel(d, true)
     ?.style('opacity', 1)
     .attr('font-size', `${11.5 * settings.textSize}px`)
     .attr('fill', getCSSVar('--cograph-label-hover'));
@@ -435,7 +438,7 @@ function onCloudMouseOut(event, d) {
     .transition().duration(120)
     .attr('d', generateNodeShapePath(d, nodeRadius(d)));
   hoverLinksOff();
-  hoverLabelSel(d)
+  hoverLabelSel(d, false)
     ?.style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
     .attr('font-size', `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
     .attr('fill', getCSSVar('--cograph-label-cluster'));
@@ -809,6 +812,9 @@ function renderLibraryLabels(libNodeData, visibleSet) {
 function renderElements(elements, positionHints = new Map()) {
   if (typeof perfMark === 'function') { perfMark('render:start'); }
   if (typeof invalidateCssVars === 'function') { invalidateCssVars(); }
+  // W3: culled frames / parked LOD layers go back into the document first —
+  // the d3 joins below only see attached elements.
+  if (typeof restoreFrameDom === 'function') { restoreFrameDom(); }
   const { allLinks, visibleSet } = prepareRenderData(elements, positionHints);
   if (typeof usesFrames === 'function' && usesFrames()) {
     renderFrameLayout(allLinks, visibleSet);

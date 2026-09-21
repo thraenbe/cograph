@@ -55,18 +55,23 @@ function createFrameCuller() {
 }
 
 /**
- * Level of detail by zoom factor. `labelsAt` / `linksAt` are the zoom factors
- * at (and above) which labels / intra-frame links are drawn. Hysteresis: once
- * shown, a layer is only hidden again below threshold × (1 − band).
+ * Level of detail by zoom factor. `at` = { labels, links, nodes }: the zoom
+ * factor at (and above) which each layer is drawn. Hysteresis: once shown, a
+ * layer is only hidden again below threshold × (1 − band).
  */
 function createLod(opts) {
   const band = (opts && opts.band) ?? 0.08;
-  let state = { labels: true, links: true };
-  const next = (shown, k, at) => (shown ? k >= at * (1 - band) : k >= at);
+  const LAYERS = ['labels', 'links', 'nodes'];
+  let state = { labels: true, links: true, nodes: true };
   return {
-    update(k, labelsAt, linksAt) {
-      const n = { labels: next(state.labels, k, labelsAt), links: next(state.links, k, linksAt) };
-      const changed = n.labels !== state.labels || n.links !== state.links;
+    update(k, at) {
+      const n = {};
+      let changed = false;
+      for (const layer of LAYERS) {
+        const threshold = at[layer] ?? 0;
+        n[layer] = state[layer] ? k >= threshold * (1 - band) : k >= threshold;
+        if (n[layer] !== state[layer]) { changed = true; }
+      }
       state = n;
       return { ...n, changed };
     },

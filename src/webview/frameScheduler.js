@@ -1,6 +1,6 @@
 // frameScheduler.js — one rAF loop driving at most `maxActive` frame
 // simulations per animation frame. Ranking: user-interacted first, then the
-// frame that waited longest (round-robin — after a global reheat every frame
+// frames in the viewport (`prefer`), then the frame that waited longest (round-robin — after a global reheat every frame
 // starts moving at once instead of queueing behind the first four for their
 // whole settle, F7), then just-expanded, then path. Frames with nothing to
 // simulate (`isInert`) settle immediately and never occupy a slot. Settled and
@@ -34,6 +34,7 @@ function createScheduler(opts) {
     ? opts.budgetMs : () => (opts.budgetMs ?? Infinity);
 
   const isInert = opts.isInert;        // optional (rec) => true when no free member exists
+  const prefer = opts.prefer;          // optional (rec) => true: rank first (in the viewport)
   const recs = new Map();              // path -> SimRecord
   let turn = 0;                        // monotonic stamp for the round-robin
   let running = false;
@@ -48,8 +49,10 @@ function createScheduler(opts) {
       if (isInert && isInert(r)) { r.settled = true; continue; }
       if (isVisible(r)) { cand.push(r); }
     }
+    const pref = prefer ? new Map(cand.map(r => [r, prefer(r) ? 1 : 0])) : null;
     cand.sort((a, b) =>
-      (b.userTs - a.userTs) || ((a._turn || 0) - (b._turn || 0))
+      (b.userTs - a.userTs) || (pref ? pref.get(b) - pref.get(a) : 0)
+      || ((a._turn || 0) - (b._turn || 0))
       || (b.expandedTs - a.expandedTs) || (a.path < b.path ? -1 : 1));
     return cand.slice(0, maxActiveOf());
   }

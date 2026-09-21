@@ -204,6 +204,8 @@ export function getWebviewHtml(
   const hotCacheUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hotCache.js'));
   const hoverIndexUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverIndex.js'));
   const visibilityUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'visibility.js'));
+  const viewCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'viewCull.js'));
+  const frameCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameCull.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
 
@@ -478,6 +480,8 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${hotCacheUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${hoverIndexUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${visibilityUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${viewCullUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${frameCullUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${aggregateUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${clusteringUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${workflowUri}?v=${nonce}"></script>

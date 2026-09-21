@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moves on the UI thread; its neighbours follow from the worker). New setting
   `cograph.layout.workers` (`auto` | `on` | `off`, default `auto`); `off` is the
   previous behaviour, and any worker failure falls back to it automatically.
+- **Smooth pan and zoom on large graphs.** Folder frames outside the viewport are taken
+  out of the page, and when zoomed out far enough that they carry no information the
+  labels, then the call lines inside folders, then the function dots themselves are
+  dropped (the coloured file slots and folder glyphs stay; only the 200 strongest
+  cross-folder bundles are drawn). Zooming in brings everything back. 3 000 functions
+  fully expanded: 14 → 50-60 fps; 10 000: 4.5 → 40-59 fps.
 - d3 is now bundled with the extension instead of loaded from a CDN: the graph opens
   offline and the webview's content-security policy no longer allows any external host.
 - `cograph.debug.perfLog` now covers the Shelf engine too: per-frame main-thread time
@@ -51,6 +57,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moves, and theme colours are read once per render instead of once per element.
 
 ### Fixed
+- Shelf + Dynamic: after moving the Detail slider (or any re-render) the force sliders and
+  drag reheats did nothing until the engine was toggled — simulations kept writing into
+  discarded node objects.
+- Shelf + Dynamic: after a force-slider change only four folders moved at a time, the
+  rest stood still for seconds (10 s with 10 open folders). All open folders now start
+  moving at once.
+- Hovering a folder glyph with many cross-folder calls no longer flickers: its hover
+  lines were stealing the pointer ~30 times per second.
 - Collapsing a folder whose descendants were still individually expanded could feed
   the renderer edges pointing at nodes that were never drawn (a d3 "node not found"
   crash in the classic layout). The visible-frontier mapping now checks the whole

@@ -480,3 +480,42 @@ LOD) is measured against it next; verdict recorded below the W3 results.
 not when the webview is ready. On a cold profile with CDN d3 the message was lost in 2 of 3
 opens of the base and W1 checkouts → blank graph (the calibration script retries the load).
 Vendored d3 (W2) hides it; the fix (webview `ready` handshake) is scheduled as the last W5 item.
+
+### F13 / F7 / F10 (commits e35c553, 0107663, 02aefc8 — 2026-09-21)
+- **F13** dead force sliders / drag reheats after any Detail change: every render builds new
+  node objects, a reused sim record kept `_ref` on the discarded ones. Re-pointed on reuse
+  (one loop in `syncFrameSims`, covers both transports). Suite `frameRenderSims.test` fails 3/3
+  without the fix.
+- **F7** (independent of F13, proven on a fresh 1k page without touching Detail, workers off):
+  slider reheat → all frames moving after **10.6 s → 89 ms** (round-robin slots; inert frames
+  settle at once). Workers: 253 ms.
+- **F10** hover-line flicker (30 rebuilds/s): `line.cross-hover` takes no pointer events.
+
+### W3 — culling + level of detail (2026-09-21) — headless Chrome 153
+What the probes showed, in order: (1) pan at constant scale was never the problem once frames
+are culled (60 fps); the cost is **scale changes**. (2) `display:none` does NOT help there: Blink
+still spends ~120 ms per zoom frame on hidden SVG subtrees at 10k (7.6 fps) — **detaching** them
+gives 48 fps. So culled frames and dropped LOD layers are removed from the document and
+re-inserted in paint order (`frameCull.js`); d3 selections keep working on detached elements,
+and everything is re-attached before a re-render (`restoreFrameDom`, integrity-checked in the
+bench: re-render while fully parked loses 0 of 3 000 nodes / 3 000 labels / 9 510 links).
+(3) At fit-to-view the 1 314 viewport-spanning bundle lines of the 10k fixture cost 45 ms/frame
+→ below the links threshold only the 200 strongest bundles are drawn.
+LOD thresholds (zoom factor k): labels < `textFadeThreshold` (0.5, the existing slider),
+intra-frame links < 0.4, function nodes + slot file names < 0.3 (node Ø < 2 px); folder/file
+glyphs and the coloured slots always stay. 8 % hysteresis. Viewport padding 240 px.
+
+| pan/zoom fps (mixed · pan-only / zoom-only) | before W3 | after W3 |
+|---|---|---|
+| 3k, working view (k = 4, 3 frames on screen) | 14 | **47-56** · 60 / 51-59 |
+| 3k, fit-to-view (k = 0.19, 30 frames, slots only, 1 207 el attached of 20 275) | 14 | **60** · 60 / 60 |
+| 10k, working view (k = 4, 4 frames) | 4.5 | **41-51** · 60 / 54 |
+| 10k, fit-to-view (k = 0.08, 100 frames, 3 027 el of 64 959) | 4.5 | **59** · 56 / 56 |
+| nest, working view / fit-to-view (683 frames) | 6.3 / – | **54** / 38 |
+| fmt, working view (k = 0.64: 4 giant frames, 16 184 el visible at full detail) | 8.3 | **10.9** (SVG floor) |
+
+Side effects: expand-all settled 1.4 s → **0.75 s** @3k (off-screen frames take no DOM writes),
+expand-all to-paint 10k 1.29 s → 0.89-1.0 s. Headless has a ~24 ms compositing floor on scale
+changes, so the gate is judged in-editor (next entry). Remaining wall = one viewport full of
+full-detail content in a giant frame (fmt) — that is what a Canvas layer (W3b) would address.
+Tests: 857 passing, lint 0 errors.

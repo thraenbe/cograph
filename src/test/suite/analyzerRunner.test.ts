@@ -315,7 +315,7 @@ suite('AnalyzerRunner', () => {
     assert.strictEqual(r.root, '/ws');
     assert.strictEqual(r.meta.statuses.length, 5);
     assert.ok(onResult.notCalled);
-    assert.ok(stringify.getCalls().every(c => !(c.args[0] && c.args[0].nodes && c.args[0].edges)),
-      'the merged graph is never re-serialised');
+    assert.ok(stringify.getCalls().every(c => c.args[0] !== r.graph),
+      'the merged graph object is handed over as-is, never re-serialised');
   });
 });

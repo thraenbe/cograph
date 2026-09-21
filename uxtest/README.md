@@ -71,6 +71,67 @@ example (time-to-still, fps, `perfReport()` per engine → `baseline.json`):
 (B6, R4) · `bboxAspect` · `inkRatio` · `viewportCoverage` · `domNodes` / `heapMB` (P7).
 Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 
+## Scenarios (Tier A, `uxtest/scenarios/`)
+
+| file | covers |
+|------|--------|
+| `00-smoke` | C1/C2/C3 checkpoints, engine × motion walk (the harness self-check and the F1/F2 regression) |
+| `10-engine-motion` | every toggle, `#layout-hint`, live `config` message, switching engines mid-settle (F3) |
+| `20-detail` | Detail slider 0 → 1 → 0 |
+| `30-git-language` | git panel + `git-update`, legend, language swatches |
+| `40-folder-panel` | folder mode, every force slider incl. the ux "show more forces" set, folder filters via context menu |
+| `50-class-groupby` | class overlay; group-by lens (optional — removed by ux) |
+| `60-settings` | search / Ctrl+F / clear / count, filter toggles, display sliders, global forces, reset |
+| `70-canvas` | pan, zoom, drag node, drag folder, resize frame, context menus — with collateral-movement check (H4) |
+| `75-lazy-expand` | lazy host: skeleton → `expand-folder` → `graph-patch` → background graph keeps the drill-down |
+| `80-popups` | function popup (drag, resize, edit + Ctrl+S, close, Escape), navigate fallback, libraries (F5), `save-request` |
+| `85-hover-card` | annotate's hover card (optional; canned `annotations`, AI off) |
+| `90-timeline` | timeline HTML + `timeline-data`, transport |
+| `95-workflow` | workflow graph, levels 0–9, back to folders |
+| `99-save-roundtrip` | v2 save → fresh panel → `graph-loaded` delta (R5), v1 payload migration |
+
+Policy: **observational**. Only a failed step fails the test. Product problems become *findings* in `run.json`
+(`findings[]` per step: rule, severity, ref to B1/B2/B6/R2/H4…); a scenario reports its own with `StepFinding`.
+`--strict` makes high-severity findings fail the run.
+
+## Force sweep
+
+```
+npm run uxtest:sweep                                  # spaces/default.json: click, express, zod × both engines × 12 LHS samples + defaults
+npm run uxtest:sweep -- --repo flask --engine shelf --samples 24 --space my-space.json [--video]
+```
+Forces are set through the real sliders in Dynamic motion from a fresh page; sample 0 is always the shipped
+defaults. Sliders that do not exist / are hidden in the UI under test are dropped and listed. Output in the run
+folder: `sweep.csv`, `sweep.json`, `contact-sheet.html` (end states ranked by score), `force-recommendations.md`
+(top 5 per repo, consensus candidate per engine, Spearman sensitivity per force). Score = `metrics/score.ts`.
+
+## Report
+
+```
+npm run uxtest:report                                 # newest run
+npm run uxtest:report -- --run-id <id> --baseline <olderRunId>
+node uxtest/report/summary.mjs [runId]                # terminal summary
+```
+`index.html`: findings by rule, repo × scenario matrix, per recording the video with **clickable steps that seek
+the video**, keyframes, metrics (with deltas against the baseline run), console errors, `perfReport()`.
+`findings.json` + `report/rubric.md` + `report/review-prompt.md` are the inputs for a reviewing Claude session,
+which writes `findings.md` and `force-recommendations.md`.
+
+## Other checkouts
+
+`--ext-root <dir>` runs the identical suite against another CoGraph worktree/branch (its `out/` + `src/webview`),
+read-only with `--no-compile`. That is how a feature branch is regression-checked before it merges.
+
+## Tier B — real VS Code (`npm run uxtest:vscode -- --repo click`)
+
+Playwright `_electron` launches the pinned test build (VS Code 1.116.0 from `.vscode-test`, a sibling worktree's
+copy, `$UXTEST_VSCODE`, or a download) with `--extensionDevelopmentPath`, a throw-away user-data dir
+(`cograph.debug.perfLog` on, AI gate off) and a **temp copy** of the repo. Headed: a window opens and takes focus
+(Wayland/XWayland; no xvfb needed) — do not run it while someone works on the display. Steps: command palette →
+Visualize (T_first / T_functions), panel alive after 15 s (B7), metrics inside the real webview frame, engine /
+motion toggles, source popup from the real host, Ctrl+S keybinding + InputBox, sidebar view, on-save incremental
+re-parse, Open or Reload Layout. The CoGraph output channel + exthost log are saved as `vscode-output.log`.
+
 ## Selectors
 
 Every id lives in `selectors.ts`. `optional: true` entries are skipped (not failed) when absent,
@@ -91,7 +152,10 @@ npm run uxtest -- [flags]
   --ext-root <dir>    run against ANOTHER CoGraph checkout/worktree (its out/ + src/webview)
   --reanalyze         ignore the analyzer cache
   --run-id <id>       artifacts folder name (default: timestamp)
-  --no-compile        skip the automatic `npm run compile`
+  --no-compile        skip the automatic `npm run compile` (and `bundle` for Tier B)
+  --project <name>    lab (default) | sweep | report | vscode | examples | unit
+  --samples N --space <json> --video      sweep options
+  --baseline <runId>  report: show metric deltas against another run
 npm run uxtest:unit        pure-module unit tests (Playwright runner, no browser)
 npm run uxtest:typecheck   tsc --noEmit over uxtest/
 ```

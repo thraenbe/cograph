@@ -21,12 +21,14 @@ scenario('popups', { perMotion: false }, async ({ page, ux, host, post }) => {
   }, { metrics: false });
 
   await ux.step('Drag the popup by its header', async () => {
+    if (await page.locator('.func-card').count() === 0) { throw new SkipStep('no popup open (the node click was skipped)'); }
     const box = await page.locator('.func-card .func-header').first().boundingBox();
     if (!box) { throw new SkipStep('popup header not visible'); }
     await dragBy(page, { x: box.x + 60, y: box.y + box.height / 2 }, 140, 60);
   }, { metrics: false });
 
   await ux.step('Resize the popup', async () => {
+    if (await page.locator('.func-card').count() === 0) { throw new SkipStep('no popup open'); }
     const handle = page.locator('.func-card .func-resize-handle').last();
     const box = await handle.boundingBox();
     if (!box) { throw new SkipStep('no resize handle'); }
@@ -34,6 +36,7 @@ scenario('popups', { perMotion: false }, async ({ page, ux, host, post }) => {
   }, { metrics: false });
 
   await ux.step('Edit the source and save with Ctrl+S', async () => {
+    if (await page.locator('.func-card').count() === 0) { throw new SkipStep('no popup open'); }
     const ta = page.locator('.func-card .func-source-textarea').first();
     await expect(ta).not.toHaveValue('', { timeout: 5000 });
     if (await ta.evaluate(el => (el as HTMLTextAreaElement).readOnly)) { throw new SkipStep('source not editable (synthetic repo has no files on disk)'); }

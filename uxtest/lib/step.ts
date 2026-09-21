@@ -9,7 +9,8 @@ import { drainFps, type FpsWindow } from './fps';
 import { collectSnapshot } from '../metrics/collect';
 import { computeMetrics } from '../metrics/compute';
 import type { LayoutMetrics, Snapshot } from '../metrics/types';
-import { findingsFor, type Finding } from '../metrics/score';
+import { findingsFor, type Finding, type LayoutBirth } from '../metrics/score';
+import { median } from '../metrics/compute';
 import { log } from './log';
 
 export interface StepRecord {
@@ -28,7 +29,24 @@ export interface StepRecord {
   findings: Finding[];
 }
 
-export interface StepOpts { settle?: boolean; metrics?: boolean; stillTimeoutMs?: number; expectMotionMs?: number }
+export interface StepOpts { settle?: boolean; metrics?: boolean; stillTimeoutMs?: number; expectMotionMs?: number;
+  /** The step drags nodes/folders by hand: overlaps after it are the user's doing, not a layout bug. */
+  userMoved?: boolean;
+  /** Start the settle detector BEFORE the action. Needed when the reaction can be over within milliseconds
+   *  (worker sims of a small folder settle before a detector started afterwards takes its first sample). */
+  armBefore?: boolean }
+
+/** How the layout of `cur` was born, given the previous snapshot and its birth (see LayoutBirth). */
+export function layoutBirth(prev: Snapshot | null, prevBirth: LayoutBirth, cur: Snapshot, userMoved: boolean): LayoutBirth {
+  if (userMoved) { return 'user-moved'; }
+  if (!prev) { return 'grid'; }
+  const repacked = prev.engine !== cur.engine || prev.viewMode !== cur.viewMode || prev.nodes.length !== cur.nodes.length
+    || Math.abs(median(prev.nodes.map(n => n.r)) - median(cur.nodes.map(n => n.r))) > 0.01;
+  if (repacked) { return 'grid'; }                                   // engine switch, Detail change, Node Size re-pack
+  if (prev.motion === 'dynamic' && cur.motion === 'static') { return 'frozen'; } // explicit freeze
+  if (cur.motion === 'dynamic') { return 'grid'; }                    // a later freeze decides
+  return prevBirth;
+}
 
 export interface RecorderDeps {
   page: Page;
@@ -59,6 +77,7 @@ export function slug(s: string): string {
 export class StepRecorder {
   readonly steps: StepRecord[] = [];
   lastSnapshot: Snapshot | null = null;
+  birth: LayoutBirth = 'grid';
   private readonly t0: number;
   private errCursor = 0;
 
@@ -77,23 +96,28 @@ export class StepRecorder {
     const started = Date.now();
     let failure: unknown = null;
     let reported: Finding | null = null;
+    let armed: Promise<StillResult> | null = null;
     try {
       await setCaption(this.d.page, `${index}. ${name}`);
       const pre = this.d.target ? await this.d.target() : this.d.page;
       if (pre) { await drainFps(pre); } // frames before the action belong to the previous step
+      if (opts.armBefore && pre && opts.settle !== false) {
+        armed = waitForStill(pre, { ...this.d.still, timeoutMs: opts.stillTimeoutMs ?? this.d.still.timeoutMs, expectMotionMs: opts.expectMotionMs });
+        armed.catch(() => undefined); // awaited in measure(); never leave it unhandled if the action throws
+      }
       await action();
     } catch (err) {
       if (err instanceof SkipStep) { rec.status = 'skipped'; rec.note = err.message; }
       else if (err instanceof StepFinding) { reported = err.finding; rec.note = err.message; }
       else { rec.status = 'failed'; rec.note = String((err as Error).message ?? err); failure = err; }
     }
-    try { await this.measure(rec, base, opts); }
+    try { await this.measure(rec, base, opts, armed); }
     catch (err) { log.warn('step-measure-failed', { step: name, error: String(err) }); rec.note = `${rec.note ?? ''} measure: ${String(err)}`.trim(); }
     rec.durationMs = Date.now() - started;
     rec.consoleErrors = this.d.errors.slice(this.errCursor);
     this.errCursor = this.d.errors.length;
     if (rec.metrics && this.lastSnapshot) {
-      rec.findings = findingsFor(rec.metrics, { engine: this.lastSnapshot.engine, motion: this.lastSnapshot.motion,
+      rec.findings = findingsFor(rec.metrics, { engine: this.lastSnapshot.engine, motion: this.lastSnapshot.motion, birth: this.birth,
         settled: rec.still ? rec.still.settled : null, consoleErrors: rec.consoleErrors.length, longFrames: rec.fps?.longFrames ?? 0 });
     }
     if (reported) { rec.findings.push(reported); }
@@ -102,11 +126,13 @@ export class StepRecorder {
     return rec;
   }
 
-  private async measure(rec: StepRecord, base: string, opts: StepOpts): Promise<void> {
+  private async measure(rec: StepRecord, base: string, opts: StepOpts, armed: Promise<StillResult> | null = null): Promise<void> {
     const { page, outDir } = this.d;
     if (page.isClosed()) { return; }
     const target = this.d.target ? await this.d.target() : page;
-    if (target && opts.settle !== false && rec.status !== 'skipped') {
+    if (armed && rec.status !== 'skipped') {
+      rec.still = await armed;
+    } else if (target && opts.settle !== false && rec.status !== 'skipped') {
       rec.still = await waitForStill(target, { ...this.d.still, timeoutMs: opts.stillTimeoutMs ?? this.d.still.timeoutMs, expectMotionMs: opts.expectMotionMs });
     }
     if (target) { rec.fps = await drainFps(target); }
@@ -114,6 +140,7 @@ export class StepRecorder {
     await page.screenshot({ path: path.join(outDir, rec.screenshot), timeout: 45000 }); // a settling 30k-node page answers slowly
     if (opts.metrics === false || !target) { return; }
     const snap = await collectSnapshot(target, { maxLabels: this.d.caps.maxLabels });
+    this.birth = layoutBirth(this.lastSnapshot, this.birth, snap, opts.userMoved === true);
     this.lastSnapshot = snap;
     rec.metrics = computeMetrics(snap, this.d.caps);
     if (this.d.keepSnapshots) {

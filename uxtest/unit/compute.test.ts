@@ -90,6 +90,8 @@ test.describe('containment (B1/B2)', () => {
     expect(g.nodes[0].slot).toBeNull();
     expect(computeMetrics(snap).nodesOutsideSlot).toBe(0);
     expect(forEngine(framed([]))).toHaveProperty('engine', 'shelf');
+    expect(computeMetrics({ ...framed([node('outSlot', 300, 120, 5, inSlot)]), viewMode: 'workflow' }).nodesOutsideSlot).toBe(0);
+    expect(computeMetrics({ ...framed([node('outSlot', 300, 120, 5, inSlot)]), viewMode: 'cluster' }).nodesOutsideSlot).toBe(1);
   });
 });
 

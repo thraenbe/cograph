@@ -9,7 +9,7 @@ export default defineConfig({
   fullyParallel: true,
   workers: process.env.UXTEST_WORKERS ? Number(process.env.UXTEST_WORKERS) : 2,
   retries: 0,
-  timeout: 10 * 60 * 1000,
+  timeout: Number(process.env.UXTEST_TEST_TIMEOUT_MS ?? 10 * 60 * 1000), // raise for very large repos (analysis runs inside the test)
   reporter: [['list']],
   // A missing element must fail the step in seconds, not hang until the test timeout.
   use: { actionTimeout: 10000 },

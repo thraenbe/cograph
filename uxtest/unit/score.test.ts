@@ -25,6 +25,17 @@ test('containment rules are shelf-only', () => {
   expect(rules({ nodesOutsideSlot: 5, nodesOutsideFrame: 5, nodesPinnedToWall: 50 }, { engine: 'global' })).toEqual([]);
 });
 
+test('overlap in Shelf+Static is a bug only for a GRID-BORN layout', () => {
+  const m = { nodeOverlapPairs: 7, nodeOverlapRatio: 0.01 };
+  expect(rules(m)).toEqual(['static-grid-overlap']);
+  expect(rules(m, { birth: 'grid' })).toEqual(['static-grid-overlap']);
+  expect(rules(m, { birth: 'frozen' })).toEqual(['frozen-overlap']);
+  expect(rules(m, { birth: 'user-moved' })).toEqual(['frozen-overlap']);
+  expect(findingsFor({ ...clean, ...m }, ctx({ birth: 'frozen' }))[0].severity).toBe('low');
+  expect(rules({ frameOverlapPairs: 2 }, { birth: 'user-moved' })).toEqual(['user-frame-overlap']);
+  expect(rules({ frameOverlapPairs: 2 }, { birth: 'frozen' })).toEqual(['frame-overlap']);
+});
+
 test('overlap: any pair is a bug in Shelf+Static, a ratio elsewhere', () => {
   expect(rules({ nodeOverlapPairs: 1, nodeOverlapRatio: 0.01 })).toEqual(['static-grid-overlap']);
   expect(rules({ nodeOverlapPairs: 1, nodeOverlapRatio: 0.01 }, { motion: 'dynamic' })).toEqual([]);

@@ -19,6 +19,7 @@ export interface SnapSlot { frame: string; key: string; rect: Rect; interior: Re
 export interface Snapshot {
   engine: string;
   motion: string;
+  viewMode?: string;                     // 'cluster' | 'workflow'
   zoom: { k: number; x: number; y: number };
   viewport: { w: number; h: number };
   nodes: SnapNode[];

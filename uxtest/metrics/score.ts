@@ -5,8 +5,14 @@ import type { LayoutMetrics } from './types';
 export type Severity = 'high' | 'medium' | 'low';
 export interface Finding { rule: string; severity: Severity; message: string; ref?: string }
 
+/** How the layout on screen came to be. Only a GRID-BORN static layout promises zero overlap. */
+export type LayoutBirth = 'grid' | 'frozen' | 'user-moved';
+
 export interface StepContext {
   engine: string; motion: string;
+  /** default 'grid' (first load, Detail change, re-pack, engine switch into Shelf, restore). 'frozen' = an explicit
+   *  Dynamic → Static toggle ("freeze what you see"); 'user-moved' = the user dragged something since. */
+  birth?: LayoutBirth;
   settled: boolean | null;
   consoleErrors: number;
   longFrames: number;
@@ -26,14 +32,18 @@ type Rule = (m: LayoutMetrics, c: StepContext) => Finding | null;
 const shelf = (c: StepContext): boolean => c.engine === 'shelf';
 
 const RULES: Rule[] = [
-  (m) => m.frameOverlapPairs > 0 ? { rule: 'frame-overlap', severity: 'high', ref: 'R2/H1', message: `${m.frameOverlapPairs} sibling folder frame pair(s) overlap` } : null,
+  (m, c) => m.frameOverlapPairs > 0 ? (c.birth === 'user-moved'
+    ? { rule: 'user-frame-overlap', severity: 'low', message: `${m.frameOverlapPairs} sibling frame pair(s) overlap after a user drag (the product allows dropping a folder onto another)` }
+    : { rule: 'frame-overlap', severity: 'high', ref: 'R2/H1', message: `${m.frameOverlapPairs} sibling folder frame pair(s) overlap` }) : null,
   (m) => m.slotOverlapPairs > 0 ? { rule: 'slot-overlap', severity: 'high', ref: 'R2/H1', message: `${m.slotOverlapPairs} file slot pair(s) overlap inside a frame` } : null,
   (m, c) => shelf(c) && m.nodesOutsideSlot > 0 ? { rule: 'node-outside-slot', severity: 'high', ref: 'B1', message: `${m.nodesOutsideSlot} node(s) centred outside their file slot` } : null,
   (m, c) => shelf(c) && m.nodesOutsideFrame > 0 ? { rule: 'node-outside-frame', severity: 'high', ref: 'B1', message: `${m.nodesOutsideFrame} node(s) centred outside their folder frame` } : null,
   (m, c) => shelf(c) && m.nodesPinnedToWall > Math.max(3, 0.02 * m.nodes)
     ? { rule: 'nodes-pinned-to-wall', severity: 'medium', ref: 'B2', message: `${m.nodesPinnedToWall} node(s) resting on a slot wall` } : null,
-  (m, c) => shelf(c) && c.motion === 'static' && m.nodeOverlapPairs > 0
-    ? { rule: 'static-grid-overlap', severity: 'high', ref: 'B1/R2', message: `${m.nodeOverlapPairs} overlapping node pair(s) in Shelf+Static (grid placement should have none)` } : null,
+  (m, c) => shelf(c) && c.motion === 'static' && m.nodeOverlapPairs > 0 && (c.birth ?? 'grid') === 'grid'
+    ? { rule: 'static-grid-overlap', severity: 'high', ref: 'B1/R2', message: `${m.nodeOverlapPairs} overlapping node pair(s) in a grid-born Shelf+Static layout (grid placement should have none)` } : null,
+  (m, c) => shelf(c) && c.motion === 'static' && m.nodeOverlapPairs > 0 && (c.birth ?? 'grid') !== 'grid'
+    ? { rule: 'frozen-overlap', severity: 'low', message: `${m.nodeOverlapPairs} overlapping pair(s) inherited from ${c.birth === 'frozen' ? 'the frozen dynamic layout' : 'a user drag'} (legitimate: Static keeps what you see)` } : null,
   (m, c) => !(shelf(c) && c.motion === 'static') && m.nodeOverlapRatio > 0.05
     ? { rule: 'node-overlap', severity: 'medium', ref: 'R4', message: `${(m.nodeOverlapRatio * 100).toFixed(1)} % of nodes overlap another node` } : null,
   (m) => m.labels >= 10 && m.labelOverlapRatio > 0.3

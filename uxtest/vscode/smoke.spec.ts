@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { launchVsCode, within } from './launch';
-import { answerQuickInput, frameBackground, frameElementCenter, frameHittable, frameSetSlider, runCommand, waitForGraph } from './drive';
+import { answerQuickInput, frameBackground, frameElementCenter, frameHittable, frameSetSlider, runCommand, runCommandAny, waitForGraph } from './drive';
 import { SkipStep } from '../lib/step';
 import { SEL } from '../selectors';
 
@@ -73,7 +73,9 @@ for (const repo of repos) {
           if (!c) { throw new SkipStep(`${name} not found`); }
           await page.mouse.move(c.x, c.y, { steps: 10 });
           await page.mouse.click(c.x, c.y);
-          await page.waitForTimeout(1200);
+          await page.waitForTimeout(400);
+          if (name === 'engineGlobal' && await f.locator(SEL.globalGuardHint.css).first().isVisible().catch(() => false)) { await page.mouse.click(c.x, c.y); } // Global guard: confirm
+          await page.waitForTimeout(1000);
         }
       }, { stillTimeoutMs: 15000 });
 
@@ -145,7 +147,11 @@ for (const repo of repos) {
         }, { timeout: 30000, message: `graph did not grow after saving ${path.relative(s.workspace, file)} (had ${before} nodes)` }).toBeGreaterThan(before);
       }, { metrics: false });
 
-      await ux.step('Command palette → CoGraph: Open or Reload Layout', async () => { await runCommand(page, 'CoGraph: Open or Reload Layout'); await answerQuickInput(page, '', 2500); });
+      // ux ee36bf5 renamed the command: 'Open or Reset Layout' (was 'Open or Reload Layout').
+      await ux.step('Command palette → CoGraph: Open or Reset Layout', async () => {
+        await runCommandAny(page, ['CoGraph: Open or Reset Layout', 'CoGraph: Open or Reload Layout']);
+        await answerQuickInput(page, '', 2500);
+      });
     } finally {
       const run = await s.close();
       expect(run.steps.filter(st => st.status === 'failed').map(st => `${st.index}. ${st.name}: ${st.note}`)).toEqual([]);

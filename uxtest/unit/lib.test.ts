@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 import * as os from 'os';
 import * as path from 'path';
 import { summarizeFrames } from '../lib/fps';
-import { slug, SkipStep } from '../lib/step';
+import { layoutBirth, slug, SkipStep } from '../lib/step';
+import { node, snapshot } from './fixtures';
 import { expandHome, loadConfig, loadRepo, selectedRepos, sizeClass } from '../lib/corpus';
 import { engines, matrix, motions, strict } from '../lib/matrix';
 
@@ -61,4 +62,19 @@ test('matrix narrowing', () => {
     expect(matrix()).toEqual([{ repo: 'r1', engine: 'global', motion: 'dynamic' }]);
     expect(strict()).toBe(true);
   });
+});
+
+test('layoutBirth: grid-born vs frozen vs user-moved', () => {
+  const stat = snapshot({ motion: 'static', nodes: [node('a', 0, 0), node('b', 9, 9)] });
+  const dyn = { ...stat, motion: 'dynamic' };
+  expect(layoutBirth(null, 'grid', stat, false)).toBe('grid');                       // first load
+  expect(layoutBirth(dyn, 'grid', stat, false)).toBe('frozen');                      // Dynamic → Static
+  expect(layoutBirth(stat, 'frozen', stat, false)).toBe('frozen');                   // stays frozen
+  expect(layoutBirth(stat, 'frozen', { ...stat, nodes: [node('a', 0, 0)] }, false)).toBe('grid');            // Detail change re-packs
+  expect(layoutBirth(stat, 'frozen', { ...stat, nodes: stat.nodes.map(n => ({ ...n, r: 10 })) }, false)).toBe('grid'); // Node Size re-pack
+  expect(layoutBirth({ ...stat, engine: 'global' }, 'frozen', stat, false)).toBe('grid');                      // engine switch into Shelf
+  expect(layoutBirth(stat, 'grid', stat, true)).toBe('user-moved');                  // drag
+  expect(layoutBirth(stat, 'user-moved', stat, false)).toBe('user-moved');           // …until something re-packs
+  expect(layoutBirth(stat, 'user-moved', dyn, false)).toBe('grid');
+  expect(layoutBirth(stat, 'grid', { ...stat, viewMode: 'workflow' }, false)).toBe('grid');
 });

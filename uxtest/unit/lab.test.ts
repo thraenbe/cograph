@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { openLab } from '../lib/lab';
-import { clickSel, dragBy, fitToView, locateNode, need, setSlider, wheelZoom, backgroundPoint } from '../lib/actions';
+import { clickSel, dragBy, fitToView, locateNode, need, setSlider, switchEngine, wheelZoom, backgroundPoint } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 import { attachLogFile, log } from '../lib/log';
 import { EXT_ROOT } from '../harness/vscodeStub';
@@ -31,7 +31,7 @@ test('lab boots the real webview, records steps and produces sane geometry', asy
     const fit = await ux.step('Fit', async () => { await fitToView(page); });
     expect(fit.metrics?.offscreenNodeRatio).toBe(0);
 
-    await ux.step('Global + dynamic', async () => { await clickSel(page, 'engineGlobal'); await clickSel(page, 'motionDynamic'); }, { stillTimeoutMs: 4000 });
+    await ux.step('Global + dynamic', async () => { await switchEngine(page, 'global'); await clickSel(page, 'motionDynamic'); }, { stillTimeoutMs: 4000 });
     expect(ux.lastSnapshot?.engine).toBe('global');
     expect(ux.lastSnapshot?.frames.length).toBeGreaterThanOrEqual(0);
     expect(ux.steps[2].metrics?.frames).toBe(0); // stale frames are not scored under the global engine

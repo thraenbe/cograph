@@ -200,10 +200,20 @@ export async function openSettings(page: Page): Promise<void> {
   await page.waitForTimeout(150);
 }
 
-/** Controls living in the gear panel are only clickable while it is open. */
+/** Make a control reachable: open the gear panel for controls inside it, and the "show more forces"
+ *  expander (ux: #forces-advanced, class `open`) for the advanced force sliders. */
 async function reveal(page: Page, css: string): Promise<void> {
-  const inSettings = await page.locator(css).first().evaluate((el, panelCss) => !!el.closest(panelCss), SEL.settingsPanel.css);
-  if (inSettings) { await openSettings(page); }
+  const where = await page.locator(css).first().evaluate((el, panelCss) => ({
+    inSettings: !!el.closest(panelCss),
+    inClosedAdvanced: !!el.closest('#forces-advanced') && !el.closest('#forces-advanced')?.classList.contains('open'),
+  }), SEL.settingsPanel.css);
+  if (where.inSettings) { await openSettings(page); }
+  if (where.inClosedAdvanced && await page.locator(SEL.showMoreForces.css).count() > 0) {
+    const p = await centerOf(page, SEL.showMoreForces.css);
+    await glideTo(page, p);
+    await page.mouse.click(p.x, p.y);
+    await page.waitForTimeout(200);
+  }
 }
 
 export interface FrameHit { path: string; title: Point; rect: { x: number; y: number; w: number; h: number } }
@@ -248,11 +258,18 @@ function locateFrameInPage(q: { pick: 'smallest' | 'largest'; pathSuffix?: strin
 
 export async function locateFrame(page: Page, pick: 'smallest' | 'largest' = 'smallest', pathSuffix?: string): Promise<FrameHit> {
   let why: Record<string, number> = {};
-  for (let attempt = 0; attempt < 15; attempt++) {
-    const res = await page.evaluate(locateFrameInPage, { pick, pathSuffix });
-    if (res.hit) { return res.hit; }
-    why = res.why;
-    await page.waitForTimeout(100);
+  // On mid-size repos every folder box is a few px wide at fit-to-view (and the perf branch parks their
+  // content below k 0.3): zoom into the middle of the canvas until a title can be grabbed, like a user would.
+  for (let zoomRound = 0; zoomRound <= 3; zoomRound++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const res = await page.evaluate(locateFrameInPage, { pick, pathSuffix });
+      if (res.hit) { return res.hit; }
+      why = res.why;
+      await page.waitForTimeout(100);
+    }
+    if (!(why.tooSmall > 0) || zoomRound === 3) { break; }
+    await wheelZoom(page, { x: Math.round(215 + (page.viewportSize()?.width ?? 1280) / 2 - 107), y: Math.round((page.viewportSize()?.height ?? 800) / 2) }, -240, 3);
+    await page.waitForTimeout(500);
   }
   throw new SkipStep(`no folder frame${pathSuffix ? ` ending in "${pathSuffix}"` : ''} with a grabbable title on screen ${JSON.stringify(why)}`);
 }
@@ -287,4 +304,16 @@ export async function restAndWatchChurn(page: Page, p: Point, restMs = 1000): Pr
   await glideTo(page, p);
   await page.waitForTimeout(350);
   return page.evaluate(watchHoverChurnInPage, restMs);
+}
+
+export const GLOBAL_GUARD_NODES = 4000; // ux ee36bf5: state.currentNodes.length above which Engine:Global needs a confirming click
+
+/** Switch the engine like a user: above the guard threshold the first Global click only shows a hint. */
+export async function switchEngine(page: Page, engine: 'shelf' | 'global'): Promise<{ guarded: boolean }> {
+  await clickSel(page, engine === 'global' ? 'engineGlobal' : 'engineShelf');
+  if (engine !== 'global') { return { guarded: false }; }
+  await page.waitForTimeout(250);
+  const guarded = await page.locator(SEL.globalGuardHint.css).first().isVisible().catch(() => false);
+  if (guarded) { await clickSel(page, 'engineGlobal'); } // confirm within the 6 s window
+  return { guarded };
 }

@@ -2,13 +2,14 @@
 // drains the frames recorded since the previous drain. Headless numbers are
 // only comparable relative to each other on the same machine — use --headed
 // for GPU-backed figures.
-import type { Page } from '@playwright/test';
+import type { Frame, Page } from '@playwright/test';
 
 export interface FpsWindow { frames: number; avgMs: number; p95Ms: number; maxMs: number; longFrames: number; minFps: number }
 
-/** Runs in the page (addInitScript). Self-contained. */
-function installFpsTrace(): void {
+/** Runs in the page (addInitScript, or evaluate for a VS Code webview frame). Self-contained, idempotent. */
+export function installFpsTrace(): void {
   const w = window as unknown as Record<string, unknown>;
+  if (w.__uxDrainFrames) { return; }
   const deltas: number[] = [];
   let last = 0;
   const loop = (t: number): void => {
@@ -39,7 +40,7 @@ export async function attachFpsTrace(page: Page): Promise<void> {
   await page.addInitScript(installFpsTrace);
 }
 
-export async function drainFps(page: Page): Promise<FpsWindow> {
+export async function drainFps(page: Page | Frame): Promise<FpsWindow> {
   const deltas = await page.evaluate(() => {
     const fn = (window as unknown as Record<string, unknown>).__uxDrainFrames as (() => number[]) | undefined;
     return fn ? fn() : [];

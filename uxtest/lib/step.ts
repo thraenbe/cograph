@@ -2,7 +2,7 @@
 // One StepRecord per ux.step(); the whole run is written to run.json.
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Page } from '@playwright/test';
+import type { Frame, Page } from '@playwright/test';
 import { setCaption } from './overlay';
 import { waitForStill, type StillOpts, type StillResult } from './still';
 import { drainFps, type FpsWindow } from './fps';
@@ -38,6 +38,9 @@ export interface RecorderDeps {
   errors: string[];             // live list filled by the lab's console/pageerror hooks
   keepSnapshots: boolean;
   t0?: number;                  // epoch ms when the video started (context creation)
+  /** Where the CoGraph webview lives. Tier A: the page itself (default). Tier B: the webview
+   *  iframe inside VS Code; null while no CoGraph panel is open (then only the keyframe is taken). */
+  target?: () => Promise<Page | Frame | null>;
 }
 
 /** Thrown by a scenario to mark a step as skipped (e.g. a selector the ux session removed). */
@@ -69,7 +72,8 @@ export class StepRecorder {
     let failure: unknown = null;
     try {
       await setCaption(this.d.page, `${index}. ${name}`);
-      await drainFps(this.d.page); // frames before the action belong to the previous step
+      const pre = this.d.target ? await this.d.target() : this.d.page;
+      if (pre) { await drainFps(pre); } // frames before the action belong to the previous step
       await action();
     } catch (err) {
       if (err instanceof SkipStep) { rec.status = 'skipped'; rec.note = err.message; }
@@ -92,14 +96,15 @@ export class StepRecorder {
   private async measure(rec: StepRecord, base: string, opts: StepOpts): Promise<void> {
     const { page, outDir } = this.d;
     if (page.isClosed()) { return; }
-    if (opts.settle !== false && rec.status !== 'skipped') {
-      rec.still = await waitForStill(page, { ...this.d.still, timeoutMs: opts.stillTimeoutMs ?? this.d.still.timeoutMs, expectMotionMs: opts.expectMotionMs });
+    const target = this.d.target ? await this.d.target() : page;
+    if (target && opts.settle !== false && rec.status !== 'skipped') {
+      rec.still = await waitForStill(target, { ...this.d.still, timeoutMs: opts.stillTimeoutMs ?? this.d.still.timeoutMs, expectMotionMs: opts.expectMotionMs });
     }
-    rec.fps = await drainFps(page);
+    if (target) { rec.fps = await drainFps(target); }
     rec.screenshot = path.join('steps', `${base}.png`);
     await page.screenshot({ path: path.join(outDir, rec.screenshot) });
-    if (opts.metrics === false) { return; }
-    const snap = await collectSnapshot(page, { maxLabels: this.d.caps.maxLabels });
+    if (opts.metrics === false || !target) { return; }
+    const snap = await collectSnapshot(target, { maxLabels: this.d.caps.maxLabels });
     this.lastSnapshot = snap;
     rec.metrics = computeMetrics(snap, this.d.caps);
     if (this.d.keepSnapshots) {

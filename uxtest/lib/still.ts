@@ -2,7 +2,7 @@
 // drifted more than epsilon across a whole window of N animation frames. Deliberately
 // blind to simulation internals (alpha, schedulers, workers) so it survives the
 // perf session's refactors; it only watches node data the renderer paints from.
-import type { Page } from '@playwright/test';
+import type { Frame, Page } from '@playwright/test';
 
 export interface StillOpts {
   epsilonPx: number; quietFrames: number; timeoutMs: number;
@@ -70,6 +70,6 @@ function waitStillInPage(o: StillOpts): Promise<StillResult> {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export async function waitForStill(page: Page, opts: StillOpts): Promise<StillResult> {
+export async function waitForStill(page: Page | Frame, opts: StillOpts): Promise<StillResult> {
   return page.evaluate(waitStillInPage, opts);
 }

@@ -3,7 +3,7 @@
 // outer-scope references). It reads only what is stable across the ux/perf
 // refactors: rendered SVG elements + their d3 data, and state.frames rects
 // (with a DOM fallback when state.frames is unavailable).
-import type { Page } from '@playwright/test';
+import type { Frame, Page } from '@playwright/test';
 import type { Snapshot } from './types';
 
 export interface CollectOpts { maxLabels: number }
@@ -108,6 +108,6 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-export async function collectSnapshot(page: Page, opts: CollectOpts): Promise<Snapshot> {
+export async function collectSnapshot(page: Page | Frame, opts: CollectOpts): Promise<Snapshot> {
   return page.evaluate(snapshotInPage, opts);
 }

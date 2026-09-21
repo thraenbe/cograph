@@ -3,8 +3,8 @@
 // the metrics ignore (it is outside #graph).
 import type { Page } from '@playwright/test';
 
-/** Runs in the page (addInitScript). Self-contained. */
-function installOverlay(): void {
+/** Runs in the page (addInitScript, or evaluate for the VS Code workbench). Self-contained, idempotent. */
+export function installOverlay(): void {
   const build = (): void => {
     if (document.getElementById('__ux-overlay')) { return; }
     const host = document.createElement('div');

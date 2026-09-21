@@ -55,6 +55,12 @@ if (stale && !flag('no-compile')) {
   if (tsc.status !== 0) { fail('npm run compile failed'); }
 }
 
+// Tier B loads the extension from dist/ (esbuild bundle), like F5 does.
+if (project === 'vscode' && !flag('no-compile')) {
+  const b = spawnSync('npm', ['run', 'bundle'], { cwd: extRoot, stdio: 'inherit' });
+  if (b.status !== 0) { fail('npm run bundle failed'); }
+}
+
 const args = ['playwright', 'test', '-c', path.join(here, 'playwright.config.ts'), `--project=${project}`];
 const scenario = value('scenario');
 if (scenario) { args.push(scenario); } // file-name filter, e.g. "smoke" → scenarios/00-smoke.spec.ts

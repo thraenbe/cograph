@@ -526,7 +526,16 @@ function serializeFrames(fs) {
   for (const p of [...fs.byPath.keys()].sort()) {
     const f = fs.byPath.get(p);
     if (f.kind === 'root') { continue; }
-    out[p] = { x: f.local.x ?? 0, y: f.local.y ?? 0, w: f.local.w, h: f.local.h, pinned: !!f.pinned };
+    // cx/cy: the content block's offset inside the frame. It depends on pack
+    // HISTORY (grow-in-place never re-centres), so a fresh build after reload
+    // derives a different one — saving it makes the slot geometry, and with
+    // it every node's slot-interior check, reproducible from the payload
+    // alone (F15).
+    out[p] = {
+      x: f.local.x ?? 0, y: f.local.y ?? 0, w: f.local.w, h: f.local.h,
+      pinned: !!f.pinned,
+      cx: f.contentPos.x ?? 0, cy: f.contentPos.y ?? 0,
+    };
   }
   return out;
 }
@@ -544,6 +553,7 @@ function deserializeFrames(saved, fs) {
       w: Math.max(FRAME.MIN_INNER_W, r.w - 2 * FRAME.PAD),
       h: Math.max(FRAME.MIN_INNER_H, r.h - 2 * FRAME.PAD - FRAME.TITLE),
     };
+    if (r.cx != null) { f.contentPos = { x: r.cx, y: r.cy ?? 0 }; }
     f.pinned = !!r.pinned;
     applied.push(p);
   }

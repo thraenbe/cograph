@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layouts are unchanged. Saved with the view (older saves load as unlimited).
 
 ### Fixed
+- Shelf layouts restore deterministically from the saved payload alone: the
+  content block's offset inside each frame (which depends on how the layout
+  grew — detail changes, parse patches) is now saved with the frame rects, so
+  a reload after a detail-slider history reproduces the exact slot geometry
+  and node placement. Older saves without the field load as before.
 - Changing **Node Size** under Shelf+Static re-packs the grid: slots resize
   for the new radii and members re-place, instead of thousands of nodes
   overlapping at their old spots.

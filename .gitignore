@@ -14,3 +14,8 @@ linkedin.txt
 # Termi session notes (auto-generated, not shared)
 .cograph/
 /project.md
+# UX test suite artifacts (videos, caches, reports)
+uxtest/.cache/
+uxtest/artifacts/
+uxtest/test-results/
+/test-results/

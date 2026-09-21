@@ -1,0 +1,8 @@
+{
+  "all": true,
+  "include": ["uxtest/**/*.ts"],
+  "exclude": ["uxtest/unit/**", "uxtest/scenarios/**", "uxtest/examples/**", "uxtest/vscode/**", "uxtest/playwright.config.ts", "uxtest/**/*.spec.ts", "uxtest/metrics/types.ts"],
+  "reporter": ["text-summary", "text"],
+  "temp-directory": "uxtest/test-results/.c8",
+  "reports-dir": "uxtest/test-results/coverage"
+}

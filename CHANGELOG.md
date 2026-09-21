@@ -132,6 +132,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Graph uses a new narrow call that never runs a write-capable CLI mode and skips the
   CLI's default context, which cut a small haiku call from about $0.19 to $0.005.
 
+### Development tooling (not shipped in the .vsix)
+- `uxtest/` — UX test suite: drives the real webview HTML in Chromium against a scripted host on any
+  repo (`npm run uxtest`), records a captioned video, a keyframe and layout metrics per step, reports
+  invariant findings (overlaps, nodes outside slots, label clutter, console errors), runs force sweeps
+  with a ranked contact sheet (`uxtest:sweep`), builds a static HTML report with a review rubric
+  (`uxtest:report`) and a real-VS-Code smoke via Playwright Electron (`uxtest:vscode`). `--ext-root`
+  runs the same suite against another checkout.
+
 ## [1.2.0] - 2026-08-28
 
 ### Added

@@ -1,0 +1,15 @@
+{
+  "corpusDir": "~/cograph/test-projects",
+  "defaultRepos": ["click", "flask", "express", "zod", "gson"],
+  "largeRepos": ["django", "excalidraw"],
+  "knownAnalyzerFailures": ["guava"],
+  "viewport": { "width": 1280, "height": 800 },
+  "analyzerTimeoutMs": 600000,
+  "still": { "epsilonPx": 1, "quietFrames": 40, "timeoutMs": 20000 },
+  "caps": { "maxLabels": 3000, "maxCrossingEdges": 2000, "maxOverlapNodes": 6000 },
+  "synthetic": {
+    "synthetic-1k": { "folders": 12, "filesPerFolder": 7, "fnsPerFile": 12, "seed": 1 },
+    "synthetic-3k": { "folders": 25, "filesPerFolder": 10, "fnsPerFile": 12, "seed": 3 },
+    "synthetic-10k": { "folders": 60, "filesPerFolder": 14, "fnsPerFile": 12, "seed": 10 }
+  }
+}

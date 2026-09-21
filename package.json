@@ -283,7 +283,14 @@
     "lint": "eslint src --ext ts",
     "build:cpp-grammar": "tree-sitter build --wasm node_modules/tree-sitter-cpp -o scripts/tree-sitter-cpp.wasm",
     "package": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce package",
-    "publish": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce publish"
+    "publish": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce publish",
+    "uxtest": "node uxtest/run.mjs",
+    "uxtest:sweep": "node uxtest/run.mjs --project sweep",
+    "uxtest:vscode": "node uxtest/run.mjs --project vscode",
+    "uxtest:report": "node uxtest/run.mjs --project report",
+    "uxtest:unit": "c8 --config uxtest/.c8rc.json playwright test -c uxtest/playwright.config.ts --project=unit",
+    "uxtest:typecheck": "tsc -p uxtest/tsconfig.json --noEmit",
+    "uxtest:install": "playwright install chromium ffmpeg"
   },
   "dependencies": {
     "java-parser": "^2.0.5",
@@ -291,6 +298,7 @@
     "web-tree-sitter": "0.26.9"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/jsdom": "^21.1.7",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.0.0",
@@ -300,6 +308,8 @@
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.32.0",
+    "c8": "^12.0.0",
+    "d3": "7.9.0",
     "esbuild": "^0.28.1",
     "eslint": "^8.0.0",
     "glob": "^13.0.6",

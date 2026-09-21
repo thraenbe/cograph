@@ -17,6 +17,9 @@ import type { SidebarProvider } from './sidebarProvider';
 import { createProvider, getProviderInfo } from './graphIntelligence/provider';
 import type { GraphIntelligenceProvider, GraphIntelligenceResult } from './graphIntelligence/provider';
 import { buildWorkflowPrompt, normalizeWorkflowModel } from './graphIntelligence/workflowPrompt';
+import { AnnotationService } from './graphIntelligence/annotationService';
+import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
+import type { RunResult } from './graphIntelligence/annotationRunner';
 
 /**
  * Per-node annotations produced by the AI Workflow Graph generation. All fields
@@ -120,6 +123,32 @@ export class GraphProvider {
   private graphReadyPromise: Promise<void> | undefined;
   private intelController: AbortController | undefined;
   private _providerFactory?: (id: string, ch: vscode.OutputChannel) => GraphIntelligenceProvider;
+  /** True while a background analysis (first full pass or cache reconcile) is still filling the graph. */
+  private backgroundParsing = false;
+  private readonly analysisIdleListeners = new Set<() => void>();
+  /** AI folder/file summaries for the hover card; kept out of GraphData and graph-patch. */
+  private readonly annotations = new AnnotationService({
+    getRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    getStructure: () => this.currentStructure,
+    getGraph: () => this.cachedGraph,
+    post: (msg) => { this.panel?.webview.postMessage(msg); },
+    log: (line) => this.outputChannel.appendLine(line),
+    createProvider: (id) => (this._providerFactory ?? createProvider)(id, this.outputChannel),
+    isAnalyzing: () => this.backgroundParsing,
+    onAnalysisIdle: (listener) => {
+      this.analysisIdleListeners.add(listener);
+      return { dispose: () => this.analysisIdleListeners.delete(listener) };
+    },
+  });
+
+  /** Read-only view of the background-parse state (Annotate Graph waits for it to end). */
+  get isAnalyzing(): boolean { return this.backgroundParsing; }
+
+  private setBackgroundParsing(on: boolean): void {
+    this.backgroundParsing = on;
+    if (on) { return; }
+    for (const listener of [...this.analysisIdleListeners]) { listener(); }
+  }
 
   private get outputChannel() {
     if (!this._outputChannel) {
@@ -233,6 +262,7 @@ export class GraphProvider {
       for (const timer of this.incrementalTimers.values()) { clearTimeout(timer); }
       this.incrementalTimers.clear();
       this.analyzerRunner.killAll();
+      this.setBackgroundParsing(false);
       this.cachedNodes = [];
       this.cachedGraph = undefined;
       this.graphReadyPromise = undefined;
@@ -358,7 +388,11 @@ export class GraphProvider {
         this.parseSubset(workspaceRoot, filePath ? [filePath] : [], path.dirname(filePath));
       } else if (message.type === 'cancel-analysis') {
         this.analyzerRunner.killAll();
+        this.setBackgroundParsing(false);
         this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false, cancelled: true });
+      } else if (message.type === 'get-annotations') {
+        // The hover card asks once it has loaded, so this can never race `graph`/`structure`.
+        this.annotations.refresh();
       } else if (message.type === 'open-chat') {
         // Focuses the Cograph activity-bar view. The current graph context is
         // already up-to-date — setCurrentGraph is invoked from loadGraph and
@@ -443,6 +477,7 @@ export class GraphProvider {
 
     if (autoEngage) {
       // Paint the skeleton immediately; the analyzer enriches it in the background.
+      this.setBackgroundParsing(true);
       this.loadGraphHtml([
         { type: 'structure', tree: structure, autoEngage: true },
         { type: 'analysis-state', backgroundParsing: true },
@@ -726,6 +761,7 @@ export class GraphProvider {
 
   /** Show error in the panel (if alive) and as a VS Code notification. */
   private showError(message: string): void {
+    this.setBackgroundParsing(false); // a failed analysis must not leave waiters hanging
     if (this.panel) {
       this.panel.webview.html = getErrorHtml(message);
     }
@@ -808,6 +844,7 @@ export class GraphProvider {
     const fileGitStatus = this.gitService.fileStatuses;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
     this.cachedGraph = graph;
+    this.setBackgroundParsing(false); // the full pass delivered: the graph is complete
     if (this.currentStructure) { scheduleCacheWrite(workspaceRoot, graph, this.currentStructure); }
     if (this.graphReadyResolve) {
       this.graphReadyResolve();
@@ -923,17 +960,21 @@ export class GraphProvider {
     this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
     if (structure) { scheduleCacheWrite(workspaceRoot, this.cachedGraph, structure); }
     this.panel?.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: files, fileGitStatus: this.gitService.fileStatuses });
+    // Changed files only turn their summaries "outdated"; nothing is re-sent to the AI here.
+    this.annotations.refresh();
   }
 
   /** Re-parse only the files that changed since the cache was written, then patch + rewrite the cache. */
   private async reconcileChangedFiles(workspaceRoot: string, structure: StructureTree, changed: string[]): Promise<void> {
     if (!this.panel || changed.length === 0) { return; }
+    this.setBackgroundParsing(true);
     this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
     try {
       await this.reparseAndPatch(workspaceRoot, changed, structure);
     } catch (err: unknown) {
       this.outputChannel.appendLine(`Cache reconcile failed: ${(err as Error).message}`);
     } finally {
+      this.setBackgroundParsing(false);
       this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
     }
   }
@@ -1009,6 +1050,10 @@ export class GraphProvider {
     sessionId: string | null,
     onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
   ): Promise<GraphIntelligenceResult> {
+    // Host-side gate: the sidebar already blocks chat-send, but no caller may reach a provider while AI is off.
+    if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
+      throw new Error('AI features are off — enable them in CoGraph settings to use Chat.');
+    }
     const { result, workspaceRoot } = await this.invokeProvider(prompt, providerId, sessionId, onProgress);
     this.cachedGraph = result.graph;
     this.cachedNodes = result.graph.nodes.filter(n => !n.isLibrary);
@@ -1100,6 +1145,42 @@ export class GraphProvider {
       fileGitStatus: this.gitService.fileStatuses,
       isReanalysis: true,
     });
+  }
+
+  // ── Annotate Graph ────────────────────────────────────────────────────────
+
+  /**
+   * Generate, resume or update the AI summaries. Opens the panel and waits for the
+   * graph first; the user confirms an estimate before anything is sent.
+   */
+  async annotateGraph(providerId: string): Promise<RunResult | null> {
+    if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
+      throw new Error('AI features are off — enable them in CoGraph settings to annotate the graph.');
+    }
+    if (!this.panel) { this.show(); }
+    if (!this.panel) { throw new Error('Failed to open graph panel.'); }
+    await this.waitForGraphReady();
+    return this.annotations.annotate(providerId, async (text) => {
+      const choice = await vscode.window.showInformationMessage(text, { modal: true }, 'Annotate');
+      return choice === 'Annotate';
+    });
+  }
+
+  cancelAnnotate(): void {
+    this.annotations.cancel();
+  }
+
+  annotationStatus(): AnnotationStatus {
+    return this.annotations.status();
+  }
+
+  onAnnotationStatus(listener: (s: AnnotationStatus) => void): { dispose(): void } {
+    return this.annotations.onStatus(listener);
+  }
+
+  /** Re-read annotations and the AI-enabled flag and push both to the webview and sidebar. */
+  refreshAnnotations(): void {
+    this.annotations.refresh();
   }
 
   abortIntelligence(): void {

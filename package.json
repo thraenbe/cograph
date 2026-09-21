@@ -38,7 +38,8 @@
     "onCommand:cograph.openOrReload",
     "onCommand:cograph.saveGraph",
     "onCommand:cograph.saveGraphAs",
-    "onView:cograph.savedGraphs"
+    "onView:cograph.savedGraphs",
+    "onCommand:cograph.annotateGraph"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -84,6 +85,10 @@
       {
         "command": "cograph.dev.loadSynthetic",
         "title": "CoGraph: Load Synthetic Repo (Perf Dev)"
+      },
+      {
+        "command": "cograph.annotateGraph",
+        "title": "CoGraph: Annotate Graph (AI summaries for folders and files)"
       }
     ],
     "keybindings": [
@@ -116,7 +121,7 @@
           "type": "boolean",
           "default": false,
           "scope": "application",
-          "markdownDescription": "Enable AI-powered features (Chat and the AI Workflow Graph). When off, these features are disabled until you turn them on here. AI features run the Claude Code / Codex CLI on your behalf."
+          "markdownDescription": "Enable AI-powered features (Chat, the AI Workflow Graph and Annotate Graph). When off, these features are disabled until you turn them on here. AI features run the Claude Code / Codex CLI on your behalf."
         },
         "cograph.graphIntelligence.provider": {
           "type": "string",
@@ -246,6 +251,38 @@
           ],
           "default": "auto",
           "description": "Run layout simulations off the UI thread (Web Workers). Applies the next time the graph panel opens."
+        },
+        "cograph.graphIntelligence.annotate.readSource": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "What Annotate Graph sends to the AI. **Off (default):** file paths, function and class names with their signature lines, import names and the leading comment of each file. No function bodies, and with Claude Code the AI cannot open files. **On:** the AI may additionally open and read your source files (read-only) for better summaries. Note: the Codex CLI can always read files in the workspace, in either mode."
+        },
+        "cograph.graphIntelligence.annotate.model": {
+          "type": "string",
+          "enum": [
+            "default",
+            "opus",
+            "sonnet",
+            "haiku"
+          ],
+          "default": "haiku",
+          "description": "Claude model used for Annotate Graph (when provider is claude-code). Summaries are short, so the cheapest model is the default."
+        },
+        "cograph.graphIntelligence.annotate.codex.model": {
+          "type": "string",
+          "enum": [
+            "gpt-5-codex",
+            "gpt-5",
+            "gpt-5-mini"
+          ],
+          "default": "gpt-5-mini",
+          "description": "Codex model used for Annotate Graph (when provider is codex)."
+        },
+        "cograph.graphIntelligence.annotate.maxRunBudgetUsd": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0.05,
+          "description": "Spend cap (USD) for one whole Annotate Graph run. The run stops before the next batch once this is reached and keeps what is done. Not enforceable with Codex, which reports no cost."
         }
       }
     }

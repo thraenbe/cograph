@@ -207,6 +207,22 @@
           && attached.length > 0 && attached.every(f => f.querySelector('g.f-labels') && f.querySelector('g.f-links') && f.querySelector('g.f-slots')),
         expected, afterRerender, circlesAttachedAtFit: parkedAtFit, framesAttachedZoomedIn: attached.length,
       };
+      // annotate's hover card must open on the header of a frame that was just
+      // re-attached by the zoom-in (delegated listener + d3 datum on the <g>).
+      const tab = attached.map(f => f.querySelector('.frame-tab, .frame-tab-shape, .folder-bubble-titlebar')).find(Boolean);
+      if (tab && document.querySelector('.hover-card')) {
+        const bb = tab.getBoundingClientRect();
+        const at = { bubbles: true, view: window, clientX: bb.x + 4, clientY: bb.y + 4 };
+        tab.dispatchEvent(new MouseEvent('mouseover', at));
+        tab.dispatchEvent(new MouseEvent('mousemove', at));
+        await sleep(450);
+        R.lodIntegrity.hoverCardOnReattachedFrame = !!document.querySelector('.hover-card.visible');
+        tab.dispatchEvent(new MouseEvent('mouseout', at));
+        await sleep(150);
+      }
+      // F3 class: no NaN geometry anywhere after the culling / LOD round trip
+      R.lodIntegrity.nanAttrs = [...document.querySelectorAll('#graph line, #graph circle')]
+        .filter(el => ['x1', 'y1', 'x2', 'y2', 'cx', 'cy'].some(a => el.getAttribute(a) === 'NaN')).length;
       svg.call(zoomBehavior.transform, before);
       await paint();
     }

@@ -44,6 +44,10 @@ const settings = {
   fileClusterForce: 0.2,
   folderRepelForce: 0.25,
   fileRepelForce: 0.25,
+  linkDistance: 40,   // shelf sims run this at 0.75x (localSim.lsLinkDistance)
+  velocityDecay: 0.3,
+  collidePad: 1.5,
+  slotPad: 0,
   openFunctionPopup: true,
 };
 
@@ -55,8 +59,9 @@ function updateLayoutButtons() {
   for (const e of ['shelf', 'global']) {
     document.getElementById(`btn-engine-${e}`)?.classList.toggle('active', state.layoutEngine === e);
   }
-  const forcesSection = document.getElementById('forces-section');
-  if (forcesSection) forcesSection.style.opacity = state.layoutMode === 'static' ? '0.4' : '1';
+  if (typeof updateForcesPanel === 'function') {
+    updateForcesPanel(state.layoutEngine, state.layoutMode);
+  }
   const hint = document.getElementById('layout-hint');
   if (hint) {
     const engine = state.layoutEngine === 'shelf' ? 'Folder frames & file slots' : 'One free-floating graph';
@@ -90,13 +95,32 @@ function setLayoutEngine(engine) {
   if (!['shelf', 'global'].includes(engine)) { engine = 'global'; }
   state.layoutEngine = engine;
   updateLayoutButtons();
+  // Detach the old engine's simulation BEFORE re-rendering: a still-settling
+  // global sim otherwise keeps firing ticks into the new engine's DOM (F3).
+  if (state.simulation && !state.simulation.isFrameFacade && state.simulation.on) {
+    state.simulation.on('tick', null).on('end', null);
+    state.simulation.stop();
+  }
   state.currentNodes.forEach(d => { d.fx = null; d.fy = null; });
-  if (engine === 'shelf' && (state.viewMode === 'workflow' || state.clusterGroupBy !== 'file')) {
+  state.userZoomed = false; // an engine switch re-lays out — allow auto-fit
+  if (engine === 'shelf' && state.viewMode === 'workflow') {
     if (typeof enterFileClusterMode === 'function') { enterFileClusterMode(); }
   } else if (typeof applyComplexity === 'function') {
     applyComplexity();
   }
   if (state.layoutMode === 'static') { setLayoutMode('static'); }
+  // One coalesced tick of the OLD engine may already sit in a rAF; it fires
+  // after this switch and scribbles on the new DOM. Queue a repair pass
+  // behind it (F3).
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      if (typeof usesFrames === 'function' && usesFrames() && typeof tickFrames === 'function') {
+        tickFrames();
+      } else if (typeof ticked === 'function' && state.currentNodes.length) {
+        ticked();
+      }
+    });
+  }
 }
 updateLayoutButtons(); // boot config may differ from the HTML's active buttons
 
@@ -248,7 +272,9 @@ function rerunLayout() {
   state.simulation.force('link')
     .strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3
       : folderLink(d) ? settings.linkForce * 0.1 * 0.25 : settings.linkForce * 0.1)
-    .distance(d => folderLink(d) ? 120 : 40);
+    .distance(d => folderLink(d) ? 120 : (settings.linkDistance ?? 40));
+  state.simulation.force('collision')?.radius?.(d => nodeRadius(d) + (settings.collidePad ?? 1.5));
+  state.simulation.velocityDecay?.(settings.velocityDecay ?? 0.3);
   state.simulation.alpha(0.5).restart();
 }
 
@@ -295,11 +321,9 @@ function applyComplexity() {
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
-  // Reaches here for 'connect', 'class', or 'file' without a structure tree
-  // (which falls back to plain file-structural clustering instead of the drill-down).
-  const clusterResult = state.clusterGroupBy === 'connect'
-    ? computeClusters(projectData, state.importanceScores, state.complexityLevel)
-    : computeStructuralClusters(projectData, state.clusterGroupBy, state.complexityLevel);
+  // Reaches here only for 'file' without a structure tree (falls back to plain
+  // file-structural clustering instead of the drill-down).
+  const clusterResult = computeStructuralClusters(projectData, 'file', state.complexityLevel);
   const elements = buildClusteredElements(projectData, clusterResult, state.complexityLevel, state.importanceScores, state.expandedClusters, degreeMap);
   const nodeToRendered = buildRenderedNodeMap(clusterResult.nodeToCluster, state.expandedClusters);
   if (settings.showLibraries) {
@@ -356,10 +380,10 @@ function applyComplexity() {
       }
     });
   }
-  // For structural modes, seed each cluster at the centroid of its members'
-  // current on-screen positions so the layout starts compact instead of random.
+  // Seed each cluster at the centroid of its members' current on-screen
+  // positions so the layout starts compact instead of random.
   const positionHints = new Map();
-  if (state.clusterGroupBy !== 'connect' && state.currentNodes.length > 0) {
+  if (state.currentNodes.length > 0) {
     const currentById = new Map(state.currentNodes.map(n => [n.id, n]));
     for (const [clusterId, members] of clusterResult.clusterMembers) {
       const pts = members
@@ -384,7 +408,11 @@ function renderGraph(data, isReanalysis = false) {
   state.importanceScores = computeImportanceScores(projectData);
   state.expandedClusters = new Set();
   state.expandedLibClusters = new Set();
-  if (!isReanalysis) { state.hasFitted = false; }
+  if (!isReanalysis) {
+    state.hasFitted = false;
+    state.userZoomed = false;
+    if (state.slotPlacedIds) { state.slotPlacedIds.clear(); } // new graph, new placements
+  }
 
   // Detect the AI Workflow Graph (its presence is marked by graph.workflow).
   // Workflow payloads route here even while the drill-down is active (see
@@ -544,6 +572,7 @@ window.addEventListener('message', (event) => {
     if (typeof usesFrames === 'function' && usesFrames() && typeof resetFrames === 'function') {
       resetFrames();          // drop packed rects → next render re-packs from scratch
       state.hasFitted = false;
+      state.userZoomed = false;
       applyFileClusters();
       window.clearDirty?.();
       return;
@@ -596,7 +625,9 @@ window.addEventListener('message', (event) => {
     const savedMotion = saved.layoutMode === 'static' ? 'static' : 'dynamic';
     if (savedEngine !== state.layoutEngine) { setLayoutEngine(savedEngine); }
 
-    // Apply saved node positions
+    // Apply saved node positions (stamped: a saved position is a placement,
+    // so the shelf grid must not overwrite it)
+    if (!state.slotPlacedIds) { state.slotPlacedIds = new Set(); }
     for (const n of state.currentNodes) {
       const pos = nodePositions[n.id];
       if (pos) {
@@ -604,6 +635,7 @@ window.addEventListener('message', (event) => {
         n.y = pos.y;
         n.fx = pos.x;
         n.fy = pos.y;
+        state.slotPlacedIds.add(n.id);
       }
     }
 

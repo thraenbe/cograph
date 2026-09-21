@@ -65,6 +65,9 @@ const zoomBehavior = d3.zoom()
   .on('zoom', (event) => {
     g.attr('transform', event.transform);
     state.currentZoom = event.transform.k;
+    // A gesture (wheel/drag/pinch) has a sourceEvent; programmatic fits don't.
+    // Once the user takes the viewport, automatic re-fits stop (see F2).
+    if (event.sourceEvent) { state.userZoomed = true; }
     updateTextVisibility();
     if (typeof onFramesZoom === 'function') { onFramesZoom(); } // W3: culling + LOD
   });
@@ -78,13 +81,14 @@ svg.on('dblclick', (event) => {
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function readCSSVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
 // Memoised (hotCache.js): it is called from per-element d3 accessors. Dropped
-// on theme changes and at every render start.
+// on theme changes and at every render start. Self-contained on purpose —
+// themeVars.test extracts this function by source text.
 function getCSSVar(name) {
-  return (typeof cssVarCached === 'function') ? cssVarCached(name, readCSSVar) : readCSSVar(name);
+  // Read from <body>: VS Code puts the theme class there (body.vscode-light),
+  // so documentElement never sees the light-theme --cograph-* overrides.
+  const read = (n) => getComputedStyle(document.body || document.documentElement).getPropertyValue(n).trim();
+  return (typeof cssVarCached === 'function') ? cssVarCached(name, read) : read(name);
 }
 
 function nodeRadius(d) {
@@ -136,10 +140,12 @@ function circlePath(R) {
   return `M ${-R} 0 A ${R} ${R} 0 1 0 ${R} 0 A ${R} ${R} 0 1 0 ${-R} 0 Z`;
 }
 
-// Shape selector for the cloud-node layer: files → circle, everything else
-// (folders and connectivity/structural clusters) → cloud silhouette.
+// Shape selector for the cloud-node layer: files → circle, collapsed folders →
+// compact closed-folder silhouette (matches the open frames' tab chrome),
+// everything else (structural clusters) → cloud silhouette.
 function generateNodeShapePath(d, R) {
   if (d.isFileCluster) { return circlePath(R); }
+  if (d.isFolderCluster && typeof closedFolderPath === 'function') { return closedFolderPath(R); }
   return generateCloudPath(R, bumpCountFor(d));
 }
 
@@ -211,16 +217,22 @@ function resolveClusterFill(d) {
 
 // Runs on every zoom event: only rewrite label opacity when the fade threshold
 // is actually crossed (or a render swapped the label selections).
-const __textVis = { opacity: null, labels: null, libLabels: null };
+const __textVis = { opacity: null, denseHidden: null, labels: null, libLabels: null };
 function updateTextVisibility() {
   if (!state.svgLabels) return;
   const opacity = state.currentZoom >= settings.textFadeThreshold ? 1 : 0;
-  if (__textVis.opacity === opacity && __textVis.labels === state.svgLabels
+  // B6: labels inside dense file slots (frames engine) stay hidden until the
+  // viewer zooms close enough to read them — a second threshold for the gate.
+  const denseZoom = (typeof DENSE !== 'undefined') ? DENSE.LABEL_ZOOM : Infinity;
+  const denseHidden = state.currentZoom < denseZoom;
+  if (__textVis.opacity === opacity && __textVis.denseHidden === denseHidden
+      && __textVis.labels === state.svgLabels
       && __textVis.libLabels === (state.svgLibLabels ?? null)) { return; }
   __textVis.opacity = opacity;
+  __textVis.denseHidden = denseHidden;
   __textVis.labels = state.svgLabels;
   __textVis.libLabels = state.svgLibLabels ?? null;
-  state.svgLabels.style('opacity', opacity);
+  state.svgLabels.style('opacity', d => (d && d._denseSlot && denseHidden) ? 0 : opacity);
   state.svgLibLabels?.style('opacity', opacity);
 }
 
@@ -235,7 +247,13 @@ function fitToView() {
   const pad = 60;
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
-  const scale = Math.min((W - pad * 2) / (maxX - minX || 1), (H - pad * 2) / (maxY - minY || 1), 4);
+  let maxR = 0;
+  for (const n of state.currentNodes) {
+    if (n.x != null && isFinite(n.x)) { maxR = Math.max(maxR, nodeRadius(n)); }
+  }
+  const scale = (typeof fitScale === 'function')
+    ? fitScale(maxX - minX, maxY - minY, W, H, maxR, pad)
+    : Math.min((W - pad * 2) / (maxX - minX || 1), (H - pad * 2) / (maxY - minY || 1), 4);
   svg.transition().duration(500).call(
     zoomBehavior.transform,
     d3.zoomIdentity
@@ -660,7 +678,7 @@ function startSimulation(allLinks) {
     .force('link', d3.forceLink(allLinks).id(d => d.id)
       // Folder/file aggregated edges pull weakly and rest farther apart, so folders
       // separate instead of clumping; function-level edges keep full strength.
-      .distance(d => isFolderLink(d) ? 120 : 40)
+      .distance(d => isFolderLink(d) ? 120 : (settings.linkDistance ?? 40))
       .strength(d => {
         if (d.isLibraryEdge) { return settings.linkForce * 0.1 * 0.3; }
         return isFolderLink(d) ? settings.linkForce * 0.1 * 0.25 : settings.linkForce * 0.1;
@@ -669,23 +687,32 @@ function startSimulation(allLinks) {
     .force('center', d3.forceCenter(W / 2, H / 2).strength(0.001))
     .force('x', d3.forceX(W / 2).strength(settings.centerForce))
     .force('y', d3.forceY(H / 2).strength(settings.centerForce))
-    .force('collision', d3.forceCollide(d => nodeRadius(d) + 1))
-    .velocityDecay(0.3)
+    .force('collision', d3.forceCollide(d => nodeRadius(d) + (settings.collidePad ?? 1.5)))
+    .velocityDecay(settings.velocityDecay ?? 0.3)
     .alphaDecay(isBigGraph() ? 0.04 : 0.02)
     .on('tick', ticked)
     .on('end', () => { if (typeof perfSettled === 'function') { perfSettled(); } });
   state.simulation._kind = 'global';
   if (state.layoutMode === 'static') {
-    // Static boot on the global engine: the classic Static toggle assumed a
-    // prior dynamic settle — do a bounded synchronous settle, then freeze.
-    state.simulation.stop();
-    const maxTicks = isBigGraph() ? 60 : 150;
-    for (let i = 0; i < maxTicks && state.simulation.alpha() > 0.05; i++) {
-      state.simulation.tick();
-    }
-    state.currentNodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
+    staticBootFreeze(state.simulation, state.currentNodes, isBigGraph() ? 60 : 150);
     ticked();
+    // Fit AFTER the frozen positions exist (F4): the async auto-fit in
+    // tickedNow can run against a pre-settle bbox, and a static simulation
+    // never ticks again to correct it.
+    state.hasFitted = true;
+    if (!state.userZoomed) { fitToView(); }
   }
+}
+
+/** Static boot on the global engine: the classic Static toggle assumed a
+ *  prior dynamic settle — do a bounded synchronous settle, then freeze
+ *  every node where it landed. */
+function staticBootFreeze(sim, nodes, maxTicks) {
+  sim.stop();
+  for (let i = 0; i < maxTicks && sim.alpha() > 0.05; i++) {
+    sim.tick();
+  }
+  nodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
 }
 
 const WORKFLOW_MARGIN_X = 90;
@@ -887,12 +914,16 @@ function renderGlobalLayout(allLinks, visibleSet) {
     });
     state.svgFolderBubbles.each(function(d) {
       d3.select(this).select('.folder-bubble-shape')
-        .attr('rx', 8).attr('stroke-width', 1.5).attr('pointer-events', 'all');
+        .attr('stroke-width', 1.5).attr('pointer-events', 'all');
       d3.select(this).select('.folder-bubble-titlebar')
         .attr('pointer-events', 'all').attr('cursor', 'grab');
+      d3.select(this).select('.frame-tab-glyph')
+        .attr('fill', isLightTheme() ? '#333333' : '#cccccc');
+      d3.select(this).select('.frame-tab-counts')
+        .attr('fill', isLightTheme() ? '#333333' : '#cccccc');
       d3.select(this).select('.folder-bubble-label')
-        .attr('font-size', `${(12 + 6 / (d.depth + 1)) * settings.textSize}px`)
-        .attr('text-anchor', 'middle').attr('font-weight', '600')
+        .attr('font-size', `${12 * settings.textSize}px`)
+        .attr('text-anchor', 'start').attr('font-weight', '600')
         .attr('dominant-baseline', 'central')
         .attr('fill', isLightTheme() ? '#333333' : '#cccccc').attr('pointer-events', 'none');
     });

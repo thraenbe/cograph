@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
-import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { MAX_OUTPUT_BYTES } from '../analyzerRunner';
-import type { GraphIntelligenceProvider, GraphIntelligenceRequest, GraphIntelligenceResult } from './provider';
+import type {
+  GraphIntelligenceProvider, GraphIntelligenceRequest, GraphIntelligenceResult, JsonRequest, JsonResult,
+} from './provider';
 import { StreamJsonParser, ProgressEvent } from './progressParser';
-import { extractCographResult } from './jsonRepair';
+import { extractCographResult, extractJsonObject } from './jsonRepair';
+import { runCliStream, ensureCliBinary } from './cliProcess';
 
 const WRAPPER_PROMPT = `Read ./.cograph/.intelligence-request.json. It holds the user's request under "prompt" and the current code graph under "graph" (nodes and edges). Fulfill the user's request.
 
@@ -41,6 +42,41 @@ const COGRAPH_SCHEMA = {
   },
 };
 
+const CLAUDE_NOT_FOUND =
+  'Claude Code CLI not found on PATH. Install from https://docs.anthropic.com/en/docs/claude-code';
+
+/** Read-only built-in tools granted when the caller opts into source reading. */
+const READ_ONLY_TOOLS = 'Read,Grep,Glob';
+
+/**
+ * Short structured replies gain nothing from extended thinking. Measured with haiku:
+ * thinking was ~4x the output tokens of a 40-file batch (cost and latency) with no
+ * visible difference in the summaries. Exported for tests.
+ */
+export const JSON_CALL_ENV: Record<string, string> = { MAX_THINKING_TOKENS: '0' };
+
+/** CLI arguments for `runJson`. Exported for tests. */
+export function buildJsonArgs(req: JsonRequest): string[] {
+  const args: string[] = [
+    '-p',
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--json-schema', JSON.stringify(req.schema),
+    '--tools', req.tools === 'read-only' ? READ_ONLY_TOOLS : '',
+    // Drop the default prompt, MCP servers and skills: they are dead weight here
+    // and dominate the cost of a small call.
+    '--system-prompt', req.systemPrompt,
+    '--strict-mcp-config',
+    '--disable-slash-commands',
+    '--no-session-persistence',
+    // The structured-output step counts as a turn, so digest mode needs > 1.
+    '--max-turns', String(req.maxTurns ?? (req.tools === 'read-only' ? 10 : 4)),
+  ];
+  if (req.model && req.model !== 'default') { args.push('--model', req.model); }
+  if (req.maxBudgetUsd !== undefined) { args.push('--max-budget-usd', String(req.maxBudgetUsd)); }
+  return args;
+}
+
 export class ClaudeCodeProvider implements GraphIntelligenceProvider {
   readonly id = 'claude-code';
   readonly displayName = 'Claude Code';
@@ -48,7 +84,7 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
   constructor(private readonly outputChannel: vscode.OutputChannel) {}
 
   async run(req: GraphIntelligenceRequest, signal?: AbortSignal): Promise<GraphIntelligenceResult> {
-    this.ensureClaudeBinary();
+    ensureCliBinary('claude', CLAUDE_NOT_FOUND);
 
     const cographDir = path.join(req.workspaceRoot, '.cograph');
     const tempFile = path.join(cographDir, '.intelligence-request.json');
@@ -83,13 +119,45 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
     return { ...base, sessionId: latestSessionId };
   }
 
-  private ensureClaudeBinary(): void {
-    const result = cp.spawnSync('claude', ['--version'], { stdio: 'ignore' });
-    if (result.error) {
-      throw new Error(
-        'Claude Code CLI not found on PATH. Install from https://docs.anthropic.com/en/docs/claude-code',
-      );
+  /**
+   * Narrow structured call. The prompt travels over stdin (no command-line length
+   * limit, nothing written to disk). Tools are off unless the caller opts into
+   * read-only; no write-capable tool or permission mode is ever passed.
+   */
+  async runJson(req: JsonRequest, signal?: AbortSignal): Promise<JsonResult> {
+    ensureCliBinary('claude', CLAUDE_NOT_FOUND);
+    const config = vscode.workspace.getConfiguration('cograph');
+    const timeoutMs = config.get<number>('graphIntelligence.timeoutMs', 300_000);
+
+    let finalEvent: (ProgressEvent & { kind: 'result' }) | null = null;
+    let errorEvent: (ProgressEvent & { kind: 'error' }) | null = null;
+    const parser = new StreamJsonParser((ev) => {
+      if (ev.kind === 'result') { finalEvent = ev; }
+      else if (ev.kind === 'error') { errorEvent = ev; }
+      req.onProgress?.(ev);
+    });
+
+    await runCliStream({
+      command: 'claude',
+      args: buildJsonArgs(req),
+      cwd: req.workspaceRoot,
+      label: 'Claude Code',
+      timeoutMs,
+      stdin: req.prompt,
+      env: JSON_CALL_ENV,
+      signal,
+      onStdout: (text) => parser.feed(text),
+      onStderr: (text) => this.outputChannel.append(`[stderr] ${text}`),
+      onEnd: () => parser.flush(),
+    });
+
+    if (errorEvent) {
+      const e = errorEvent as ProgressEvent & { kind: 'error' };
+      throw new Error(`Claude Code: ${e.subtype} — ${e.message}`);
     }
+    if (!finalEvent) { throw new Error('Claude Code closed without emitting a result.'); }
+    const done = finalEvent as ProgressEvent & { kind: 'result' };
+    return { data: extractJsonObject(done, 'Claude Code'), usage: done.usage };
   }
 
   private spawnStream(req: GraphIntelligenceRequest, parser: StreamJsonParser, signal?: AbortSignal): Promise<void> {
@@ -117,67 +185,19 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
       args.push('--effort', effort);
     }
 
-    return new Promise<void>((resolve, reject) => {
-      const proc = cp.spawn('claude', args, {
-        cwd: req.workspaceRoot,
-        env: process.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-
-      let totalBytes = 0;
-      let killed = false;
-
-      proc.stdout.on('data', (chunk: Buffer) => {
-        totalBytes += chunk.length;
-        if (totalBytes > MAX_OUTPUT_BYTES) {
-          killed = true;
-          proc.kill('SIGTERM');
-          reject(new Error('Claude Code response exceeded maximum output size.'));
-          return;
-        }
-        const text = chunk.toString();
+    return runCliStream({
+      command: 'claude',
+      args,
+      cwd: req.workspaceRoot,
+      label: 'Claude Code',
+      timeoutMs,
+      signal,
+      onStdout: (text) => {
         this.outputChannel.append(text);
         parser.feed(text);
-      });
-
-      proc.stderr.on('data', (chunk: Buffer) => {
-        this.outputChannel.append(`[stderr] ${chunk.toString()}`);
-      });
-
-      const timer = setTimeout(() => {
-        killed = true;
-        proc.kill('SIGTERM');
-        reject(new Error(`Claude Code timed out after ${Math.round(timeoutMs / 1000)}s.`));
-      }, timeoutMs);
-
-      const onAbort = () => {
-        killed = true;
-        try { proc.kill('SIGTERM'); } catch { /* already exited */ }
-        // Escalate to SIGKILL if the process is still alive after a brief grace period.
-        setTimeout(() => {
-          try { proc.kill('SIGKILL'); } catch { /* gone */ }
-        }, 1000);
-        reject(new Error('Request cancelled.'));
-      };
-      signal?.addEventListener('abort', onAbort, { once: true });
-
-      proc.on('error', (err) => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        reject(new Error(`Failed to start Claude Code: ${err.message}`));
-      });
-
-      proc.on('close', (code) => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
-        if (killed) { return; }
-        parser.flush();
-        if (code !== 0 && code !== null) {
-          reject(new Error(`Claude Code exited with code ${code}.`));
-          return;
-        }
-        resolve();
-      });
+      },
+      onStderr: (text) => this.outputChannel.append(`[stderr] ${text}`),
+      onEnd: () => parser.flush(),
     });
   }
 }

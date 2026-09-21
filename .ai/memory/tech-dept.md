@@ -95,3 +95,8 @@ reanalysis-scheduling path would re-load the gun. Fix shape: same captured
     directory → package when a name has > 8 candidates.
   - `cograph.layout.workers` is read at panel open only (not live).
   - Intra-language analyzer sharding (W5-6) and NDJSON streaming not started.
+- **2026-09-21 — Libraries are not rendered in the Shelf engine.** frameRender
+  clears `libNodeG`/`libLabelG`, so "Show Libraries" is disabled with a hint
+  under Shelf (orchestrator decision, uxtest F5). Follow-up: design library
+  rendering inside frames (own shelf strip? per-frame lib slots?) and re-enable
+  the toggle.

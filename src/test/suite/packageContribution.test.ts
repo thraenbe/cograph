@@ -87,6 +87,18 @@ suite('package.json contributions', () => {
     );
   });
 
+  test('declares the Annotate Graph command, activation event and settings', () => {
+    const cmds = pkg.contributes?.commands ?? [];
+    assert.ok(cmds.some((c: { command: string }) => c.command === 'cograph.annotateGraph'), 'command missing');
+    assert.ok(pkg.activationEvents.includes('onCommand:cograph.annotateGraph'), 'activation event missing');
+    const props = pkg.contributes.configuration.properties;
+    assert.strictEqual(props['cograph.graphIntelligence.annotate.readSource'].default, false, 'source reading must be opt-in');
+    assert.match(props['cograph.graphIntelligence.annotate.readSource'].markdownDescription, /No function bodies/);
+    assert.strictEqual(props['cograph.graphIntelligence.annotate.model'].default, 'haiku');
+    assert.strictEqual(props['cograph.graphIntelligence.annotate.codex.model'].default, 'gpt-5-mini');
+    assert.strictEqual(props['cograph.graphIntelligence.annotate.maxRunBudgetUsd'].default, 2);
+  });
+
   test('view id matches SidebarProvider.viewType', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { SidebarProvider } = require('../../sidebarProvider');

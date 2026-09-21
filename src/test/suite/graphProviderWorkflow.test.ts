@@ -92,6 +92,18 @@ suite('GraphProvider.generateWorkflow (AI gate + provider path)', () => {
     await assert.rejects(() => provider.generateWorkflow('claude-code'), /AI features are off/);
   });
 
+  test('runGraphIntelligence (Chat): AI disabled → throws before the provider factory or a panel is touched', async () => {
+    stubAiConfig(sandbox, false);
+    const create = sandbox.stub(vscode.window, 'createWebviewPanel');
+    const provider = new GraphProvider(makeFakeContext());
+    provider.setProviderFactoryForTesting(() => {
+      throw new Error('factory must not run while AI features are disabled');
+    });
+
+    await assert.rejects(() => provider.runGraphIntelligence('rename foo', 'claude-code', null), /AI features are off/);
+    assert.ok(create.notCalled, 'the gate must run before the panel is opened');
+  });
+
   /** Shared enabled-path setup: tmp workspace with a valid cache so show()
    *  seeds cachedGraph synchronously and waitForGraphReady resolves instantly. */
   async function setupEnabled() {

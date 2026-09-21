@@ -5,7 +5,7 @@
   "knownAnalyzerFailures": ["guava"],
   "viewport": { "width": 1280, "height": 800 },
   "analyzerTimeoutMs": 600000,
-  "still": { "epsilonPx": 0.5, "quietFrames": 30, "timeoutMs": 20000 },
+  "still": { "epsilonPx": 1, "quietFrames": 40, "timeoutMs": 20000 },
   "caps": { "maxLabels": 3000, "maxCrossingEdges": 2000, "maxOverlapNodes": 6000 },
   "synthetic": {
     "synthetic-1k": { "folders": 12, "filesPerFolder": 7, "fnsPerFile": 12, "seed": 1 },

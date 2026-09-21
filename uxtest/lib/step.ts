@@ -28,7 +28,7 @@ export interface StepRecord {
   findings: Finding[];
 }
 
-export interface StepOpts { settle?: boolean; metrics?: boolean; stillTimeoutMs?: number }
+export interface StepOpts { settle?: boolean; metrics?: boolean; stillTimeoutMs?: number; expectMotionMs?: number }
 
 export interface RecorderDeps {
   page: Page;
@@ -91,7 +91,7 @@ export class StepRecorder {
     const { page, outDir } = this.d;
     if (page.isClosed()) { return; }
     if (opts.settle !== false && rec.status !== 'skipped') {
-      rec.still = await waitForStill(page, { ...this.d.still, timeoutMs: opts.stillTimeoutMs ?? this.d.still.timeoutMs });
+      rec.still = await waitForStill(page, { ...this.d.still, timeoutMs: opts.stillTimeoutMs ?? this.d.still.timeoutMs, expectMotionMs: opts.expectMotionMs });
     }
     rec.fps = await drainFps(page);
     rec.screenshot = path.join('steps', `${base}.png`);

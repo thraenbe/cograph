@@ -1,56 +1,68 @@
 // Engine-agnostic settle detector: the layout is "still" once no rendered node
-// moved more than epsilon for N consecutive animation frames. Deliberately
+// drifted more than epsilon across a whole window of N animation frames. Deliberately
 // blind to simulation internals (alpha, schedulers, workers) so it survives the
 // perf session's refactors; it only watches node data the renderer paints from.
 import type { Page } from '@playwright/test';
 
-export interface StillOpts { epsilonPx: number; quietFrames: number; timeoutMs: number }
+export interface StillOpts {
+  epsilonPx: number; quietFrames: number; timeoutMs: number;
+  /** The action is expected to move the layout: do not accept stillness until motion was seen
+   *  (or this many ms passed). Reheats can take seconds to reach a visible frame. */
+  expectMotionMs?: number;
+}
 export interface StillResult { settled: boolean; ms: number; frames: number; movingFrames: number; peakPx: number }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare const state: any;
 
-/** Runs in the page. Self-contained. */
+/** Runs in the page. Self-contained.
+ *  "Still" = over a whole window of `quietFrames` frames nothing drifted more than `epsilonPx`
+ *  from where it was when the window opened. Measuring against the window start (not the
+ *  previous frame) is what catches slow settling: 0.3 px/frame looks still frame-to-frame
+ *  but is 9 px over half a second. */
 function waitStillInPage(o: StillOpts): Promise<StillResult> {
   return new Promise((resolve) => {
     const st: any = typeof state !== 'undefined' ? state : null;
     const t0 = performance.now();
-    let prev = new Map<unknown, [number, number]>();
-    let quiet = 0, frames = 0, movingFrames = 0, peakPx = 0, primed = false;
-    const sample = (): number => {
+    let ref = new Map<unknown, [number, number]>();
+    let quiet = 0, frames = 0, movingFrames = 0, peakPx = 0, lastMoveMs = 0;
+    const read = (): Map<unknown, [number, number]> => {
+      const cur = new Map<unknown, [number, number]>();
       const nodes: any[] = (st && st.currentNodes) || [];
-      const next = new Map<unknown, [number, number]>();
-      let max = 0;
-      for (const n of nodes) {
-        if (typeof n.x !== 'number' || typeof n.y !== 'number') { continue; }
-        next.set(n.id, [n.x, n.y]);
-        const p = prev.get(n.id);
-        if (p) { const d = Math.max(Math.abs(n.x - p[0]), Math.abs(n.y - p[1])); if (d > max) { max = d; } }
-      }
+      for (const n of nodes) { if (typeof n.x === 'number' && typeof n.y === 'number') { cur.set(n.id, [n.x, n.y]); } }
       // Zoom / pan transitions move every pixel without touching node data.
       const svgEl = document.querySelector('#graph svg');
       const d3g: any = (globalThis as any).d3;
       if (svgEl && d3g && d3g.zoomTransform) {
         const z = d3g.zoomTransform(svgEl);
-        next.set('\u0000zoom', [z.x, z.y]); next.set('\u0000zoomk', [z.k * 1000, 0]);
-        for (const key of ['\u0000zoom', '\u0000zoomk']) {
-          const p = prev.get(key), c = next.get(key) as [number, number];
-          if (p) { const d = Math.max(Math.abs(c[0] - p[0]), Math.abs(c[1] - p[1])); if (d > max) { max = d; } }
-        }
+        cur.set('\u0000zoom', [z.x, z.y]); cur.set('\u0000zoomk', [z.k * 1000, 0]);
       }
-      // A node set change (expand / patch) counts as movement.
-      if (primed && next.size !== prev.size) { max = Math.max(max, o.epsilonPx * 2); }
-      prev = next; primed = true;
+      return cur;
+    };
+    const drift = (cur: Map<unknown, [number, number]>): number => {
+      if (cur.size !== ref.size) { return Infinity; } // node set changed (expand / patch)
+      let max = 0;
+      for (const [id, c] of cur) {
+        const r = ref.get(id);
+        if (!r) { return Infinity; }
+        const d = Math.max(Math.abs(c[0] - r[0]), Math.abs(c[1] - r[1]));
+        if (d > max) { max = d; }
+      }
       return max;
     };
+    const done = (settled: boolean): void => resolve({ settled, ms: Math.round(settled ? lastMoveMs : performance.now() - t0), frames, movingFrames,
+      peakPx: Number.isFinite(peakPx) ? +peakPx.toFixed(2) : -1 });
     const tick = (): void => {
-      const moved = sample();
+      const cur = read();
+      const d = frames === 0 ? Infinity : drift(cur);
       frames++;
-      if (moved > peakPx) { peakPx = moved; }
-      if (moved > o.epsilonPx) { quiet = 0; movingFrames++; } else { quiet++; }
-      const ms = performance.now() - t0;
-      if (quiet >= o.quietFrames) { return resolve({ settled: true, ms: Math.round(ms), frames, movingFrames, peakPx: +peakPx.toFixed(2) }); }
-      if (ms >= o.timeoutMs) { return resolve({ settled: false, ms: Math.round(ms), frames, movingFrames, peakPx: +peakPx.toFixed(2) }); }
+      if (d > o.epsilonPx) {
+        if (frames > 1) { movingFrames++; lastMoveMs = performance.now() - t0; if (Number.isFinite(d) && d > peakPx) { peakPx = d; } }
+        ref = cur; quiet = 0; // open a new window here
+      } else { quiet++; }
+      const mayFinish = !o.expectMotionMs || movingFrames > 0 || performance.now() - t0 >= o.expectMotionMs;
+      if (quiet >= o.quietFrames && mayFinish) { return done(true); }
+      if (performance.now() - t0 >= o.timeoutMs) { return done(false); }
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);

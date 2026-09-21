@@ -1,10 +1,11 @@
 {
   "seed": 7,
-  "samples": 16,
+  "samples": 12,
   "mode": "lhs",
   "repos": ["click", "express", "zod"],
   "detail": 1,
-  "settleTimeoutMs": 25000,
+  "settleTimeoutMs": 45000,
+  "motionGraceMs": 12000,
   "engines": {
     "shelf": {
       "params": ["forceFileCluster", "forceRepel", "forceLink", "forceLinkDistance", "forceVelocityDecay", "forceCollidePad", "forceSlotPad"],

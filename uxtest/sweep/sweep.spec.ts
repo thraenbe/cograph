@@ -16,7 +16,7 @@ import { SEL, type SelName } from '../selectors';
 import { REPO_ROOT } from '../harness/vscodeStub';
 
 interface Space {
-  seed: number; samples: number; mode: 'lhs' | 'grid'; repos: string[]; detail: number; settleTimeoutMs: number;
+  seed: number; samples: number; mode: 'lhs' | 'grid'; repos: string[]; detail: number; settleTimeoutMs: number; motionGraceMs: number;
   engines: Record<string, { params: SelName[]; ranges?: Record<string, [number, number]> }>;
 }
 const spaceFile = process.env.UXTEST_SWEEP_SPACE ?? path.join(REPO_ROOT, 'uxtest', 'sweep', 'spaces', 'default.json');
@@ -46,7 +46,7 @@ for (const repo of repos) {
               try { await setSlider(page, name, v); values[name] = v; }
               catch (err) { if (err instanceof SkipStep) { dropped.push(name); } else { throw err; } }
             }
-          }, { stillTimeoutMs: space.settleTimeoutMs });
+          }, { stillTimeoutMs: space.settleTimeoutMs, expectMotionMs: sample.unit ? space.motionGraceMs : undefined });
           const end = await ux.step('End state (fitted)', async () => { await fitToView(page); });
           expect(end.metrics, 'end-state metrics').toBeTruthy();
           const metrics = end.metrics!;

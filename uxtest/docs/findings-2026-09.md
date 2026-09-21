@@ -27,6 +27,9 @@ Status as reported by the owning sessions; "verified" = re-run by uxtest via `--
   folders). Arm it before the action (`armBefore`) and judge "no effect" by measured node displacement, never by
   "the detector saw nothing". The first integrated sweep mislabelled express/Shelf as inert for this reason; the
   guess "tiny slots leave no room" was wrong (median free play 32 px, 121 of 127 nodes move on a repel change).
+- A metric must follow the product's own geometry parameters: `nodesPinnedToWall` tested the UNPADDED slot wall, so
+  every sample with slot pad ≥ 2 px looked wall-free (click: 94 → 0 exactly at slot pad 2). Caught while re-ranking;
+  the interior now moves inward with `settings.slotPad`.
 - Controls inside a collapsed expander are "hidden", not "absent": open `#forces-advanced` before deciding a slider
   does not exist — otherwise a sweep silently drops exactly the parameters it was run for.
 

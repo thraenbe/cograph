@@ -20,6 +20,7 @@ declare const FRAME: any;
 declare const SLOT: any;
 declare const getVisibleNodeIds: any;
 declare const __fr: any;
+declare const settings: any;
 
 function snapshotInPage(opts: CollectOpts): Snapshot {
   const g = globalThis as any;
@@ -30,6 +31,9 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
   const radiusOf: ((d: any) => number) | null = typeof nodeRadius === 'function' ? nodeRadius : null;
   const FRAME_K = typeof FRAME !== 'undefined' ? FRAME : { PAD: 40, TITLE: 30 };
   const SLOT_K = typeof SLOT !== 'undefined' ? SLOT : { LABEL_H: 16 };
+  // ux 'slot pad' moves the clamp wall inward (localSim.hardClamp: r + slotPad). The interior used for the
+  // pinned-to-wall metric must move with it, or a padded layout looks wall-free.
+  const slotPad = (typeof settings !== 'undefined' && settings && Number(settings.slotPad)) || 0;
   const svgEl = document.querySelector('#graph svg') as SVGSVGElement | null;
   const zt = svgEl && g.d3 ? g.d3.zoomTransform(svgEl) : { k: 1, x: 0, y: 0 };
   const shown = (el: Element): boolean => {
@@ -56,7 +60,7 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
       for (const [key, s] of (f.slots || new Map())) {
         const rx = io.x + cp.x + s.x, ry = io.y + cp.y + s.y;
         slots.push({ frame: f.path, key, rect: { x: rx, y: ry, w: s.w, h: s.h },
-          interior: { x: rx + 2, y: ry + SLOT_K.LABEL_H, w: Math.max(8, s.w - 4), h: Math.max(8, s.h - SLOT_K.LABEL_H - 2) } });
+          interior: { x: rx + 2 + slotPad, y: ry + SLOT_K.LABEL_H + slotPad, w: Math.max(8, s.w - 4 - 2 * slotPad), h: Math.max(8, s.h - SLOT_K.LABEL_H - 2 - 2 * slotPad) } });
       }
       for (const [id, key] of (f.slotOf || new Map())) { ownerOf.set(id, { frame: f.path, slot: key }); }
     }

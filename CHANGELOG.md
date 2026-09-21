@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layouts are unchanged. Saved with the view (older saves load as unlimited).
 
 ### Fixed
+- Changing **Node Size** under Shelf+Static re-packs the grid: slots resize
+  for the new radii and members re-place, instead of thousands of nodes
+  overlapping at their old spots.
 - Collapsed-folder glyphs no longer overlap file slots or poke out of their
   frame: the closed-folder silhouette now stays inside the node's collision
   radius, which is exactly what the packer, the collide force and the slot

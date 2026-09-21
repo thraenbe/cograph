@@ -430,6 +430,30 @@ suite('Advanced forces (show more forces)', () => {
     assert.ok(!adv.classList.contains('open'), 'second click closes');
   });
 
+  test('Node Size re-renders the shelf so the static grid re-packs (F16)', async () => {
+    const savedUsesFrames = (global as any).usesFrames;
+    const savedApplyFileClusters = (global as any).applyFileClusters;
+    let rerenders = 0;
+    (global as any).usesFrames = () => true;
+    (global as any).applyFileClusters = () => { rerenders++; };
+    try {
+      const slider = doc.getElementById('slider-node-size') as any;
+      slider.value = '5';
+      dispatch(slider, 'input');
+      dispatch(slider, 'input'); // drag fires many inputs — debounced to one
+      assert.strictEqual(rerenders, 0, 'debounced, not synchronous');
+      await new Promise(r => setTimeout(r, 200));
+      assert.strictEqual(rerenders, 1, 'exactly one re-render after the debounce');
+      (global as any).usesFrames = () => false;
+      dispatch(slider, 'input');
+      await new Promise(r => setTimeout(r, 200));
+      assert.strictEqual(rerenders, 1, 'global engine: no shelf re-render');
+    } finally {
+      (global as any).usesFrames = savedUsesFrames;
+      (global as any).applyFileClusters = savedApplyFileClusters;
+    }
+  });
+
   test('Repel range: slider maps its max position to Infinity (unlimited)', () => {
     const slider = doc.getElementById('slider-repel-range') as any;
     const val = doc.getElementById('val-repel-range')!;

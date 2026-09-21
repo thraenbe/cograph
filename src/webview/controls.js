@@ -160,7 +160,17 @@ function wireSlider(id, valId, settingsKey, onInput) {
 }
 
 wireSlider('slider-text-fade', 'val-text-fade', 'textFadeThreshold', applyDisplaySettings);
-wireSlider('slider-node-size', 'val-node-size', 'nodeSize', applyDisplaySettings);
+wireSlider('slider-node-size', 'val-node-size', 'nodeSize', () => {
+  applyDisplaySettings();
+  // Node size changes slot geometry in the shelf: re-render (debounced) so
+  // the packer resizes slots and the static grid re-places members (F16).
+  if (typeof usesFrames === 'function' && usesFrames()) {
+    clearTimeout(state._nodeSizeTimer);
+    state._nodeSizeTimer = setTimeout(() => {
+      if (typeof applyFileClusters === 'function') { applyFileClusters(); }
+    }, 120);
+  }
+});
 wireSlider('slider-text-size', 'val-text-size', 'textSize', applyDisplaySettings);
 wireSlider('slider-link-thickness', 'val-link-thickness', 'linkThickness', applyDisplaySettings);
 wireSlider('slider-center-force', 'val-center-force', 'centerForce', rerunLayout);

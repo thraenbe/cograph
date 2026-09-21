@@ -11,13 +11,13 @@ const FP_BASIC = {
 
 const FP_ADVANCED = {
   shelf: ['row-link-distance', 'row-velocity-decay', 'row-collide-pad', 'row-slot-pad'],
-  global: ['row-link-distance', 'row-velocity-decay', 'row-collide-pad'],
+  global: ['row-link-distance', 'row-velocity-decay', 'row-collide-pad', 'row-repel-range'],
 };
 
 // The slot-pull slider is the same setting in both engines; only its story differs.
 const FP_CLUSTER_LABEL = { shelf: 'Keep near file', global: 'File Cluster Force' };
 
-const FP_ALL = [...new Set([].concat(FP_BASIC.global, FP_ADVANCED.shelf))];
+const FP_ALL = [...new Set([].concat(FP_BASIC.global, FP_ADVANCED.shelf, FP_ADVANCED.global))];
 
 /** Sync the Forces box to the current engine × motion. Safe to call anytime. */
 function updateForcesPanel(engine, mode) {

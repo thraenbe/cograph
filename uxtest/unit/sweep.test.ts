@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { buildSamples, grid, latinHypercube, toSliderValue } from '../sweep/sampler';
+import { buildSamples, grid, latinHypercube, splitUnlimited, toSliderValue } from '../sweep/sampler';
 import { analyzeGroup, consensus, noEffect, rescore, groupSamples, ranks, recommendationsMarkdown, sensitivity, spearman, toCsv, verdictLine, type SweepSample } from '../sweep/analyze';
 import { computeMetrics } from '../metrics/compute';
 import { snapshot } from './fixtures';
@@ -51,6 +51,15 @@ test('rescore ranks on picture quality only; noEffect spots inert samples', () =
   expect(noEffect(sample({ settleMs: 0, baseline: true }))).toBe(false);
   expect(noEffect(sample({ settleMs: 0, settled: false }))).toBe(false);
   expect(noEffect(sample({ settleMs: 900 }))).toBe(false);
+});
+
+test('splitUnlimited: the top share of the unit interval is the ∞ position, the rest spans the finite band', () => {
+  expect(splitUnlimited(0.9, 0.25)).toEqual({ unlimited: true, u: 1 });
+  expect(splitUnlimited(0.75, 0.25)).toEqual({ unlimited: true, u: 1 });
+  expect(splitUnlimited(0.375, 0.25)).toEqual({ unlimited: false, u: 0.5 });
+  expect(splitUnlimited(0, 0.25)).toEqual({ unlimited: false, u: 0 });
+  expect(splitUnlimited(0.9, 0)).toEqual({ unlimited: false, u: 0.9 });
+  expect(toSliderValue(splitUnlimited(0.375, 0.25).u, 100, 2000, 25, [150, 1200])).toBe(675);
 });
 
 test.describe('analysis', () => {

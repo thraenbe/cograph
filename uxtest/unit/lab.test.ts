@@ -49,7 +49,7 @@ test('lab boots the real webview, records steps and produces sane geometry', asy
     });
     expect(ux.lastSnapshot?.zoom.k).toBeGreaterThan(zoomBefore);
 
-    const skipped = await ux.step('Optional selector', async () => { await need(page, 'hoverCard'); });
+    const skipped = await ux.step('Optional selector', async () => { await need(page, 'absentForTest'); });
     expect(skipped).toMatchObject({ status: 'skipped' });
     expect(skipped.note).toContain('selector absent');
     await expect(ux.step('Failing step', async () => { throw new Error('boom'); }, { settle: false, metrics: false })).rejects.toThrow('boom');

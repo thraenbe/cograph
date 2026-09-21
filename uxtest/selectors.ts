@@ -60,6 +60,7 @@ export const SEL = {
   forceVelocityDecay: { css: '#slider-velocity-decay', optional: true, note: 'ux: new' },
   forceCollidePad: { css: '#slider-collide-pad', optional: true, note: 'ux: new' },
   forceSlotPad: { css: '#slider-slot-pad', optional: true, note: 'ux: new' },
+  forceRepelRange: { css: '#slider-repel-range', optional: true, note: 'ux 7b539b5: Global only, 100-2000 px, slider max = unlimited (shown as ∞, default)' },
 
   // actions
   openChat: { css: '#btn-open-chat' },
@@ -93,6 +94,9 @@ export const SEL = {
   hoverCardFacts: { css: '.hover-card .hc-facts', optional: true, note: 'annotate' },
   hoverCardSummary: { css: '.hover-card .hc-summary', optional: true, note: 'annotate' },
   hoverCardBadge: { css: '.hover-card .hc-badge', optional: true, note: 'annotate: stale badge, hidden via display:none' },
+
+  // harness self-test: an optional selector that can never exist on any branch
+  absentForTest: { css: '#__uxtest-absent__', optional: true, note: 'never present; proves the skip path' },
 
   // timeline transport (timeline HTML only)
   tlPlay: { css: '#btn-timeline-play' },

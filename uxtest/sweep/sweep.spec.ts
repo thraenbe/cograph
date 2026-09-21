@@ -10,14 +10,14 @@ import { engines } from '../lib/matrix';
 import { fitToView, setSlider } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 import { layoutScore, QUALITY_WEIGHTS } from '../metrics/score';
-import { buildSamples, toSliderValue } from './sampler';
+import { buildSamples, splitUnlimited, toSliderValue } from './sampler';
 import type { SweepSample } from './analyze';
 import { SEL, type SelName } from '../selectors';
 import { REPO_ROOT } from '../harness/vscodeStub';
 
 interface Space {
   seed: number; samples: number; mode: 'lhs' | 'grid'; repos: string[]; detail: number; settleTimeoutMs: number; motionGraceMs: number;
-  engines: Record<string, { params: SelName[]; ranges?: Record<string, [number, number]> }>;
+  engines: Record<string, { params: SelName[]; ranges?: Record<string, [number, number]>; unlimitedShare?: Record<string, number> }>;
 }
 const spaceFile = process.env.UXTEST_SWEEP_SPACE ?? path.join(REPO_ROOT, 'uxtest', 'sweep', 'spaces', 'default.json');
 const space = JSON.parse(fs.readFileSync(spaceFile, 'utf8')) as Space;
@@ -54,7 +54,8 @@ for (const repo of repos) {
                 try { await setSlider(page, name, cur); } catch (err) { if (!(err instanceof SkipStep)) { throw err; } }
                 continue;
               }
-              const v = toSliderValue(sample.unit[name], min, max, step, def.ranges?.[name]);
+              const pick = splitUnlimited(sample.unit[name], def.unlimitedShare?.[name] ?? 0);
+              const v = pick.unlimited ? max : toSliderValue(pick.u, min, max, step, def.ranges?.[name]); // max = "unlimited" for such sliders
               try { await setSlider(page, name, v); values[name] = v; }
               catch (err) { if (err instanceof SkipStep) { dropped.push(name); } else { throw err; } }
             }

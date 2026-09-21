@@ -5,14 +5,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { REPO_ROOT } from '../harness/vscodeStub';
 import { writeSweepReport } from './sweepReport';
-import { writeRunReport } from './build';
+import { newestRun, writeRunReport } from './build';
 import { log } from '../lib/log';
-
-export function newestRun(artifacts: string): string | null {
-  if (!fs.existsSync(artifacts)) { return null; }
-  const dirs = fs.readdirSync(artifacts).filter(d => fs.statSync(path.join(artifacts, d)).isDirectory());
-  return dirs.sort((a, b) => fs.statSync(path.join(artifacts, a)).mtimeMs - fs.statSync(path.join(artifacts, b)).mtimeMs).pop() ?? null;
-}
 
 test('build report', async () => {
   const artifacts = path.join(REPO_ROOT, 'uxtest', 'artifacts');

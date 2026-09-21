@@ -653,3 +653,23 @@ worker alone would not have fixed it); (2) analyzer sharding
 (fmt-class repos: drag 15 fps, settle 22 ms/frame at rest); (4) first-character keystroke
 (index labels, or apply the big flip in chunks); (5) import-map stage for D6; (6) revoke the
 worker Blob URL; live `workers` setting.
+
+### Global+Dynamic "3× slower settle" report — bisect (2026-09-21): **no regression**
+uxtest saw Global settle at 50876d2 ≈ 3× af09b87 (click 57 s vs 19 s, express 12.7 vs 3.7 s,
+zod never resting). Bench `?probe=globalSettle` (ticks, ms/tick, alpha reheats, re-render /
+re-fit counts, sim-end vs visual stillness) run from scratch worktrees of af09b87, a3f7094
+(merge #5), 2fb847f (#6), eb09d6a (#7, clamp), identical fixtures, reps interleaved by SHA.
+
+| quiet machine, median (min–max) of 3 | af09b87 | a3f7094 | 2fb847f | eb09d6a |
+|---|---|---|---|---|
+| click load: sim-end s · ms/tick (282 ticks) | 17.3 (14.9–17.3) · 24.0 | 16.4 · 22.5 | 16.9 · 24.8 | 16.9 (16.3–16.9) · 24.1 |
+| click expand-all: sim-end s · ms/tick | 15.7 · 21.0 | 15.9 · 23.0 | 15.5 · 22.4 | 16.1 · 22.7 |
+| express load / expand-all: sim-end s (341 ticks) | 5.8 / 5.7 | 5.8 / 5.7 | 5.9 / 5.7 | 5.8 / 5.7 |
+| zod expand-all (1 rep): sim-end s · ms/tick | 23.6 · 41 | 22.5 · 38 | 27.7 · 50 | 24.5 · 41 |
+
+Tick counts identical, 0 reheats, identical render/fit call counts, 0 timeouts at every SHA.
+Under the afternoon's machine load (load average 11–13: uxtest's parallel sweep pages plus two
+orphaned Playwright workers) the SAME SHA measured 2× slower between two reps (af09b87 click
+28.8 s → 51.6 s) and all four SHAs 50–57 s: contention inflates ms per tick (a Global tick =
+many-body pass + ~1 800 SVG writes + a software repaint), nothing else. Lesson for perf
+comparisons: compare in ticks or run one page at a time on an idle machine.

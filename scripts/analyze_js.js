@@ -350,7 +350,7 @@ function main() {
   const definitions = collectDefinitions(files);
   const { edges, libraryNodes } = collectCalls(files, definitions);
   const nodes = [...Object.values(definitions), ...libraryNodes];
-  process.stdout.write(JSON.stringify({ nodes, edges, files }) + '\n');
+  require('./graphOutput.js').writeGraph({ nodes, edges, files });
 }
 
 main();

@@ -69,4 +69,11 @@ suite('viewCull', () => {
     assert.deepStrictEqual(lod.current(), { labels: true, links: true, nodes: true });
     assert.deepStrictEqual(vc.createLod().update(0.01, {}), { labels: true, links: true, nodes: true, changed: false }, 'no thresholds → everything drawn');
   });
+
+  test('gesture budget: labels go first, links next, defaults overridable', () => {
+    assert.deepStrictEqual(vc.gestureBudget({ nodes: 300, links: 900 }), { labels: true, links: true });
+    assert.deepStrictEqual(vc.gestureBudget({ nodes: 4332, links: 3000 }), { labels: false, links: true });
+    assert.deepStrictEqual(vc.gestureBudget({ nodes: 4332, links: 13800 }), { labels: false, links: false });
+    assert.deepStrictEqual(vc.gestureBudget({ nodes: 10, links: 10 }, { labels: 5 }), { labels: false, links: true });
+  });
 });

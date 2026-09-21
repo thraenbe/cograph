@@ -79,6 +79,20 @@ function createLod(opts) {
   };
 }
 
+/**
+ * Element budget while a pan/zoom gesture is running: when more full-detail
+ * content is on screen than the renderer can repaint per frame, labels and
+ * then intra-frame links are dropped for the duration of the gesture (they
+ * come back when it ends). `counts` = { nodes, links } currently in the viewport.
+ */
+function gestureBudget(counts, budget) {
+  const b = { labels: 1500, links: 5000, ...(budget || {}) };
+  return {
+    labels: counts.nodes <= b.labels,
+    links: counts.links <= b.links,
+  };
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { viewportRect, rectsTouch, createFrameCuller, createLod };
+  module.exports = { viewportRect, rectsTouch, createFrameCuller, createLod, gestureBudget };
 }

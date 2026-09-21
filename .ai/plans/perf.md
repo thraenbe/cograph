@@ -519,3 +519,32 @@ expand-all to-paint 10k 1.29 s → 0.89-1.0 s. Headless has a ~24 ms compositing
 changes, so the gate is judged in-editor (next entry). Remaining wall = one viewport full of
 full-detail content in a giant frame (fmt) — that is what a Canvas layer (W3b) would address.
 Tests: 857 passing, lint 0 errors.
+
+### W3 in-editor gate run (2026-09-21, VS Code 1.116.0, GPU raster on, median (min–max) of 3)
+Raw: `.ai/plans/perf-calibration-w3-2026-09-21.json`.
+
+| metric | 3k before (W2) | 3k W3 | 10k before (W2) | 10k W3 |
+|---|---|---|---|---|
+| pan/zoom fps, static, all expanded (the gate scenario) | 14.0 | **56.6 (51.0–61.4)** — gate ≥ 45 ✔ | 4.7 | **41.9 (38.9–45.3)** — gate ≥ 30 ✔ |
+| working view (k = 4): pan-only / zoom-only fps | – | 64.8 / 67.1 | – | 60.3 / 57.3 |
+| fit-to-view (k = 0.12 / 0.05): mixed fps | – | 65.2 | – | 56.8 |
+| expand all settled (ms) | 1 417 | **779** | 9 177 | **2 441** |
+| 4 frames settled (ms) · script ms/frame | 400 · 2.0 | 374 · 2.4 | 434 · 1.7 | 478 · 2.5 |
+| frame interval while dragging (ms) | 16.7 | 16.6 | 50 | **16.7** |
+| hover / drag handler / keystroke p50 (ms) | 0.3 / 0.1 / 10.5 | 0.5 / 0.2 / 14.2 | 0.4 / 0.1 / 29 | 0.7 / 0.2 / 34.5 |
+
+**Verdict: the W3b Canvas gate passes — no Canvas layer needed for the agreed targets.**
+
+Real-repo worst case **fmt** (4 giant frames; 4 332 functions + 13 800 lines on screen at
+k = 0.66), in-editor, 2 reps: after culling + zoom-LOD the working view was still **3.9 fps**
+(headless 10.9 — here the editor is *worse* than headless). Added a budget-based **gesture
+LOD**: while a pan/zoom gesture runs and more than 1 500 labelled nodes / 5 000 lines are in
+the viewport, labels and intra-frame lines are parked; they return 180 ms after the gesture
+ends (full detail at rest is unchanged). fmt working view **3.9 → 65 fps**, fit-to-view 58-68.
+
+**Above the SVG floor, numbers only (not a gate item):** giant frames *at rest*: fmt drag =
+66 ms frames (15 fps), settle = 22 ms main-thread script per frame — one 1 500-node frame is
+one 10-20 ms DOM pass plus a full repaint. That is the exact case a Canvas2D node/link layer
+would fix (W3b estimate: 3-4 days incl. quadtree hit-testing for hover/drag/click/context
+menu and coordination with annotate's hover card). Cheaper round-2 step first: split a giant
+frame's position apply across animation frames and cap visible labels per frame.

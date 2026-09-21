@@ -513,6 +513,11 @@ const FR_LOD_NODES_AT = 0.3;
 // at fit-to-view 1 300 translucent viewport-spanning lines cost 45 ms per frame
 // (10k fixture: 16 → 50 fps without them) and read as a hairball anyway.
 const FR_LOD_MAX_BUNDLES = 200;
+// Gesture LOD: a viewport full of full-detail content (fmt: 4 300 labels + 13 800
+// lines in four giant frames at k 0.66) repaints at 4 fps. While a pan/zoom
+// gesture runs, labels/links over the element budget are parked; they return
+// FR_GESTURE_IDLE_MS after the last zoom event.
+const FR_GESTURE_IDLE_MS = 180;
 const __cull = {
   culler: (typeof createFrameCuller === 'function') ? createFrameCuller() : { update: () => ({ shown: [], hidden: [] }), isVisible: () => true, reset() {} },
   dom: (typeof createDomCuller === 'function') ? createDomCuller() : null,
@@ -521,10 +526,16 @@ const __cull = {
   stale: new Set(),              // culled frames whose positions changed meanwhile
   raf: 0,
   frameSelFor: null,             // the frameSel map the culler state belongs to
+  zoomLinks: true,               // links drawn at this zoom level (drives the bundle cap)
+  gesture: false,                // a pan/zoom gesture is running
+  idleTimer: 0,
 };
 
 /** Called by the zoom handler: at most one culling pass per animation frame. */
 function onFramesZoom() {
+  __cull.gesture = true;
+  if (__cull.idleTimer) { clearTimeout(__cull.idleTimer); }
+  __cull.idleTimer = setTimeout(() => { __cull.idleTimer = 0; __cull.gesture = false; applyFrameCulling(); }, FR_GESTURE_IDLE_MS);
   if (__cull.raf || typeof requestAnimationFrame !== 'function') { return; }
   __cull.raf = requestAnimationFrame(() => { __cull.raf = 0; applyFrameCulling(); });
 }
@@ -542,10 +553,18 @@ function applyFrameCulling() {
   const t = d3.zoomTransform(svgEl);
   const view = viewportRect(t, svgEl.clientWidth || window.innerWidth, svgEl.clientHeight || window.innerHeight, FR_CULL_PAD_PX);
   const lod = __cull.lod.update(t.k, { labels: settings.textFadeThreshold ?? 0.5, links: FR_LOD_LINKS_AT, nodes: FR_LOD_NODES_AT });
-  const bundlesChanged = __cull.want.links !== lod.links;
-  __cull.want = { labels: lod.labels, links: lod.links, nodes: lod.nodes, slotLabels: lod.nodes };
-
+  const bundlesChanged = __cull.zoomLinks !== lod.links;   // bundles follow the ZOOM level only
+  __cull.zoomLinks = lod.links;
   const { shown, hidden } = __cull.culler.update(state.frames.byPath.values(), view);
+  const want = { labels: lod.labels, links: lod.links, nodes: lod.nodes, slotLabels: lod.nodes };
+  if (__cull.gesture && typeof gestureBudget === 'function') {
+    const budget = gestureBudget(visibleDetailCounts());
+    want.labels = want.labels && budget.labels;
+    want.links = want.links && budget.links;
+  }
+  const wantChanged = ['labels', 'links', 'nodes', 'slotLabels'].some(k => want[k] !== __cull.want[k]);
+  __cull.want = want;
+
   for (const path of hidden) { __cull.dom.hide(path); }
   for (const path of shown) {
     __cull.dom.applyLod(path, __cull.want);         // while still detached: no layout work
@@ -553,7 +572,7 @@ function applyFrameCulling() {
     __cull.stale.delete(path);
     tickFrame(path);                                // chrome + positions may both be stale
   }
-  if (lod.changed || hidden.length || shown.length) {
+  if (wantChanged || hidden.length || shown.length) {
     for (const path of __cull.dom.paths()) {
       if (__cull.culler.isVisible(path)) { __cull.dom.applyLod(path, __cull.want); }
     }
@@ -561,6 +580,17 @@ function applyFrameCulling() {
   if (bundlesChanged) { updateCrossBundles(); }
   if (shown.length && __fr.sched) { __fr.sched.wake(); }
   if (__perfT0) { perfEnd('cull', __perfT0); }
+}
+
+/** Full-detail elements of the frames currently in the viewport. */
+function visibleDetailCounts() {
+  let nodes = 0, links = 0;
+  for (const path of __fr.frameSel.keys()) {
+    if (!__cull.culler.isVisible(path)) { continue; }
+    nodes += (__fr.members.get(path) || []).length;
+    links += ((__fr.intraByFrame && __fr.intraByFrame.get(path)) || []).length;
+  }
+  return { nodes, links };
 }
 
 /** Before any re-render (rendering.js renderElements): everything back in the document. */
@@ -626,7 +656,7 @@ function crossFrameAt(p) {
 
 function updateCrossBundles() {
   let aggs = crossCaches().crossAgg;
-  if (!__cull.want.links && aggs.length > FR_LOD_MAX_BUNDLES) {
+  if (__cull.zoomLinks === false && aggs.length > FR_LOD_MAX_BUNDLES) {
     aggs = [...aggs].sort((a, b) => b.count - a.count || (a.key < b.key ? -1 : 1)).slice(0, FR_LOD_MAX_BUNDLES);
   }
   const bundles = routeBundles(aggs, crossFrameAt);

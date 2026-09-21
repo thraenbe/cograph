@@ -5,7 +5,9 @@
 // PLAYWRIGHT_DIR at any node_modules that has it.
 //
 // Usage: DISPLAY=:0 PLAYWRIGHT_DIR=/path/to/node_modules \
-//   node scripts/perf/calibrate.mjs [--reps 3] [--fixtures 3k,10k] [--out file.json] name:/abs/checkout ...
+//   node scripts/perf/calibrate.mjs [--reps 3] [--fixtures 3k,10k,repo=/abs/real/repo] [--out file.json] name:/abs/checkout ...
+// A `repo=<path>` fixture opens that folder as the workspace and runs
+// "CoGraph: Visualize Project" (real analyzers) instead of the synthetic loader.
 // Each checkout must be compiled + bundled (dist/extension.js).
 import { createRequire } from 'module';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'fs';
@@ -65,8 +67,9 @@ async function findGraphFrame(page, timeoutMs) {
 
 async function oneRun(checkout, fixture) {
   const tmp = mkdtempSync(join(tmpdir(), 'cograph-calib-'));
-  const ud = join(tmp, 'user-data'), ed = join(tmp, 'extensions'), ws = join(tmp, 'ws');
-  mkdirSync(join(ud, 'User'), { recursive: true }); mkdirSync(ed); mkdirSync(ws);
+  const repo = fixture.startsWith('repo=') ? fixture.slice(5) : null;
+  const ud = join(tmp, 'user-data'), ed = join(tmp, 'extensions'), ws = repo || join(tmp, 'ws');
+  mkdirSync(join(ud, 'User'), { recursive: true }); mkdirSync(ed); if (!repo) { mkdirSync(ws); }
   writeFileSync(join(ud, 'User', 'settings.json'), JSON.stringify(SETTINGS, null, 1));
   const app = await _electron.launch({
     executablePath: CODE,
@@ -102,15 +105,18 @@ async function oneRun(checkout, fixture) {
     for (let attempt = 0; attempt < 4 && !frame; attempt++) {
       if (attempt) { await page.keyboard.press('Control+KeyW'); await sleep(500); }
       await page.keyboard.press('F1');
-      await page.keyboard.type('CoGraph: Load Synthetic Repo', { delay: 15 });
+      await page.keyboard.type(repo ? 'CoGraph: Visualize Project' : 'CoGraph: Load Synthetic Repo', { delay: 15 });
       await sleep(800);
       await page.keyboard.press('Enter');
-      await sleep(1200);
-      await page.keyboard.type(PICK[fixture], { delay: 15 });
-      await sleep(500);
-      await page.keyboard.press('Enter');
+      if (!repo) {
+        await sleep(1200);
+        await page.keyboard.type(PICK[fixture], { delay: 15 });
+        await sleep(500);
+        await page.keyboard.press('Enter');
+      }
       await page.mouse.move(3, 3);
-      frame = await findGraphFrame(page, 12000);
+      frame = await findGraphFrame(page, repo ? 90000 : 12000);
+      if (frame && repo) { await sleep(6000); } // let the background full parse land
       result.loadAttempts = attempt + 1;
     }
     if (!frame) {

@@ -248,11 +248,18 @@ function locateFrameInPage(q: { pick: 'smallest' | 'largest'; pathSuffix?: strin
 
 export async function locateFrame(page: Page, pick: 'smallest' | 'largest' = 'smallest', pathSuffix?: string): Promise<FrameHit> {
   let why: Record<string, number> = {};
-  for (let attempt = 0; attempt < 15; attempt++) {
-    const res = await page.evaluate(locateFrameInPage, { pick, pathSuffix });
-    if (res.hit) { return res.hit; }
-    why = res.why;
-    await page.waitForTimeout(100);
+  // On mid-size repos every folder box is a few px wide at fit-to-view (and the perf branch parks their
+  // content below k 0.3): zoom into the middle of the canvas until a title can be grabbed, like a user would.
+  for (let zoomRound = 0; zoomRound <= 3; zoomRound++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const res = await page.evaluate(locateFrameInPage, { pick, pathSuffix });
+      if (res.hit) { return res.hit; }
+      why = res.why;
+      await page.waitForTimeout(100);
+    }
+    if (!(why.tooSmall > 0) || zoomRound === 3) { break; }
+    await wheelZoom(page, { x: Math.round(215 + (page.viewportSize()?.width ?? 1280) / 2 - 107), y: Math.round((page.viewportSize()?.height ?? 800) / 2) }, -240, 3);
+    await page.waitForTimeout(500);
   }
   throw new SkipStep(`no folder frame${pathSuffix ? ` ending in "${pathSuffix}"` : ''} with a grabbable title on screen ${JSON.stringify(why)}`);
 }

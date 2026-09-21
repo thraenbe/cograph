@@ -133,7 +133,7 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
 
   const mem = (performance as any).memory;
   return {
-    engine: String(st.layoutEngine ?? ''), motion: String(st.layoutMode ?? ''),
+    engine: String(st.layoutEngine ?? ''), motion: String(st.layoutMode ?? ''), viewMode: String(st.viewMode ?? 'cluster'),
     zoom: { k: zt.k, x: zt.x, y: zt.y }, viewport: { w: vw, h: vh },
     nodes, frames, slots, edges, labels, boxes, labelsTruncated,
     domNodes: document.querySelectorAll('*').length,

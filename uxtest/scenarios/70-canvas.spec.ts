@@ -71,7 +71,12 @@ scenario('canvas', { largeOk: true }, async ({ page, ux }, combo) => {
   await ux.step('Folder context menu', async () => {
     const f = await locateFrame(page, 'smallest');
     await rightClick(page, f.title);
-    if ((await ctxMenuLabels(page)).length === 0) { throw new Error('folder context menu did not open'); }
+    if ((await ctxMenuLabels(page)).length === 0) {
+      // In Dynamic motion the title can move away between locating it and the click: retry once on a fresh position.
+      const again = await locateFrame(page, 'smallest');
+      await rightClick(page, again.title);
+      if ((await ctxMenuLabels(page)).length === 0) { throw new StepFinding({ rule: 'context-menu-missing', severity: 'medium', message: `right-click on the title of ${again.path} opened no context menu (twice)` }); }
+    }
   }, { metrics: false });
   await ux.step('Context menu → Collapse folder', async () => { await ctxMenuClick(page, /collapse folder/i); });
   await ux.step('Fit after collapse', async () => { await fitToView(page); });

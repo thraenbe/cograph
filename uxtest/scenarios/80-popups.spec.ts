@@ -2,7 +2,7 @@
 // fallback, library popup, Ctrl+S layout save.
 import { expect } from '@playwright/test';
 import { scenario } from '../lib/scenario';
-import { clickNode, dragBy, fitToView, locateFrame, toggleSwitch, wheelZoom } from '../lib/actions';
+import { clickNode, dragBy, fitToView, locateFrame, openSettings, toggleSwitch, wheelZoom } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 import { SEL } from '../selectors';
 
@@ -67,6 +67,12 @@ scenario('popups', { perMotion: false }, async ({ page, ux, host, post }) => {
   }, { metrics: false });
 
   await ux.step('Show libraries and open a library popup', async () => {
+    await openSettings(page);
+    if (await page.locator(SEL.toggleLibraries.css).isDisabled()) {
+      const hint = await page.locator(SEL.librariesHint.css).innerText().catch(() => '');
+      await page.mouse.click(640, 790);
+      throw new SkipStep(`Show Libraries is disabled under this engine; hint shown: "${hint.trim()}"`);
+    }
     await toggleSwitch(page, 'toggleLibraries');
     await page.mouse.click(640, 790);
     await page.waitForTimeout(1200);

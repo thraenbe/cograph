@@ -73,6 +73,7 @@ export const SEL = {
   searchCount: { css: '#search-count' },
   toggleOrphans: { css: '#toggle-orphans' },
   toggleLibraries: { css: '#toggle-libraries' },
+  librariesHint: { css: '#libraries-hint', optional: true, note: 'ux: shown while the Shelf engine disables Show Libraries (F5)' },
   toggleEmptyFiles: { css: '#toggle-empty-files' },
   toggleArrows: { css: '#toggle-arrows' },
   toggleFuncPopup: { css: '#toggle-func-popup' },

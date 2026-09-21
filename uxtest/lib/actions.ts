@@ -200,10 +200,20 @@ export async function openSettings(page: Page): Promise<void> {
   await page.waitForTimeout(150);
 }
 
-/** Controls living in the gear panel are only clickable while it is open. */
+/** Make a control reachable: open the gear panel for controls inside it, and the "show more forces"
+ *  expander (ux: #forces-advanced, class `open`) for the advanced force sliders. */
 async function reveal(page: Page, css: string): Promise<void> {
-  const inSettings = await page.locator(css).first().evaluate((el, panelCss) => !!el.closest(panelCss), SEL.settingsPanel.css);
-  if (inSettings) { await openSettings(page); }
+  const where = await page.locator(css).first().evaluate((el, panelCss) => ({
+    inSettings: !!el.closest(panelCss),
+    inClosedAdvanced: !!el.closest('#forces-advanced') && !el.closest('#forces-advanced')?.classList.contains('open'),
+  }), SEL.settingsPanel.css);
+  if (where.inSettings) { await openSettings(page); }
+  if (where.inClosedAdvanced && await page.locator(SEL.showMoreForces.css).count() > 0) {
+    const p = await centerOf(page, SEL.showMoreForces.css);
+    await glideTo(page, p);
+    await page.mouse.click(p.x, p.y);
+    await page.waitForTimeout(200);
+  }
 }
 
 export interface FrameHit { path: string; title: Point; rect: { x: number; y: number; w: number; h: number } }

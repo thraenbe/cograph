@@ -19,6 +19,7 @@ Status as reported by the owning sessions; "verified" = re-run by uxtest via `--
 | F9 | (annotate) No hover card when resting on click's collapsed `src/click` glyph. | `hover-card-missing` | annotate | fixed, verified by owner |
 | F10 | Cross-hover lines are torn down and rebuilt ~30×/s under a resting pointer (2 970 lines added + removed per second on click's collapsed glyph at Detail 0.3). Present on shelf-base already. | `hover-churn` in `canvas` (last step) | perf | open |
 | F12 | Global engine, repo **zod**, forces center 0.075 · repel 191 · link 4.8 · fileCluster 0.98 · folderRepel 0.26 · fileRepel 2.12: the page freezes for 13+ min (same values settle in 21 s on click). Several other zod/global samples never settle within 45 s. | sweep sample never returns; `did-not-settle` | ux/perf | open |
+| F13 | Shelf+Dynamic: after ANY Detail-slider change the force sliders are dead. click, fresh page: repel 250 → 600 moves 1 677 nodes (54 px) within 2 s; the same change after `Detail → 1` moves 0 nodes in 12 s although the scheduler keeps picking frames and marks them settled (16 → 12 → 8 unsettled) and `alpha()` stays 1. The frame sims apparently keep ticking on node objects that the re-render replaced. Cured by an engine round-trip. This, not only F7, made the Shelf sweeps inert. | probe (examples), sweep "moved nothing" count | ux/perf | open |
 
 ## Harness lessons (so the next campaign does not repeat them)
 
@@ -37,4 +38,6 @@ Global: the best swept sample beats the defaults on click (33.8 %), express (21.
 click and zod: center 0.18 · repel 719 · link 0.8 · fileCluster 0.07 · folderRepel 2.57 · fileRepel 0.2.
 Spearman: File Cluster Force ↑ → worse picture (+0.57 / +0.69); Repel ↑ → less overlap (−0.75); folderRepel and
 fileRepel have no measurable effect. 12 samples per group: a direction, not final numbers.
-Shelf: see the re-run (first run invalid because of F7).
+Shelf: both runs are invalid on shelf-base — the sweep set Detail first and thereby triggered F13 (click/express: 0 px
+movement in every sample incl. the reheated defaults; zod moved but within noise). The sweep no longer touches
+Detail when it is already at the target; the real Shelf sweep runs on the integrated branch after F7/F13.

@@ -35,8 +35,14 @@ for (const repo of repos) {
         const { page, ux } = lab;
         const values: Record<string, number> = {}, dropped: string[] = [];
         try {
-          // Fit first: the shelf scheduler only ticks frames that are on screen.
-          await ux.step('Full detail, fitted', async () => { await setSlider(page, 'detailSlider', space.detail); await fitToView(page); }, { stillTimeoutMs: space.settleTimeoutMs, metrics: false });
+          // Fit first: the shelf scheduler only ticks frames that are on screen. The Detail slider is only
+          // touched when it is not already at the target: on shelf-base a Detail re-render disconnects the
+          // frame sims from the rendered nodes (F13), after which no force moves anything.
+          await ux.step('Full detail, fitted', async () => {
+            const cur = Number(await page.locator(SEL.detailSlider.css).inputValue());
+            if (Math.abs(cur - space.detail) > 0.005) { await setSlider(page, 'detailSlider', space.detail); }
+            await fitToView(page);
+          }, { stillTimeoutMs: space.settleTimeoutMs, metrics: false });
           const apply = await ux.step(sample.unit ? `Apply forces (sample ${sample.index})` : 'Defaults (baseline)', async () => {
             for (const name of def.params) {
               const loc = page.locator(SEL[name].css).first();

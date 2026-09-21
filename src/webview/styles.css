@@ -1281,4 +1281,6 @@ body.vscode-light {
 #graph g.cg-hovering g.f-links > line:not(.cg-hl) { opacity: 0.15; }
 #graph g.cg-hovering line.cg-hl { stroke: var(--cograph-link-hover); opacity: 1; }
 #graph g.cg-hovering line.cg-hl.cg-hl-w { stroke-width: var(--cg-hl-width, 1.5); }
+/* Hover-only link layer never takes pointer events (F10: it sits under the cursor). */
+#graph line.cross-hover { pointer-events: none; }
 /* ── /perf ── */

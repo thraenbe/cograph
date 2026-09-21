@@ -554,8 +554,12 @@ function updateCrossHover() {
     id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; });
   if (!individual.length && !__fr.hoverDrawn) { return; }
   __fr.hoverDrawn = individual.length > 0;
+  // pointer-events none (F10): these lines start at the hovered glyph, i.e.
+  // under the cursor. As event targets they stole the hover → mouseout →
+  // removed → mouseover → redrawn, ~30 times per second.
   linkG.selectAll('line.cross-hover').data(individual).join('line')
     .attr('class', 'cross-hover')
+    .attr('pointer-events', 'none')
     .attr('stroke', getCSSVar('--cograph-link-hover'))
     .attr('stroke-width', Math.max(1.5, settings.linkThickness))
     .attr('opacity', 0.9)
@@ -854,6 +858,7 @@ if (typeof module !== 'undefined') {
     applyPendingLayout, migrateV1IntoFrames, setFrameSliderNoops,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots, sameSlotGeometry,
+    __frState: __fr,   // test hook
     placeMembersInSlots,
   };
 }

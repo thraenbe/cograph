@@ -72,6 +72,7 @@ function makeDOM() {
         <div id="row-velocity-decay"><input id="slider-velocity-decay" type="range" value="0.3" /><span id="val-velocity-decay">0.3</span></div>
         <div id="row-collide-pad"><input id="slider-collide-pad" type="range" value="1.5" /><span id="val-collide-pad">1.5</span></div>
         <div id="row-slot-pad"><input id="slider-slot-pad" type="range" value="0" /><span id="val-slot-pad">0</span></div>
+        <div id="row-repel-range"><input id="slider-repel-range" type="range" min="100" max="2000" step="25" value="2000" /><span id="val-repel-range">∞</span></div>
       </div>
     </div>
     <input id="slider-file-cluster" type="range" value="0.2" /><span id="val-file-cluster">0.2</span>
@@ -110,6 +111,7 @@ const dom = makeDOM();
   centerForce: 1, repelForce: 50, linkForce: 1,
   folderRepelForce: 0.25, fileRepelForce: 0.25, fileClusterForce: 0.2,
   linkDistance: 40, velocityDecay: 0.3, collidePad: 1.5, slotPad: 0,
+  repelRange: Infinity,
 };
 (global as any).vscode = { postMessage: () => {} };
 
@@ -428,13 +430,44 @@ suite('Advanced forces (show more forces)', () => {
     assert.ok(!adv.classList.contains('open'), 'second click closes');
   });
 
+  test('Repel range: slider maps its max position to Infinity (unlimited)', () => {
+    const slider = doc.getElementById('slider-repel-range') as any;
+    const val = doc.getElementById('val-repel-range')!;
+    slider.value = '800';
+    dispatch(slider, 'input');
+    assert.strictEqual((global as any).settings.repelRange, 800);
+    assert.strictEqual(val.textContent, '800');
+    slider.value = '2000';
+    dispatch(slider, 'input');
+    assert.strictEqual((global as any).settings.repelRange, Infinity, 'max = unlimited');
+    assert.strictEqual(val.textContent, '\u221E');
+  });
+
+  test('Repel range: save payload round-trips through JSON as unlimited', () => {
+    (global as any).settings.repelRange = Infinity;
+    (global as any).state.currentNodes = [];
+    const p = buildSavePayload();
+    assert.strictEqual(p.settings.repelRange, Infinity, 'payload carries the live value');
+    const wire = JSON.parse(JSON.stringify(p)); // postMessage/disk serialization
+    assert.strictEqual(wire.settings.repelRange, null, 'Infinity crosses JSON as null');
+    (global as any).settings.repelRange = 300; // poison
+    applySavedViewSettings(wire.settings);
+    assert.strictEqual((global as any).settings.repelRange, Infinity, 'null restores as unlimited');
+    applySavedViewSettings({ repelRange: 800 });
+    assert.strictEqual((global as any).settings.repelRange, 800, 'finite value restores as-is');
+    applySavedViewSettings({});
+    assert.strictEqual((global as any).settings.repelRange, 800, 'old saves without the key change nothing');
+  });
+
   test('reset restores every force to its canonical default (centerForce 0.025)', () => {
     Object.assign((global as any).settings, {
       centerForce: 0.9, fileClusterForce: 0.9, folderRepelForce: 9, fileRepelForce: 9,
-      linkDistance: 99, velocityDecay: 0.9, collidePad: 9, slotPad: 9,
+      linkDistance: 99, velocityDecay: 0.9, collidePad: 9, slotPad: 9, repelRange: 300,
     });
     doc.getElementById('btn-reset-layout')?.click();
     const st = (global as any).settings;
+    assert.strictEqual(st.repelRange, Infinity, 'reset returns Repel range to unlimited');
+    assert.strictEqual(doc.getElementById('val-repel-range')!.textContent, '\u221E');
     assert.strictEqual(st.centerForce, 0.025);
     assert.strictEqual(st.fileClusterForce, 0.2);
     assert.strictEqual(st.folderRepelForce, 0.25);
@@ -500,6 +533,7 @@ suite('Save Graph Layout button', () => {
       classMode: false,
       detailDepth: undefined, // not set in this stub state (v2 adds it)
       layoutEngine: undefined, // not set in this stub state (two-axis adds it)
+      repelRange: Infinity,
     });
     assert.deepStrictEqual(msg.payload.nodePositions, {
       'a::fn::1': { x: 10, y: 20 },

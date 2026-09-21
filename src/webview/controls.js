@@ -109,9 +109,11 @@ document.getElementById('btn-reset-layout')?.addEventListener('click', () => {
     velocityDecay: 0.3,
     collidePad: 1.5,
     slotPad: 0,
+    repelRange: Infinity,
   };
 
   Object.assign(settings, defaults);
+  setRepelRangeUI(Infinity);
 
   for (const [key, val] of Object.entries({
     'slider-text-fade': { valId: 'val-text-fade', value: defaults.textFadeThreshold },
@@ -171,6 +173,25 @@ wireSlider('slider-collide-pad', 'val-collide-pad', 'collidePad', rerunLayout);
 wireSlider('slider-slot-pad', 'val-slot-pad', 'slotPad', rerunLayout);
 wireSlider('slider-folder-repel', 'val-folder-repel', 'folderRepelForce', rerunLayout);
 wireSlider('slider-file-repel', 'val-file-repel', 'fileRepelForce', rerunLayout);
+
+// "Repel range" — Global charge distanceMax. The slider's MAX position means
+// unlimited (Infinity, the classic global behaviour), shown as ∞.
+const repelRangeSlider = document.getElementById('slider-repel-range');
+const repelRangeVal = document.getElementById('val-repel-range');
+function setRepelRangeUI(value) {
+  if (!repelRangeSlider) { return; }
+  const max = parseFloat(repelRangeSlider.max);
+  const unlimited = value == null || value === Infinity || value >= max;
+  repelRangeSlider.value = String(unlimited ? max : value);
+  if (repelRangeVal) { repelRangeVal.textContent = unlimited ? '\u221E' : String(value); }
+}
+repelRangeSlider?.addEventListener('input', () => {
+  const raw = parseFloat(repelRangeSlider.value);
+  const unlimited = raw >= parseFloat(repelRangeSlider.max);
+  settings.repelRange = unlimited ? Infinity : raw;
+  if (repelRangeVal) { repelRangeVal.textContent = unlimited ? '\u221E' : String(raw); }
+  rerunLayout();
+});
 
 // "show more forces" — inline expander for the advanced force sliders.
 document.getElementById('btn-show-more-forces')?.addEventListener('click', (e) => {
@@ -318,6 +339,8 @@ function buildSavePayload() {
       folderMode: state.folderMode,
       classMode: state.classMode,
       detailDepth: state.detailDepth,
+      // Infinity does not survive JSON — it round-trips as null (= unlimited).
+      repelRange: settings.repelRange ?? Infinity,
     },
     nodePositions,
   };
@@ -342,6 +365,10 @@ function applySavedViewSettings(saved) {
     const valEl = document.getElementById('val-complexity');
     if (slider) { slider.value = String(saved.complexityLevel); }
     if (valEl) { valEl.textContent = Number(saved.complexityLevel).toFixed(2); }
+  }
+  if (saved.repelRange !== undefined) {
+    settings.repelRange = saved.repelRange == null ? Infinity : saved.repelRange;
+    setRepelRangeUI(settings.repelRange);
   }
   if (saved.clusterGroupBy !== undefined) {
     // Only the File lens exists; saves from builds with the Class/Connect

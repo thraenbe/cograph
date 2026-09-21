@@ -683,7 +683,7 @@ function startSimulation(allLinks) {
         if (d.isLibraryEdge) { return settings.linkForce * 0.1 * 0.3; }
         return isFolderLink(d) ? settings.linkForce * 0.1 * 0.25 : settings.linkForce * 0.1;
       }))
-    .force('charge', d3.forceManyBody().strength(chargeStrength))
+    .force('charge', d3.forceManyBody().strength(chargeStrength).distanceMax(settings.repelRange ?? Infinity))
     .force('center', d3.forceCenter(W / 2, H / 2).strength(0.001))
     .force('x', d3.forceX(W / 2).strength(settings.centerForce))
     .force('y', d3.forceY(H / 2).strength(settings.centerForce))

@@ -45,6 +45,7 @@ const settings = {
   folderRepelForce: 0.25,
   fileRepelForce: 0.25,
   linkDistance: 40,   // shelf sims run this at 0.75x (localSim.lsLinkDistance)
+  repelRange: Infinity, // Global charge distanceMax; Infinity = unlimited (classic; shelf uses its fixed 140)
   velocityDecay: 0.3,
   collidePad: 1.5,
   slotPad: 0,
@@ -266,7 +267,9 @@ function rerunLayout() {
   state.simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(0.05));
   state.simulation.force('x', d3.forceX(W / 2).strength(settings.centerForce));
   state.simulation.force('y', d3.forceY(H / 2).strength(settings.centerForce));
-  state.simulation.force('charge').strength(typeof chargeStrength === 'function' ? chargeStrength : -settings.repelForce);
+  const charge = state.simulation.force('charge');
+  charge.strength(typeof chargeStrength === 'function' ? chargeStrength : -settings.repelForce);
+  charge.distanceMax?.(settings.repelRange ?? Infinity);
   // Keep folder/file edges weak + long so folders stay separated (see startSimulation).
   const folderLink = typeof isFolderLink === 'function' ? isFolderLink : () => false;
   state.simulation.force('link')

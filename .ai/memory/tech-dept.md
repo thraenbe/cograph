@@ -93,6 +93,9 @@ reanalysis-scheduling path would re-load the gun. Fix shape: same captured
   - **Analyzer call fan-out** (D6, pending): a bare-name call links to every same-named
     definition → guava 2.65 M edges, django/junit5 hairballs. Proposed: narrow by file →
     directory → package when a name has > 8 candidates.
+  - When the global engine moves into the worker (W4), every Global-only force key must travel
+    with the settings patch too — notably ux's F4 `repelRange` (charge `.distanceMax`) and the
+    drill-down/file separation forces, which exist only in `rendering.js`/`drilldown.js` today.
   - `cograph.layout.workers` is read at panel open only (not live).
   - Intra-language analyzer sharding (W5-6) and NDJSON streaming not started.
 - **2026-09-21 — Libraries are not rendered in the Shelf engine.** frameRender

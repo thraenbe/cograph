@@ -20,6 +20,7 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
       <div id="row-velocity-decay"></div>
       <div id="row-collide-pad"></div>
       <div id="row-slot-pad"></div>
+      <div id="row-repel-range"></div>
     </div>
   </div>
 </body></html>`);
@@ -83,6 +84,7 @@ suite('forcesPanel — updateForcesPanel()', () => {
     assert.ok(!shown('row-folder-repel'));
     assert.ok(!shown('row-file-repel'));
     assert.ok(shown('row-slot-pad'), 'slot padding is a shelf force');
+    assert.ok(!shown('row-repel-range'), 'Repel range is Global-only');
     assert.strictEqual(
       dom.window.document.getElementById('label-file-cluster')!.textContent,
       'Keep near file',
@@ -93,6 +95,7 @@ suite('forcesPanel — updateForcesPanel()', () => {
     fp.updateForcesPanel('global', 'dynamic');
     for (const id of fp.FP_BASIC.global) { assert.ok(shown(id), `${id} shown`); }
     assert.ok(!shown('row-slot-pad'), 'slot padding is shelf-only');
+    assert.ok(shown('row-repel-range'), 'Repel range shows for Global');
     assert.ok(shown('btn-show-more-forces'));
     assert.strictEqual(
       dom.window.document.getElementById('label-file-cluster')!.textContent,

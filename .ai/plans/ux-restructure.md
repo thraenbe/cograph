@@ -133,8 +133,10 @@ Proposed design (Bela to confirm):
     `row-folder-repel`, `row-file-repel`, `row-link-distance`,
     `row-velocity-decay`, `row-collide-pad`, `row-slot-pad`, and sliders/vals
     `slider-link-distance`, `slider-velocity-decay`, `slider-collide-pad`,
-    `slider-slot-pad` (+ matching `val-*`). Row visibility is engine×motion
-    dependent (forcesPanel.js).
+    `slider-slot-pad`, and (Global-only advanced, added for Bela's F4
+    decision) `row-repel-range`/`slider-repel-range`/`val-repel-range` —
+    slider max position = unlimited, shown as ∞ (+ matching `val-*`). Row
+    visibility is engine×motion dependent (forcesPanel.js).
   - CHANGED: `btn-language-mode` text is "Language"; `.folder-bubble-shape`
     is now a `<path>` (was `<rect>`) on frames, drill-down boxes and folder
     bubbles; `.folder-bubble-titlebar` is a transparent drag strip; NEW visual

@@ -1,0 +1,19 @@
+{
+  "seed": 7,
+  "samples": 12,
+  "mode": "lhs",
+  "repos": ["click", "express", "zod"],
+  "detail": 1,
+  "settleTimeoutMs": 60000,
+  "motionGraceMs": 30000,
+  "engines": {
+    "shelf": {
+      "params": ["forceFileCluster", "forceRepel", "forceLink", "forceLinkDistance", "forceVelocityDecay", "forceCollidePad", "forceSlotPad"],
+      "ranges": { "forceRepel": [0, 600], "forceLink": [0, 5] }
+    },
+    "global": {
+      "params": ["forceCenter", "forceRepel", "forceLink", "forceFileCluster", "forceFolderRepel", "forceFileRepel", "forceLinkDistance", "forceVelocityDecay", "forceCollidePad"],
+      "ranges": { "forceCenter": [0, 0.3], "forceFolderRepel": [0, 3], "forceFileRepel": [0, 3], "forceLink": [0, 5] }
+    }
+  }
+}

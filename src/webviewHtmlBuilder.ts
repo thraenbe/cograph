@@ -383,6 +383,10 @@ export function getWebviewHtml(
           <div class="slider-header"><label for="slider-collide-pad">Collision Padding</label><span id="val-collide-pad">1.5</span></div>
           <input type="range" id="slider-collide-pad" min="0" max="10" step="0.5" value="1.5" />
         </div>
+        <div class="slider-row" id="row-repel-range">
+          <div class="slider-header"><label for="slider-repel-range">Repel Range</label><span id="val-repel-range">&#8734;</span></div>
+          <input type="range" id="slider-repel-range" min="100" max="2000" step="25" value="2000" />
+        </div>
         <div class="slider-row" id="row-slot-pad">
           <div class="slider-header"><label for="slider-slot-pad">Slot Padding</label><span id="val-slot-pad">0</span></div>
           <input type="range" id="slider-slot-pad" min="0" max="20" step="1" value="0" />

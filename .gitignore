@@ -17,3 +17,9 @@ linkedin.txt
 
 # perf bench output (scripts/perf)
 scripts/perf/.out/
+
+# UX test suite artifacts (videos, caches, reports)
+uxtest/.cache/
+uxtest/artifacts/
+uxtest/test-results/
+/test-results/

@@ -5,7 +5,7 @@ import * as path from 'path';
 import { esc, page, plain } from '../report/html';
 import { flattenFindings, loadRuns, reportHtml, writeRunReport } from '../report/build';
 import { contactSheetHtml, findSamples, writeSweepReport } from '../report/sweepReport';
-import { groupSamples, type SweepSample } from '../sweep/analyze';
+import { groupSamples, rescore, type SweepSample } from '../sweep/analyze';
 import { newestRun } from '../report/report.spec';
 import { computeMetrics } from '../metrics/compute';
 import type { RunRecord } from '../lib/lab';
@@ -94,7 +94,7 @@ test('sweep report writes csv, json, contact sheet and recommendations', () => {
   expect(writeSweepReport(path.join(root, 'click', 'sweep-00-shelf-dynamic'))).toEqual([]);
   const files = writeSweepReport(root).map(f => path.basename(f));
   expect(files).toEqual(['sweep.json', 'sweep.csv', 'contact-sheet.html', 'force-recommendations.md']);
-  const sheet = contactSheetHtml(groupSamples(findSamples(root)));
+  const sheet = contactSheetHtml(groupSamples(rescore(findSamples(root))));
   expect(sheet).toContain('class="best"');
   expect(sheet).toContain('class="base"');
   expect(sheet).toContain('(not settled)');

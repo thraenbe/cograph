@@ -136,7 +136,10 @@ Proposed design (Bela to confirm):
     `slider-slot-pad`, and (Global-only advanced, added for Bela's F4
     decision) `row-repel-range`/`slider-repel-range`/`val-repel-range` —
     slider max position = unlimited, shown as ∞ (+ matching `val-*`). Row
-    visibility is engine×motion dependent (forcesPanel.js).
+    visibility is engine×motion dependent (forcesPanel.js). Global guard
+    (2026-09-21): NEW `#global-guard-hint` under `#layout-hint`; the first
+    Global click above 4,000 nodes blocks + hints, a second click within 6 s
+    switches.
   - CHANGED: `btn-language-mode` text is "Language"; `.folder-bubble-shape`
     is now a `<path>` (was `<rect>`) on frames, drill-down boxes and folder
     bubbles; `.folder-bubble-titlebar` is a transparent drag strip; NEW visual

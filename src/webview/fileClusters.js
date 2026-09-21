@@ -383,7 +383,7 @@ function applyFileClusters() {
     state.graphData, state.expandedFolders, state.parsedFolders, state.structureTree,
   );
   renderElements([...nodeEls, ...edgeEls], new Map());
-  if (typeof perfMeasure === 'function') { perfMeasure('applyFileClusters', 'skeleton:start'); }
+  if (typeof perfMeasure === 'function') { perfMeasure('applyFileClusters', 'skeleton:start'); }  if (typeof maybeWarnGlobalSize === 'function') { maybeWarnGlobalSize(); }
 }
 
 /**

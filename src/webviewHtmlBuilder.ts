@@ -177,6 +177,7 @@ export function getWebviewHtml(
   const timelineUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'timeline.js'));
   const frameChromeUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameChrome.js'));
   const forcesPanelUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'forcesPanel.js'));
+  const globalGuardUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'globalGuard.js'));
   const perfUri      = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'perf.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
@@ -258,6 +259,7 @@ export function getWebviewHtml(
         </div>
       </div>
       <p id="layout-hint" class="layout-hint">Folder frames &amp; file slots &#183; frozen</p>
+      <p id="global-guard-hint" class="layout-hint" style="display:none"></p>
     </div>
     <div id="panel-detail" class="tl-panel">
       <div class="tl-slider-header">
@@ -480,6 +482,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${scriptUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${controlsUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${forcesPanelUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${globalGuardUri}?v=${nonce}"></script>
   ${timelineScriptTag}
 </body>
 </html>`;

@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Added
+- **Global guard**: switching to the Global engine with more than 4,000
+  simulated nodes no longer freezes the page by surprise — the first click
+  shows a hint ("Global is slow above 4,000 nodes — lower Detail first, or
+  click Global again to switch anyway"); a second click within 6 s switches.
+  A Global boot config over a huge first graph starts in Shelf with the same
+  hint, and raising Detail past the threshold while already in Global hints
+  without blocking. Saved Global views and setting changes always apply.
 - **Repel range** (Global engine, under "show more forces"): caps how far the
   charge force reaches (d3 `distanceMax`). The slider's max position means
   unlimited (∞) — the classic behaviour and the default, so existing Global

@@ -57,11 +57,13 @@ function applySimResult(r) {
 
 function applySimData(r, f) {
   const io = frInnerOrigin(f);
+  if (!state.slotPlacedIds) { state.slotPlacedIds = new Set(); }
   for (const ln of r.nodes) {
     const sn = ln._ref;
     if (!sn) { continue; }
     sn.x = io.x + ln.x;
     sn.y = io.y + ln.y;
+    state.slotPlacedIds.add(ln.id); // sim-written = deliberately placed
   }
 }
 
@@ -87,12 +89,26 @@ function renderFrameLayout(allLinks, visibleSet) {
 
   // 1) Frames from the current visible members.
   const members = collectMembers(state.currentNodes, tree, settings.nodeSize);
+  const prevAbs = new Map();
+  if (state.frames && state.frames.byPath) {
+    for (const [p2, f2] of state.frames.byPath) {
+      if (f2.abs) { prevAbs.set(p2, { x: f2.abs.x, y: f2.abs.y }); }
+    }
+  }
   const upd = updateFrames(state.frames, tree, state.expandedFolders, members);
   state.frames = upd.frames;
+  // Re-pack animation: frames that already existed and were MOVED by this
+  // layout pass glide to their new spot (drags/sim ticks stay instant).
+  __fr.animateMoves = new Set();
+  for (const [p2, f2] of upd.frames.byPath) {
+    const was = prevAbs.get(p2);
+    if (was && f2.abs && (Math.abs(was.x - f2.abs.x) > 0.5 || Math.abs(was.y - f2.abs.y) > 0.5)) {
+      __fr.animateMoves.add(p2);
+    }
+  }
   __fr.members = members;
   __fr.byId = new Map(state.currentNodes.map(n => [n.id, n]));
   if (applyPendingLayout()) { return; } // saved expansion differs → re-render scheduled
-  setFrameSliderNoops(true);
 
   // 2) Ownership stamp (includes per-file partition frames).
   const frameOfId = new Map();
@@ -112,13 +128,19 @@ function renderFrameLayout(allLinks, visibleSet) {
   const sel = frameG.selectAll('g.frame').data(frameData, f => f.path).join(
     enter => {
       const grp = enter.append('g').attr('class', 'frame');
-      grp.append('rect').attr('class', 'folder-bubble-shape')
-        .attr('rx', 8).attr('stroke-width', 1.5).attr('pointer-events', 'all');
-      grp.append('rect').attr('class', 'folder-bubble-titlebar')
-        .attr('rx', 8).attr('pointer-events', 'all').attr('cursor', 'grab');
+      grp.append('path').attr('class', 'folder-bubble-shape')
+        .attr('stroke-width', 1.5).attr('pointer-events', 'all');
+      // Draft A chrome: the tab is purely visual; the transparent titlebar
+      // rect below keeps the whole 30px strip as the drag hit-area.
+      const tab = grp.append('g').attr('class', 'frame-tab').attr('pointer-events', 'none');
+      tab.append('path').attr('class', 'frame-tab-shape');
+      tab.append('path').attr('class', 'frame-tab-glyph').attr('d', FOLDER_GLYPH);
+      tab.append('text').attr('class', 'frame-tab-counts').attr('text-anchor', 'end');
       grp.append('text').attr('class', 'folder-bubble-label')
-        .attr('text-anchor', 'middle').attr('font-weight', '600')
+        .attr('text-anchor', 'start').attr('font-weight', '600')
         .attr('dominant-baseline', 'central').attr('pointer-events', 'none');
+      grp.append('rect').attr('class', 'folder-bubble-titlebar')
+        .attr('fill', 'transparent').attr('pointer-events', 'all').attr('cursor', 'grab');
       grp.append('g').attr('class', 'f-slots');
       grp.append('g').attr('class', 'f-links');
       grp.append('g').attr('class', 'f-nodes');
@@ -138,7 +160,10 @@ function renderFrameLayout(allLinks, visibleSet) {
   sel.select('.folder-bubble-label')
     .attr('font-size', `${12 * settings.textSize}px`)
     .attr('fill', (typeof isLightTheme === 'function' && isLightTheme()) ? '#333333' : '#cccccc');
-  sel.select('.folder-bubble-titlebar').call(createFrameTitleDrag(frameDragDeps()));
+  const titleDrag = createFrameTitleDrag(frameDragDeps())
+    .on('start.fitguard', () => { state._frameInteracting = true; })
+    .on('end.fitguard', () => { state._frameInteracting = false; });
+  sel.select('.folder-bubble-titlebar').call(titleDrag);
   sel.select('.folder-bubble-shape').call(createFrameResizeDrag());
   sel.on('contextmenu', onFrameContextMenu);
 
@@ -146,14 +171,19 @@ function renderFrameLayout(allLinks, visibleSet) {
   const { intra, cross } = splitEdgesByFrame(allLinks, id => frameOfId.get(id) ?? null);
   __fr.cross = cross;
   __fr.intraByFrame = intra;
-  for (const l of allLinks) {
-    l._s = __fr.byId.get(typeof l.source === 'object' ? l.source.id : l.source) || null;
-    l._t = __fr.byId.get(typeof l.target === 'object' ? l.target.id : l.target) || null;
-  }
+  stampLinkRefs(allLinks, __fr.byId);
   __fr.frameDom = new Map();
+  __fr.counts = new Map();
   for (const f of frameData) {
     const sub = __fr.frameSel.get(f.path);
     const memberNodes = (members.get(f.path) || []).map(m => m._ref).filter(Boolean);
+    __fr.counts.set(f.path, memberCounts(memberNodes));
+    // B6: functions in a dense slot hide their labels until zoomed in.
+    for (const m of (members.get(f.path) || [])) {
+      if (!m._ref) { continue; }
+      const slot = f.slots && f.slotOf ? f.slots.get(f.slotOf.get(m.id)) : null;
+      m._ref._denseSlot = !!(slot && (slot.count || 0) > DENSE.SLOT_N);
+    }
     renderFrameSlots(f, sub);
     const circles = renderNodes(visibleSet, memberNodes, sub.select('g.f-nodes'));
     const clouds = renderCloudNodes(visibleSet, memberNodes, sub.select('g.f-nodes'));
@@ -163,13 +193,14 @@ function renderFrameLayout(allLinks, visibleSet) {
     __fr.frameDom.set(f.path, { sub, circles, clouds, labels, links });
     if (f.kind === 'root') {
       // Subtle dashed outline + name: root-level files stop looking like
-      // stray debris floating outside every frame.
+      // stray debris floating outside every frame. No tab, no drag strip.
       sub.select('.folder-bubble-shape')
         .style('display', null)
         .attr('fill', 'none')
         .attr('stroke-dasharray', '6 5')
         .attr('stroke-opacity', 0.25)
         .attr('pointer-events', 'none');
+      sub.select('g.frame-tab').style('display', 'none');
       sub.select('.folder-bubble-titlebar').style('display', 'none');
       sub.select('.folder-bubble-label')
         .style('display', null)
@@ -177,6 +208,8 @@ function renderFrameLayout(allLinks, visibleSet) {
         .attr('opacity', 0.5);
     }
   }
+
+  if (typeof updateTextVisibility === 'function') { updateTextVisibility(); }
 
   // 5) Flat selections for every existing consumer (filters, git, hover…).
   state.svgNodes = frameG.selectAll('circle.regular-node');
@@ -202,7 +235,30 @@ function renderFrameLayout(allLinks, visibleSet) {
   }
 
   tickFrames();
-  if (!state.hasFitted) { state.hasFitted = true; fitToView(); }
+  if (!state.hasFitted) {
+    state.hasFitted = true;
+    fitToView();
+  } else {
+    const svgEl = (typeof svg !== 'undefined' && svg.node) ? svg.node() : null;
+    const vw = (svgEl && svgEl.clientWidth) || (typeof window !== 'undefined' ? window.innerWidth : 0);
+    const vh = (svgEl && svgEl.clientHeight) || (typeof window !== 'undefined' ? window.innerHeight : 0);
+    if (shouldRefit(frameBounds(state.frames), state.currentZoom || 1, vw, vh,
+      state.userZoomed, state._frameInteracting)) {
+      // The layout outgrew what the viewer currently sees and they haven't
+      // taken the viewport — fit again (F2).
+      fitToView();
+    }
+  }
+}
+
+/** Re-fit only while the viewport is still the automatic one: never after a
+ *  user zoom/pan gesture, never during a frame drag/resize, and only when the
+ *  layout overflows the CURRENT view by >30% in either dimension. Comparing
+ *  against the live zoom (not the last fitted bounds) keeps progressive loads
+ *  — many small graph patches — from ratcheting past a stale baseline. */
+function shouldRefit(bounds, k, viewW, viewH, userZoomed, interacting) {
+  if (userZoomed || interacting || !bounds || !k || !viewW || !viewH) { return false; }
+  return bounds.w * k > viewW * 1.3 || bounds.h * k > viewH * 1.3;
 }
 
 function frameDragDeps() {
@@ -294,6 +350,20 @@ function syncFrameSims(members) {
   state.simulation._kind = 'frames';
 }
 
+/** Stamp node refs on link data and resolve string endpoints to node
+ *  objects. The object endpoints matter beyond convenience: a coalesced
+ *  global tick queued in a rAF right before an engine switch still runs one
+ *  last time against the NEW frame selections — with string endpoints it
+ *  wrote thousands of NaN line attributes per switch (F3). */
+function stampLinkRefs(allLinks, byId) {
+  for (const l of allLinks) {
+    l._s = byId.get(typeof l.source === 'object' ? l.source.id : l.source) || null;
+    l._t = byId.get(typeof l.target === 'object' ? l.target.id : l.target) || null;
+    if (l._s) { l.source = l._s; }
+    if (l._t) { l.target = l._t; }
+  }
+}
+
 function intraLinkIdsFor(path) {
   const out = [];
   const idOf = (e) => (typeof e === 'object' && e !== null) ? e.id : e;
@@ -308,10 +378,15 @@ function tickFrame(path) {
   const f = state.frames && state.frames.byPath.get(path);
   const sub = __fr.frameSel.get(path);
   if (!f || !sub) { return; }
-  sub.attr('transform', `translate(${f.abs.x},${f.abs.y})`);
+  const glide = __fr.animateMoves && __fr.animateMoves.delete(path);
+  if (glide && sub.transition) {
+    sub.transition('frame-move').duration(200).attr('transform', `translate(${f.abs.x},${f.abs.y})`);
+  } else {
+    sub.attr('transform', `translate(${f.abs.x},${f.abs.y})`);
+  }
   if (f.kind === 'root') {
     sub.select('.folder-bubble-shape')
-      .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', f.abs.h)
+      .attr('d', rectPath(0, 0, f.abs.w, f.abs.h))
       .attr('stroke', (typeof isLightTheme === 'function' && isLightTheme()) ? '#666666' : '#9fb0c3');
     sub.select('.folder-bubble-label')
       .attr('x', 10).attr('y', -10)
@@ -320,16 +395,29 @@ function tickFrame(path) {
   if (f.kind !== 'root') {
     const depth = (state.structureTree.folders[f.path]?.depth) ?? 1;
     const hue = (typeof ddHue === 'function') ? ddHue(f.path) : 0;
+    const name = f.path.split(/[\\/]+/).filter(Boolean).pop() || f.path;
+    const tw = tabWidth(name, f.abs.w);
+    const mutedFill = (typeof isLightTheme === 'function' && isLightTheme()) ? '#333333' : '#cccccc';
     sub.select('.folder-bubble-shape')
-      .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', f.abs.h)
+      .attr('d', tabBodyPath(0, 0, f.abs.w, f.abs.h, tw))
       .attr('fill', folderFillColor(depth, hue))
       .attr('stroke', folderStrokeColor(depth, hue));
-    sub.select('.folder-bubble-titlebar')
-      .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', 30)
+    sub.select('.frame-tab-shape')
+      .attr('d', tabOnlyPath(0, 0, tw))
       .attr('fill', folderTitlebarColor(depth, hue));
+    sub.select('.frame-tab-glyph')
+      .attr('transform', 'translate(9,6) scale(0.85)')
+      .attr('fill', mutedFill);
     sub.select('.folder-bubble-label')
-      .attr('x', f.abs.w / 2).attr('y', 15)
-      .text(f.path.split(/[\\/]+/).filter(Boolean).pop() || f.path);
+      .attr('x', TAB.TEXT_X).attr('y', TAB.TEXT_Y)
+      .text(cutLabel(name, tabChars(tw)));
+    const cnt = __fr.counts && __fr.counts.get(path);
+    sub.select('.frame-tab-counts')
+      .attr('x', f.abs.w - 4).attr('y', TAB.H - 6)
+      .attr('fill', mutedFill)
+      .text(cnt ? countsText(cnt.files, cnt.fns, f.abs.w - tw - TAB.CNT_PAD) : '');
+    sub.select('.folder-bubble-titlebar')
+      .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', 30);
   }
   const ox = f.abs.x, oy = f.abs.y;
   const dom = __fr.frameDom && __fr.frameDom.get(path);
@@ -386,9 +474,16 @@ function updateCrossLinks() {
     frameAt: p => {
       const f = state.frames.byPath.get(p);
       if (!f) { return null; }
-      const titleRect = f.kind === 'root'
-        ? { x: f.abs.x, y: f.abs.y, w: f.abs.w, h: 0 }
-        : titleBarRect(f);
+      // Ports sit on the tab (its right shoulder faces the free strip), not
+      // the full-width strip — bundles visually attach to the folder's name.
+      let titleRect;
+      if (f.kind === 'root') {
+        titleRect = { x: f.abs.x, y: f.abs.y, w: f.abs.w, h: 0 };
+      } else {
+        const name = p.split(/[\\/]+/).filter(Boolean).pop() || p;
+        const tw = Math.min(tabWidth(name, f.abs.w) + 12, f.abs.w);
+        titleRect = { x: f.abs.x, y: f.abs.y, w: tw, h: TAB.H };
+      }
       return { abs: f.abs, titleRect };
     },
     absPosOf: id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; },
@@ -421,7 +516,6 @@ function updateCrossLinks() {
 
 // ── Teardown (leaving the frames engine / drill-down) ─────────────────────────
 function teardownFrames() {
-  setFrameSliderNoops(false);
   if (__fr.sched) { __fr.sched.stop(); }
   for (const rec of __fr.sims.values()) { destroySim(rec); }
   __fr.sims.clear();
@@ -436,6 +530,8 @@ function teardownFrames() {
     state.simulation = null;
     state.pendingReheat = false;
   }
+  if (state.slotPlacedIds) { state.slotPlacedIds.clear(); }
+  __fr.slotRects = null;
   // state.frames is kept: returning from workflow/global restores stable rects.
 }
 
@@ -445,10 +541,18 @@ function resetFrames() {
   state.frames = null;
 }
 
-/** Grid-place every member whose absolute position is missing or outside its
- *  slot interior. Positions already inside their slot (drags, saved layouts,
- *  settled sims) are left alone. */
+/** Grid-place slot members. A member keeps its position only when it was
+ *  explicitly PLACED before (grid, settled sim, saved layout — tracked by id
+ *  in state.slotPlacedIds so graph patches replacing node objects don't lose
+ *  it) AND it still lies inside its slot interior. Never-placed seed clouds
+ *  always grid (the F1 blob: a seed cloud inside a big slot used to pass as
+ *  "already placed"). In Static motion a slot whose rect moved or resized
+ *  re-grids its members outright — their old coordinates belong to nowhere. */
 function placeMembersInSlots(members) {
+  if (!state.slotPlacedIds) { state.slotPlacedIds = new Set(); }
+  const placed = state.slotPlacedIds;
+  const prevRects = __fr.slotRects || new Map();
+  const nextRects = new Map();
   for (const [path, mems] of members) {
     const f = state.frames.byPath.get(path);
     if (!f) { continue; }
@@ -461,25 +565,47 @@ function placeMembersInSlots(members) {
       if (!bySlot.has(key)) { bySlot.set(key, []); }
       bySlot.get(key).push(m);
     }
-    for (const group of bySlot.values()) {
+    for (const [key, group] of bySlot) {
       const interior = slotInteriorFor(f, group[0].id);
       if (!interior) { continue; }
       const absRect = { x: io.x + interior.x, y: io.y + interior.y, w: interior.w, h: interior.h };
-      const loose = group.filter(m => {
+      const rectKey = path + '\u0000' + key;
+      nextRects.set(rectKey, absRect);
+      const prev = prevRects.get(rectKey);
+      const rectChanged = prev && (
+        Math.abs(prev.x - absRect.x) > 0.5 || Math.abs(prev.y - absRect.y) > 0.5
+        || Math.abs(prev.w - absRect.w) > 0.5 || Math.abs(prev.h - absRect.h) > 0.5);
+      const regridAll = rectChanged && state.layoutMode === 'static';
+      let loose = group.filter(m => {
         const sn = m._ref;
-        return !sn || !Number.isFinite(sn.x)
-          || sn.x < absRect.x || sn.x > absRect.x + absRect.w
+        if (!sn || !Number.isFinite(sn.x)) { return true; }
+        if (regridAll) { return true; }
+        if (!placed.has(m.id)) { return true; } // seed position, never placed
+        return sn.x < absRect.x || sn.x > absRect.x + absRect.w
           || sn.y < absRect.y || sn.y > absRect.y + absRect.h;
       });
       if (!loose.length) { continue; }
+      // Static: gridding only the loose subset would drop newcomers onto the
+      // cells stamped members already occupy — the grid IS the arrangement,
+      // so any loose member re-grids the whole slot. Dynamic leaves the rest
+      // to the simulation.
+      if (state.layoutMode === 'static' && loose.length < group.length) {
+        loose = group;
+      }
       const grid = gridPositions(loose, absRect);
       for (const m of loose) {
         const sn = m._ref;
         const p = grid.get(m.id);
-        if (sn && p) { sn.x = p.x; sn.y = p.y; }
+        if (sn && p) {
+          sn.x = p.x; sn.y = p.y;
+          // Static pins follow the grid, or the pin snaps the node right back.
+          if (sn.fx != null) { sn.fx = p.x; sn.fy = p.y; }
+          placed.add(m.id);
+        }
       }
     }
   }
+  __fr.slotRects = nextRects;
 }
 
 // ── Saved layouts (v2 frames / v1 migration) ──────────────────────────────────
@@ -563,6 +689,7 @@ function createFrameResizeDrag() {
   const EDGE = 12;
   return d3.drag()
     .container(function () { return g.node(); })
+    .on('start', function () { state._frameInteracting = true; })
     .filter(function (event, f) {
       const [mx, my] = d3.pointer(event, g.node());
       return (mx - f.abs.x < EDGE) || (f.abs.x + f.abs.w - mx < EDGE)
@@ -580,6 +707,7 @@ function createFrameResizeDrag() {
       updateCrossLinks();
     })
     .on('end', function () {
+      state._frameInteracting = false;
       if (typeof window !== 'undefined') { window.markDirty?.(); }
     });
 }
@@ -655,7 +783,7 @@ function renderFrameSlots(f, sub) {
       .attr('x', d.x + 6).attr('y', d.y + 11)
       .attr('font-size', `${9 * settings.textSize}px`)
       .attr('fill', color).attr('fill-opacity', 0.9)
-      .text(d.count ? `${slotBasename(d.file)} · ${d.count}` : slotBasename(d.file));
+      .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize));
   });
   sel.on('dblclick', (event, d) => {
     event.stopPropagation();
@@ -674,20 +802,6 @@ function renderFrameSlots(f, sub) {
 }
 
 // ── Settings glue ─────────────────────────────────────────────────────────────
-/** Grey out the two sliders that have no effect under frames (folder/file
- *  repel — separation is guaranteed by the packer). Handlers stay wired. */
-function setFrameSliderNoops(on) {
-  if (typeof document === 'undefined') { return; }
-  for (const id of ['slider-folder-repel', 'slider-file-repel']) {
-    const el = document.getElementById(id);
-    if (!el) { continue; }
-    el.disabled = on;
-    if (el.parentElement) {
-      el.parentElement.classList.toggle('is-noop', on);
-      el.parentElement.title = on ? 'Not used in framed layout' : '';
-    }
-  }
-}
 
 /** Node-size (and text) changes: refresh sim radii; collide reads d.r live. */
 function applyFrameDisplaySettings() {
@@ -705,7 +819,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     usesFrames, renderFrameLayout, tickFrames, tickFrame, teardownFrames,
     resetFrames, updateCrossLinks, syncFrameSims, applySimResult, applySimData,
-    applyPendingLayout, migrateV1IntoFrames, setFrameSliderNoops,
+    applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit, stampLinkRefs,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots,
     placeMembersInSlots,

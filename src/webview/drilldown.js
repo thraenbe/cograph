@@ -59,6 +59,7 @@ function buildDrilldownBoxData() {
       depth: info.depth || 0,
       hue: ddHue(folderPath),
       members,
+      counts: (typeof memberCounts === 'function') ? memberCounts(members) : null,
     });
   }
   boxes.sort((a, b) => a.depth - b.depth); // shallow first → parents behind children
@@ -71,9 +72,14 @@ function renderDrilldownBoxes(boxes) {
     .join(
       enter => {
         const grp = enter.append('g').attr('class', 'folder-bubble');
-        grp.append('rect').attr('class', 'folder-bubble-shape');
-        grp.append('rect').attr('class', 'folder-bubble-titlebar');
+        grp.append('path').attr('class', 'folder-bubble-shape');
+        // Draft A chrome: visual tab + transparent full-width drag strip.
+        const tab = grp.append('g').attr('class', 'frame-tab').attr('pointer-events', 'none');
+        tab.append('path').attr('class', 'frame-tab-shape');
+        tab.append('path').attr('class', 'frame-tab-glyph').attr('d', FOLDER_GLYPH);
+        tab.append('text').attr('class', 'frame-tab-counts').attr('text-anchor', 'end');
         grp.append('text').attr('class', 'folder-bubble-label');
+        grp.append('rect').attr('class', 'folder-bubble-titlebar');
         return grp;
       },
       update => update,
@@ -97,12 +103,16 @@ function renderDrilldownBoxes(boxes) {
     });
   sel.each(function(d) {
     d3.select(this).select('.folder-bubble-shape')
-      .attr('rx', 8).attr('stroke-width', 1.5).attr('pointer-events', 'none');
+      .attr('stroke-width', 1.5).attr('pointer-events', 'none');
     d3.select(this).select('.folder-bubble-titlebar')
-      .attr('rx', 8).attr('pointer-events', 'all').attr('cursor', 'grab');
+      .attr('fill', 'transparent').attr('pointer-events', 'all').attr('cursor', 'grab');
+    d3.select(this).select('.frame-tab-glyph')
+      .attr('fill', isLightTheme() ? '#333333' : '#cccccc');
+    d3.select(this).select('.frame-tab-counts')
+      .attr('fill', isLightTheme() ? '#333333' : '#cccccc');
     d3.select(this).select('.folder-bubble-label')
-      .attr('font-size', `${(12 + 6 / ((d.depth || 0) + 1)) * settings.textSize}px`)
-      .attr('text-anchor', 'middle').attr('font-weight', '600')
+      .attr('font-size', `${12 * settings.textSize}px`)
+      .attr('text-anchor', 'start').attr('font-weight', '600')
       .attr('dominant-baseline', 'central')
       .attr('fill', isLightTheme() ? '#333333' : '#cccccc').attr('pointer-events', 'none');
   });
@@ -156,14 +166,24 @@ function tickDrilldownBoxes() {
     minX -= DD_FOLDER_PADDING; minY -= DD_FOLDER_PADDING;
     maxX += DD_FOLDER_PADDING; maxY += DD_FOLDER_PADDING;
     const el = d3.select(this).style('display', null);
+    const w = maxX - minX;
+    const tw = tabWidth(d.shortName, w);
     el.select('.folder-bubble-shape')
-      .attr('x', minX).attr('y', minY).attr('width', maxX - minX).attr('height', maxY - minY)
+      .attr('d', tabBodyPath(minX, minY, w, maxY - minY, tw))
       .attr('fill', folderFillColor(d.depth, d.hue)).attr('stroke', folderStrokeColor(d.depth, d.hue));
+    el.select('.frame-tab-shape')
+      .attr('d', tabOnlyPath(minX, minY, tw))
+      .attr('fill', folderTitlebarColor(d.depth, d.hue));
+    el.select('.frame-tab-glyph')
+      .attr('transform', `translate(${minX + 9},${minY + 6}) scale(0.85)`);
+    el.select('.frame-tab-counts')
+      .attr('x', maxX - 4).attr('y', minY + TAB.H - 6)
+      .text(d.counts ? countsText(d.counts.files, d.counts.fns, w - tw - TAB.CNT_PAD) : '');
     el.select('.folder-bubble-titlebar')
-      .attr('x', minX).attr('y', minY).attr('width', maxX - minX).attr('height', DD_TITLEBAR_HEIGHT)
-      .attr('fill', folderTitlebarColor(d.depth, d.hue)).attr('rx', 8);
+      .attr('x', minX).attr('y', minY).attr('width', w).attr('height', DD_TITLEBAR_HEIGHT);
     el.select('.folder-bubble-label')
-      .attr('x', (minX + maxX) / 2).attr('y', minY + DD_TITLEBAR_HEIGHT / 2).text(d.shortName);
+      .attr('x', minX + TAB.TEXT_X).attr('y', minY + TAB.TEXT_Y)
+      .text(cutLabel(d.shortName, tabChars(tw)));
   });
 }
 

@@ -210,10 +210,8 @@ suite('isDrilldown()', () => {
     assert.strictEqual(fc.isDrilldown(), true);
   });
 
-  test('false when the lens is not file', () => {
-    (global as any).state = { clusterGroupBy: 'connect', viewMode: 'cluster', structureTree: makeTree() };
-    assert.strictEqual(fc.isDrilldown(), false);
-    (global as any).state.clusterGroupBy = 'class';
+  test('false when the lens is not file (defensive guard)', () => {
+    (global as any).state = { clusterGroupBy: 'other', viewMode: 'cluster', structureTree: makeTree() };
     assert.strictEqual(fc.isDrilldown(), false);
   });
 
@@ -246,7 +244,7 @@ suite('graph message routing (classifyGraphMessage)', () => {
   });
 
   test('non-workflow payload outside drill-down → render', () => {
-    (global as any).state = { clusterGroupBy: 'connect', viewMode: 'cluster', structureTree: makeTree() };
+    (global as any).state = { clusterGroupBy: 'file', viewMode: 'workflow', structureTree: makeTree() };
     assert.strictEqual(fc.classifyGraphMessage({ nodes: [], edges: [] }), 'render');
   });
 
@@ -262,7 +260,7 @@ suite('graph message routing (classifyGraphMessage)', () => {
     assert.strictEqual(fc.isWorkflowPayload(null), false);
     assert.strictEqual(fc.classifyGraphMessage(null), 'ingest');
     // Outside drill-down, null data still routes to render without throwing.
-    (global as any).state = { clusterGroupBy: 'connect', viewMode: 'cluster', structureTree: null };
+    (global as any).state = { clusterGroupBy: 'file', viewMode: 'cluster', structureTree: null };
     assert.strictEqual(fc.classifyGraphMessage(null), 'render');
   });
 });
@@ -405,7 +403,7 @@ suite('enterFileClusterMode()', () => {
   test('sets viewMode=cluster, clusterGroupBy=file, classMode=false and dispatches applyComplexity', () => {
     (global as any).state = {
       structureTree: makeTree(),
-      graphData: null, viewMode: 'workflow', clusterGroupBy: 'connect', classMode: true,
+      graphData: null, viewMode: 'workflow', clusterGroupBy: 'file', classMode: true,
       expandedFolders: new Set(), parsedFolders: new Set(), parsingFolders: new Set(),
     };
     fc.enterFileClusterMode();

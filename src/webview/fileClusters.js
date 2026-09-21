@@ -500,8 +500,6 @@ function enterFileClusterMode() {
   setInitialDetailDepth();
   if (typeof document !== 'undefined') {
     document.getElementById('btn-class-mode')?.classList.remove('active');
-    ['file', 'class', 'connect'].forEach(m =>
-      document.getElementById(`btn-group-${m}`)?.classList.toggle('active', m === 'file'));
   }
   // Dispatch through applyComplexity: drill-down when a structure tree is present,
   // otherwise plain file-structural clustering (no blank view).

@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.0] - Unreleased
 
+### Changed (UX)
+- The language-colours toggle is labelled **Language** (was "Lang").
+- **One Forces box** in the left toolbar replaces the sliders split between the
+  folder panel and the gear settings panel. It shows only what the current
+  engine consumes (Shelf: Repel, Link, "Keep near file"; Global: those plus
+  Center, Folder Repel, File Repel), an inline **"show more forces"** expander
+  reveals advanced controls (Link Distance, Damping, Collision Padding and, in
+  Shelf, Slot Padding), and under Static motion the box shows a hint instead of
+  dead sliders. Reset now restores every force; the Center Force default is
+  0.025 everywhere (the gear panel used to show 0.05).
+- **Folder chrome redesign (Draft A "index tab")**, applied to both engines:
+  every open folder shows its name in a tab at the top-left (folder glyph,
+  ellipsis past 62 % of the frame width) with file/function counts in the free
+  strip right of the tab (compact "N · M" when narrow); collapsed folders draw
+  as a small closed-folder silhouette instead of a cloud; cross-folder bundles
+  attach at the tab's shoulder; folder colours gain ~14 points of saturation.
+  The whole top strip stays the drag hit-area.
+
+### Fixed
+- "Show Libraries" is disabled with a hint under the Shelf engine ("Libraries
+  are shown in the Global engine") instead of being a silent no-op — the
+  shelf does not render library nodes yet.
+- Switching **Global → Shelf while the Global simulation is still settling**
+  no longer floods the console with thousands of NaN line-attribute errors
+  (and the dropped frames they cost): the engine switch detaches the old
+  simulation's handlers before re-rendering, frame link data carries resolved
+  node objects, and a repair pass is queued behind any straggling coalesced
+  tick.
+- Booting with **Global + Static** as the configured default no longer shows
+  an unusable un-fitted first screen: the static boot now fits the view after
+  the synchronous settle has produced real positions (a static simulation
+  never ticks again, so the old async auto-fit either ran too early or not at
+  all).
+- Fit-to-view no longer blows a single collapsed-folder glyph up to fill the
+  viewport (Detail 0 on a repo with one root folder): the fit scale is capped
+  so the largest node stays under ~35% of the shorter viewport side.
+- Light themes now reach JS-painted colours: theme variables are read from
+  `<body>` (where VS Code sets `vscode-light`), so nodes, links and labels no
+  longer keep the dark palette in a light theme.
+- **Shelf+Static first load rendered big file slots as overlapping blobs**
+  (the true B1/B2 mechanism, found by the UX test harness on click's
+  tests/test_options.py): the slot placer treated a node's random seed
+  position as deliberate whenever it happened to fall inside the slot.
+  Placement is now an explicit per-id stamp (grid, settled simulation, drag or
+  saved layout); unstamped nodes always grid, and in Static motion a slot
+  whose rect moved, resized or gained members re-grids as a whole.
+- **The first load fitted the viewport to the folder skeleton, not the final
+  graph**: ingesting the functions grew the frames far past the fitted view,
+  leaving much of the graph off-screen until a manual double-click. The view
+  now re-fits automatically when the layout outgrows the last fit by >30% -
+  but only while the viewport is still automatic: never after the user zooms
+  or pans (Reset Layout and an engine switch re-arm it), and never during a
+  frame drag or resize.
+- Re-packs animate: when expanding a folder forces siblings to move, the moved
+  frames glide (~200 ms) to their new spot instead of jumping. Drags and
+  simulation motion stay instant.
+- Static-mode label clutter in dense file slots: slot labels ellipsize to their
+  slot's width (the function count is always kept), and function labels inside
+  slots holding more than 12 functions stay hidden until you zoom in past 1.5x.
+
+### Removed
+- The **Class** and **Connect** group-by lenses. Group-by-File (the folder
+  drill-down) is the only lens; saved views that carry `class`, `connect` or the
+  older `connectivity`/`auto` values load silently as File. The separate OOP
+  **Class overlay** button is unchanged.
+
 ### Added
 - **Two independent layout toggles** — engine and motion. **Shelf | Global** picks
   the engine: Shelf packs every open folder into a nested, non-overlapping frame with

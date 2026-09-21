@@ -175,6 +175,8 @@ export function getWebviewHtml(
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
   const controlsUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'controls.js'));
   const timelineUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'timeline.js'));
+  const frameChromeUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameChrome.js'));
+  const forcesPanelUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'forcesPanel.js'));
   const perfUri      = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'perf.js'));
   const hoverCardUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverCard.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
@@ -264,12 +266,6 @@ export function getWebviewHtml(
         <span id="val-complexity">1</span>
       </div>
       <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
-      <div class="tl-section-label">Group by</div>
-      <div class="btn-group">
-        <button id="btn-group-file"    class="tl-btn active" title="Navigate by folder (drill down)">File</button>
-        <button id="btn-group-class"   class="tl-btn"        title="Cluster by class">Class</button>
-        <button id="btn-group-connect" class="tl-btn"        title="Cluster by connection importance">Connect</button>
-      </div>
     </div>
     <div id="panel-git" class="tl-panel" style="display:none">
       <button id="btn-git-mode" class="tl-btn" title="Toggle git diff colors">Git</button>
@@ -297,29 +293,63 @@ export function getWebviewHtml(
       </div>
     </div>
     <div id="panel-lang" class="tl-panel">
-      <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Lang</button>
+      <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Language</button>
       <div id="language-legend"></div>
     </div>
     <div id="panel-folder" class="tl-panel">
       <button id="btn-folder-mode" class="tl-btn active" title="Toggle folder/file structure overlay">Folder</button>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.2</span></div>
-        <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.2" />
-      </div>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-folder-repel">Folder Repel Force</label><span id="val-folder-repel">0.25</span></div>
-        <input type="range" id="slider-folder-repel" min="0" max="10" step="0.01" value="0.25" />
-      </div>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-file-repel">File Repel Force</label><span id="val-file-repel">0.25</span></div>
-        <input type="range" id="slider-file-repel" min="0" max="10" step="0.01" value="0.25" />
-      </div>
-      <button id="btn-more-forces" class="tl-link-btn" title="Open settings to adjust all forces">view more forces &#9881;</button>
       <div class="tl-legend-header" id="toggle-folder-filters">
         <span>Filters</span>
         <span class="tl-chevron collapsed">▾</span>
       </div>
       <div class="tl-legend" id="folder-filters-body" style="display:none"></div>
+    </div>
+    <div id="panel-forces" class="tl-panel">
+      <div class="tl-section-label">Forces</div>
+      <p id="forces-hint" class="forces-hint" style="display:none">Static layout &#8212; forces are off. Switch Motion to Dynamic.</p>
+      <div class="slider-row" id="row-center-force">
+        <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">0.025</span></div>
+        <input type="range" id="slider-center-force" min="0" max="1" step="0.005" value="0.025" />
+      </div>
+      <div class="slider-row" id="row-repel-force">
+        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">250</span></div>
+        <input type="range" id="slider-repel-force" min="0" max="1000" step="1" value="250" />
+      </div>
+      <div class="slider-row" id="row-link-force">
+        <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">1</span></div>
+        <input type="range" id="slider-link-force" min="0" max="10" step="0.1" value="1" />
+      </div>
+      <div class="slider-row" id="row-file-cluster">
+        <div class="slider-header"><label for="slider-file-cluster" id="label-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.2</span></div>
+        <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.2" />
+      </div>
+      <div class="slider-row" id="row-folder-repel">
+        <div class="slider-header"><label for="slider-folder-repel">Folder Repel Force</label><span id="val-folder-repel">0.25</span></div>
+        <input type="range" id="slider-folder-repel" min="0" max="10" step="0.01" value="0.25" />
+      </div>
+      <div class="slider-row" id="row-file-repel">
+        <div class="slider-header"><label for="slider-file-repel">File Repel Force</label><span id="val-file-repel">0.25</span></div>
+        <input type="range" id="slider-file-repel" min="0" max="10" step="0.01" value="0.25" />
+      </div>
+      <button id="btn-show-more-forces" class="tl-link-btn" title="Show advanced force controls">show more forces &#9662;</button>
+      <div id="forces-advanced">
+        <div class="slider-row" id="row-link-distance">
+          <div class="slider-header"><label for="slider-link-distance">Link Distance</label><span id="val-link-distance">40</span></div>
+          <input type="range" id="slider-link-distance" min="10" max="120" step="1" value="40" />
+        </div>
+        <div class="slider-row" id="row-velocity-decay">
+          <div class="slider-header"><label for="slider-velocity-decay">Damping</label><span id="val-velocity-decay">0.3</span></div>
+          <input type="range" id="slider-velocity-decay" min="0.05" max="0.9" step="0.01" value="0.3" />
+        </div>
+        <div class="slider-row" id="row-collide-pad">
+          <div class="slider-header"><label for="slider-collide-pad">Collision Padding</label><span id="val-collide-pad">1.5</span></div>
+          <input type="range" id="slider-collide-pad" min="0" max="10" step="0.5" value="1.5" />
+        </div>
+        <div class="slider-row" id="row-slot-pad">
+          <div class="slider-header"><label for="slider-slot-pad">Slot Padding</label><span id="val-slot-pad">0</span></div>
+          <input type="range" id="slider-slot-pad" min="0" max="20" step="1" value="0" />
+        </div>
+      </div>
     </div>
     <div id="panel-class" class="tl-panel">
       <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
@@ -344,10 +374,11 @@ export function getWebviewHtml(
         <span>Show Orphans</span>
         <label class="switch"><input type="checkbox" id="toggle-orphans" checked /><span class="pill"></span></label>
       </div>
-      <div class="toggle-row">
+      <div class="toggle-row" id="row-show-libraries">
         <span>Show Libraries</span>
         <label class="switch"><input type="checkbox" id="toggle-libraries" /><span class="pill"></span></label>
       </div>
+      <p id="libraries-hint" class="forces-hint" style="display:none">Libraries are shown in the Global engine.</p>
       <div class="toggle-row">
         <span>Show Empty Files</span>
         <label class="switch"><input type="checkbox" id="toggle-empty-files" /><span class="pill"></span></label>
@@ -375,22 +406,6 @@ export function getWebviewHtml(
       <div class="slider-row">
         <div class="slider-header"><label for="slider-link-thickness">Link Thickness</label><span id="val-link-thickness">4</span></div>
         <input type="range" id="slider-link-thickness" min="0.1" max="8" step="0.1" value="4" />
-      </div>
-    </div>
-
-    <div class="panel-section" id="forces-section">
-      <h4>Forces</h4>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">0.05</span></div>
-        <input type="range" id="slider-center-force" min="0" max="1" step="0.005" value="0.05" />
-      </div>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">250</span></div>
-        <input type="range" id="slider-repel-force" min="0" max="1000" step="1" value="250" />
-      </div>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">1</span></div>
-        <input type="range" id="slider-link-force" min="0" max="10" step="0.1" value="1" />
       </div>
     </div>
 
@@ -452,6 +467,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${classUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${colorsUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${popupsUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${frameChromeUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${framesUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${crossLinksUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${localSimUri}?v=${nonce}"></script>
@@ -460,6 +476,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${frameInteractUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${scriptUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${controlsUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${forcesPanelUri}?v=${nonce}"></script>
   ${timelineScriptTag}
   <script nonce="${nonce}" src="${hoverCardUri}?v=${nonce}"></script>
 </body>

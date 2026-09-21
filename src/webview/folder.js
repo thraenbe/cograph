@@ -129,33 +129,37 @@ function isLightTheme() {
   return document.body.classList.contains('vscode-light');
 }
 
+// Draft A raises folder saturation ~14 points over the muted originals so
+// folders separate from the canvas (applies to both engines' chrome).
+const FOLDER_SAT_BOOST = 14;
+
 function folderFillColor(depth, hue) {
   if (isLightTheme()) {
-    const s = Math.min(25, 12 + depth * 3);
+    const s = Math.min(25, 12 + depth * 3) + FOLDER_SAT_BOOST;
     const l = Math.min(95, 88 + depth * 2);
     return `hsla(${hue}, ${s}%, ${l}%, 0.70)`;
   }
-  const s = Math.min(20, 8 + depth * 3);
+  const s = Math.min(20, 8 + depth * 3) + FOLDER_SAT_BOOST;
   const l = Math.max(10, 18 - depth * 2);
   return `hsla(${hue}, ${s}%, ${l}%, 0.55)`;
 }
 function folderStrokeColor(depth, hue) {
   if (isLightTheme()) {
-    const s = Math.min(30, 15 + depth * 4);
+    const s = Math.min(30, 15 + depth * 4) + FOLDER_SAT_BOOST;
     const l = Math.max(55, 72 - depth * 5);
     return `hsla(${hue}, ${s}%, ${l}%, 0.60)`;
   }
-  const s = Math.min(25, 10 + depth * 4);
+  const s = Math.min(25, 10 + depth * 4) + FOLDER_SAT_BOOST;
   const l = Math.max(25, 38 - depth * 4);
   return `hsla(${hue}, ${s}%, ${l}%, 0.35)`;
 }
 function folderTitlebarColor(depth, hue) {
   if (isLightTheme()) {
-    const s = Math.min(35, 18 + depth * 4);
+    const s = Math.min(35, 18 + depth * 4) + FOLDER_SAT_BOOST;
     const l = Math.max(68, 82 - depth * 4);
     return `hsla(${hue}, ${s}%, ${l}%, 0.92)`;
   }
-  const s = Math.min(25, 12 + depth * 4);
+  const s = Math.min(25, 12 + depth * 4) + FOLDER_SAT_BOOST;
   const l = Math.max(14, 24 - depth * 3);
   return `hsla(${hue}, ${s}%, ${l}%, 0.88)`;
 }
@@ -238,6 +242,9 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
       childFolderPaths: [...info.childFolders],
       files: info.files,
       allNodes: getAllFolderNodes(folderPath, folderTree, nodesByFile),
+      counts: (typeof memberCounts === 'function')
+        ? memberCounts(getAllFolderNodes(folderPath, folderTree, nodesByFile))
+        : null,
     });
   });
   // Sort shallowest first → parent rects rendered behind child rects in SVG z-order
@@ -248,9 +255,14 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
     .join(
       enter => {
         const g = enter.append('g').attr('class', 'folder-bubble');
-        g.append('rect').attr('class', 'folder-bubble-shape');
-        g.append('rect').attr('class', 'folder-bubble-titlebar');
+        g.append('path').attr('class', 'folder-bubble-shape');
+        // Draft A chrome: visual tab + transparent full-width drag strip.
+        const tab = g.append('g').attr('class', 'frame-tab').attr('pointer-events', 'none');
+        tab.append('path').attr('class', 'frame-tab-shape');
+        tab.append('path').attr('class', 'frame-tab-glyph').attr('d', FOLDER_GLYPH);
+        tab.append('text').attr('class', 'frame-tab-counts').attr('text-anchor', 'end');
         g.append('text').attr('class', 'folder-bubble-label');
+        g.append('rect').attr('class', 'folder-bubble-titlebar').attr('fill', 'transparent');
         return g;
       },
       update => update,
@@ -427,24 +439,37 @@ function tickFolderOverlay() {
     folderRectMap.set(d.folderPath, padded);
 
     d3.select(el).style('display', null);
+    const bw = padded.maxX - padded.minX;
+    const tw = tabWidth(d.shortName, bw);
+    // The x/y/width/height attrs don't render on a path — they are the
+    // geometry cache createFolderResizeDrag's filter and onFolderHoverMove
+    // read back from the element.
     d3.select(el).select('.folder-bubble-shape')
+      .attr('d', tabBodyPath(padded.minX, padded.minY, bw, padded.maxY - padded.minY, tw))
       .attr('x', padded.minX).attr('y', padded.minY)
-      .attr('width',  padded.maxX - padded.minX)
+      .attr('width',  bw)
       .attr('height', padded.maxY - padded.minY)
       .attr('fill',   folderFillColor(d.depth, d.hue))
       .attr('stroke', folderStrokeColor(d.depth, d.hue));
 
+    d3.select(el).select('.frame-tab-shape')
+      .attr('d', tabOnlyPath(padded.minX, padded.minY, tw))
+      .attr('fill', folderTitlebarColor(d.depth, d.hue));
+    d3.select(el).select('.frame-tab-glyph')
+      .attr('transform', `translate(${padded.minX + 9},${padded.minY + 6}) scale(0.85)`);
+    d3.select(el).select('.frame-tab-counts')
+      .attr('x', padded.maxX - 4).attr('y', padded.minY + TAB.H - 6)
+      .text(d.counts ? countsText(d.counts.files, d.counts.fns, bw - tw - TAB.CNT_PAD) : '');
+
     d3.select(el).select('.folder-bubble-titlebar')
       .attr('x', padded.minX).attr('y', padded.minY)
-      .attr('width',  padded.maxX - padded.minX)
-      .attr('height', FOLDER_TITLEBAR_HEIGHT)
-      .attr('fill',   folderTitlebarColor(d.depth, d.hue))
-      .attr('rx', 8);
+      .attr('width',  bw)
+      .attr('height', FOLDER_TITLEBAR_HEIGHT);
 
     d3.select(el).select('.folder-bubble-label')
-      .attr('x', (padded.minX + padded.maxX) / 2)
-      .attr('y', padded.minY + FOLDER_TITLEBAR_HEIGHT / 2)
-      .text(d.shortName);
+      .attr('x', padded.minX + TAB.TEXT_X)
+      .attr('y', padded.minY + TAB.TEXT_Y)
+      .text(cutLabel(d.shortName, tabChars(tw)));
   });
 }
 

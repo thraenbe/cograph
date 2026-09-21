@@ -57,13 +57,25 @@ function makeDOM() {
     <div class="func-resize-handle" data-dir="sw"></div>
     <input id="slider-complexity" type="range" value="0.99" />
     <span id="val-complexity">0.99</span>
-    <button id="btn-group-file" class="active"></button>
-    <button id="btn-group-class"></button>
-    <button id="btn-group-connect"></button>
     <button id="btn-folder-mode"></button>
     <button id="btn-class-mode"></button>
     <input id="slider-folder-repel" type="range" value="0.25" /><span id="val-folder-repel">0.25</span>
     <input id="slider-file-repel" type="range" value="0.25" /><span id="val-file-repel">0.25</span>
+    <div id="panel-forces">
+      <p id="forces-hint" style="display:none"></p>
+      <div id="row-center-force"></div><div id="row-repel-force"></div><div id="row-link-force"></div>
+      <div id="row-file-cluster"><label id="label-file-cluster">File Cluster Force</label></div>
+      <div id="row-folder-repel"></div><div id="row-file-repel"></div>
+      <button id="btn-show-more-forces">show more forces</button>
+      <div id="forces-advanced">
+        <div id="row-link-distance"><input id="slider-link-distance" type="range" value="40" /><span id="val-link-distance">40</span></div>
+        <div id="row-velocity-decay"><input id="slider-velocity-decay" type="range" value="0.3" /><span id="val-velocity-decay">0.3</span></div>
+        <div id="row-collide-pad"><input id="slider-collide-pad" type="range" value="1.5" /><span id="val-collide-pad">1.5</span></div>
+        <div id="row-slot-pad"><input id="slider-slot-pad" type="range" value="0" /><span id="val-slot-pad">0</span></div>
+      </div>
+    </div>
+    <input id="slider-file-cluster" type="range" value="0.2" /><span id="val-file-cluster">0.2</span>
+    <button id="btn-reset-layout"></button>
     <button id="btn-save-graph"></button>
     <button id="btn-open-chat"></button>
   </body></html>`;
@@ -96,7 +108,8 @@ const dom = makeDOM();
   showOrphans: true, showLibraries: false, arrows: true,
   textFadeThreshold: 0.5, nodeSize: 2.5, textSize: 1.0, linkThickness: 4,
   centerForce: 1, repelForce: 50, linkForce: 1,
-  folderRepelForce: 0.25, fileRepelForce: 0.25,
+  folderRepelForce: 0.25, fileRepelForce: 0.25, fileClusterForce: 0.2,
+  linkDistance: 40, velocityDecay: 0.3, collidePad: 1.5, slotPad: 0,
 };
 (global as any).vscode = { postMessage: () => {} };
 
@@ -386,34 +399,50 @@ suite('Textarea keyboard handlers', () => {
 // still read it, causing undefined → NaN distance and all nodes collapsing.
 // ---------------------------------------------------------------------------
 
-suite('Link Distance removal regression', () => {
-  test('settings object has no linkDistance property', () => {
-    assert.strictEqual(
-      (global as any).settings.linkDistance,
-      undefined,
-      'linkDistance was removed — rendering must use a hardcoded value, not settings.linkDistance',
-    );
-  });
+suite('Advanced forces (show more forces)', () => {
+  const doc = dom.window.document;
 
-  test('slider-link-distance element does not exist in DOM', () => {
-    const slider = dom.window.document.getElementById('slider-link-distance');
-    assert.strictEqual(slider, null, 'slider-link-distance should not be present in the webview HTML');
-  });
-
-  test('wireSlider input event does not create settings.linkDistance', () => {
-    // Trigger every wired slider — none should write linkDistance onto settings
-    const sliderIds = [
-      'slider-text-size', 'slider-center-force', 'slider-repel-force', 'slider-link-force',
+  test('advanced sliders write their settings keys', () => {
+    const cases: Array<[string, string, string, number]> = [
+      ['slider-link-distance', 'linkDistance', '60', 60],
+      ['slider-velocity-decay', 'velocityDecay', '0.5', 0.5],
+      ['slider-collide-pad', 'collidePad', '4', 4],
+      ['slider-slot-pad', 'slotPad', '6', 6],
     ];
-    for (const id of sliderIds) {
-      const slider = dom.window.document.getElementById(id) as any;
-      if (slider) dispatch(slider, 'input');
+    for (const [id, key, raw, expected] of cases) {
+      const slider = doc.getElementById(id) as any;
+      slider.value = raw;
+      dispatch(slider, 'input');
+      assert.strictEqual((global as any).settings[key], expected, key);
     }
-    assert.strictEqual(
-      (global as any).settings.linkDistance,
-      undefined,
-      'no slider should write settings.linkDistance',
-    );
+  });
+
+  test('show-more button toggles the advanced container open class', () => {
+    const btn = doc.getElementById('btn-show-more-forces') as any;
+    const adv = doc.getElementById('forces-advanced')!;
+    adv.classList.remove('open');
+    btn.click();
+    assert.ok(adv.classList.contains('open'), 'first click opens');
+    assert.ok(btn.textContent!.includes('fewer'), 'button flips its label');
+    btn.click();
+    assert.ok(!adv.classList.contains('open'), 'second click closes');
+  });
+
+  test('reset restores every force to its canonical default (centerForce 0.025)', () => {
+    Object.assign((global as any).settings, {
+      centerForce: 0.9, fileClusterForce: 0.9, folderRepelForce: 9, fileRepelForce: 9,
+      linkDistance: 99, velocityDecay: 0.9, collidePad: 9, slotPad: 9,
+    });
+    doc.getElementById('btn-reset-layout')?.click();
+    const st = (global as any).settings;
+    assert.strictEqual(st.centerForce, 0.025);
+    assert.strictEqual(st.fileClusterForce, 0.2);
+    assert.strictEqual(st.folderRepelForce, 0.25);
+    assert.strictEqual(st.fileRepelForce, 0.25);
+    assert.strictEqual(st.linkDistance, 40);
+    assert.strictEqual(st.velocityDecay, 0.3);
+    assert.strictEqual(st.collidePad, 1.5);
+    assert.strictEqual(st.slotPad, 0);
   });
 });
 
@@ -431,7 +460,7 @@ suite('Save Graph Layout button', () => {
     // controls.js reads these at click time from the global state object
     (global as any).state.currentNodes = [];
     (global as any).state.complexityLevel = 0.5;
-    (global as any).state.clusterGroupBy = 'connect';
+    (global as any).state.clusterGroupBy = 'file';
     (global as any).state.layoutMode = 'dynamic';
     (global as any).state.gitMode = false;
     (global as any).state.languageMode = false;
@@ -449,7 +478,7 @@ suite('Save Graph Layout button', () => {
       { id: 'b::fn::2', x: 30, y: 40 },
     ];
     (global as any).state.complexityLevel = 0.8;
-    (global as any).state.clusterGroupBy = 'class';
+    (global as any).state.clusterGroupBy = 'file';
     (global as any).state.layoutMode = 'static';
     (global as any).state.gitMode = true;
     (global as any).state.folderMode = true;
@@ -463,7 +492,7 @@ suite('Save Graph Layout button', () => {
     assert.strictEqual(msg.mode, 'save-as', 'button always triggers save-as (prompt)');
     assert.deepStrictEqual(msg.payload.settings, {
       complexityLevel: 0.8,
-      clusterGroupBy: 'class',
+      clusterGroupBy: 'file',
       layoutMode: 'static',
       gitMode: true,
       languageMode: false,
@@ -546,7 +575,7 @@ suite('Save Graph Layout button', () => {
     assert.strictEqual(posted.length, 1);
     assert.deepStrictEqual(posted[0].payload.nodePositions, {});
     // settings payload should still be populated
-    assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'connect');
+    assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'file');
   });
 });
 
@@ -577,67 +606,6 @@ suite('Open Chat button', () => {
     dom.window.document.getElementById('btn-open-chat')!.click();
     assert.strictEqual(posted.length, 1);
     assert.strictEqual(Object.keys(posted[0]).length, 1, 'message has exactly one key');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Suite: Group-by lens buttons (File / Class / Connect)
-// ---------------------------------------------------------------------------
-
-suite('Group-by lens buttons', () => {
-  const st = () => (global as any).state;
-  const doc = dom.window.document;
-  let savedApplyComplexity: any;
-  let savedEnterFileClusterMode: any;
-  let applyComplexityCalls: number;
-  let enterFileClusterModeCalls: number;
-
-  setup(() => {
-    savedApplyComplexity = (global as any).applyComplexity;
-    savedEnterFileClusterMode = (global as any).enterFileClusterMode;
-    applyComplexityCalls = 0;
-    enterFileClusterModeCalls = 0;
-    (global as any).applyComplexity = () => { applyComplexityCalls++; };
-    (global as any).enterFileClusterMode = () => { enterFileClusterModeCalls++; };
-    Object.assign(st(), {
-      viewMode: 'cluster', clusterGroupBy: 'file',
-      expandedClusters: new Set(['some-cluster']),
-    });
-  });
-
-  teardown(() => {
-    (global as any).applyComplexity = savedApplyComplexity;
-    (global as any).enterFileClusterMode = savedEnterFileClusterMode;
-  });
-
-  test('File click → delegates to enterFileClusterMode and clears expandedClusters', () => {
-    doc.getElementById('btn-group-file')!.click();
-    assert.strictEqual(enterFileClusterModeCalls, 1, 'file lens enters the drill-down');
-    assert.strictEqual(st().expandedClusters.size, 0, 'expanded clusters reset');
-    assert.strictEqual(applyComplexityCalls, 0, 'handler defers rendering to enterFileClusterMode');
-  });
-
-  test('Class click → viewMode=cluster, clusterGroupBy=class, applyComplexity called', () => {
-    st().viewMode = 'workflow'; // prove the lens click leaves workflow mode
-    doc.getElementById('btn-group-class')!.click();
-    assert.strictEqual(st().viewMode, 'cluster');
-    assert.strictEqual(st().clusterGroupBy, 'class');
-    assert.strictEqual(applyComplexityCalls, 1);
-    assert.strictEqual(enterFileClusterModeCalls, 0);
-  });
-
-  test('Connect click → clusterGroupBy=connect and applyComplexity called', () => {
-    doc.getElementById('btn-group-connect')!.click();
-    assert.strictEqual(st().viewMode, 'cluster');
-    assert.strictEqual(st().clusterGroupBy, 'connect');
-    assert.strictEqual(applyComplexityCalls, 1);
-  });
-
-  test('lens buttons toggle the active class exclusively', () => {
-    doc.getElementById('btn-group-class')!.click();
-    assert.ok(doc.getElementById('btn-group-class')!.classList.contains('active'));
-    assert.ok(!doc.getElementById('btn-group-file')!.classList.contains('active'));
-    assert.ok(!doc.getElementById('btn-group-connect')!.classList.contains('active'));
   });
 });
 
@@ -688,21 +656,18 @@ suite('applySavedViewSettings()', () => {
     doc.getElementById('btn-folder-mode')!.classList.add('active');
   });
 
-  test('legacy clusterGroupBy remap: connectivity → connect', () => {
-    applySavedViewSettings({ clusterGroupBy: 'connectivity' });
-    assert.strictEqual(st().clusterGroupBy, 'connect');
+  test('every saved lens value loads as file (class/connect/legacy names)', () => {
+    for (const legacy of ['class', 'connect', 'connectivity', 'auto', 'file']) {
+      st().clusterGroupBy = 'poison';
+      applySavedViewSettings({ clusterGroupBy: legacy });
+      assert.strictEqual(st().clusterGroupBy, 'file', `saved '${legacy}' must load as file`);
+    }
   });
 
-  test('legacy clusterGroupBy remap: auto → connect', () => {
-    applySavedViewSettings({ clusterGroupBy: 'auto' });
-    assert.strictEqual(st().clusterGroupBy, 'connect');
-  });
-
-  test('modern clusterGroupBy passes through; undefined leaves state untouched', () => {
-    applySavedViewSettings({ clusterGroupBy: 'class' });
-    assert.strictEqual(st().clusterGroupBy, 'class');
+  test('undefined clusterGroupBy leaves state untouched', () => {
+    st().clusterGroupBy = 'file';
     applySavedViewSettings({});
-    assert.strictEqual(st().clusterGroupBy, 'class', 'undefined key must not reset the lens');
+    assert.strictEqual(st().clusterGroupBy, 'file');
   });
 
   test('folderMode:false restore updates state and clears the button active class', () => {

@@ -668,16 +668,25 @@ function startSimulation(allLinks) {
     .on('end', () => { if (typeof perfSettled === 'function') { perfSettled(); } });
   state.simulation._kind = 'global';
   if (state.layoutMode === 'static') {
-    // Static boot on the global engine: the classic Static toggle assumed a
-    // prior dynamic settle — do a bounded synchronous settle, then freeze.
-    state.simulation.stop();
-    const maxTicks = isBigGraph() ? 60 : 150;
-    for (let i = 0; i < maxTicks && state.simulation.alpha() > 0.05; i++) {
-      state.simulation.tick();
-    }
-    state.currentNodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
+    staticBootFreeze(state.simulation, state.currentNodes, isBigGraph() ? 60 : 150);
     ticked();
+    // Fit AFTER the frozen positions exist (F4): the async auto-fit in
+    // tickedNow can run against a pre-settle bbox, and a static simulation
+    // never ticks again to correct it.
+    state.hasFitted = true;
+    if (!state.userZoomed) { fitToView(); }
   }
+}
+
+/** Static boot on the global engine: the classic Static toggle assumed a
+ *  prior dynamic settle — do a bounded synchronous settle, then freeze
+ *  every node where it landed. */
+function staticBootFreeze(sim, nodes, maxTicks) {
+  sim.stop();
+  for (let i = 0; i < maxTicks && sim.alpha() > 0.05; i++) {
+    sim.tick();
+  }
+  nodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
 }
 
 const WORKFLOW_MARGIN_X = 90;

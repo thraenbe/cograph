@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saved node positions and pinned).
 - Local-only performance instrumentation behind `cograph.debug.perfLog`, plus
   `CoGraph: Load Synthetic Repo (Perf Dev)` to reproduce large-repo numbers.
+- **Layout simulations run off the UI thread.** The Shelf engine's per-folder
+  simulations now tick in a pool of background workers (up to 4) and settle as fast as
+  the CPU allows instead of one step per animation frame: four open folders settle in
+  ~0.4 s instead of ~10 s, "expand all" on a 3 000-function repo in ~1.5 s instead of
+  >30 s, and the UI stays at 60 fps meanwhile. Dragging stays instant (the dragged node
+  moves on the UI thread; its neighbours follow from the worker). New setting
+  `cograph.layout.workers` (`auto` | `on` | `off`, default `auto`); `off` is the
+  previous behaviour, and any worker failure falls back to it automatically.
+- d3 is now bundled with the extension instead of loaded from a CDN: the graph opens
+  offline and the webview's content-security policy no longer allows any external host.
 - `cograph.debug.perfLog` now covers the Shelf engine too: per-frame main-thread time
   and settle time of the frame scheduler, plus hover, drag, filter and cross-link
   timings in the `[perf]` report. Dev-only `npm run perf:bench` measures the real

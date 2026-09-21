@@ -396,3 +396,53 @@ keystrokes take the diff path. 10k target (≤ 25 ms) missed by 9 ms on that fir
 `--cograph-*` tokens never reach JS-set colours; the new CSS hover rule uses `var()` and
 therefore shows the correct light-theme hover colour.
 Tests: 777 passing (was 752), lint 0 errors.
+
+### W2 — worker pool (commits ee7c089 + b184027, 2026-09-21) — headless Chrome 153, real CSP
+Design as approved (D1 blob bootstrap, D2 snap, D5 auto) with two simplifications found
+while building: (a) **no `simCore.js` extraction** — the worker bundle simply `require`s the
+unchanged `localSim.js` (DOM-free, d3 injected) next to `d3-force`, so the main thread and
+the worker run literally the same file and ux's force keys (ec555db) work in the worker
+with zero extra code; (b) **no buffer recycling** — one `Float32Array(2n)` per post is
+cheaper than the bookkeeping. One addition: a **1 ms apply budget** per animation frame in
+the scheduler (worker mode only) — without it all frames deliver positions at once and the
+main thread spent 16-44 ms/frame for the ~1 s the snap takes.
+
+| Metric (shelf+dynamic, p50 unless noted) | Fixture | Baseline | W1 | W2 workers=auto |
+|---|---|---|---|---|
+| Settle script per animation frame, 4 open frames (p50 / p95) | 3k | 9.3 / 26.8 ms | 8.7 / 20.1 | **3.1 / 8.6** (2.3 / 3.6 in a single run; one 200-node frame apply ≈ 2 ms) |
+| | 10k | 7.8 / 15.1 | – | **2.2 / 5.6** |
+| | nest | 2.0 / 4.5 | – | **1.0 / 1.8** |
+| | excalidraw | 3.2 / 13.9 | – | 3.9 / 9.0 |
+| | fmt (frames up to ~1 500 fns) | 43 / 82 | 38 / 72 | 20 / 33 (one giant frame = one 10-20 ms DOM pass; SVG floor → W3b territory) |
+| 4 open frames settled (wall) | 3k | 10.7 s | 10.4 s | **0.42 s** |
+| | 10k | 13.2 s | – | **0.50 s** |
+| | fmt / nest / excalidraw | > 30 s / 8.7 s / 11.1 s | – | **1.2 s / 0.27 s / 0.47 s** |
+| Expand-all settled (wall) | 3k | > 30 s | > 30 s | **1.5 s** |
+| | 10k (100 frames, 65k DOM) | > 30 s | – | 9.0 s (apply-budget-bound at headless' 83 ms paint frames — re-check in-editor) |
+| | fmt / nest / excalidraw | 24.6 s / > 30 s / > 30 s | – | **1.4 s / 2.1 s / 1.3 s** |
+| Frame interval while 4 frames settle | 3k | 33 ms | 33 ms | **16.7 ms (60 fps)** |
+| Drag (dynamic): script per frame / interval | 3k | 9 ms / 50 ms | 9 ms / 50 ms | **1.1 ms / 16.7 ms** |
+| workers=off | 3k | — | 8.8 ms, 10.5 s | identical to W1 (same functions by reference, asserted in simBackend.test) |
+
+CSP verified in the bench (kept, not stripped): `worker-src blob:` + `connect-src <origin>`
+start 4 workers with zero `securitypolicyviolation` events; `script-src` stays nonce-only.
+Tests 822 passing (W2 adds simWorkerCore, simPool, localSimWorker, simBackend,
+webviewHtmlWorkers + scheduler/contribution cases), lint 0 errors.
+Known limits: `cograph.layout.workers` applies on the next panel open (not live);
+a node left pinned by a big-graph drag keeps its frame ticking at the paced real-time rate
+(same perpetual-tick behaviour as the sync path, now bounded to one tick per 16 ms).
+
+### In-editor calibration checklist (5 minutes, for whoever has a display)
+1. Settings: `"cograph.debug.perfLog": true` → F5 (Extension Development Host).
+2. Command palette → **CoGraph: Load Synthetic Repo (Perf Dev)** → `3 000 nodes`.
+3. Panel: ENGINE Shelf, MOTION **Dynamic** → drag the detail slider to 1.00 (expand all),
+   wait ~3 s, hover a few nodes, drag one node around for 2 s, type `fn_1` in search, clear.
+4. Output → **CoGraph**: read the last `[perf synthetic 3 000 nodes] {…}` line:
+   `frame.p50Ms/p95Ms` (main-thread ms per animation frame during settle),
+   `stats["sim:settle"].lastMs` (wall-clock to settled), `stats["hover:over"].avgMs`,
+   `stats["drag:move"].avgMs`, `stats["drag:flush"].avgMs`, `stats.applyFilters.avgMs`,
+   `stats.renderElements.lastMs`. Any `[webview] {"event":"sim-workers-fallback"…}` line
+   means workers did not start — copy it.
+5. Pan/zoom feel: DevTools (Help → Toggle Developer Tools → Rendering → Frame rendering
+   stats) while zooming with everything expanded; W3b gate = ≥ 45 fps @3k, ≥ 30 fps @10k.
+6. Repeat 2-5 with `10 000 nodes`.

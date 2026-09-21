@@ -66,4 +66,8 @@ export function layoutScore(m: LayoutMetrics, settleMs: number | null, w: ScoreW
   return +score.toFixed(4);
 }
 
+/** Sweeps rank on the PICTURE only: settle time depends on how far the start state was from the
+ *  sample's equilibrium (the defaults start at theirs), so it is reported next to the score, not in it. */
+export const QUALITY_WEIGHTS: ScoreWeights = { ...DEFAULT_WEIGHTS, settleSeconds: 0 };
+
 export const SEVERITY_RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };

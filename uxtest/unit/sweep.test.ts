@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { buildSamples, grid, latinHypercube, toSliderValue } from '../sweep/sampler';
-import { analyzeGroup, consensus, groupSamples, ranks, recommendationsMarkdown, sensitivity, spearman, toCsv, type SweepSample } from '../sweep/analyze';
+import { analyzeGroup, consensus, noEffect, rescore, groupSamples, ranks, recommendationsMarkdown, sensitivity, spearman, toCsv, verdictLine, type SweepSample } from '../sweep/analyze';
 import { computeMetrics } from '../metrics/compute';
 import { snapshot } from './fixtures';
 
@@ -41,6 +41,16 @@ test.describe('sampler', () => {
     expect(toSliderValue(1, 0, 10, 0.1, [0, 50])).toBe(10);
     expect(toSliderValue(0.5, 0, 1, 0)).toBe(0.5);
   });
+});
+
+test('rescore ranks on picture quality only; noEffect spots inert samples', () => {
+  const slow = sample({ score: 99, settleMs: 40000 }), fast = sample({ score: 1, settleMs: 100 });
+  const [a, b] = rescore([slow, fast]);
+  expect(a.score).toBe(b.score);
+  expect(noEffect(sample({ settleMs: 0 }))).toBe(true);
+  expect(noEffect(sample({ settleMs: 0, baseline: true }))).toBe(false);
+  expect(noEffect(sample({ settleMs: 0, settled: false }))).toBe(false);
+  expect(noEffect(sample({ settleMs: 900 }))).toBe(false);
 });
 
 test.describe('analysis', () => {
@@ -84,6 +94,12 @@ test.describe('analysis', () => {
     expect(md).toContain('## Engine: shelf');
     expect(md).toContain('0 (defaults)');
     expect(md).toContain('66.7 % better');
+    expect(md).toContain('best or within 3 % of the best on 0 of 2 repos');
+    const worse = analyzeGroup([samples[0], samples[3]]);
+    expect(verdictLine(worse)).toContain('Defaults win');
+    expect(verdictLine(worse)).toContain('33.3 % worse');
+    expect(verdictLine(analyzeGroup([samples[0], { ...samples[1], score: 2.95 }]))).toContain('Keep the defaults');
+    expect(verdictLine(analyzeGroup([samples[1]]))).toContain('No baseline');
     expect(md).toContain('Not available in this UI (skipped): slotPad');
     const csv = toCsv(samples).trim().split('\n');
     expect(csv).toHaveLength(5);

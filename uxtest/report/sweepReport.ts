@@ -1,7 +1,7 @@
 // Sweep aggregation: sample.json files → sweep.json, sweep.csv, contact sheet, recommendation draft.
 import * as fs from 'fs';
 import * as path from 'path';
-import { groupSamples, recommendationsMarkdown, toCsv, type GroupResult, type SweepSample } from '../sweep/analyze';
+import { groupSamples, recommendationsMarkdown, rescore, toCsv, verdictLine, type GroupResult, type SweepSample } from '../sweep/analyze';
 import { esc, page } from './html';
 
 export function findSamples(runDir: string): SweepSample[] {
@@ -30,7 +30,7 @@ function figure(s: SweepSample, rank: number): string {
 
 export function contactSheetHtml(groups: GroupResult[]): string {
   const sections = groups.map(g =>
-    `<h2>${esc(g.engine)} · ${esc(g.repo)} <span class="dim">— best is ${g.improvementPct ?? '–'} % better than the defaults</span></h2>
+    `<h2>${esc(g.engine)} · ${esc(g.repo)} <span class="dim">— ${esc(verdictLine(g).split('**').join(''))}</span></h2>
 <div class="grid">${g.ranked.map((s, i) => figure(s, i)).join('')}</div>`).join('');
   return page('CoGraph force sweep — contact sheet',
     `<h1>Force sweep — end states ranked by layout score</h1>
@@ -40,7 +40,7 @@ See <a href="force-recommendations.md">force-recommendations.md</a> and <a href=
 
 /** Returns the files written (empty when the run holds no sweep samples). */
 export function writeSweepReport(runDir: string): string[] {
-  const samples = findSamples(runDir);
+  const samples = rescore(findSamples(runDir));
   if (!samples.length) { return []; }
   const groups = groupSamples(samples);
   const summary = groups.map(g => ({ repo: g.repo, engine: g.engine, best: g.best?.index ?? null, improvementPct: g.improvementPct, sensitivity: g.sensitivity }));

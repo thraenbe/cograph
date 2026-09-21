@@ -82,7 +82,7 @@ test('run report: findings, matrix, seekable steps, baseline deltas', () => {
 test('sweep report writes csv, json, contact sheet and recommendations', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uxtest-sweep-'));
   const mk = (index: number, score: number, baseline = false): SweepSample => ({ repo: 'click', engine: 'shelf', index, baseline, values: { forceRepel: 100 * (index + 1) }, dropped: [],
-    settleMs: 1000 + index, settled: index !== 2, metrics, score, screenshot: `click/sweep-0${index}-shelf-dynamic/steps/03-end.png` });
+    settleMs: 1000 + index, settled: index !== 2, metrics: { ...metrics, nodes: 100, nodeOverlapRatio: score / 10 }, score: -1, screenshot: `click/sweep-0${index}-shelf-dynamic/steps/03-end.png` });
   [mk(0, 3, true), mk(1, 1), mk(2, 2)].forEach((s) => {
     const dir = path.join(root, 'click', `sweep-0${s.index}-shelf-dynamic`);
     fs.mkdirSync(dir, { recursive: true });
@@ -99,5 +99,5 @@ test('sweep report writes csv, json, contact sheet and recommendations', () => {
   expect(sheet).toContain('class="base"');
   expect(sheet).toContain('(not settled)');
   expect(sheet).toContain('Repel=200');
-  expect(JSON.parse(fs.readFileSync(path.join(root, 'sweep.json'), 'utf8')).groups[0]).toMatchObject({ best: 1, improvementPct: 66.7 });
+  expect(JSON.parse(fs.readFileSync(path.join(root, 'sweep.json'), 'utf8')).groups[0]).toMatchObject({ best: 1 }); // ranked by the re-scored picture quality, not the stored score
 });

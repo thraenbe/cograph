@@ -9,7 +9,7 @@ import { loadConfig, selectedRepos } from '../lib/corpus';
 import { engines } from '../lib/matrix';
 import { fitToView, setSlider } from '../lib/actions';
 import { SkipStep } from '../lib/step';
-import { layoutScore } from '../metrics/score';
+import { layoutScore, QUALITY_WEIGHTS } from '../metrics/score';
 import { buildSamples, toSliderValue } from './sampler';
 import type { SweepSample } from './analyze';
 import { SEL, type SelName } from '../selectors';
@@ -35,24 +35,30 @@ for (const repo of repos) {
         const { page, ux } = lab;
         const values: Record<string, number> = {}, dropped: string[] = [];
         try {
-          await ux.step('Full detail', async () => { await setSlider(page, 'detailSlider', space.detail); }, { stillTimeoutMs: space.settleTimeoutMs, metrics: false });
+          // Fit first: the shelf scheduler only ticks frames that are on screen.
+          await ux.step('Full detail, fitted', async () => { await setSlider(page, 'detailSlider', space.detail); await fitToView(page); }, { stillTimeoutMs: space.settleTimeoutMs, metrics: false });
           const apply = await ux.step(sample.unit ? `Apply forces (sample ${sample.index})` : 'Defaults (baseline)', async () => {
             for (const name of def.params) {
               const loc = page.locator(SEL[name].css).first();
               if (await loc.count() === 0) { dropped.push(name); continue; }
               const [min, max, step, cur] = await loc.evaluate((el) => { const i = el as HTMLInputElement; return [Number(i.min), Number(i.max), Number(i.step) || 0, Number(i.value)]; });
-              if (!sample.unit) { values[name] = cur; continue; }
+              if (!sample.unit) {
+                // Baseline: re-apply the current value so the defaults go through the same reheat as every sample.
+                values[name] = cur;
+                try { await setSlider(page, name, cur); } catch (err) { if (!(err instanceof SkipStep)) { throw err; } }
+                continue;
+              }
               const v = toSliderValue(sample.unit[name], min, max, step, def.ranges?.[name]);
               try { await setSlider(page, name, v); values[name] = v; }
               catch (err) { if (err instanceof SkipStep) { dropped.push(name); } else { throw err; } }
             }
-          }, { stillTimeoutMs: space.settleTimeoutMs, expectMotionMs: sample.unit ? space.motionGraceMs : undefined });
+          }, { stillTimeoutMs: space.settleTimeoutMs, expectMotionMs: space.motionGraceMs });
           const end = await ux.step('End state (fitted)', async () => { await fitToView(page); });
           expect(end.metrics, 'end-state metrics').toBeTruthy();
           const metrics = end.metrics!;
           const settleMs = apply.still ? apply.still.ms : null;
           const record: SweepSample = { repo, engine, index: sample.index, baseline: sample.unit === null, values, dropped,
-            settleMs, settled: apply.still?.settled ?? false, metrics, score: layoutScore(metrics, apply.still?.settled ? settleMs : null),
+            settleMs, settled: apply.still?.settled ?? false, metrics, score: layoutScore(metrics, 0, QUALITY_WEIGHTS),
             screenshot: path.relative(path.dirname(path.dirname(lab.outDir)), path.join(lab.outDir, end.screenshot ?? '')) };
           fs.writeFileSync(path.join(lab.outDir, 'sample.json'), JSON.stringify(record, null, 2));
         } finally { await lab.close(); }

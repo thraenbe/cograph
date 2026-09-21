@@ -4,8 +4,8 @@
   "mode": "lhs",
   "repos": ["click", "express", "zod"],
   "detail": 1,
-  "settleTimeoutMs": 45000,
-  "motionGraceMs": 12000,
+  "settleTimeoutMs": 60000,
+  "motionGraceMs": 30000,
   "engines": {
     "shelf": {
       "params": ["forceFileCluster", "forceRepel", "forceLink", "forceLinkDistance", "forceVelocityDecay", "forceCollidePad", "forceSlotPad"],

@@ -40,3 +40,11 @@ export function toSliderValue(u: number, min: number, max: number, step: number,
   const snapped = step > 0 ? Math.round((raw - min) / step) * step + min : raw;
   return +Math.min(max, Math.max(min, snapped)).toFixed(6);
 }
+
+/** Sliders whose MAX position means "unlimited" (Repel range = ∞): the top `share` of the unit interval
+ *  selects that position, the rest is stretched over the finite band. */
+export function splitUnlimited(u: number, share: number): { unlimited: boolean; u: number } {
+  if (share <= 0) { return { unlimited: false, u }; }
+  if (u >= 1 - share) { return { unlimited: true, u: 1 }; }
+  return { unlimited: false, u: +(u / (1 - share)).toFixed(4) };
+}

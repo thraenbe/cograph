@@ -9,6 +9,13 @@ import type { LayoutMetrics } from '../metrics/types';
 import { SEVERITY_RANK, type Finding } from '../metrics/score';
 import { esc, page, plain } from './html';
 
+/** Newest run folder under uxtest/artifacts, or null on a clean checkout. */
+export function newestRun(artifacts: string): string | null {
+  if (!fs.existsSync(artifacts)) { return null; }
+  const dirs = fs.readdirSync(artifacts).filter(d => fs.statSync(path.join(artifacts, d)).isDirectory());
+  return dirs.sort((a, b) => fs.statSync(path.join(artifacts, a)).mtimeMs - fs.statSync(path.join(artifacts, b)).mtimeMs).pop() ?? null;
+}
+
 export interface LoadedRun { dir: string; rel: string; run: RunRecord }
 
 const KEY_METRICS: Array<[keyof LayoutMetrics, string, boolean]> = [ // key, label, lowerIsBetter

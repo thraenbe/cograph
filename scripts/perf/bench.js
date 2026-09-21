@@ -122,6 +122,31 @@
       settings.repelForce -= 350;
     }
 
+    // 1d) optional repro (?probe=f12): uxtest's Global force tuple that froze zod for 13 min.
+    // The page must stay responsive and the coordinates finite.
+    if (P.get('probe') === 'f12') {
+      if (state.layoutEngine !== 'global') { setLayoutEngine('global', { force: true }); }
+      setLayoutMode('dynamic');
+      applyDetailDepth(1);
+      await paint();
+      Object.assign(settings, { centerForce: 0.075, repelForce: 191, linkForce: 4.8, fileClusterForce: 0.98, folderRepelForce: 0.26, fileRepelForce: 2.12 });
+      B.rec = []; B.acc = 0;
+      const t0 = performance.now();
+      rerunLayout();
+      let maxAbs = 0, worstGapMs = 0, last = performance.now();
+      while (performance.now() - t0 < 20000) {
+        await raf();
+        const now = performance.now(); worstGapMs = Math.max(worstGapMs, now - last); last = now;
+        for (const n of state.currentNodes) { const a = Math.max(Math.abs(n.x), Math.abs(n.y)); if (!(a <= maxAbs)) { maxAbs = a; } }
+        if (!(state.simulation.alpha() > 0.001)) { break; }
+      }
+      const rec = B.rec; B.rec = null;
+      R.f12 = { nodes: state.currentNodes.length, ranMs: r2(performance.now() - t0), settled: !(state.simulation.alpha() > 0.001),
+        worstFrameGapMs: r2(worstGapMs), frameIntervalMs: stats(rec.slice(1).map(f => f.dt)),
+        maxAbsCoordinate: maxAbs, nonFinite: state.currentNodes.filter(n => !Number.isFinite(n.x) || !Number.isFinite(n.y)).length };
+      window.__benchResult = R; return;
+    }
+
     // 1c) optional repro (?probe=switch): shelf → global → shelf, Detail 0 — is the glyph in the DOM?
     if (P.get('probe') === 'switch') {
       const snap = (tag) => ({ tag, engine: state.layoutEngine, mode: state.layoutMode, k: r2(d3.zoomTransform(svg.node()).k),

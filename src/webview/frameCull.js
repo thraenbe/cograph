@@ -41,6 +41,7 @@ function createDomCuller() {
   let order = [];                 // frame paths in DOM (paint) order
   let els = new Map();            // path -> <g.frame>
   const parked = new Map();       // path -> { labels|links|nodes: [{ el, parent, next }] }
+  const culled = new Set();       // frames WE detached — never re-insert anything else
 
   function nextAttachedSibling(path) {
     for (let i = order.indexOf(path) + 1; i < order.length; i++) {
@@ -57,15 +58,18 @@ function createDomCuller() {
       order = entries.map(e => e[0]);
       els = new Map(entries);
       parked.clear();
+      culled.clear();
     },
     isAttached(path) { const el = els.get(path); return !!el && el.parentNode === parent; },
     hide(path) {
       const el = els.get(path);
-      if (el && el.parentNode === parent) { parent.removeChild(el); }
+      if (el && el.parentNode === parent) { parent.removeChild(el); culled.add(path); }
     },
+    /** Re-insert a frame this culler detached. An element removed by anyone else
+     *  (engine teardown, a d3 join's exit) is NOT ours to bring back. */
     show(path) {
       const el = els.get(path);
-      if (!el || !parent || el.parentNode === parent) { return false; }
+      if (!el || !parent || !culled.delete(path) || el.parentNode === parent) { return false; }
       parent.insertBefore(el, nextAttachedSibling(path));
       return true;
     },

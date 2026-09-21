@@ -106,4 +106,15 @@ suite('frameCull (detach-based culling + LOD)', () => {
     assert.deepStrictEqual(t.culler.paths(), ['/x']);
     assert.strictEqual(t.culler.isParked('/a', 'labels'), false);
   });
+
+  test('only frames the culler detached come back — an element removed by someone else stays out', () => {
+    const t = build(['/a', '/b', '/c']);
+    t.culler.hide('/b');
+    t.parent.removeChild(t.entries[2][1]);     // engine teardown / a d3 exit removed /c
+    assert.strictEqual(t.culler.show('/c'), false);
+    t.culler.restoreAll();
+    assert.deepStrictEqual(t.orderNow(), ['/a', '/b'], '/c is not resurrected into the next render');
+    t.culler.reset(null, []);
+    assert.strictEqual(t.culler.show('/b'), false, 'after a reset nothing is known');
+  });
 });

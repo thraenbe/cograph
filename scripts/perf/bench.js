@@ -118,6 +118,21 @@
       settings.repelForce -= 350;
     }
 
+    // 1c) optional repro (?probe=switch): shelf → global → shelf, Detail 0 — is the glyph in the DOM?
+    if (P.get('probe') === 'switch') {
+      const snap = (tag) => ({ tag, engine: state.layoutEngine, mode: state.layoutMode, k: r2(d3.zoomTransform(svg.node()).k),
+        frames: state.frames ? state.frames.byPath.size : 0, framesAttached: document.querySelectorAll('#graph g.frame').length,
+        clouds: document.querySelectorAll('#graph path.cloud-node').length, cloudsInState: state.svgCloudNodes ? state.svgCloudNodes.size() : -1,
+        frameG: !!document.querySelector('#graph g.frames'), usesFrames: usesFrames() });
+      const out = [snap('start')];
+      fitToView(); await sleep(800); out.push(snap('fit'));
+      setLayoutEngine('global'); setLayoutMode('dynamic'); await sleep(2500); out.push(snap('global'));
+      setLayoutEngine('shelf'); setLayoutMode('static'); await paint(); out.push(snap('shelf'));
+      applyDetailDepth(0); await paint(); await sleep(900); out.push(snap('detail0'));
+      R.switchProbe = out;
+      window.__benchResult = R; return;
+    }
+
     // 2) four open frames (shelf target scenario): 4 leaf-most folders with most files
     if (R.engine === 'shelf') {
       const tree = state.structureTree;

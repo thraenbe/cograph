@@ -798,6 +798,10 @@ function updateCrossHover() {
 // ── Teardown (leaving the frames engine / drill-down) ─────────────────────────
 function teardownFrames() {
   __fr.posDirty.clear();   // a queued drag flush must not touch the next engine's DOM (F3 class)
+  if (__cull.dom) { __cull.dom.reset(null, []); }   // forget this session's <g>s: never re-insert them later
+  __cull.culler.reset();
+  __cull.stale.clear();
+  __cull.frameSelFor = null;
   if (__fr.sched) { __fr.sched.stop(); }
   for (const rec of __fr.sims.values()) { simApi().destroySim(rec); }
   __fr.sims.clear();

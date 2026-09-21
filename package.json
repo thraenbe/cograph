@@ -250,7 +250,7 @@
     "uxtest": "node uxtest/run.mjs",
     "uxtest:sweep": "node uxtest/run.mjs --project sweep",
     "uxtest:vscode": "node uxtest/run.mjs --project vscode",
-    "uxtest:report": "node uxtest/report/cli.mjs",
+    "uxtest:report": "node uxtest/run.mjs --project report",
     "uxtest:unit": "c8 --config uxtest/.c8rc.json playwright test -c uxtest/playwright.config.ts --project=unit",
     "uxtest:typecheck": "tsc -p uxtest/tsconfig.json --noEmit",
     "uxtest:install": "playwright install chromium ffmpeg"

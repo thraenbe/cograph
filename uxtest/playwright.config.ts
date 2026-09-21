@@ -18,6 +18,7 @@ export default defineConfig({
     { name: 'examples', testMatch: /examples\/.*\.spec\.ts$/, use: { browserName: 'chromium', headless: process.env.UXTEST_HEADED !== '1' } },
     { name: 'unit', testMatch: /unit\/.*\.test\.ts$/ },
     { name: 'sweep', testMatch: /sweep\/.*\.spec\.ts$/, use: { browserName: 'chromium', headless: true } },
+    { name: 'report', testMatch: /report\/report\.spec\.ts$/ },
     { name: 'vscode', testMatch: /vscode\/.*\.spec\.ts$/, workers: 1, fullyParallel: false },
   ],
 });

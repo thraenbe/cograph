@@ -39,6 +39,10 @@ if (value('workers')) { env.UXTEST_WORKERS = value('workers'); }
 if (flag('headed')) { env.UXTEST_HEADED = '1'; }
 if (flag('strict')) { env.UXTEST_STRICT = '1'; }
 if (flag('reanalyze')) { env.UXTEST_REANALYZE = '1'; }
+if (value('samples')) { env.UXTEST_SWEEP_SAMPLES = value('samples'); }
+if (value('space')) { env.UXTEST_SWEEP_SPACE = path.resolve(value('space')); }
+if (flag('video')) { env.UXTEST_SWEEP_VIDEO = '1'; }
+if (project === 'report' && value('run-id')) { env.UXTEST_REPORT_RUN = value('run-id'); }
 
 // The lab serves the compiled html builder + analyzers glue from out/.
 const extRoot = env.UXTEST_EXT_ROOT ?? root;
@@ -57,4 +61,10 @@ if (value('grep')) { args.push('-g', value('grep')); }
 
 process.stderr.write(`uxtest: run ${env.UXTEST_RUN_ID} → uxtest/artifacts/${env.UXTEST_RUN_ID}/\n`);
 const res = spawnSync('npx', args, { cwd: root, stdio: 'inherit', env });
+// A sweep is only useful aggregated: build sweep.csv / contact sheet / recommendations right away.
+if (project === 'sweep') {
+  const rep = spawnSync('npx', ['playwright', 'test', '-c', path.join(here, 'playwright.config.ts'), '--project=report'],
+    { cwd: root, stdio: 'inherit', env: { ...env, UXTEST_REPORT_RUN: env.UXTEST_RUN_ID } });
+  if (rep.status !== 0) { process.exit(rep.status ?? 1); }
+}
 process.exit(res.status ?? 1);

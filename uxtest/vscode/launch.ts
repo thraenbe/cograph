@@ -54,11 +54,16 @@ const SETTINGS = {
   'chat.commandCenter.enabled': false, 'workbench.secondarySideBar.defaultVisibility': 'hidden',
 };
 
+/** `frame.evaluate` has no timeout, and a webview hidden behind another editor tab never answers. */
+export function within<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([p.catch(() => fallback), new Promise<T>(r => setTimeout(() => r(fallback), ms))]);
+}
+
 async function findGraphFrame(page: Page): Promise<Frame | null> {
   for (const f of page.frames()) {
     if (!f.url().startsWith('vscode-webview://')) { continue; }
-    try { if (await f.evaluate(() => !!document.querySelector('#graph') && !!document.querySelector('#top-left-controls'))) { return f; } }
-    catch { /* frame navigated or detached while probing */ }
+    // false also covers: frame navigated / detached while probing, or hidden and therefore not answering
+    if (await within(f.evaluate(() => !!document.querySelector('#graph') && !!document.querySelector('#top-left-controls')), 2500, false)) { return f; }
   }
   return null;
 }
@@ -89,6 +94,7 @@ export async function launchVsCode(repo: string, scenario: string, settings: Rec
     recordVideo: { dir: outDir, size: SIZE },
   });
   const page = await app.firstWindow();
+  page.setDefaultTimeout(15000); // Electron pages do not inherit `use.actionTimeout`: without this a bad selector hangs for the whole test
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
   await page.waitForSelector('.monaco-workbench', { timeout: 60000 });
@@ -96,17 +102,19 @@ export async function launchVsCode(repo: string, scenario: string, settings: Rec
 
   const graphFrame = async (): Promise<Frame | null> => {
     const f = await findGraphFrame(page);
-    if (f) { await f.evaluate(installFpsTrace).catch(() => undefined); }
+    if (f) { await within(f.evaluate(installFpsTrace), 2500, undefined); }
     return f;
   };
   const ux = new StepRecorder({ page, outDir, still: cfg.still, caps: cfg.caps, errors, keepSnapshots: true, t0: startedAt.getTime(), target: graphFrame });
 
   const close = async (): Promise<VsCodeRun> => {
     let perfReport: unknown = null;
-    try { const f = await findGraphFrame(page); if (f) { perfReport = await f.evaluate('typeof perfReport === "function" ? perfReport() : null'); } }
+    try { const f = await findGraphFrame(page); if (f) { perfReport = await within(f.evaluate('typeof perfReport === "function" ? perfReport() : null'), 5000, null); } }
     catch (err) { log.warn('perf-report-unavailable', { error: String(err) }); }
     const video = page.video();
-    await app.close().catch(err => log.warn('vscode-close-failed', { error: String(err) }));
+    // A dirty editor or a modal can block a graceful quit: give it 20 s, then kill the process.
+    const closed = await Promise.race([app.close().then(() => true).catch(() => false), new Promise<boolean>(r => setTimeout(() => r(false), 20000))]);
+    if (!closed) { log.warn('vscode-close-forced', {}); try { app.process().kill('SIGKILL'); } catch (err) { log.warn('vscode-kill-failed', { error: String(err) }); } }
     let videoRel: string | null = null;
     if (video) {
       try { await video.saveAs(path.join(outDir, 'video.webm')); await video.delete(); videoRel = 'video.webm'; }

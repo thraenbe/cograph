@@ -5,8 +5,8 @@
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { launchVsCode } from './launch';
-import { answerQuickInput, frameElementCenter, runCommand, waitForGraph } from './drive';
+import { launchVsCode, within } from './launch';
+import { answerQuickInput, frameBackground, frameElementCenter, frameHittable, frameSetSlider, runCommand, waitForGraph } from './drive';
 import { SkipStep } from '../lib/step';
 import { SEL } from '../selectors';
 
@@ -38,16 +38,16 @@ for (const repo of repos) {
     try {
       await ux.step('VS Code started with the repo (copy) open', async () => { await page.waitForTimeout(2500); }, { metrics: false });
 
-      let tFirst = 0;
+      let tFirst = 0, tNodes = 0;
       const visualize = await ux.step('Command palette → CoGraph: Visualize Project', async () => {
         await runCommand(page, 'CoGraph: Visualize Project');
         tFirst = (await waitForGraph(graphFrame, 60000, false)).ms;
       }, { settle: false, metrics: false });
+      visualize.note = `T_first (webview with #graph attached): ${tFirst} ms after the command`;
       const functions = await ux.step('Graph shows nodes (T_functions)', async () => {
-        const t = await waitForGraph(graphFrame, 180000, true);
-        visualize.note = `T_first ${tFirst} ms`;
-        functions.note = `first nodes after ${t.ms} ms more`;
+        tNodes = (await waitForGraph(graphFrame, 180000, true)).ms;
       });
+      functions.note = `first nodes ${tNodes} ms after T_first`;
 
       await ux.step('Panel still alive after 15 s (B7)', async () => {
         for (let i = 0; i < 15; i++) {
@@ -56,12 +56,14 @@ for (const repo of repos) {
         }
       });
 
-      await ux.step('Fit (double-click background) inside the real webview', async () => {
+      const fit = async (): Promise<void> => {
         const f = await graphFrame();
-        const c = f ? await frameElementCenter(f, SEL.settingsBtn.css) : null;
-        if (!c) { throw new SkipStep('settings button not found in the webview'); }
-        await page.mouse.dblclick(c.x - 140, c.y + 120);
-      });
+        const bg = f ? await frameBackground(f) : null;
+        if (!bg) { throw new SkipStep('no bare canvas point in the webview'); }
+        await page.mouse.move(bg.x, bg.y, { steps: 10 });
+        await page.mouse.dblclick(bg.x, bg.y);
+      };
+      await ux.step('Fit (double-click background) inside the real webview', fit);
 
       await ux.step('Engine → Global → Shelf, Motion → Dynamic → Static (real panel)', async () => {
         const f = await graphFrame();
@@ -75,11 +77,25 @@ for (const repo of repos) {
         }
       }, { stillTimeoutMs: 15000 });
 
+      await ux.step('Detail → 1 (real lazy host parses folders on demand), fit', async () => {
+        const f = await graphFrame();
+        if (!f) { throw new Error('no webview'); }
+        await frameSetSlider(f, SEL.detailSlider.css, 1);
+        await page.waitForTimeout(4000); // expand-folder round trips through the real analyzers
+        await fit();
+      }, { stillTimeoutMs: 20000 });
+
       await ux.step('Click a function node → source popup from the real host', async () => {
         const f = await graphFrame();
         if (!f) { throw new Error('no webview'); }
-        const c = await frameElementCenter(f, '#graph circle.regular-node');
-        if (!c) { throw new SkipStep('no function node on screen'); }
+        let c = await frameHittable(f, '#graph circle.regular-node', 300);
+        if (!c) { // at fit zoom nodes can be too small to hit: zoom into the middle of the canvas
+          const bg = await frameBackground(f);
+          if (bg) { await page.mouse.move(bg.x, bg.y); for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, -240); await page.waitForTimeout(80); } }
+          await page.waitForTimeout(600);
+          c = await frameHittable(f, '#graph circle.regular-node', 300);
+        }
+        if (!c) { throw new SkipStep('no hittable function node on screen'); }
         await page.mouse.move(c.x, c.y, { steps: 10 });
         await page.mouse.click(c.x, c.y);
         await expect(f.locator('.func-card').first()).toBeVisible({ timeout: 8000 });
@@ -110,16 +126,23 @@ for (const repo of repos) {
         const f = await graphFrame();
         if (!file || !f) { throw new SkipStep('no editable source file / no webview'); }
         const before = await f.evaluate('state.graphData ? state.graphData.nodes.length : 0') as number;
-        await page.keyboard.press('Control+p');
-        await answerQuickInput(page, path.relative(s.workspace, file), 8000);
-        await page.waitForTimeout(1500);
+        // Open the file through the command palette (works whatever has focus), then type into the real editor.
+        await runCommand(page, 'Go to File');
+        if (!await answerQuickInput(page, path.relative(s.workspace, file), 8000, path.basename(file))) { throw new Error('Quick Open did not appear'); }
+        const tab = page.locator(`.tabs-container .tab[aria-label*="${path.basename(file)}"]`).first();
+        await tab.waitFor({ state: 'visible', timeout: 10000 });
+        await page.locator('.editor-instance .monaco-editor .view-lines').first().click();
         await page.keyboard.press('Control+End');
         await page.keyboard.type(ADDED_FN[path.extname(file)], { delay: 5 });
         await page.keyboard.press('Control+s');
+        await page.waitForTimeout(500);
+        if (!fs.readFileSync(file, 'utf8').includes('uxtest')) { throw new Error(`the edit did not reach ${path.relative(s.workspace, file)} on disk`); }
+        // The graph panel is hidden behind the editor now; bring it back before reading it.
+        await page.locator(`.tabs-container .tab:not([aria-label*="${path.basename(file)}"])`).first().click();
         await expect.poll(async () => {
           const g = await graphFrame();
-          return g ? await g.evaluate('state.graphData ? state.graphData.nodes.length : 0') as number : 0;
-        }, { timeout: 30000, message: `graph did not grow after saving ${path.relative(s.workspace, file)}` }).toBeGreaterThan(before);
+          return g ? await within(g.evaluate('state.graphData ? state.graphData.nodes.length : 0') as Promise<number>, 2500, 0) : 0;
+        }, { timeout: 30000, message: `graph did not grow after saving ${path.relative(s.workspace, file)} (had ${before} nodes)` }).toBeGreaterThan(before);
       }, { metrics: false });
 
       await ux.step('Command palette → CoGraph: Open or Reload Layout', async () => { await runCommand(page, 'CoGraph: Open or Reload Layout'); await answerQuickInput(page, '', 2500); });

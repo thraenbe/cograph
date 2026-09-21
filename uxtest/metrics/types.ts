@@ -26,6 +26,7 @@ export interface Snapshot {
   slots: SnapSlot[];
   edges: Array<[number, number]>;        // indices into nodes
   labels: Rect[];                        // screen coordinates, visible labels only
+  boxes?: Rect[];                        // screen coordinates of folder boxes (frames / drill-down boxes)
   labelsTruncated: boolean;
   domNodes: number;
   heapMB: number | null;
@@ -54,6 +55,10 @@ export interface LayoutMetrics {
   inkRatio: number;                      // node area / bbox area (1 - whitespace)
   viewportCoverage: number;              // on-screen bbox area / viewport area
   offscreenNodeRatio: number;            // nodes painted outside the viewport / nodes
+  // Legibility at the CURRENT zoom (meaningful on fitted steps): a layout that spreads wide is small at fit.
+  nodePxMedian?: number;                 // median on-screen node radius in px
+  labelPxMedian?: number;                // median on-screen label height in px
+  smallBoxShare?: number;                // folder boxes narrower or lower than 40 px / folder boxes
   domNodes: number;
   heapMB: number | null;
 }

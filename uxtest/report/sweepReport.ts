@@ -1,7 +1,7 @@
 // Sweep aggregation: sample.json files → sweep.json, sweep.csv, contact sheet, recommendation draft.
 import * as fs from 'fs';
 import * as path from 'path';
-import { groupSamples, recommendationsMarkdown, rescore, toCsv, verdictLine, type GroupResult, type SweepSample } from '../sweep/analyze';
+import { fitPx, groupSamples, recommendationsMarkdown, rescore, toCsv, verdictLine, type GroupResult, type SweepSample } from '../sweep/analyze';
 import { esc, page } from './html';
 
 export function findSamples(runDir: string): SweepSample[] {
@@ -24,7 +24,7 @@ function figure(s: SweepSample, rank: number): string {
   return `<figure class="${cls}">
 <a href="${esc(s.screenshot)}"><img loading="lazy" src="${esc(s.screenshot)}" alt="sample ${s.index}"></a>
 <figcaption><b>#${rank + 1}</b> · sample ${s.index}${s.baseline ? ' (defaults)' : ''} · score <b>${s.score}</b> · settle ${s.settleMs ?? '–'} ms${s.settled ? '' : ' (not settled)'}<br>
-<span class="dim">overlap ${s.metrics.nodeOverlapRatio} · cross ${s.metrics.edgeCrossingsPerEdge} · labels ${s.metrics.labelOverlapRatio} · pinned ${s.metrics.nodesPinnedToWall}</span><br>
+<span class="dim">overlap ${s.metrics.nodeOverlapRatio} · cross ${s.metrics.edgeCrossingsPerEdge} · labels ${s.metrics.labelOverlapRatio} · node ${fitPx(s)} px · pinned ${s.metrics.nodesPinnedToWall}</span><br>
 <code>${esc(values)}</code></figcaption></figure>`;
 }
 

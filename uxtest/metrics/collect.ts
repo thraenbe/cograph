@@ -97,11 +97,19 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
     labels.push({ x: b.left, y: b.top, w: b.width, h: b.height });
   }
 
+  // ── folder boxes (screen space; both engines draw .folder-bubble-shape) ───
+  const boxes: NonNullable<Snapshot['boxes']> = [];
+  (svgEl ? svgEl.querySelectorAll('.folder-bubble-shape') : []).forEach((el) => {
+    if (!shown(el)) { return; }
+    const b = el.getBoundingClientRect();
+    if (b.width > 0 && b.height > 0) { boxes.push({ x: b.left, y: b.top, w: b.width, h: b.height }); }
+  });
+
   const mem = (performance as any).memory;
   return {
     engine: String(st.layoutEngine ?? ''), motion: String(st.layoutMode ?? ''),
     zoom: { k: zt.k, x: zt.x, y: zt.y }, viewport: { w: vw, h: vh },
-    nodes, frames, slots, edges, labels, labelsTruncated,
+    nodes, frames, slots, edges, labels, boxes, labelsTruncated,
     domNodes: document.querySelectorAll('*').length,
     heapMB: mem ? +(mem.usedJSHeapSize / 1048576).toFixed(1) : null,
   };

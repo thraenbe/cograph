@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
-  bboxOf, computeMetrics, containment, edgeCrossings, edgeLengthStats, forEngine, isPinned, labelOverlapRatio,
+  bboxOf, computeMetrics, legibility, median, containment, edgeCrossings, edgeLengthStats, forEngine, isPinned, labelOverlapRatio,
   maxDisplacement, mulberry32, nodeOverlapPairs, offscreenRatio, pointInRect, rectOverlapPairs, rectsIntersect,
   sampleEdges, segmentsCross,
 } from '../metrics/compute';
@@ -165,4 +165,19 @@ test('maxDisplacement filters and ignores unknown ids', () => {
   const after = snapshot({ nodes: [node('a', 30, 40, 5, { frame: 'x' }), node('b', 0, 0.2, 5, { frame: 'y' }), node('new', 9, 9)] });
   expect(maxDisplacement(before, after)).toEqual({ max: 50, moved: 1 });
   expect(maxDisplacement(before, after, n => n.frame !== 'x')).toEqual({ max: 0.2, moved: 0 });
+});
+
+test('legibility: on-screen node size, label height, share of tiny folder boxes', () => {
+  expect(median([])).toBe(0);
+  expect(median([3, 1, 2])).toBe(2);
+  expect(median([4, 1, 3, 2])).toBe(2.5);
+  const snap = snapshot({
+    zoom: { k: 0.25, x: 0, y: 0 }, nodes: [node('a', 0, 0, 10), node('b', 50, 0, 10), node('c', 90, 0, 30)],
+    labels: [{ x: 0, y: 0, w: 40, h: 6 }, { x: 0, y: 20, w: 40, h: 10 }],
+    boxes: [{ x: 0, y: 0, w: 1000, h: 800 }, { x: 10, y: 10, w: 30, h: 200 }, { x: 60, y: 10, w: 200, h: 120 }, { x: 300, y: 10, w: 90, h: 12 }],
+  });
+  expect(legibility(snap)).toEqual({ nodePxMedian: 2.5, labelPxMedian: 8, smallBoxShare: 2 / 3 }); // the viewport-sized root box is ignored
+  expect(computeMetrics(snap)).toMatchObject({ nodePxMedian: 2.5, labelPxMedian: 8, smallBoxShare: 0.667 });
+  expect(legibility(snapshot())).toEqual({ nodePxMedian: 0, labelPxMedian: 0, smallBoxShare: 0 });
+  expect(computeMetrics({ ...snap, engine: 'global' }).smallBoxShare).toBe(0.667); // DOM boxes count under either engine
 });

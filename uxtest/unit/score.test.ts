@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { DEFAULT_WEIGHTS, findingsFor, layoutScore, SEVERITY_RANK, type StepContext } from '../metrics/score';
+import { DEFAULT_WEIGHTS, estimateFitNodePx, findingsFor, layoutScore, legibilityPenalty, QUALITY_WEIGHTS, SEVERITY_RANK, type StepContext } from '../metrics/score';
 import { computeMetrics } from '../metrics/compute';
 import type { LayoutMetrics } from '../metrics/types';
 import { snapshot } from './fixtures';
@@ -59,4 +59,23 @@ test('layoutScore: lower is better and each penalty is monotonic', () => {
 
 test('severity ranks sort high first', () => {
   expect(['low', 'high', 'medium'].sort((a, b) => SEVERITY_RANK[a as 'low'] - SEVERITY_RANK[b as 'low'])).toEqual(['high', 'medium', 'low']);
+});
+
+test('legibility: a wide-spread layout is penalised, old runs are estimated from ink + aspect', () => {
+  const legible = { ...clean, nodePxMedian: 7, labelPxMedian: 10, smallBoxShare: 0, labels: 20 };
+  expect(legibilityPenalty(legible)).toBe(0);
+  expect(legibilityPenalty({ ...legible, nodePxMedian: 3 })).toBeCloseTo(0.3, 5);
+  expect(legibilityPenalty({ ...legible, smallBoxShare: 1 })).toBeCloseTo(0.2, 5);
+  expect(legibilityPenalty({ ...legible, labelPxMedian: 4.5 })).toBeCloseTo(0.1, 5);
+  expect(legibilityPenalty({ ...legible, labels: 0, labelPxMedian: 0 })).toBe(0);
+  expect(layoutScore({ ...legible, nodePxMedian: 1.5 }, 0, QUALITY_WEIGHTS)).toBeGreaterThan(layoutScore(legible, 0, QUALITY_WEIGHTS));
+
+  // 1 000 nodes of r 10 filling 1 % of a square bbox → side 5 605 → fit k = 680 / 5605 → 1.21 px
+  const old = { ...clean, nodes: 1000, inkRatio: 0.01, bboxAspect: 1, nodePxMedian: undefined };
+  expect(estimateFitNodePx(old)).toBeCloseTo(1.213, 2);
+  expect(estimateFitNodePx({ ...old, inkRatio: 0.04 })).toBeCloseTo(2.426, 2);   // 4x denser → twice as large at fit
+  expect(estimateFitNodePx({ ...old, inkRatio: 0 })).toBe(0);
+  expect(estimateFitNodePx({ ...old, nodes: 1, inkRatio: 0.5 })).toBe(40);        // fit scale cap 4
+  expect(legibilityPenalty(old)).toBeCloseTo(1 - 1.213 / 6, 2);
+  expect(QUALITY_WEIGHTS.settleSeconds).toBe(0);
 });

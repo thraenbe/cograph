@@ -14,11 +14,11 @@ export interface StepContext {
 
 export interface ScoreWeights {
   nodeOverlap: number; labelOverlap: number; crossings: number; edgeLenCv: number;
-  settleSeconds: number; containment: number; whitespace: number;
+  settleSeconds: number; containment: number; whitespace: number; legibility: number;
 }
 
 export const DEFAULT_WEIGHTS: ScoreWeights = {
-  nodeOverlap: 4, labelOverlap: 2, crossings: 1.5, edgeLenCv: 0.5, settleSeconds: 0.15, containment: 6, whitespace: 1,
+  nodeOverlap: 4, labelOverlap: 2, crossings: 1.5, edgeLenCv: 0.5, settleSeconds: 0.15, containment: 6, whitespace: 1, legibility: 3,
 };
 
 type Rule = (m: LayoutMetrics, c: StepContext) => Finding | null;
@@ -51,6 +51,28 @@ export function findingsFor(m: LayoutMetrics, c: StepContext): Finding[] {
   return out;
 }
 
+export const LEGIBLE_NODE_PX = 6;   // on-screen node radius from which a node reads comfortably
+export const LEGIBLE_LABEL_PX = 9;  // label height from which text reads
+const FIT_W = 1280 - 120, FIT_H = 800 - 120; // fitToView() pads 60 px per side in the lab viewport
+
+/** Runs recorded before the legibility fields existed: reconstruct the fit zoom from ink + aspect
+ *  (node area / bbox area) assuming the uniform function radius of 10 graph units. */
+export function estimateFitNodePx(m: LayoutMetrics, nodeR = 10): number {
+  if (!m.nodes || !m.inkRatio || !m.bboxAspect) { return 0; }
+  const area = (m.nodes * Math.PI * nodeR * nodeR) / m.inkRatio;
+  const w = Math.sqrt(area * m.bboxAspect), h = Math.sqrt(area / m.bboxAspect);
+  return nodeR * Math.min(FIT_W / w, FIT_H / h, 4);
+}
+
+/** 0 = comfortably legible at the current zoom, 1 = specks. A wide-spread layout is small at fit. */
+export function legibilityPenalty(m: LayoutMetrics): number {
+  const nodePx = m.nodePxMedian ?? estimateFitNodePx(m);
+  const nodeTerm = 1 - Math.min(1, nodePx / LEGIBLE_NODE_PX);
+  if (m.nodePxMedian === undefined) { return nodeTerm; }
+  const labelTerm = m.labels ? 1 - Math.min(1, (m.labelPxMedian ?? 0) / LEGIBLE_LABEL_PX) : 0;
+  return 0.6 * nodeTerm + 0.2 * labelTerm + 0.2 * (m.smallBoxShare ?? 0);
+}
+
 /** Lower is better. Every term is dimensionless and roughly 0..1 for sane layouts. */
 export function layoutScore(m: LayoutMetrics, settleMs: number | null, w: ScoreWeights = DEFAULT_WEIGHTS): number {
   const n = Math.max(1, m.nodes);
@@ -62,7 +84,8 @@ export function layoutScore(m: LayoutMetrics, settleMs: number | null, w: ScoreW
     + w.edgeLenCv * Math.min(2, m.edgeLenCv)
     + w.settleSeconds * Math.min(30, (settleMs ?? 30000) / 1000)
     + w.containment * Math.min(1, containment)
-    + w.whitespace * whitespace;
+    + w.whitespace * whitespace
+    + w.legibility * legibilityPenalty(m);
   return +score.toFixed(4);
 }
 

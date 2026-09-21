@@ -21,7 +21,7 @@ interface Space {
   seed: number; samples: number; mode: 'lhs' | 'grid'; repos: string[]; detail: number; settleTimeoutMs: number; motionGraceMs: number;
   engines: Record<string, { params: SelName[]; ranges?: Record<string, [number, number]>; unlimitedShare?: Record<string, number>;
     /** explicit regression tuples per repo, e.g. the F12 runaway values on zod */
-    extra?: Record<string, Array<{ label: string; values: Record<string, number> }>> }>;
+    extra?: Record<string, Array<{ label: string; rank?: boolean; values: Record<string, number> }>> }>;
 }
 const spaceFile = process.env.UXTEST_SWEEP_SPACE ?? path.join(REPO_ROOT, 'uxtest', 'sweep', 'spaces', 'default.json');
 const space = JSON.parse(fs.readFileSync(spaceFile, 'utf8')) as Space;
@@ -33,7 +33,8 @@ for (const repo of repos) {
     const def = space.engines[engine];
     if (!def) { continue; }
     const design = buildSamples(def.params, nSamples, space.seed, space.mode);
-    const extras: Sample[] = (def.extra?.[repo] ?? []).map((e, i) => ({ index: 900 + i, unit: {}, explicit: e.values, label: e.label }));
+    const extras: Sample[] = [...(def.extra?.['*'] ?? []), ...(def.extra?.[repo] ?? [])]
+      .map((e, i) => ({ index: 900 + i, unit: {}, explicit: e.values, label: e.label, ranked: e.rank === true }));
     for (const sample of [...design, ...extras]) {
       test(`sweep · ${repo} · ${engine} · #${sample.index}`, async ({ browser }) => {
         // Resumable: UXTEST_SWEEP_RESUME=1 (--resume) skips samples that already have a sample.json in this run id.
@@ -78,7 +79,7 @@ for (const repo of repos) {
           const maxAbsCoord = Math.round((ux.lastSnapshot?.nodes ?? []).reduce((m, n) => Math.max(m, Math.abs(n.x), Math.abs(n.y)), 0));
           const strayInput = lab.host.log.filter(l => ['get-func-source', 'navigate'].includes(l.message.type)).length;
           expect(strayInput, 'the sweep must not click into the graph').toBe(0);
-          const record: SweepSample = { repo, engine, index: sample.index, baseline: sample.unit === null, label: sample.label, maxAbsCoord, values, dropped,
+          const record: SweepSample = { repo, engine, index: sample.index, baseline: sample.unit === null, label: sample.label, ranked: sample.ranked, maxAbsCoord, values, dropped,
             settleMs, settleTicks: apply.still?.simTicks ?? null, settled: apply.still?.settled ?? false, movedNodes: moved.moved, maxMovePx: moved.max, metrics, score: layoutScore(metrics, 0, QUALITY_WEIGHTS),
             screenshot: path.relative(path.dirname(path.dirname(lab.outDir)), path.join(lab.outDir, end.screenshot ?? '')) };
           fs.writeFileSync(path.join(lab.outDir, 'sample.json'), JSON.stringify(record, null, 2));

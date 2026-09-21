@@ -14,8 +14,9 @@ export interface SweepSample {
   settleTicks?: number | null;
   /** Largest |x| or |y| of any node in the end state — a runaway integrator shows up as 1e6+ (F12). */
   maxAbsCoord?: number;
-  /** Set for explicit regression tuples; they are reported but never ranked or used for sensitivity. */
-  label?: string;
+  /** Set for explicit tuples. Regression tuples (ranked false/undefined) are reported but never ranked; candidate
+   *  tuples (`ranked: true`) compete in the ranking. Neither kind enters the sensitivity analysis (not a design). */
+  label?: string; ranked?: boolean;
   metrics: LayoutMetrics; score: number; screenshot: string;
 }
 
@@ -66,14 +67,14 @@ export interface GroupResult {
 }
 
 export function analyzeGroup(all: SweepSample[]): GroupResult {
-  const samples = all.filter(s => !s.label); // explicit regression tuples are not part of the design
+  const samples = all.filter(s => !s.label || s.ranked); // regression tuples are not ranked, candidate tuples are
   const ranked = [...samples].sort((a, b) => a.score - b.score);
   const baseline = samples.find(s => s.baseline) ?? null;
   // A sample that never came to rest cannot be a recommendation, however good its last frame scored.
   const best = ranked.find(s => !s.baseline && s.settled) ?? ranked.find(s => !s.baseline) ?? null;
   const improvementPct = baseline && best && baseline.score > 0 ? +(((baseline.score - best.score) / baseline.score) * 100).toFixed(1) : null;
-  return { repo: all[0]?.repo ?? '', engine: all[0]?.engine ?? '', baseline, ranked, best, improvementPct, sensitivity: sensitivity(samples),
-    extras: all.filter(s => !!s.label) };
+  return { repo: all[0]?.repo ?? '', engine: all[0]?.engine ?? '', baseline, ranked, best, improvementPct, sensitivity: sensitivity(samples.filter(s => !s.label)),
+    extras: all.filter(s => !!s.label && !s.ranked) };
 }
 
 /** Re-score from the stored metrics so old runs are ranked by the current (quality-only) formula. */
@@ -140,7 +141,7 @@ export function recommendationsMarkdown(groups: GroupResult[]): string {
     for (const g of groups.filter(x => x.engine === engine)) {
       lines.push(`### ${g.repo}`, '', verdictLine(g), '',
         '| rank | sample | score | settle ticks | settle ms (load-dependent) | folder overlap | overlap | crossings/edge | label overlap | node px at fit | pinned | values |', '|---|---|---|---|---|---|---|---|---|---|---|---|');
-      g.ranked.slice(0, 5).forEach((s, i) => lines.push(`| ${i + 1} | ${s.baseline ? '0 (defaults)' : s.index} | ${s.score} | ${fmt(s.settleTicks)} | ${fmt(s.settleMs)}${s.settled ? '' : ' ✗'} | ${fmt(s.metrics.folderOverlapRatio)} | ${s.metrics.nodeOverlapRatio} | ${s.metrics.edgeCrossingsPerEdge} | ${s.metrics.labelOverlapRatio} | ${fitPx(s)} | ${s.metrics.nodesPinnedToWall} | ${Object.entries(s.values).map(([k, v]) => `${k}=${v}`).join(' ')} |`));
+      g.ranked.slice(0, g.ranked.some(x => x.ranked) ? 20 : 5).forEach((s, i) => lines.push(`| ${i + 1} | ${s.baseline ? '0 (defaults)' : s.label ? `${s.index} ${s.label}` : s.index} | ${s.score} | ${fmt(s.settleTicks)} | ${fmt(s.settleMs)}${s.settled ? '' : ' ✗'} | ${fmt(s.metrics.folderOverlapRatio)} | ${s.metrics.nodeOverlapRatio} | ${s.metrics.edgeCrossingsPerEdge} | ${s.metrics.labelOverlapRatio} | ${fitPx(s)} | ${s.metrics.nodesPinnedToWall} | ${Object.entries(s.values).map(([k, v]) => `${k}=${v}`).join(' ')} |`));
       lines.push('', 'Sensitivity (Spearman ρ of the force value against …; |ρ| > 0.5 matters, sign + means "more force → worse"):', '',
         '| force | score | overlap | crossings | settle time |', '|---|---|---|---|---|');
       for (const s of g.sensitivity) { lines.push(`| ${s.param} | ${s.vsScore} | ${s.vsOverlap} | ${s.vsCrossings} | ${s.vsSettle} |`); }

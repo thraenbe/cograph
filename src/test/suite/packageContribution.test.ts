@@ -97,4 +97,12 @@ suite('package.json contributions', () => {
       'package.json view id must match SidebarProvider.viewType or the view will never resolve',
     );
   });
+
+  test('declares cograph.layout.workers (auto | on | off, default auto)', () => {
+    const w = pkg.contributes?.configuration?.properties?.['cograph.layout.workers'];
+    assert.ok(w, 'cograph.layout.workers setting missing');
+    assert.deepStrictEqual(w.enum, ['auto', 'on', 'off']);
+    assert.strictEqual(w.default, 'auto');
+    assert.strictEqual(w.enumDescriptions.length, 3);
+  });
 });

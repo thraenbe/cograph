@@ -30,6 +30,9 @@ function makeSched(over: any = {}) {
     onWake: over.onWake,
     onStep: over.onStep,
     onIdle: over.onIdle,
+    onResult: over.onResult,
+    onPauseChange: over.onPauseChange,
+    budgetMs: over.budgetMs,
   });
   return { sched, rafQueue, ticked, results, tickClock: () => clock };
 }
@@ -146,5 +149,43 @@ suite('frameScheduler', () => {
     sched.pauseAll();
     while (rafQueue.length) { (rafQueue.shift() as () => void)(); }
     assert.deepStrictEqual(events, []);
+  });
+
+  // ── worker transport options (perf W2) ──
+  test('maxActive may be a function (sync: 4, workers: every frame with fresh positions)', () => {
+    let cap = 1;
+    const { sched } = makeSched({ maxActive: () => cap });
+    ['/a', '/b', '/c'].forEach(p => sched.add(rec(p)));
+    assert.strictEqual(sched.pick().length, 1);
+    cap = Infinity;
+    assert.strictEqual(sched.pick().length, 3);
+  });
+
+  test('budgetMs stops a step once spent (after ≥ 1 result); the rest drain next frame', () => {
+    const applied: string[] = [];
+    // the fake clock advances 1 per now() call → every result "costs" ≥ 1 ms
+    const { sched } = makeSched({ maxActive: Infinity, budgetMs: () => 2, onResult: (r: any) => applied.push(r.path) });
+    ['/a', '/b', '/c', '/d', '/e'].forEach(p => sched.add(rec(p)));
+    const first = sched.step();
+    assert.ok(first.length >= 1 && first.length < 5, `budget cut the step (${first.length})`);
+    assert.deepStrictEqual(applied, first.map((r: any) => r.path), 'onResult runs per result, inside the budget clock');
+    const tickedNull = makeSched({ maxActive: Infinity, budgetMs: 0, tick: () => null });
+    ['/a', '/b'].forEach(p => tickedNull.sched.add(rec(p)));
+    assert.deepStrictEqual(tickedNull.sched.step(), [], 'idle records (no fresh positions) cost no budget');
+  });
+
+  test('no budget (sync path) → unchanged: every picked record ticks', () => {
+    const { sched } = makeSched({ maxActive: 4 });
+    ['/a', '/b', '/c', '/d', '/e'].forEach(p => sched.add(rec(p)));
+    assert.strictEqual(sched.step().length, 4);
+  });
+
+  test('onPauseChange fires on transitions only', () => {
+    const seen: boolean[] = [];
+    const { sched } = makeSched({ onPauseChange: (p: boolean) => seen.push(p) });
+    sched.resumeAll();            // already running → nothing
+    sched.pauseAll(); sched.pauseAll();
+    sched.resumeAll(); sched.resumeAll();
+    assert.deepStrictEqual(seen, [true, false]);
   });
 });

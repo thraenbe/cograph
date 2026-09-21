@@ -445,3 +445,79 @@ suite('createFileSeparationForce', () => {
     assert.strictEqual(a.vx, 0, 'no cross-folder file separation');
   });
 });
+
+// ---------------------------------------------------------------------------
+// createDrilldownClusterForce — nested-pull stability clamp (F12)
+// ---------------------------------------------------------------------------
+
+suite('drilldown cluster force — stability clamp (F12)', () => {
+  function chainBoxes(depths: number[], members: any[][]) {
+    return depths.map((depth, i) => ({ depth, members: members[i] }));
+  }
+
+  test('depth-8 chain: the applied per-node factor is capped at 1.5', () => {
+    (global as any).settings = { fileClusterForce: 0.98 };
+    const a: any = { id: 'a', x: 100, y: 0, vx: 0, vy: 0, fx: null };
+    const b: any = { id: 'b', x: 0, y: 0, vx: 0, vy: 0, fx: null };
+    // 8 nested boxes (depths 0..7), all holding both nodes → shared centroid.
+    const boxes = chainBoxes([0, 1, 2, 3, 4, 5, 6, 7], Array(8).fill([a, b]));
+    const force = folder.createDrilldownClusterForce(boxes);
+    force(1);
+    const cx = 50; // centroid of a(100) and b(0)
+    const factor = a.vx / (cx - a.x); // total kick as a fraction of the pull distance
+    // Unclamped this would be 0.98 * Σ(1+0.3d) = 16.07 — the F12 divergence.
+    assert.ok(factor <= 1.5 + 1e-9, `capped at 1.5, got ${factor}`);
+    assert.ok(factor > 1.4, `still pulls near the cap, got ${factor}`);
+  });
+
+  test('shallow repo: below the cap the force is EXACTLY the unclamped formula', () => {
+    (global as any).settings = { fileClusterForce: 0.2 };
+    const a: any = { id: 'a', x: 100, y: 40, vx: 0, vy: 0, fx: null };
+    const b: any = { id: 'b', x: 0, y: 0, vx: 0, vy: 0, fx: null };
+    const boxes = chainBoxes([1], [[a, b]]);
+    folder.createDrilldownClusterForce(boxes)(0.5);
+    // s = fcf · alpha · (1 + depth·0.3) = 0.2 · 0.5 · 1.3 = 0.13; sum 0.26 < 1.5 → scale 1
+    const s = 0.2 * 0.5 * 1.3;
+    assert.ok(Math.abs(a.vx - (50 - 100) * s) < 1e-12, 'vx identical to the unclamped force');
+    assert.ok(Math.abs(a.vy - (20 - 40) * s) < 1e-12, 'vy identical to the unclamped force');
+  });
+
+  test('F12 slider values on a deep tree stay bounded over 400 ticks (unclamped diverges)', () => {
+    (global as any).settings = { fileClusterForce: 0.98 };
+    function run(clamped: boolean) {
+      // 10 nodes; the box at depth d holds nodes d..9 → staggered centroids.
+      const nodes: any[] = Array.from({ length: 10 }, (_, i) =>
+        ({ id: `n${i}`, x: i * 40, y: (i % 3) * 25, vx: 0, vy: 0, fx: null }));
+      const boxes = Array.from({ length: 8 }, (_, d) =>
+        ({ depth: d, members: nodes.slice(d) }));
+      const force = clamped
+        ? folder.createDrilldownClusterForce(boxes)
+        : (alpha: number) => { // the pre-F12 formula, verbatim
+            for (const box of boxes) {
+              let cx = 0, cy = 0, k = 0;
+              for (const n of box.members) { cx += n.x; cy += n.y; k++; }
+              cx /= k; cy /= k;
+              const s = 0.98 * alpha * (1 + box.depth * 0.3);
+              for (const n of box.members) { n.vx += (cx - n.x) * s; n.vy += (cy - n.y) * s; }
+            }
+          };
+      let alpha = 1, worst = 0;
+      for (let t = 0; t < 400; t++) {
+        force(alpha);
+        for (const n of nodes) {
+          n.x += n.vx; n.y += n.vy;
+          n.vx *= 0.7; n.vy *= 0.7; // d3 velocityDecay(0.3)
+          const m = Math.max(Math.abs(n.x), Math.abs(n.y));
+          if (isFinite(m) && m > worst) { worst = m; }
+          if (!isFinite(m)) { worst = Infinity; }
+        }
+        alpha += (0 - alpha) * 0.04; // d3 alphaDecay(0.04)
+      }
+      return worst;
+    }
+    const unclamped = run(false);
+    const clamped = run(true);
+    assert.ok(unclamped > 1e6, `sanity: the old force must diverge here (got ${unclamped})`);
+    assert.ok(clamped < 1e4, `clamped run stays bounded, got ${clamped}`);
+  });
+});

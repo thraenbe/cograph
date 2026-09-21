@@ -189,8 +189,28 @@ function tickDrilldownBoxes() {
 
 /** Cohesion force: pull each folder's members toward their centroid (deeper = tighter)
  *  so a box's bounding rect stays tight and excludes foreign nodes. */
+// Stability bound for the nested cluster pulls. Boxes are nested (one per
+// expanded folder, members = everything under it), so a node below k expanded
+// ancestors receives k centroid kicks per tick, each scaled
+// fileClusterForce·(1+depth·0.3). Measured on zod (folder depth 7): the
+// per-node SUM reaches 16 at extreme slider values while the integrator's
+// stability limit is ~2 — coordinates ran away to 1e43 and froze the page
+// (F12). Capping the sum at 1.5 kills the divergence and preserves layouts:
+// click/express are unchanged (their sums stay ≤ 1.6), zod's mean file
+// spread grows only ~11 %.
+const DD_CLUSTER_STABILITY = 1.5;
+
 function createDrilldownClusterForce(boxes) {
+  // Per-node summed depth multiplier across all (nested) boxes. Membership is
+  // fixed for this force's lifetime (one render); the live fileClusterForce
+  // slider value is applied at tick time so the bound stays exact.
+  const multOf = new Map();
+  for (const box of boxes) {
+    const m = 1 + (box.depth || 0) * 0.3;
+    for (const n of box.members) { multOf.set(n.id, (multOf.get(n.id) || 0) + m); }
+  }
   function force(alpha) {
+    const fcf = (settings.fileClusterForce ?? 0.2);
     for (const box of boxes) {
       const mem = box.members;
       if (mem.length < 2) { continue; }
@@ -198,9 +218,11 @@ function createDrilldownClusterForce(boxes) {
       for (const n of mem) { if (n.x != null) { cx += n.x; cy += n.y; k++; } }
       if (!k) { continue; }
       cx /= k; cy /= k;
-      const s = (settings.fileClusterForce ?? 0.2) * alpha * (1 + (box.depth || 0) * 0.3);
+      const base = fcf * alpha * (1 + (box.depth || 0) * 0.3);
       for (const n of mem) {
         if (n.fx != null) { continue; }
+        const tot = fcf * (multOf.get(n.id) || 0);
+        const s = tot > DD_CLUSTER_STABILITY ? base * (DD_CLUSTER_STABILITY / tot) : base;
         n.vx += (cx - n.x) * s;
         n.vy += (cy - n.y) * s;
       }

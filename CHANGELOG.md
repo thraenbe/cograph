@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layouts are unchanged. Saved with the view (older saves load as unlimited).
 
 ### Fixed
+- The Global layout could run away on deeply nested repos and freeze the page
+  for minutes (zod at extreme force sliders): folder cluster pulls are nested,
+  so deep nodes received a summed pull far past the integrator's stability
+  limit and coordinates exploded. The per-node sum is now capped at 1.5 —
+  measurably invisible on shallow repos, and deep repos keep their look
+  (~11% looser file clumps on zod).
 - **Saved views now come back under the Global engine** (pre-existing since
   v1 saves): the restore consumes the saved detail depth and expanded folders
   and re-renders BEFORE applying node positions — they used to land on the

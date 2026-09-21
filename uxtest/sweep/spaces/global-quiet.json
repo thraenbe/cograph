@@ -1,0 +1,59 @@
+{
+ "seed": 7,
+ "samples": 0,
+ "mode": "lhs",
+ "repos": [
+  "click",
+  "express",
+  "zod"
+ ],
+ "detail": 1,
+ "settleTimeoutMs": 90000,
+ "motionGraceMs": 10000,
+ "engines": {
+  "global": {
+   "params": [
+    "forceCenter",
+    "forceRepel",
+    "forceLink",
+    "forceFileCluster",
+    "forceLinkDistance",
+    "forceVelocityDecay",
+    "forceCollidePad",
+    "forceRepelRange"
+   ],
+   "extra": {
+    "*": [
+     {
+      "label": "A-min: center+repel+fileCluster+range",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.08,
+       "forceRepel": 447,
+       "forceLink": 1,
+       "forceFileCluster": 0.36,
+       "forceLinkDistance": 40,
+       "forceVelocityDecay": 0.3,
+       "forceCollidePad": 1.5,
+       "forceRepelRange": 850
+      }
+     },
+     {
+      "label": "range 850 only",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.025,
+       "forceRepel": 250,
+       "forceLink": 1,
+       "forceFileCluster": 0.2,
+       "forceLinkDistance": 40,
+       "forceVelocityDecay": 0.3,
+       "forceCollidePad": 1.5,
+       "forceRepelRange": 850
+      }
+     }
+    ]
+   }
+  }
+ }
+}

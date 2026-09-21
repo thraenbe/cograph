@@ -67,3 +67,26 @@ fileRepel have no measurable effect. 12 samples per group: a direction, not fina
 Shelf: both runs are invalid on shelf-base — the sweep set Detail first and thereby triggered F13 (click/express: 0 px
 movement in every sample incl. the reheated defaults; zod moved but within noise). The sweep no longer touches
 Detail when it is already at the target; the real Shelf sweep runs on the integrated branch after F7/F13.
+
+## Final force sweeps on the integrated branch (termi/s180 50876d2 = F12 clamp, D6 graphs; 2026-09-21)
+
+Shelf (63 samples, 7 sliders, wall metric aware of slot pad): keep the defaults - with nodes-on-a-wall weighted like node
+overlap they rank 2nd / 3rd / 1st of 21 (click / express / zod). Slot pad is the one harmful slider (more overlap AND more
+nodes on walls) -> cap at ~3 px or remove; link distance has no effect under Shelf -> drop; collide pad trades overlap for
+wall contacts -> leave at 1.5. Only consistent lever on wall contacts: File Cluster Force up (rho -0.48 / -0.58 / -0.57).
+
+Global (2 x 64 LHS samples + a 42-run candidate pass scored WITH folder separation + a quiet single-page run):
+- Repel range is the lever: unlimited (default) leaves nodes at 1.2-1.5 px radius at fit on click / zod whatever the
+  center force; a finite range of 850-1200 px doubles that. 500 px is too tight on larger repos (zod: folders merge, -9 %).
+- Center force alone pulls FOLDERS together (folder overlap up); it only pays together with more repel + file cluster.
+- Recommended defaults: center 0.08 · repel 450 · file cluster 0.36 · repel range 850 px; link 1, link distance 40,
+  damping 0.3, collide pad 1.5 unchanged. Quiet run vs shipped defaults: click score -21 % (node 1.46 -> 2.94 px, folder
+  boxes < 40 px 37 % -> 21 %, folder overlap 0.09 -> 0.02), express -10 % (3.6 -> 5.8 px, 70 % -> 0 %), zod -11 %
+  (1.27 -> 2.94 px, 71 % -> 41 %). Settle is ~300 ticks for every tuple (fixed alpha schedule); quiet wall-clock 33 / 7 /
+  47 s for the defaults and 37 / 8 / 46 s for the recommendation in headless software rendering.
+- Runner-up (one slider): repel range 850 px only: -12 % / -12 % / -8 %.
+- Remove from the Global box: folder repel + file repel (no effect in three sweeps), link distance (no score benefit, makes
+  nodes smaller at fit, rho -0.38 .. -0.49). Damping and collide pad: no consistent effect - keep them advanced.
+- The previously top-ranked compact samples (13, 18, 19) fall BELOW the defaults on click and zod once folder separation
+  is scored (folder overlap 0.21 - 1.0) - ranking and eye agree now.
+- F12 regression tuple on zod: responsive, settles, max |coordinate| 1 723 - 2 120 px (two runs).

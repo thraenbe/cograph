@@ -3,7 +3,7 @@
 // a reheat reaches a visible frame).
 import { scenario } from '../lib/scenario';
 import { fitToView, setSlider } from '../lib/actions';
-import { StepFinding, type StepRecord } from '../lib/step';
+import type { StepRecord } from '../lib/step';
 import { maxDisplacement } from '../metrics/compute';
 import type { Snapshot } from '../metrics/types';
 
@@ -15,7 +15,9 @@ scenario('force-reheat', { only: { engine: 'shelf', motion: 'dynamic' }, largeOk
     const d = before && after ? maxDisplacement(before, after) : { max: 0, moved: 0 };
     const first = rec.still?.firstMoveMs ?? null;
     rec.note = `${what}: ${d.moved} node(s) moved (max ${d.max} px), first motion after ${first ?? '–'} ms, still after ${rec.still?.ms ?? '–'} ms`;
-    if (d.moved === 0) { rec.findings.push({ rule: 'force-slider-dead', severity: 'high', ref: 'F13', message: `${what}: no node moved within ${rec.still?.ms ?? 0} ms` }); }
+    const total = after?.nodes.length ?? 0;
+    // A handful of nodes twitching (one tiny frame) is still a dead slider: a force change must reach the layout.
+    if (d.moved < Math.max(1, 0.05 * total)) { rec.findings.push({ rule: 'force-slider-dead', severity: 'high', ref: 'F13', message: `${what}: only ${d.moved} of ${total} nodes moved` }); }
     else if (first !== null && first > LATENCY_BUDGET_MS) { rec.findings.push({ rule: 'reheat-latency', severity: 'medium', ref: 'F7', message: `${what}: first motion only after ${first} ms` }); }
   };
 
@@ -37,7 +39,4 @@ scenario('force-reheat', { only: { engine: 'shelf', motion: 'dynamic' }, largeOk
   before = ux.lastSnapshot;
   judge(await ux.step('Link force 1 → 6', async () => { await setSlider(page, 'forceLink', 6); },
     { expectMotionMs: 15000, stillTimeoutMs: 40000 }), before, 'link force');
-  if (ux.steps.some(s => s.findings.some(f => f.rule === 'force-slider-dead')) && process.env.UXTEST_STRICT === '1') {
-    throw new StepFinding({ rule: 'force-slider-dead', severity: 'high', message: 'see steps above' });
-  }
 });

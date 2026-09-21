@@ -31,7 +31,10 @@ export interface StepRecord {
 
 export interface StepOpts { settle?: boolean; metrics?: boolean; stillTimeoutMs?: number; expectMotionMs?: number;
   /** The step drags nodes/folders by hand: overlaps after it are the user's doing, not a layout bug. */
-  userMoved?: boolean }
+  userMoved?: boolean;
+  /** Start the settle detector BEFORE the action. Needed when the reaction can be over within milliseconds
+   *  (worker sims of a small folder settle before a detector started afterwards takes its first sample). */
+  armBefore?: boolean }
 
 /** How the layout of `cur` was born, given the previous snapshot and its birth (see LayoutBirth). */
 export function layoutBirth(prev: Snapshot | null, prevBirth: LayoutBirth, cur: Snapshot, userMoved: boolean): LayoutBirth {
@@ -93,17 +96,22 @@ export class StepRecorder {
     const started = Date.now();
     let failure: unknown = null;
     let reported: Finding | null = null;
+    let armed: Promise<StillResult> | null = null;
     try {
       await setCaption(this.d.page, `${index}. ${name}`);
       const pre = this.d.target ? await this.d.target() : this.d.page;
       if (pre) { await drainFps(pre); } // frames before the action belong to the previous step
+      if (opts.armBefore && pre && opts.settle !== false) {
+        armed = waitForStill(pre, { ...this.d.still, timeoutMs: opts.stillTimeoutMs ?? this.d.still.timeoutMs, expectMotionMs: opts.expectMotionMs });
+        armed.catch(() => undefined); // awaited in measure(); never leave it unhandled if the action throws
+      }
       await action();
     } catch (err) {
       if (err instanceof SkipStep) { rec.status = 'skipped'; rec.note = err.message; }
       else if (err instanceof StepFinding) { reported = err.finding; rec.note = err.message; }
       else { rec.status = 'failed'; rec.note = String((err as Error).message ?? err); failure = err; }
     }
-    try { await this.measure(rec, base, opts); }
+    try { await this.measure(rec, base, opts, armed); }
     catch (err) { log.warn('step-measure-failed', { step: name, error: String(err) }); rec.note = `${rec.note ?? ''} measure: ${String(err)}`.trim(); }
     rec.durationMs = Date.now() - started;
     rec.consoleErrors = this.d.errors.slice(this.errCursor);
@@ -118,11 +126,13 @@ export class StepRecorder {
     return rec;
   }
 
-  private async measure(rec: StepRecord, base: string, opts: StepOpts): Promise<void> {
+  private async measure(rec: StepRecord, base: string, opts: StepOpts, armed: Promise<StillResult> | null = null): Promise<void> {
     const { page, outDir } = this.d;
     if (page.isClosed()) { return; }
     const target = this.d.target ? await this.d.target() : page;
-    if (target && opts.settle !== false && rec.status !== 'skipped') {
+    if (armed && rec.status !== 'skipped') {
+      rec.still = await armed;
+    } else if (target && opts.settle !== false && rec.status !== 'skipped') {
       rec.still = await waitForStill(target, { ...this.d.still, timeoutMs: opts.stillTimeoutMs ?? this.d.still.timeoutMs, expectMotionMs: opts.expectMotionMs });
     }
     if (target) { rec.fps = await drainFps(target); }

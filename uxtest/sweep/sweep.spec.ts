@@ -10,6 +10,8 @@ import { engines } from '../lib/matrix';
 import { fitToView, setSlider } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 import { layoutScore, QUALITY_WEIGHTS } from '../metrics/score';
+import { collectSnapshot } from '../metrics/collect';
+import { maxDisplacement } from '../metrics/compute';
 import { buildSamples, splitUnlimited, toSliderValue } from './sampler';
 import type { SweepSample } from './analyze';
 import { SEL, type SelName } from '../selectors';
@@ -43,6 +45,7 @@ for (const repo of repos) {
             if (Math.abs(cur - space.detail) > 0.005) { await setSlider(page, 'detailSlider', space.detail); }
             await fitToView(page);
           }, { stillTimeoutMs: space.settleTimeoutMs, metrics: false });
+          const beforeForces = await collectSnapshot(page, { maxLabels: 10 });
           const apply = await ux.step(sample.unit ? `Apply forces (sample ${sample.index})` : 'Defaults (baseline)', async () => {
             for (const name of def.params) {
               const loc = page.locator(SEL[name].css).first();
@@ -59,13 +62,14 @@ for (const repo of repos) {
               try { await setSlider(page, name, v); values[name] = v; }
               catch (err) { if (err instanceof SkipStep) { dropped.push(name); } else { throw err; } }
             }
-          }, { stillTimeoutMs: space.settleTimeoutMs, expectMotionMs: space.motionGraceMs });
+          }, { stillTimeoutMs: space.settleTimeoutMs, expectMotionMs: space.motionGraceMs, armBefore: true });
+          const moved = ux.lastSnapshot ? maxDisplacement(beforeForces, ux.lastSnapshot) : { moved: 0, max: 0 };
           const end = await ux.step('End state (fitted)', async () => { await fitToView(page); });
           expect(end.metrics, 'end-state metrics').toBeTruthy();
           const metrics = end.metrics!;
           const settleMs = apply.still ? apply.still.ms : null;
           const record: SweepSample = { repo, engine, index: sample.index, baseline: sample.unit === null, values, dropped,
-            settleMs, settled: apply.still?.settled ?? false, metrics, score: layoutScore(metrics, 0, QUALITY_WEIGHTS),
+            settleMs, settled: apply.still?.settled ?? false, movedNodes: moved.moved, maxMovePx: moved.max, metrics, score: layoutScore(metrics, 0, QUALITY_WEIGHTS),
             screenshot: path.relative(path.dirname(path.dirname(lab.outDir)), path.join(lab.outDir, end.screenshot ?? '')) };
           fs.writeFileSync(path.join(lab.outDir, 'sample.json'), JSON.stringify(record, null, 2));
         } finally { await lab.close(); }

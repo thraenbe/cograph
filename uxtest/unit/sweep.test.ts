@@ -51,6 +51,9 @@ test('rescore ranks on picture quality only; noEffect spots inert samples', () =
   expect(noEffect(sample({ settleMs: 0, baseline: true }))).toBe(false);
   expect(noEffect(sample({ settleMs: 0, settled: false }))).toBe(false);
   expect(noEffect(sample({ settleMs: 900 }))).toBe(false);
+  // measured displacement wins over the detector: a fast worker sim can finish before the detector samples
+  expect(noEffect(sample({ settleMs: 0, movedNodes: 121 }))).toBe(false);
+  expect(noEffect(sample({ settleMs: 800, movedNodes: 0 }))).toBe(true);
 });
 
 test('splitUnlimited: the top share of the unit interval is the ∞ position, the rest spans the finite band', () => {

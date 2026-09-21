@@ -8,6 +8,8 @@ export interface SweepSample {
   values: Record<string, number>;          // actual slider values
   dropped: string[];                       // params absent/hidden in this UI
   settleMs: number | null; settled: boolean;
+  /** Nodes displaced > 0.5 px by applying the sample's forces, and the largest displacement (absent in old runs). */
+  movedNodes?: number; maxMovePx?: number;
   metrics: LayoutMetrics; score: number; screenshot: string;
 }
 
@@ -70,8 +72,10 @@ export function rescore(samples: SweepSample[]): SweepSample[] {
   return samples.map(s => ({ ...s, score: layoutScore(s.metrics, 0, QUALITY_WEIGHTS) }));
 }
 
-/** A swept sample whose forces never visibly moved anything inside the observation window. */
-export const noEffect = (s: SweepSample): boolean => !s.baseline && s.settled && (s.settleMs ?? 0) === 0;
+/** A swept sample whose forces did not change the picture: judged by measured node displacement. Runs recorded
+ *  before `movedNodes` existed fall back to "the detector saw no motion", which is unreliable for fast worker sims. */
+export const noEffect = (s: SweepSample): boolean => !s.baseline
+  && (s.movedNodes !== undefined ? s.movedNodes === 0 : s.settled && (s.settleMs ?? 0) === 0);
 
 export function groupSamples(samples: SweepSample[]): GroupResult[] {
   const groups = new Map<string, SweepSample[]>();
@@ -131,7 +135,12 @@ export function recommendationsMarkdown(groups: GroupResult[]): string {
         '| force | score | overlap | crossings | settle time |', '|---|---|---|---|---|');
       for (const s of g.sensitivity) { lines.push(`| ${s.param} | ${s.vsScore} | ${s.vsOverlap} | ${s.vsCrossings} | ${s.vsSettle} |`); }
       const inert = g.ranked.filter(noEffect).length, unsettled = g.ranked.filter(s => !s.settled).length;
-      if (inert) { lines.push('', `${inert} of ${g.ranked.length - 1} swept samples moved nothing inside the observation window — their picture equals the defaults (see F7: reheat latency).`); }
+      if (inert) {
+        const measured = g.ranked.some(x => x.movedNodes !== undefined);
+        lines.push('', measured
+          ? `${inert} of ${g.ranked.length - 1} swept samples displaced no node by more than 0.5 px — for them the forces do not change the picture.`
+          : `${inert} of ${g.ranked.length - 1} swept samples showed no motion to the settle detector. This run predates displacement measurement; fast worker sims can finish before the detector samples, so this is NOT evidence that nothing moved.`);
+      }
       if (unsettled) { lines.push('', `${unsettled} sample(s) were still moving at the timeout (marked ✗) — a layout that never comes to rest is itself a finding.`); }
       const dropped = [...new Set(g.ranked.flatMap(s => s.dropped))];
       if (dropped.length) { lines.push('', `Not available in this UI (skipped): ${dropped.join(', ')}`); }

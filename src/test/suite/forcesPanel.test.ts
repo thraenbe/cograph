@@ -13,6 +13,8 @@ const dom = new JSDOM(`<!DOCTYPE html><html><body>
     <div id="row-folder-repel"></div>
     <div id="row-file-repel"></div>
     <button id="btn-show-more-forces"></button>
+    <div class="toggle-row" id="row-show-libraries"><input type="checkbox" id="toggle-libraries" /></div>
+    <p id="libraries-hint" style="display:none"></p>
     <div id="forces-advanced">
       <div id="row-link-distance"></div>
       <div id="row-velocity-decay"></div>
@@ -104,6 +106,16 @@ suite('forcesPanel — updateForcesPanel()', () => {
     fp.updateForcesPanel();
     assert.ok(shown('row-center-force'));
     assert.ok(!shown('forces-hint'));
+  });
+
+  test('Shelf disables the Show Libraries toggle and shows the hint (F5)', () => {
+    fp.updateForcesPanel('shelf', 'dynamic');
+    const toggle = dom.window.document.getElementById('toggle-libraries') as any;
+    assert.strictEqual(toggle.disabled, true);
+    assert.ok(shown('libraries-hint'), 'hint visible under the shelf engine');
+    fp.updateForcesPanel('global', 'dynamic');
+    assert.strictEqual(toggle.disabled, false);
+    assert.ok(!shown('libraries-hint'), 'hint gone in the Global engine');
   });
 
   test('unknown engine falls back to the global row set', () => {

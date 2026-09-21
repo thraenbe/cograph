@@ -373,10 +373,11 @@ export function getWebviewHtml(
         <span>Show Orphans</span>
         <label class="switch"><input type="checkbox" id="toggle-orphans" checked /><span class="pill"></span></label>
       </div>
-      <div class="toggle-row">
+      <div class="toggle-row" id="row-show-libraries">
         <span>Show Libraries</span>
         <label class="switch"><input type="checkbox" id="toggle-libraries" /><span class="pill"></span></label>
       </div>
+      <p id="libraries-hint" class="forces-hint" style="display:none">Libraries are shown in the Global engine.</p>
       <div class="toggle-row">
         <span>Show Empty Files</span>
         <label class="switch"><input type="checkbox" id="toggle-empty-files" /><span class="pill"></span></label>

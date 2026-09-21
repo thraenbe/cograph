@@ -46,6 +46,16 @@ function updateForcesPanel(engine, mode) {
 
   const label = document.getElementById('label-file-cluster');
   if (label) { label.textContent = FP_CLUSTER_LABEL[engine] || FP_CLUSTER_LABEL.global; }
+
+  // "Show Libraries" only renders in the Global engine (the shelf clears the
+  // library layers) — disable the toggle there instead of a silent no-op.
+  const isShelf = engine === 'shelf';
+  const libToggle = document.getElementById('toggle-libraries');
+  if (libToggle) { libToggle.disabled = isShelf; }
+  const libRow = document.getElementById('row-show-libraries');
+  if (libRow) { libRow.style.opacity = isShelf ? '0.4' : ''; }
+  const libHint = document.getElementById('libraries-hint');
+  if (libHint) { libHint.style.display = isShelf ? '' : 'none'; }
 }
 
 // Initial sync at load — the scripts sit at the end of <body>, so the panel

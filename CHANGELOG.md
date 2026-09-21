@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Fixed
+- "Show Libraries" is disabled with a hint under the Shelf engine ("Libraries
+  are shown in the Global engine") instead of being a silent no-op — the
+  shelf does not render library nodes yet.
 - Switching **Global → Shelf while the Global simulation is still settling**
   no longer floods the console with thousands of NaN line-attribute errors
   (and the dropped frames they cost): the engine switch detaches the old

@@ -25,6 +25,7 @@ scenario('save-roundtrip', { perMotion: false }, async (lab, combo) => {
 
   // A fresh panel, as after closing and reopening CoGraph, then "load saved graph".
   const again = await openLab({ ...combo, repo, scenario: 'save-roundtrip-restore', browser: page.context().browser() ?? undefined });
+  again.ux.birth = 'user-moved'; // the restored picture contains the folder the user dragged before saving
   try {
     const restored = await again.ux.step('Fresh panel: host sends graph-loaded (v2)', async () => {
       await again.post({ type: 'graph-loaded', payload });

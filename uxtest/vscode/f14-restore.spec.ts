@@ -39,7 +39,7 @@ for (const repo of repos) {
         if (!c) { throw new SkipStep('no grabbable folder title'); }
         await page.mouse.move(c.x, c.y, { steps: 8 }); await page.mouse.down();
         await page.mouse.move(c.x + 60, c.y + 45, { steps: 16 }); await page.mouse.up();
-      });
+      }, { userMoved: true });
       const arranged = await snap();
       await ux.step(`Ctrl+S → save as "${NAME}"`, async () => {
         const f = await graphFrame();
@@ -54,6 +54,7 @@ for (const repo of repos) {
         await page.waitForTimeout(1500);
         if (await graphFrame()) { throw new Error('panel still open'); }
       }, { metrics: false, settle: false });
+      ux.birth = 'user-moved'; // the saved picture contains the dragged folder; a fresh panel would otherwise count as grid-born
       const restore = await ux.step(`Sidebar → Saved Graphs → click "${NAME}"`, async () => {
         const icon = page.locator('.activitybar .action-item a[aria-label*="Cograph" i]').first();
         if (await icon.count() === 0) { throw new Error('CoGraph activity-bar icon not found'); }

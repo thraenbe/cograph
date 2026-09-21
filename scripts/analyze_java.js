@@ -30,24 +30,42 @@ const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build'
 // so clearCstCache() only has to drop references — there is no WASM heap to free.
 const cstCache = new Map(); // filepath -> CST | null
 
-// Diagnostic/test counter: number of actual parse() invocations. A run over N
-// files should report N parses, not 2N.
-const _stats = { parses: 0 };
+// The cache is BOUNDED by the amount of source text it represents. A Chevrotain
+// CST weighs tens of times its source, so holding every file of a large repo
+// (guava: ~3 300 files) between the two passes ran V8 out of memory after ~85 s.
+// Files beyond the budget are simply parsed again in the second pass: typical
+// workspaces stay at one parse per file, huge ones trade CPU for a flat heap.
+let cstCacheSourceBudget = Number(process.env.COGRAPH_JAVA_CST_BUDGET) || 6 * 1024 * 1024;
+/** Test hook: shrink the budget to exercise the re-parse path. */
+function _setCstCacheBudget(bytes) { cstCacheSourceBudget = bytes; }
+let cachedSourceBytes = 0;
+
+// Diagnostic/test counters: `parses` = actual parse() invocations (N for a run
+// over N files that fit the budget, up to 2N beyond it); `uncached` = parses
+// whose CST was not retained.
+const _stats = { parses: 0, uncached: 0 };
 
 function getCst(filepath) {
   if (cstCache.has(filepath)) return cstCache.get(filepath);
   let cst = null;
+  let bytes = 0;
   try {
     const source = fs.readFileSync(filepath, 'utf8');
+    bytes = source.length;
     cst = parse(source);
     if (cst) _stats.parses++;
   } catch { cst = null; }
-  cstCache.set(filepath, cst ?? null);
+  if (cachedSourceBytes + bytes <= cstCacheSourceBudget) {
+    cachedSourceBytes += bytes;
+    cstCache.set(filepath, cst ?? null);
+  } else {
+    _stats.uncached++;
+  }
   return cst ?? null;
 }
 
 /** Drop all cached CSTs (Chevrotain CSTs are GC'd once unreferenced). */
-function clearCstCache() { cstCache.clear(); }
+function clearCstCache() { cstCache.clear(); cachedSourceBytes = 0; }
 
 function collectJavaFiles(root) {
   const results = [];
@@ -464,5 +482,5 @@ if (require.main === module) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { collectJavaFiles, collectDefinitions, collectCalls, clearCstCache, _stats };
+  module.exports = { collectJavaFiles, collectDefinitions, collectCalls, clearCstCache, _stats, _setCstCacheBudget };
 }

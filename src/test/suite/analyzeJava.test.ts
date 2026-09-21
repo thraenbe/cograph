@@ -318,4 +318,31 @@ suite('parse cache (single-parse, Java)', () => {
     assert.strictEqual(javaAnalyzer._stats.parses, files.length,
       'two files → two parses across both passes (cache reused), not four');
   });
+
+  test('bounded CST cache: over-budget files are re-parsed, results stay identical (no unbounded heap)', () => {
+    const fileA = path.join(tmpDir, 'A.java');
+    const fileB = path.join(tmpDir, 'B.java');
+    fs.writeFileSync(fileA, 'class A {\n  void helper() {}\n}\n');
+    fs.writeFileSync(fileB, 'class B {\n  void run() { helper(); }\n}\n');
+    const files = [fileA, fileB];
+
+    javaAnalyzer.clearCstCache();
+    const cachedDefs = collectDefinitions(files);
+    const cachedCalls = collectCalls(files, cachedDefs);
+
+    try {
+      javaAnalyzer._setCstCacheBudget(40);   // room for the first file only
+      javaAnalyzer.clearCstCache();
+      javaAnalyzer._stats.parses = 0;
+      javaAnalyzer._stats.uncached = 0;
+      const defs = collectDefinitions(files);
+      const calls = collectCalls(files, defs);
+      assert.strictEqual(javaAnalyzer._stats.parses, 3, 'A cached (1 parse), B over budget (2 parses)');
+      assert.strictEqual(javaAnalyzer._stats.uncached, 2);
+      assert.deepStrictEqual(JSON.parse(JSON.stringify(defs)), JSON.parse(JSON.stringify(cachedDefs)));
+      assert.deepStrictEqual(JSON.parse(JSON.stringify(calls)), JSON.parse(JSON.stringify(cachedCalls)));
+    } finally {
+      javaAnalyzer._setCstCacheBudget(6 * 1024 * 1024);
+    }
+  });
 });

@@ -446,3 +446,37 @@ a node left pinned by a big-graph drag keeps its frame ticking at the paced real
 5. Pan/zoom feel: DevTools (Help → Toggle Developer Tools → Rendering → Frame rendering
    stats) while zooming with everything expanded; W3b gate = ≥ 45 fps @3k, ≥ 30 fps @10k.
 6. Repeat 2-5 with `10 000 nodes`.
+
+### In-editor calibration (2026-09-21) — real VS Code 1.116.0, GPU raster + compositing enabled
+`scripts/perf/calibrate.mjs` (Playwright `_electron`, headed on DISPLAY :0, fresh profile per
+run, `CoGraph: Load Synthetic Repo`, the same `bench.js` scenarios evaluated inside the webview
+frame). Three checkouts, 3 repetitions each, **median (min–max)**; webview viewport 1600×935;
+settle cap 20 s. Raw: `.ai/plans/perf-calibration-2026-09-21.json`.
+
+| metric (shelf+dynamic) | base 9eda4c8 · 3k | W1 5fdae34 · 3k | W2 · 3k | base · 10k | W1 · 10k | W2 · 10k |
+|---|---|---|---|---|---|---|
+| settle script ms/frame p50 (4 frames) | 8.5 (6.4–8.8) | 6.6 (5.9–10.5) | **2.0 (1.4–3.5)** | 5.7 (5.5–5.9) | 5.5 (5.3–7.9) | **1.7 (1.5–4.3)** |
+| frame interval while settling (ms) | 33.3 | 33.2 | **16.7** | 18.8 | 16.7 | 16.7 |
+| 4 frames settled (ms) | 11 769 (8 551–13 745) | 8 991 (7 972–17 009) | **400 (300–657)** | 11 069 | 10 983 | **434 (433–731)** |
+| expand all → paint (ms) | 647 (486–949) | 439 (413–961) | 616 (498–998) | 1 579 | 1 356 | 1 817 (1 708–2 988) |
+| expand all settled (ms) | > 20 000 | > 20 000 | **1 417 (1 071–2 239)** | > 20 000 | > 20 000 | **9 177 (8 271–13 862)** |
+| pan/zoom fps, static, all expanded | 13.9 (5.8–15.2) | 12.6 (6.4–15.0) | 14.0 (11.7–14.1) | 4.4 (3.0–5.2) | 4.5 (2.9–5.2) | 4.7 (3.1–5.1) |
+| zoom handler p50 (ms) | 7.9 | 6.0 | **0.1** | 11.3 | 7.6 | **0.1** |
+| hover over p50 (ms) | 46 (45–157) | **0.2** | 0.3 | 173 (128–224) | **0.3** | 0.4 |
+| drag handler p50 (ms) | 45 (45–74) | **0.1** | 0.1 | 195 (131–210) | **0.1** | 0.1 |
+| frame interval while dragging (ms) | 150 | 50 | **16.7** | 650 | 83 | 50 |
+| search keystroke p50 (ms) | 92 (88–178) | **8.8** | 10.5 | 334 (271–344) | **23** | 29 |
+
+**Headless vs editor.** Script-side numbers agree within noise (3k: 9.3 vs 8.5 ms/frame,
+hover 33 vs 46 ms, drag 53 vs 45 ms, W2 settle 0.42 vs 0.40 s, 1.4 s vs 1.5 s). Contrary to
+the Step-0 caveat, **the paint-bound numbers agree too**: fully expanded pan/zoom is 14 fps @3k
+and 4.7 fps @10k in the editor with GPU raster (headless 13 / 4.8). 20k-65k SVG elements are
+paint-bound regardless of the GPU — headless Chrome is a valid proxy for this codebase.
+
+**W3b gate (≥ 45 fps @3k, ≥ 30 fps @10k, all expanded): fails today by 3-6×.** W3 (culling +
+LOD) is measured against it next; verdict recorded below the W3 results.
+
+**Finding F11** (host): `structure`/`graph` are posted on a timer (150 ms / 300 ms synthetic),
+not when the webview is ready. On a cold profile with CDN d3 the message was lost in 2 of 3
+opens of the base and W1 checkouts → blank graph (the calibration script retries the load).
+Vendored d3 (W2) hides it; the fix (webview `ready` handshake) is scheduled as the last W5 item.

@@ -125,6 +125,8 @@ export function scanStructure(workspaceRoot: string): StructureTree {
   const rootDepth = splitSegments(root).length;
 
   const folders: Record<string, StructureFolder> = {};
+  // parent → children already linked (was childFolders.includes(): O(n²) in wide folders)
+  const linked = new Map<string, Set<string>>();
   const ensureFolder = (p: string): StructureFolder => {
     let folder = folders[p];
     if (!folder) {
@@ -146,7 +148,9 @@ export function scanStructure(workspaceRoot: string): StructureTree {
       const parent = dirOf(current);
       if (!parent || parent === current) { break; } // safety: never escape above root
       const parentFolder = ensureFolder(parent);
-      if (!parentFolder.childFolders.includes(current)) { parentFolder.childFolders.push(current); }
+      let kids = linked.get(parent);
+      if (!kids) { kids = new Set(); linked.set(parent, kids); }
+      if (!kids.has(current)) { kids.add(current); parentFolder.childFolders.push(current); }
       folders[current].parent = parent;
       current = parent;
     }

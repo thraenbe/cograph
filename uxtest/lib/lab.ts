@@ -43,6 +43,8 @@ export interface RunRecord {
   engine: string; motion: string; hostMode: string; startedAt: string; durationMs: number;
   video: string | null; steps: StepRecord[]; hostLog: LoggedMessage[];
   consoleErrors: string[]; blockedRequests: string[]; perfReport: unknown; simTransport: SimTransport;
+  /** Which analyzers produced the graph (hash of the checkout-under-test's analyzer scripts) + its size. */
+  analyzerHash?: string | null; edges?: number;
 }
 
 export interface Lab {
@@ -153,6 +155,7 @@ export async function openLab(o: LabOpts): Promise<Lab> {
       repo: repo.name, functions: repo.functions, sizeClass: sizeClass(repo.functions), scenario, engine, motion,
       hostMode: host.mode, startedAt: startedAt.toISOString(), durationMs: Date.now() - startedAt.getTime(),
       video: videoRel, steps: ux.steps, hostLog: host.log, consoleErrors: errors, blockedRequests: blocked, perfReport, simTransport: transport,
+      analyzerHash: repo.analyzerHash ?? null, edges: repo.graph.edges.length,
     };
     fs.writeFileSync(path.join(outDir, 'run.json'), JSON.stringify(record, null, 2));
     log.info('run-written', { outDir, steps: ux.steps.length, errors: errors.length });

@@ -1,9 +1,12 @@
-// Runs the REAL analyzers (same recipe as ~/cograph/test-projects/measure.mjs)
-// once per repo + commit and caches the merged graph under uxtest/.cache/.
+// Runs the REAL analyzers OF THE CHECKOUT UNDER TEST (EXT_ROOT; same recipe as
+// ~/cograph/test-projects/measure.mjs) once per repo commit + analyzer version and caches the
+// merged graph under uxtest/.cache/. The analyzer hash in the key makes it impossible to serve a
+// graph produced by other analyzers (e.g. pre-D6 call narrowing) to a newer checkout.
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
-import { REPO_ROOT } from '../harness/vscodeStub';
+import * as crypto from 'crypto';
+import { EXT_ROOT, REPO_ROOT } from '../harness/vscodeStub';
 import type { GraphLite } from '../harness/fakeHost';
 import { log } from './log';
 
@@ -15,6 +18,7 @@ export interface AnalyzedRepo {
   analyzers: Record<string, { nodes: number; edges: number } | { error: string }>;
   analysisMs: number;
   functions: number;
+  analyzerHash?: string;
 }
 
 export const CACHE_DIR = path.join(REPO_ROOT, 'uxtest', '.cache');
@@ -26,6 +30,18 @@ const ANALYZERS: Array<[bin: string, script: string, lang: string]> = [
   [process.execPath, 'scripts/analyze_java.js', 'java'],
   [process.execPath, 'scripts/analyze_cpp.js', 'cpp'],
 ];
+
+/** Hash of everything that shapes the graph: analyzer scripts + the compiled scanner/merger. */
+export function analyzerHash(extRoot: string = EXT_ROOT): string {
+  const h = crypto.createHash('sha1');
+  const scripts = path.join(extRoot, 'scripts');
+  const files = fs.existsSync(scripts)
+    ? fs.readdirSync(scripts).filter(f => /\.(js|py)$/.test(f) && !/^test_|polyfill/.test(f)).sort().map(f => path.join(scripts, f)) : [];
+  for (const f of [...files, path.join(extRoot, 'out', 'structureScanner.js'), path.join(extRoot, 'out', 'graphMerge.js')]) {
+    if (fs.existsSync(f)) { h.update(path.basename(f)); h.update(fs.readFileSync(f)); }
+  }
+  return h.digest('hex').slice(0, 8);
+}
 
 function headSha(root: string): string {
   try {
@@ -47,18 +63,18 @@ function runAnalyzer(bin: string, args: string[], timeoutMs: number): Promise<{ 
 }
 
 export async function analyzeRepo(name: string, root: string, timeoutMs: number, force = false): Promise<AnalyzedRepo> {
-  const cacheFile = path.join(CACHE_DIR, `${name}-${headSha(root)}.json`);
+  const cacheFile = path.join(CACHE_DIR, `${name}-${headSha(root)}-${analyzerHash()}.json`);
   if (!force && fs.existsSync(cacheFile)) {
     return JSON.parse(fs.readFileSync(cacheFile, 'utf8')) as AnalyzedRepo;
   }
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { scanStructure } = require(path.join(REPO_ROOT, 'out', 'structureScanner.js'));
+  const { scanStructure } = require(path.join(EXT_ROOT, 'out', 'structureScanner.js'));
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { mergeGraph } = require(path.join(REPO_ROOT, 'out', 'graphMerge.js'));
+  const { mergeGraph } = require(path.join(EXT_ROOT, 'out', 'graphMerge.js'));
   const t0 = Date.now();
   const structure = scanStructure(root);
   const results = await Promise.all(
-    ANALYZERS.map(([bin, script]) => runAnalyzer(bin, [path.join(REPO_ROOT, script), root], timeoutMs)));
+    ANALYZERS.map(([bin, script]) => runAnalyzer(bin, [path.join(EXT_ROOT, script), root], timeoutMs)));
   let graph: GraphLite = { nodes: [], edges: [], files: [] };
   const analyzers: AnalyzedRepo['analyzers'] = {};
   results.forEach((r, i) => {
@@ -68,7 +84,7 @@ export async function analyzeRepo(name: string, root: string, timeoutMs: number,
     graph = mergeGraph(graph, { nodes: r.graph.nodes || [], edges: r.graph.edges || [], files: r.graph.files || [] });
   });
   const out: AnalyzedRepo = {
-    name, root, structure, graph, analyzers, analysisMs: Date.now() - t0,
+    name, root, structure, graph, analyzers, analysisMs: Date.now() - t0, analyzerHash: analyzerHash(),
     functions: graph.nodes.filter(n => !n.isLibrary && n.file).length,
   };
   fs.mkdirSync(CACHE_DIR, { recursive: true });

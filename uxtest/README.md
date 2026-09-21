@@ -65,10 +65,14 @@ example (time-to-still, fps, `perfReport()` per engine → `baseline.json`):
 
 ## Layout metrics (per step)
 
+Layout invariants are computed from webview STATE (`state.currentNodes` ∩ `getVisibleNodeIds()`, `state.frames`, the
+engines' link lists — the perf branch detaches culled frames / LOD layers from the DOM); legibility is measured on the DOM.
+
 `nodeOverlapPairs/Ratio` · `nodesOutsideSlot` / `nodesPokingOutOfSlot` / `nodesOutsideFrame` (B1)
 · `nodesPinnedToWall` (B2) · `frameOverlapPairs` / `slotOverlapPairs` (R2, must be 0) ·
 `edgeLenMean` / `edgeLenCv` · `edgeCrossingsPerEdge` (seeded sample) · `labelOverlapRatio`
-(B6, R4) · `bboxAspect` · `inkRatio` · `viewportCoverage` · `domNodes` / `heapMB` (P7).
+(B6, R4) · `bboxAspect` · `inkRatio` · `viewportCoverage` · `nodePxMedian` / `labelPxMedian` / `smallBoxShare` (legibility at the
+current zoom — meaningful on fitted steps) · `domNodes` / `heapMB` (P7). Per step also `still.firstMoveMs` (time to first motion).
 Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 
 ## Scenarios (Tier A, `uxtest/scenarios/`)
@@ -80,9 +84,10 @@ Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 | `20-detail` | Detail slider 0 → 1 → 0 |
 | `30-git-language` | git panel + `git-update`, legend, language swatches |
 | `40-folder-panel` | folder mode, every force slider incl. the ux "show more forces" set, folder filters via context menu |
+| `45-force-reheat` | Shelf+Dynamic: a force change must move the layout, promptly, also after a Detail re-render (F13 / F7) |
 | `50-class-groupby` | class overlay; group-by lens (optional — removed by ux) |
 | `60-settings` | search / Ctrl+F / clear / count, filter toggles, display sliders, global forces, reset |
-| `70-canvas` | pan, zoom, drag node, drag folder, resize frame, context menus — with collateral-movement check (H4) |
+| `70-canvas` | pan, zoom, drag node, drag folder, resize frame, context menus — with collateral-movement check (H4) and hover-overlay churn under a resting pointer (F10) |
 | `75-lazy-expand` | lazy host: skeleton → `expand-folder` → `graph-patch` → background graph keeps the drill-down |
 | `80-popups` | function popup (drag, resize, edit + Ctrl+S, close, Escape), navigate fallback, libraries (F5), `save-request` |
 | `85-hover-card` | annotate's hover card (optional; canned `annotations`, AI off) |
@@ -131,6 +136,10 @@ copy, `$UXTEST_VSCODE`, or a download) with `--extensionDevelopmentPath`, a thro
 Visualize (T_first / T_functions), panel alive after 15 s (B7), metrics inside the real webview frame, engine /
 motion toggles, source popup from the real host, Ctrl+S keybinding + InputBox, sidebar view, on-save incremental
 re-parse, Open or Reload Layout. The CoGraph output channel + exthost log are saved as `vscode-output.log`.
+`--scenario cold-open` (`vscode/cold-open.spec.ts`) launches N fresh profiles (`UXTEST_COLD_ATTEMPTS`, default 5), runs
+Visualize immediately and flags `blank-graph-on-cold-open` (F11) / `panel-vanished` (B7) on video.
+Gotchas baked into the driver: Electron pages get an explicit default timeout; `frame.evaluate` on a webview hidden behind
+another editor tab never answers, so every frame probe is time-boxed; a stuck quit is killed after 20 s.
 
 ## Selectors
 

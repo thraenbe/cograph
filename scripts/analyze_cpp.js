@@ -19,6 +19,7 @@
 'use strict';
 
 const path = require('path');
+const { createNarrower, withStats } = require('./narrowCalls.js');
 const fs   = require('fs');
 // Bare specifier (not a path join): web-tree-sitter is an "exports"-only package
 // with no "main" field, so it must be resolved by name. Node resolves it from
@@ -380,7 +381,9 @@ function collectDefinitions(files) {
 // ── Calls pass ────────────────────────────────────────────────────────────────
 
 function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, importMap,
-                              edges, seenEdges, libraryNodes) {
+                              edges, seenEdges, libraryNodes, narrowIds) {
+  // D6: receiver-blind fan-outs go through the ambiguity narrowing (narrowCalls.js).
+  const narrow = (ids) => (narrowIds ? narrowIds(ids, filepath) : ids);
   const classStack = [];
   const callerStack = [];
 
@@ -435,7 +438,7 @@ function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, import
       const name = fn.text;
       const ids = nameToIds[name];
       if (ids) {
-        for (const id of ids) addEdge(id, false);
+        for (const id of narrow(ids)) addEdge(id, false);
         return;
       }
       const ns = importMap.usingSymbols[name];
@@ -472,7 +475,7 @@ function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, import
         const own = members.filter(id => definitions[id].className === cls);
         if (own.length) { for (const id of own) addEdge(id, false); return; }
       }
-      for (const id of members) addEdge(id, false);
+      for (const id of narrow(members)) addEdge(id, false);
       return;
     }
 
@@ -483,7 +486,7 @@ function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, import
 
       if (parts.length === 1) {
         const ids = nameToIds[calleeName];
-        if (ids) for (const id of ids) addEdge(id, false);
+        if (ids) for (const id of narrow(ids)) addEdge(id, false);
         return;
       }
 
@@ -549,7 +552,8 @@ function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, import
   visit(rootNode);
 }
 
-function collectCalls(files, definitions) {
+function collectCalls(files, definitions, root) {
+  const narrower = createNarrower((id) => definitions[id] && definitions[id].file, root);
   const nameToIds = Object.create(null);
   for (const [qid, defn] of Object.entries(definitions)) {
     if (!nameToIds[defn.name]) nameToIds[defn.name] = [];
@@ -565,10 +569,10 @@ function collectCalls(files, definitions) {
     try {
       const importMap = parseImports(tree.rootNode);
       collectCallsFromTree(tree.rootNode, filepath, definitions, nameToIds, importMap,
-                           edges, seenEdges, libraryNodes);
+                           edges, seenEdges, libraryNodes, narrower.narrow);
     } catch { /* skip files that crash the walker */ }
   }
-  return { edges, libraryNodes: Array.from(libraryNodes.values()) };
+  return { edges, libraryNodes: Array.from(libraryNodes.values()), stats: narrower.stats };
 }
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
@@ -594,9 +598,9 @@ async function main() {
   const files = explicitFileList() ?? collectCppFiles(root);
   try {
     const definitions = collectDefinitions(files);
-    const { edges, libraryNodes } = collectCalls(files, definitions);
+    const { edges, libraryNodes, stats } = collectCalls(files, definitions, root);
     const nodes = [...Object.values(definitions), ...libraryNodes];
-    require('./graphOutput.js').writeGraph({ nodes, edges, files });
+    require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
   } finally {
     clearTreeCache(); // free all cached WASM trees
   }

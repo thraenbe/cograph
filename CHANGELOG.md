@@ -163,6 +163,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ancestor chain.
 
 ### Changed
+- **Call resolution on large repositories changes.** A call by bare name (`get()`,
+  `this.size()`) used to be linked to *every* function with that name in the workspace. When
+  a name has more than 8 definitions, the candidates are now narrowed to the caller's file,
+  then its directory, then its top-level package; if more than 8 remain the call is left
+  unresolved. Repositories where no name has more than 8 definitions produce byte-identical
+  graphs. Large repositories lose their "hairball" edges and analyze and render faster; the
+  CoGraph output channel reports `N ambiguous calls narrowed, M dropped` per language.
 - Saving a file no longer blocks the extension host on three `git` subprocesses, and only
   functions whose git status actually changed are sent to the graph; the analysis cache is
   written in the background after the graph is shown; the analysis result is no longer

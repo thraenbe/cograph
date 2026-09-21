@@ -379,6 +379,13 @@ export class AnalyzerRunner {
         }
         try {
           const graph = JSON.parse(stdout) as GraphData;
+          // D6: analyzers report how many ambiguous call names they narrowed /
+          // dropped (only present when > 0) — make the effect visible in the log.
+          const stats = (graph as { stats?: { ambiguousNarrowed?: number; ambiguousDropped?: number } }).stats;
+          if (stats) {
+            this.log(`Analyzer [${lang}]: ${stats.ambiguousNarrowed ?? 0} ambiguous calls narrowed, `
+              + `${stats.ambiguousDropped ?? 0} dropped (names with more than 8 definitions)`);
+          }
           resolve({ graph, status: graph.nodes.length > 0 ? 'ok' : 'empty', lang });
         } catch {
           resolve(fail('parse-error', stderr ? stderr.slice(0, 300).trim() : 'invalid JSON'));

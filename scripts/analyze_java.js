@@ -18,6 +18,7 @@ const fs   = require('fs');
 // Bare specifier so esbuild can inline it into the packaged bundle (dev runs
 // resolve it from the repo's node_modules via normal module resolution).
 const { parse, BaseJavaCstVisitorWithDefaults } = require('java-parser');
+const { createNarrower, withStats } = require('./narrowCalls.js');
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build']);
 
@@ -312,9 +313,10 @@ function collectDefinitions(files) {
 // ── Calls pass ────────────────────────────────────────────────────────────────
 
 class CallCollector extends BaseJavaCstVisitorWithDefaults {
-  constructor(filepath, definitions, nameToIds, importMap) {
+  constructor(filepath, definitions, nameToIds, importMap, narrow) {
     super();
     this.validateVisitor();
+    this.narrow = narrow || ((ids) => ids);   // D6: ambiguous-name narrowing (narrowCalls.js)
     this.filepath = filepath;
     this.definitions = definitions;
     this.nameToIds = nameToIds;
@@ -393,7 +395,7 @@ class CallCollector extends BaseJavaCstVisitorWithDefaults {
 
         // Internal call: bare name OR receiver === 'this'
         if (receiverName === null || receiverName === 'this') {
-          const ids = this.nameToIds[calleeName];
+          const ids = this.narrow(this.nameToIds[calleeName], this.filepath);
           if (ids) {
             for (const calleeId of ids) this._addEdge(calleeId, false);
           }
@@ -421,7 +423,8 @@ class CallCollector extends BaseJavaCstVisitorWithDefaults {
   }
 }
 
-function collectCalls(files, definitions) {
+function collectCalls(files, definitions, root) {
+  const narrower = createNarrower((id) => definitions[id] && definitions[id].file, root);
   const nameToIds = Object.create(null);
   for (const [qid, defn] of Object.entries(definitions)) {
     if (!nameToIds[defn.name]) nameToIds[defn.name] = [];
@@ -435,7 +438,7 @@ function collectCalls(files, definitions) {
     if (!cst) { continue; }
     const importMap = parseImports(cst);
     try {
-      const collector = new CallCollector(filepath, definitions, nameToIds, importMap);
+      const collector = new CallCollector(filepath, definitions, nameToIds, importMap, narrower.narrow);
       collector.visit(cst);
       allEdges.push(...collector.edges);
       for (const [id, node] of collector.libraryNodes) {
@@ -443,7 +446,7 @@ function collectCalls(files, definitions) {
       }
     } catch { /* skip files that crash the visitor */ }
   }
-  return { edges: allEdges, libraryNodes: Array.from(allLibraryNodes.values()) };
+  return { edges: allEdges, libraryNodes: Array.from(allLibraryNodes.values()), stats: narrower.stats };
 }
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
@@ -468,9 +471,9 @@ function main() {
   const files = explicitFileList() ?? collectJavaFiles(root);
   try {
     const definitions = collectDefinitions(files);
-    const { edges, libraryNodes } = collectCalls(files, definitions);
+    const { edges, libraryNodes, stats } = collectCalls(files, definitions, root);
     const nodes = [...Object.values(definitions), ...libraryNodes];
-    require('./graphOutput.js').writeGraph({ nodes, edges, files });
+    require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
   } finally {
     clearCstCache(); // drop cached CSTs
   }

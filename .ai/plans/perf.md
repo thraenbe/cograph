@@ -617,3 +617,37 @@ same machine, sequential:
 Analysis time is parse-bound and barely moves; the win is downstream (transport, merge, cache,
 layout, cross-folder bundling) and guava going from "fails" to "works". `measure-all.sh` not
 re-run (as instructed).
+
+### FINAL — acceptance table, stated misses, round 2 (2026-09-21, final reviewer pass done)
+Reviewer pass over my diff vs `shelf-base` (own code + merge resolutions only): no leftovers
+(`console.log`, debug markers), 14 new modules all < 200 LOC (bench scripts ≤ 404), no function
+> 50 LOC, new-module coverage 99.6 % lines / 92.8 % branches (c8 over the pure mocha suites),
+CSP = `default-src 'none'` + nonce scripts + `worker-src blob:` + `connect-src <webview origin>`,
+no external host. One fix from the pass: the dev bench server's path check used a bare prefix
+(`/repo-evil` would pass `/repo`) → compares against `ROOT + sep`. One nit deferred because
+`src/webview` is frozen for uxtest's sweep: the worker Blob URL is never revoked (≈ 56 KB per
+panel) → round 2.
+
+| Metric (3k, in-editor ★ unless noted) | Baseline | Target | Final |
+|---|---|---|---|
+| Settle script / animation frame, 4 frames, workers on | 9.3 ms | ≤ 2 (p95 ≤ 4) | **2.4 ★** (1.7 / 3.3 headless) |
+| 4 frames settled · expand-all settled | 10.7 s · > 30 s | ≤ 1 s · ≤ 2 s | **0.37 s · 0.78 s ★** (10k: 0.48 s · 2.4 s) |
+| Drag handler · frames while dragging | 53 ms · 150 ms | ≤ 2 ms · 1 frame | **0.2 ms · 16.7 ms ★** (10k too) |
+| Hover over / out | 33 / 32 ms | ≤ 2 ms | **0.5 / 0.4 ms ★** |
+| Zoom handler | 1.2-7.1 ms | ≤ 0.5 ms | **0.2 ms ★** |
+| Pan/zoom, all expanded (W3b gate ≥ 45 @3k, ≥ 30 @10k) | 14 / 4.7 fps | gate | **56.6 / 41.9 fps ★**, pan- or zoom-only 57-67; fmt 3.9 → 65 |
+| Slider reheat → all frames moving (F7) | 10.6 s | — | **89 ms** |
+| Search keystroke | 78-98 ms | ≤ 10 ms | 10-14 ms ★ (10k 34 vs ≤ 25) — **missed** on the first character |
+| Blank graph on cold open (F11) | 2/3 and 1/13 cold opens | 0 | ready handshake; uxtest acceptance run pending |
+| guava | V8 OOM / 2.65 M edges | completes or fails < 30 s | **completes**: 146 602 edges in 74 s — time target **missed** (parse-bound) |
+| workers off == today · stale positions never paint | — | yes | ✔ same functions by reference · ✔ unit-tested |
+
+**Stated misses:** first-character search keystroke (full pass when > 25 % of nodes flip);
+guava's 74 s (needs sharding); `cograph.layout.workers` not live; async structure scan not wired.
+
+**Round 2 (also in `.ai/memory/tech-dept.md`):** (1) W4 global engine in the worker — must carry
+`repelRange` and the separation forces, fixes F12 (13-minute zod freeze); (2) analyzer sharding
+(W5-6) for parse-bound repos; (3) giant-frame apply splitting, then Canvas2D only if needed
+(fmt-class repos: drag 15 fps, settle 22 ms/frame at rest); (4) first-character keystroke
+(index labels, or apply the big flip in chunks); (5) import-map stage for D6; (6) revoke the
+worker Blob URL; live `workers` setting.

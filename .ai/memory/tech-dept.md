@@ -97,6 +97,9 @@ reanalysis-scheduling path would re-load the gun. Fix shape: same captured
   - When the global engine moves into the worker (W4), every Global-only force key must travel
     with the settings patch too — notably ux's F4 `repelRange` (charge `.distanceMax`) and the
     drill-down/file separation forces, which exist only in `rendering.js`/`drilldown.js` today.
+  - **First-character search keystroke** still runs the full display pass when > 25 % of nodes
+    flip (10-14 ms @3k, 34 ms @10k vs ≤ 10 / ≤ 25 targets): index labels or chunk the flip.
+  - The simulation worker's Blob URL is never revoked (≈ 56 KB per panel; simBackend.js).
   - `cograph.layout.workers` is read at panel open only (not live).
   - Intra-language analyzer sharding (W5-6) and NDJSON streaming not started.
 - **2026-09-21 — Libraries are not rendered in the Shelf engine.** frameRender

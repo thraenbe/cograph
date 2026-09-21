@@ -8,7 +8,7 @@ import { spawn } from 'child_process';
 import { createServer } from 'http';
 import { writeFileSync, mkdtempSync, rmSync, readFile } from 'fs';
 import { tmpdir } from 'os';
-import { dirname, join, normalize, extname, resolve } from 'path';
+import { dirname, join, normalize, extname, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 
 const DIR = dirname(fileURLToPath(import.meta.url));
@@ -27,7 +27,7 @@ const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
 function serve() {
   const server = createServer((req, res) => {
     const file = normalize(join(ROOT, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
-    if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+    if (file !== ROOT && !file.startsWith(ROOT + sep)) { res.writeHead(403).end(); return; } // no sibling-prefix escape
     readFile(file, (err, data) => {
       if (err) { res.writeHead(404).end(); return; }
       res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });

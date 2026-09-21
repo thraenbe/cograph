@@ -98,13 +98,17 @@ Chat and the Workflow Graph have per-request caps for turns, spend and time (`co
   in **Static** motion by default — click **Dynamic** to let it settle live). If needed,
   use the **Detail** slider or the search filter — or switch the engine toggle to
   **Global** for the classic layout (`cograph.layout.defaultEngine` /
-  `cograph.layout.defaultMode` set the startup combination).
+  `cograph.layout.defaultMode` set the startup combination). The Shelf engine's
+  simulations run in background workers (`cograph.layout.workers`: `auto` | `on` | `off`,
+  default `auto`; `off` simulates on the UI thread), and when zoomed far out labels, call
+  lines and function dots are dropped until you zoom back in.
 - **Some calls are missing.** Dynamic dispatch, `eval`, and computed/runtime-generated
   calls are not statically resolvable — see *Limitations*.
 
 ## Limitations
 
 - Dynamic dispatch and runtime-generated functions are not tracked.
+- Calls are resolved by name. When a called name has more than 8 definitions in the workspace, only those in the caller's file, then directory, then top-level package are linked; if more than 8 still remain the call is left unresolved (the CoGraph output channel reports how many).
 - Cross-package call edges (into installed libraries) are intentionally excluded — external calls are surfaced through library cluster nodes instead.
 - TypeScript / JavaScript analysis covers static call sites; dynamic patterns (e.g. `eval`, computed property calls) are not tracked.
 - Java and C++ analysis covers statically resolvable calls; macro-heavy or template-heavy C++ code may produce a partial graph.

@@ -30,6 +30,9 @@ Status as reported by the owning sessions; "verified" = re-run by uxtest via `--
 - `static-grid-overlap` right after Dynamic → Static is the frozen dynamic picture, not B1.
 - Ctrl+S (layout) is a VS Code keybinding → `save-request`; only Tier B can press the real key.
 - With an eager host every file is parsed, so collapsed *files* only exist in the lazy-host scenario.
+- The `vscode` stub must mirror every property the builder PROBES, not only what it prints: without `Uri.fsPath` the
+  builder's `fs.existsSync(dist/webview/…)` check failed silently and the lab ran sync sims only — a whole transport
+  went untested until perf noticed the settle times. `run.json.simTransport` now records what really ran.
 - This machine's Node 22 has no TypeScript support → everything TypeScript runs under the Playwright runner.
 
 ## First force sweep (shelf-base UI, 12 LHS samples + defaults per repo × engine, Dynamic, headless)

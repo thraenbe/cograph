@@ -24,7 +24,9 @@ Output: `uxtest/artifacts/<runId>/<repo>/<scenario>-<engine>-<motion>/`
 
 - The page is the **production HTML**: `out/webviewHtmlBuilder.js` is loaded with a stubbed
   `vscode` module (`harness/vscodeStub.ts`), so panel markup, CSP and script order cannot drift.
-- d3 is served from the pinned local `d3@7.9.0` by intercepting the cdnjs URL — the HTML is
+- The stub `Uri`s carry a real `fsPath`, so a checkout that bundles `dist/webview/` (vendored d3, `simWorker.js`) is
+  detected exactly as in VS Code and runs its sims in the **worker pool**; the lab self-test asserts that.
+- On checkouts that still load d3 from cdnjs, d3 is served from the pinned local `d3@7.9.0` by intercepting the cdnjs URL — the HTML is
   unchanged and the lab is fully offline (any other request is aborted and listed in `run.json`).
 - `acquireVsCodeApi` is stubbed via `addInitScript`; `harness/fakeHost.ts` plays the extension
   host (`eager`: structure + full graph; `lazy`: structure, then a `graph-patch` per expanded
@@ -154,6 +156,8 @@ npm run uxtest -- [flags]
   --all-repos         default + large repos
   --scenario <name>   file-name filter, e.g. smoke
   --engine shelf|global     --motion static|dynamic      narrow the matrix
+  --workers-mode auto|on|off   cograph.layout.workers inside the lab = simulation transport (NOT Playwright workers).
+                      `run.json.simTransport` + the report header say what really ran (worker×N | sync | fell back)
   --headed            show the browser (real GPU fps)
   --strict            findings fail the run (default: observational)
   --workers N         parallel workers (default 2)

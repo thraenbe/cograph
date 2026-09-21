@@ -9,6 +9,7 @@ import { openLab } from '../lib/lab';
 import { clickSel, dragBy, fitToView, locateNode, need, setSlider, wheelZoom, backgroundPoint } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 import { attachLogFile, log } from '../lib/log';
+import { EXT_ROOT } from '../harness/vscodeStub';
 
 test('lab boots the real webview, records steps and produces sane geometry', async ({ browser }) => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uxtest-lab-'));
@@ -38,6 +39,8 @@ test('lab boots the real webview, records steps and produces sane geometry', asy
     await ux.step('Back to shelf/static, detail 0', async () => {
       await clickSel(page, 'engineShelf'); await clickSel(page, 'motionStatic'); await setSlider(page, 'detailSlider', 0);
     });
+    await fitToView(page);            // the collapsed root glyph must be fully on screen to be locatable
+    await page.waitForTimeout(900);
     const folder = await locateNode(page, { kind: 'folder', pick: 'largest' });
     expect(folder.id).toBeTruthy();
 
@@ -93,6 +96,34 @@ test('lab self-launches a browser and boots in lazy host mode', async () => {
     const run = await lab.close();
     expect(run.video).toBeNull();
     expect(run.hostMode).toBe('lazy');
+  }
+});
+
+test('worker transport: a bundled checkout really runs its sims in workers inside the lab (and sync when switched off)', async ({ browser }) => {
+  // Only checkouts that ship dist/webview/simWorker.js have a worker transport (perf branch onwards).
+  test.skip(!fs.existsSync(path.join(EXT_ROOT, 'dist', 'webview', 'simWorker.js')), `${EXT_ROOT} has no bundled simWorker.js`);
+  for (const mode of ['on', 'off'] as const) {
+    const lab = await openLab({ repo: 'synthetic-1k', engine: 'shelf', motion: 'dynamic', workers: mode, browser, video: false, keepSnapshots: false,
+      outDir: fs.mkdtempSync(path.join(os.tmpdir(), 'uxtest-lab-')) });
+    try {
+      const before = await lab.ux.step('Settle', async () => { /* observe */ }, { stillTimeoutMs: 30000 });
+      await lab.ux.step('Repel 250 → 600', async () => { await setSlider(lab.page, 'forceRepel', 600); }, { expectMotionMs: 10000, stillTimeoutMs: 30000 });
+      expect(before.metrics?.nodes).toBeGreaterThan(100);
+      expect(lab.ux.steps[1].still?.firstMoveMs, `${mode}: the force change must move nodes`).not.toBeNull();
+      const t = await lab.simTransport();
+      if (mode === 'on') {
+        expect(t.workerUri, 'COGRAPH_CONFIG.workerUri').toContain('simWorker.js');
+        expect(t).toMatchObject({ requested: 'on', kind: 'worker', fallbacks: [] });
+        expect(t.poolSize).toBeGreaterThan(0);
+        expect(await lab.page.evaluate('typeof d3 !== "undefined"')).toBe(true);
+      } else {
+        expect(t).toMatchObject({ requested: 'off', kind: 'sync', poolSize: 0 });
+      }
+    } finally {
+      const run = await lab.close();
+      expect(run.blockedRequests).toEqual([]);
+      expect(run.simTransport.requested).toBe(mode);
+    }
   }
 });
 

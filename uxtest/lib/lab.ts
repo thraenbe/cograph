@@ -8,7 +8,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from '@playwri
 import { startServer, type LabServer } from '../harness/server';
 import { FakeHost, type AnnotationsFixture, type HostMode, type LoggedMessage } from '../harness/fakeHost';
 import { attachHost, postToWebview } from '../harness/hostBridge';
-import { REPO_ROOT } from '../harness/vscodeStub';
+import { REPO_ROOT, workersModeFromEnv, type WorkersMode } from '../harness/vscodeStub';
 import { loadConfig, loadRepo, sizeClass, type UxConfig } from './corpus';
 import type { AnalyzedRepo } from './analyze';
 import { attachOverlay } from './overlay';
@@ -32,13 +32,17 @@ export interface LabOpts {
   annotations?: AnnotationsFixture | ((repo: AnalyzedRepo) => AnnotationsFixture);
   outDir?: string;                      // default uxtest/artifacts/<runId>/<repo>/<scenario>-<engine>-<motion>
   keepSnapshots?: boolean;              // default true
+  workers?: WorkersMode;                // cograph.layout.workers; default UXTEST_WORKERS_MODE or 'auto'
 }
+
+/** Which simulation transport the page REALLY ran (branches with the worker pool expose __fr.backend). */
+export interface SimTransport { requested: WorkersMode; kind: string | null; poolSize: number; workerUri: string | null; fallbacks: string[] }
 
 export interface RunRecord {
   repo: string; functions: number; sizeClass: string; scenario: string;
   engine: string; motion: string; hostMode: string; startedAt: string; durationMs: number;
   video: string | null; steps: StepRecord[]; hostLog: LoggedMessage[];
-  consoleErrors: string[]; blockedRequests: string[]; perfReport: unknown;
+  consoleErrors: string[]; blockedRequests: string[]; perfReport: unknown; simTransport: SimTransport;
 }
 
 export interface Lab {
@@ -46,6 +50,8 @@ export interface Lab {
   ux: StepRecorder; outDir: string;
   /** Send a host→webview message (same path VS Code uses). */
   post(message: unknown): Promise<void>;
+  /** The transport in use right now (kind null = branch without a worker pool → synchronous). */
+  simTransport(): Promise<SimTransport>;
   /** Stop recording, write run.json, release browser/server. Returns the run record. */
   close(): Promise<RunRecord>;
 }
@@ -71,7 +77,7 @@ async function wireNetwork(page: Page, origin: string, blocked: string[]): Promi
 }
 
 async function boot(page: Page, host: FakeHost, server: LabServer, o: LabOpts, stillTimeout: number): Promise<void> {
-  await page.goto(server.pageUrl({ engine: o.engine, motion: o.motion, perf: true, timeline: o.timeline }));
+  await page.goto(server.pageUrl({ engine: o.engine, motion: o.motion, perf: true, timeline: o.timeline, workers: o.workers }));
   await page.waitForSelector('#graph svg', { state: 'attached', timeout: 15000 });
   for (const r of host.openingMessages()) { await postToWebview(page, r.message, r.delayMs); }
   await page.waitForFunction('typeof state !== "undefined" && state.currentNodes && state.currentNodes.length > 0',
@@ -109,7 +115,18 @@ export async function openLab(o: LabOpts): Promise<Lab> {
   await attachHost(page, host);
 
   const ux = new StepRecorder({ page, outDir, still: cfg.still, caps: cfg.caps, errors, keepSnapshots: o.keepSnapshots !== false, t0: videoT0 });
-  try { await boot(page, host, server, { ...o, engine, motion }, cfg.still.timeoutMs); }
+  const workers = o.workers ?? workersModeFromEnv();
+  const simTransport = async (): Promise<SimTransport> => {
+    const live = await page.evaluate(`(() => {
+      const cfg = window.COGRAPH_CONFIG || {};
+      const b = (typeof __fr !== 'undefined' && __fr && __fr.backend && typeof __fr.backend.kind === 'function') ? __fr.backend : null;
+      return { kind: b ? b.kind() : null, poolSize: b && b.poolSize ? b.poolSize() : 0, workerUri: cfg.workerUri || null };
+    })()`).catch(() => ({ kind: null, poolSize: 0, workerUri: null })) as { kind: string | null; poolSize: number; workerUri: string | null };
+    const fallbacks = host.posted('webview-log').map(m => (m.entry as { event?: string; detail?: string } | undefined))
+      .filter(e => e && /sim-workers/.test(String(e.event))).map(e => `${e?.event}: ${e?.detail ?? ''}`);
+    return { requested: workers, ...live, fallbacks };
+  };
+  try { await boot(page, host, server, { ...o, engine, motion, workers }, cfg.still.timeoutMs); }
   catch (err) {
     log.error('lab-boot-failed', { repo: repo.name, error: String(err), errors });
     await context.close().catch(() => undefined);
@@ -119,6 +136,7 @@ export async function openLab(o: LabOpts): Promise<Lab> {
   }
 
   const close = async (): Promise<RunRecord> => {
+    const transport = await simTransport();
     let perfReport: unknown = null;
     try { perfReport = await page.evaluate('typeof perfReport === "function" ? perfReport() : null'); }
     catch (err) { log.warn('perf-report-unavailable', { error: String(err) }); }
@@ -134,12 +152,12 @@ export async function openLab(o: LabOpts): Promise<Lab> {
     const record: RunRecord = {
       repo: repo.name, functions: repo.functions, sizeClass: sizeClass(repo.functions), scenario, engine, motion,
       hostMode: host.mode, startedAt: startedAt.toISOString(), durationMs: Date.now() - startedAt.getTime(),
-      video: videoRel, steps: ux.steps, hostLog: host.log, consoleErrors: errors, blockedRequests: blocked, perfReport,
+      video: videoRel, steps: ux.steps, hostLog: host.log, consoleErrors: errors, blockedRequests: blocked, perfReport, simTransport: transport,
     };
     fs.writeFileSync(path.join(outDir, 'run.json'), JSON.stringify(record, null, 2));
     log.info('run-written', { outDir, steps: ux.steps.length, errors: errors.length });
     return record;
   };
 
-  return { page, context, host, repo, cfg, ux, outDir, post: (m) => postToWebview(page, m), close };
+  return { page, context, host, repo, cfg, ux, outDir, post: (m) => postToWebview(page, m), simTransport, close };
 }

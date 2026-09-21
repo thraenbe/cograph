@@ -36,6 +36,10 @@ if (value('motion')) { env.UXTEST_MOTIONS = value('motion'); }
 if (value('corpus')) { env.UXTEST_CORPUS = value('corpus'); }
 if (value('ext-root')) { env.UXTEST_EXT_ROOT = path.resolve(value('ext-root')); }
 if (value('workers')) { env.UXTEST_WORKERS = value('workers'); }
+if (value('workers-mode')) {
+  if (!['auto', 'on', 'off'].includes(value('workers-mode'))) { fail('--workers-mode must be auto | on | off'); }
+  env.UXTEST_WORKERS_MODE = value('workers-mode'); // cograph.layout.workers inside the lab (simulation transport), not Playwright workers
+}
 if (flag('headed')) { env.UXTEST_HEADED = '1'; }
 if (flag('strict')) { env.UXTEST_STRICT = '1'; }
 if (flag('reanalyze')) { env.UXTEST_REANALYZE = '1'; }

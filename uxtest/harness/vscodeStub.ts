@@ -9,6 +9,16 @@ export interface BootConfig {
   motion?: 'dynamic' | 'static';
   perf?: boolean;
   timeline?: boolean;
+  /** cograph.layout.workers: 'auto' (what users get) | 'on' | 'off' (synchronous sims). */
+  workers?: WorkersMode;
+}
+
+export type WorkersMode = 'auto' | 'on' | 'off';
+
+/** UXTEST_WORKERS_MODE / --workers-mode; default 'auto' like the product. */
+export function workersModeFromEnv(): WorkersMode {
+  const v = process.env.UXTEST_WORKERS_MODE;
+  return v === 'on' || v === 'off' ? v : 'auto';
 }
 
 export const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -20,9 +30,18 @@ const BUILDER = path.join(EXT_ROOT, 'out', 'webviewHtmlBuilder.js');
 let currentCfg: Record<string, unknown> = {};
 let hookInstalled = false;
 
+/** Enough of vscode.Uri for the builder: `path` feeds asWebviewUri, `fsPath` feeds its fs.existsSync()
+ *  probe for bundled assets (dist/webview/d3.min.js, simWorker.js). Without fsPath the builder believes
+ *  nothing is bundled → CDN d3 and NO worker transport, i.e. the lab would only ever test sync sims. */
+interface StubUri { path: string; fsPath: string; toString(): string }
+function stubUri(urlPath: string, fsPath: string): StubUri {
+  return { path: urlPath, fsPath, toString: () => urlPath };
+}
+
 const vscodeStub = {
   Uri: {
-    joinPath: (base: { path: string }, ...segs: string[]) => ({ path: path.posix.join(base.path, ...segs) }),
+    joinPath: (base: StubUri, ...segs: string[]) => stubUri(path.posix.join(base.path, ...segs), path.join(base.fsPath ?? '', ...segs)),
+    file: (fsPath: string) => stubUri(fsPath, fsPath),
   },
   workspace: {
     getConfiguration: () => ({
@@ -55,6 +74,7 @@ export function renderWebviewHtml(origin: string, cfg: BootConfig = {}): string 
     'layout.defaultEngine': cfg.engine ?? 'shelf',
     'layout.defaultMode': cfg.motion ?? 'static',
     'debug.perfLog': cfg.perf ?? true,
+    'layout.workers': cfg.workers ?? 'auto',
   };
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const builder = require(BUILDER);
@@ -62,7 +82,7 @@ export function renderWebviewHtml(origin: string, cfg: BootConfig = {}): string 
     asWebviewUri: (u: { path: string }) => `${EXT_PREFIX}${u.path}`,
     cspSource: origin,
   };
-  return builder.getWebviewHtml(webview, { path: '/' }, { timelineMode: cfg.timeline === true });
+  return builder.getWebviewHtml(webview, stubUri('/', EXT_ROOT), { timelineMode: cfg.timeline === true });
 }
 
 /** Script paths (repo-relative) in load order, as emitted by the real builder. */

@@ -54,6 +54,14 @@ export function flattenFindings(runs: LoadedRun[]): FlatFinding[] {
   return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || a.rule.localeCompare(b.rule));
 }
 
+/** 'worker×4' | 'sync' | 'sync (fell back!)' — which simulation transport the recording really used. */
+export function transportLabel(run: RunRecord): string {
+  const t = run.simTransport;
+  if (!t) { return 'sync (not recorded)'; }
+  if (t.kind === 'worker') { return `worker×${t.poolSize}`; }
+  return t.fallbacks && t.fallbacks.length ? 'sync (workers fell back!)' : t.requested === 'off' ? 'sync (workers off)' : 'sync';
+}
+
 function anchor(rel: string): string { return 'r-' + rel.replace(/[^a-zA-Z0-9]+/g, '-'); }
 function clock(ms: number): string { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
@@ -114,7 +122,7 @@ export function runSectionHtml(r: LoadedRun, base: LoadedRun | undefined): strin
   const posted = [...new Set(run.hostLog.map(l => l.message.type))].join(', ');
   const poster = run.steps.find(st => st.screenshot)?.screenshot ?? null;
   return `<section class="card" id="${anchor(rel)}"><h3>${esc(run.repo)} · ${esc(run.scenario)} · ${esc(run.engine)}/${esc(run.motion)}
-<span class="dim">— ${run.functions} fns (${esc(run.sizeClass)}), host ${esc(run.hostMode)}, ${(run.durationMs / 1000).toFixed(0)} s${base ? ', deltas vs baseline' : ''}</span></h3>
+<span class="dim">— ${run.functions} fns (${esc(run.sizeClass)}), host ${esc(run.hostMode)}, sims ${esc(transportLabel(run))}, ${(run.durationMs / 1000).toFixed(0)} s${base ? ', deltas vs baseline' : ''}</span></h3>
 <div class="run"><div>${run.video ? `<video controls preload="none"${poster ? ` poster="${esc(`${rel}/${poster}`)}"` : ''} src="${esc(`${rel}/${run.video}`)}"></video>` : '<p class="dim">no video</p>'}
 <p class="dim">Click a step row to seek the video. Webview → host messages: ${esc(posted || 'none')}. <a href="${esc(`${rel}/run.json`)}">run.json</a></p>${errors}${perf}</div>
 <div class="steps wrap"><table><tr><th>#</th><th>step</th><th>at</th><th>still ms</th><th>frame ms / long</th>${KEY_METRICS.map(([, l]) => `<th>${esc(l)}</th>`).join('')}<th></th></tr>

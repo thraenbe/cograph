@@ -14,7 +14,8 @@ test.describe('real HTML via the vscode stub', () => {
   test('emits every webview script the builder references, all present on disk', () => {
     const scripts = scriptListFromHtml(renderWebviewHtml(ORIGIN));
     expect(scripts.length).toBeGreaterThan(15);
-    expect(scripts[0]).toBe('src/webview/state.js');
+    // a bundled checkout loads its vendored d3 (dist/webview) first; the webview sources always start with state.js
+    expect(scripts.filter(x => x.startsWith('src/webview/'))[0]).toBe('src/webview/state.js');
     expect(scripts).toContain('src/webview/main.js');
     for (const s of scripts) { expect(fs.existsSync(path.join(REPO_ROOT, s)), s).toBe(true); }
     expect(scripts).not.toContain('src/webview/timeline.js');

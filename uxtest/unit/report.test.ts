@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { esc, page, plain } from '../report/html';
-import { flattenFindings, loadRuns, newestRun, reportHtml, writeRunReport } from '../report/build';
+import { flattenFindings, loadRuns, newestRun, reportHtml, transportLabel, writeRunReport } from '../report/build';
 import { contactSheetHtml, findSamples, writeSweepReport } from '../report/sweepReport';
 import { groupSamples, rescore, type SweepSample } from '../sweep/analyze';
 import { computeMetrics } from '../metrics/compute';
@@ -15,6 +15,7 @@ function run(over: Partial<RunRecord> = {}): RunRecord {
   return {
     repo: 'click', functions: 1773, sizeClass: 'small', scenario: 'smoke', engine: 'shelf', motion: 'static', hostMode: 'eager',
     startedAt: '2026-09-21T00:00:00.000Z', durationMs: 42000, video: 'video.webm', perfReport: { nodes: 1 }, blockedRequests: [],
+    simTransport: { requested: 'auto', kind: 'worker', poolSize: 4, workerUri: '/ext/dist/webview/simWorker.js', fallbacks: [] },
     consoleErrors: ['console.error: <line> attribute x1: Expected length, "NaN".'],
     hostLog: [{ atMs: 5, message: { type: 'dirty-state' } }],
     steps: [
@@ -63,6 +64,11 @@ test('run report: findings, matrix, seekable steps, baseline deltas', () => {
   const html = fs.readFileSync(files[0], 'utf8');
   expect(html).toContain('Overview &lt;C1&gt;');
   expect(html).toContain('data-t="1.50"');
+  expect(html).toContain('sims worker×4');
+  expect(transportLabel(run({ simTransport: { requested: 'on', kind: 'sync', poolSize: 0, workerUri: 'x', fallbacks: ['sim-workers-fallback: boom'] } }))).toBe('sync (workers fell back!)');
+  expect(transportLabel(run({ simTransport: { requested: 'off', kind: 'sync', poolSize: 0, workerUri: null, fallbacks: [] } }))).toBe('sync (workers off)');
+  expect(transportLabel(run({ simTransport: { requested: 'auto', kind: null, poolSize: 0, workerUri: null, fallbacks: [] } }))).toBe('sync');
+  expect(transportLabel({ ...run(), simTransport: undefined } as unknown as ReturnType<typeof run>)).toBe('sync (not recorded)');
   expect(html).toContain('1:05');
   expect(html).toContain('poster="click/smoke-shelf-static/steps/01-overview.png"');
   expect(html).toContain('static-grid-overlap');

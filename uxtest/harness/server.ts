@@ -35,6 +35,7 @@ function cfgFromQuery(url: URL): BootConfig {
     motion: motion === 'dynamic' ? 'dynamic' : 'static',
     perf: url.searchParams.get('perf') !== '0',
     timeline: url.searchParams.get('timeline') === '1',
+    workers: (['on', 'off'] as const).find(m => m === url.searchParams.get('workers')) ?? 'auto',
   };
 }
 
@@ -87,7 +88,7 @@ export async function startServer(): Promise<LabServer> {
     pageUrl: (cfg: BootConfig = {}) => {
       const q = new URLSearchParams({
         engine: cfg.engine ?? 'shelf', motion: cfg.motion ?? 'static',
-        perf: cfg.perf === false ? '0' : '1', timeline: cfg.timeline ? '1' : '0',
+        perf: cfg.perf === false ? '0' : '1', timeline: cfg.timeline ? '1' : '0', workers: cfg.workers ?? 'auto',
       });
       return `${origin}/?${q.toString()}`;
     },

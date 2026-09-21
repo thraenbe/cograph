@@ -23,6 +23,13 @@ Status as reported by the owning sessions; "verified" = re-run by uxtest via `--
 
 ## Harness lessons (so the next campaign does not repeat them)
 
+- A settle detector started AFTER the action misses reactions that are over in milliseconds (worker sims of small
+  folders). Arm it before the action (`armBefore`) and judge "no effect" by measured node displacement, never by
+  "the detector saw nothing". The first integrated sweep mislabelled express/Shelf as inert for this reason; the
+  guess "tiny slots leave no room" was wrong (median free play 32 px, 121 of 127 nodes move on a repel change).
+- Controls inside a collapsed expander are "hidden", not "absent": open `#forces-advanced` before deciding a slider
+  does not exist — otherwise a sweep silently drops exactly the parameters it was run for.
+
 - A per-frame movement threshold calls slow settling "still". The detector now measures drift across the whole
   quiet window and, for actions that must move something, refuses stillness until motion was seen.
 - A sweep must not put settle time into the ranking score: the defaults start at their own equilibrium. Rank the

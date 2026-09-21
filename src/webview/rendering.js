@@ -232,7 +232,13 @@ function fitToView() {
   const pad = 60;
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
-  const scale = Math.min((W - pad * 2) / (maxX - minX || 1), (H - pad * 2) / (maxY - minY || 1), 4);
+  let maxR = 0;
+  for (const n of state.currentNodes) {
+    if (n.x != null && isFinite(n.x)) { maxR = Math.max(maxR, nodeRadius(n)); }
+  }
+  const scale = (typeof fitScale === 'function')
+    ? fitScale(maxX - minX, maxY - minY, W, H, maxR, pad)
+    : Math.min((W - pad * 2) / (maxX - minX || 1), (H - pad * 2) / (maxY - minY || 1), 4);
   svg.transition().duration(500).call(
     zoomBehavior.transform,
     d3.zoomIdentity

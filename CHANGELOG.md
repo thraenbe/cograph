@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Fixed
+- Fit-to-view no longer blows a single collapsed-folder glyph up to fill the
+  viewport (Detail 0 on a repo with one root folder): the fit scale is capped
+  so the largest node stays under ~35% of the shorter viewport side.
 - Light themes now reach JS-painted colours: theme variables are read from
   `<body>` (where VS Code sets `vscode-light`), so nodes, links and labels no
   longer keep the dark palette in a light theme.

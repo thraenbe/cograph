@@ -72,6 +72,28 @@ suite('frameChrome — path builders', () => {
   });
 });
 
+suite('frameChrome — fitScale (F6)', () => {
+  const W = 1280, H = 800;
+
+  test('a single big glyph is capped by radius, not the 4x scale cap', () => {
+    // bbox of one point (bw=bh=0), r=115 — the click Detail-0 case
+    const s = fc.fitScale(0, 0, W, H, 115);
+    assert.ok(Math.abs(s - (0.35 * H) / 115) < 1e-9, `expected radius cap, got ${s}`);
+    assert.ok(s * 115 <= 0.35 * H + 1e-9, 'glyph stays under 35% of the short side');
+  });
+
+  test('normal graphs are unaffected (radius cap above the bbox scale)', () => {
+    const dense = fc.fitScale(6800, 6800, W, H, 12);
+    assert.ok(Math.abs(dense - (H - 120) / 6800) < 1e-9, 'bbox-driven fit unchanged');
+    const roomy = fc.fitScale(100, 80, W, H, 12);
+    assert.strictEqual(roomy, 4, 'hard cap still applies when nodes are small');
+  });
+
+  test('no radius → classic behaviour', () => {
+    assert.strictEqual(fc.fitScale(0, 0, W, H, 0), 4);
+  });
+});
+
 suite('frameChrome — counts', () => {
   test('long form when the strip is wide, short form when narrow', () => {
     assert.strictEqual(fc.countsText(33, 410, 200), '33 files · 410 fns');

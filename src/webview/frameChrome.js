@@ -59,6 +59,16 @@ function rectPath(x, y, w, h, r = 8) {
     `a${r} ${r} 0 0 1 ${r} ${-r}Z`;
 }
 
+/** Fit-to-view scale: fill the padded viewport, hard cap 4x, and never let
+ *  the largest node exceed ~35% of the shorter viewport side — a lone
+ *  collapsed-folder glyph (bbox of a single point) must not become a
+ *  viewport-filling blob (F6). */
+function fitScale(bw, bh, viewW, viewH, maxR, pad = 60) {
+  let s = Math.min((viewW - pad * 2) / (bw || 1), (viewH - pad * 2) / (bh || 1), 4);
+  if (maxR > 0) { s = Math.min(s, (0.35 * Math.min(viewW, viewH)) / maxR); }
+  return s;
+}
+
 // Dense-slot labelling (B6): slots holding more than SLOT_N functions hide
 // their function labels until the viewer zooms past LABEL_ZOOM.
 const DENSE = { SLOT_N: 12, LABEL_ZOOM: 1.5 };
@@ -103,7 +113,7 @@ function closedFolderPath(r) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    TAB, DENSE, FOLDER_GLYPH, tabWidth, tabChars, cutLabel, slotLabelText,
+    TAB, DENSE, FOLDER_GLYPH, tabWidth, tabChars, cutLabel, slotLabelText, fitScale,
     tabBodyPath, tabOnlyPath, rectPath, countsText, memberCounts, closedFolderPath,
   };
 }

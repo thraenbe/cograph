@@ -350,7 +350,14 @@ Left open, consciously:
   cancel and panel close). A run requested meanwhile waits ("Waiting for the code analysis to
   finish…", cancellable) and only then plans, shows the estimate and sends, so every digest has
   its symbols and the estimate is exact. No change to `analyzerRunner.ts`.
-- **Not verified in a running VS Code window.** All behaviour is covered by unit, jsdom and
-  extension-host tests; nobody has hovered a real graph yet. The `.frame-tab` row is written
-  against the ux session's description and must be re-checked after merging `ux`.
+- ~~Not verified live.~~ **Closed 2026-09-21** after merging `termi/s111` (ux final, `895de09`):
+  checked in real Chromium through the uxtest lab (`click`, Shelf, AI off). Frame tab → card
+  after 300 ms ("src/ · src · 17 files · 579 functions · python"); file slot background → nothing
+  at 350 ms, card after 600 ms ("test_arguments.py · tests/test_arguments.py · 78 functions ·
+  python"); collapsed closed-folder glyph → card ("click/ · . · 79 files · 1773 functions ·
+  python"). Card is `pointer-events: none`, stays inside the viewport, hides on mousedown and
+  wheel, no console errors, webview posts `get-annotations` once. As built, `g.frame-tab` is
+  `pointer-events: none` and the titlebar strip over it takes the hit, so the selector table
+  needed no change. `uxtest --scenario smoke` on `click`: 1 passed, 0 errors. Still not seen
+  inside an actual VS Code window (the lab serves the same webview HTML to Chromium).
 - No timeout escalation to SIGKILL (SIGTERM only), as before the refactor.

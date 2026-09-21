@@ -18,6 +18,9 @@ const HOVER_MARGIN = 8;
 // Hit element class → which ancestor group carries the datum, which datum field holds
 // the path, and whether it is a background (slow) target. Frame and folder-box BODIES
 // are deliberately absent: a card wherever the pointer rests would be noise.
+// As built by the ux work, g.frame-tab is pointer-events:none and the transparent
+// .folder-bubble-titlebar strip over it takes the hit; the frame-tab row stays so the card
+// keeps working if the tab ever becomes hittable. Checked live in Chromium (uxtest lab).
 const HOVER_TARGETS = [
   { cls: 'frame-tab',              group: 'g.frame',         field: 'path',       kind: 'folder', background: false },
   { cls: 'folder-bubble-titlebar', group: 'g.frame',         field: 'path',       kind: 'folder', background: false },

@@ -81,7 +81,65 @@
       R.payloadMB = r2(JSON.stringify(FX.graph).length / 1e6);
       const tc = performance.now(); structuredClone(FX.graph); R.structuredCloneMs = r2(performance.now() - tc);
 
-      // 1) load: structure + graph messages → paint (+ settle when dynamic)
+      // 0) optional A/B probe (?probe=globalSettle): Global+Dynamic with DEFAULT sliders.
+    // Separates "more ticks" from "slower ticks" from "never cools": tick count, script
+    // ms per frame, alpha reheats, re-renders, re-fits, sim-end vs visual stillness.
+    if (P.get('probe') === 'globalSettle') {
+      const counts = { renderElements: 0, applyComplexity: 0, applyFileClusters: 0, fitToView: 0, rerunLayout: 0, startSimulation: 0 };
+      const events = [];
+      const t00 = performance.now();
+      for (const name of Object.keys(counts)) {
+        const orig = window[name];
+        if (typeof orig !== 'function') { continue; }
+        window[name] = function (...a) { counts[name]++; events.push([name, r2(performance.now() - t00)]); return orig.apply(this, a); };
+      }
+      async function settle(label, action) {
+        const c0 = { ...counts };
+        let ticks = 0, reheats = 0, lastAlpha = null, simSeen = null, sims = 0;
+        let simEndMs = null, stillMs = null, stillRun = 0, maxStep = 0;
+        let prev = null;
+        B.rec = []; B.acc = 0;
+        const t0 = performance.now();
+        action();
+        while (performance.now() - t0 < MAX_MS) {
+          await raf();
+          const now = performance.now() - t0;
+          const sim = state.simulation;
+          if (sim && sim !== simSeen) { simSeen = sim; sims++; if (sim.on) { sim.on('tick.bench', () => { ticks++; }); } lastAlpha = null; }
+          const alpha = sim && sim.alpha ? sim.alpha() : 0;
+          if (lastAlpha != null && alpha > lastAlpha + 1e-6) { reheats++; events.push([`reheat ${r2(lastAlpha)}→${r2(alpha)}`, r2(now)]); }
+          lastAlpha = alpha;
+          const min = sim && sim.alphaMin ? sim.alphaMin() : 0.001;
+          if (alpha < min) { if (simEndMs == null) { simEndMs = r2(now); } } else { simEndMs = null; }
+          // visual stillness: max per-frame displacement < 0.5 px for 30 consecutive frames
+          let step = 0;
+          const cur = new Map();
+          for (const n of state.currentNodes) { cur.set(n.id, [n.x, n.y]); const q = prev && prev.get(n.id); if (q) { step = Math.max(step, Math.abs(n.x - q[0]) + Math.abs(n.y - q[1])); } }
+          prev = cur; maxStep = Math.max(maxStep, step);
+          if (step < 0.5) { stillRun++; if (stillRun === 30 && stillMs == null) { stillMs = r2(now - 30 * 16.7); } } else { stillRun = 0; stillMs = null; }
+          if (simEndMs != null && stillMs != null && now - simEndMs > 600) { break; }
+        }
+        const rec = B.rec; B.rec = null;
+        const active = rec.filter(f => f.script > 0.05);
+        const delta = {}; for (const k of Object.keys(counts)) { delta[k] = counts[k] - c0[k]; }
+        return { label, nodes: state.currentNodes.length, simEndMs, stillMs, timedOut: simEndMs == null || stillMs == null,
+          ticks, msPerTick: ticks ? r2(active.reduce((a, f) => a + f.script, 0) / ticks) : null,
+          scriptPerFrameMs: stats(active.map(f => f.script)), frameIntervalMs: stats(rec.slice(1).map(f => f.dt)),
+          reheats, simObjects: sims, finalAlpha: r2(lastAlpha ?? 0), calls: delta };
+      }
+      R.globalSettle = [];
+      R.globalSettle.push(await settle('load', () => {
+        post({ type: 'structure', tree: FX.structure, autoEngage: true });
+        post({ type: 'graph', data: FX.graph, gitAvailable: false, fileGitStatus: {}, isReanalysis: false });
+      }));
+      R.globalSettle.push(await settle('expandAll', () => applyDetailDepth(1)));
+      R.engineAtEnd = state.layoutEngine; R.modeAtEnd = state.layoutMode;
+      R.events = events.slice(0, 80);
+      R.errors = B.errors;
+      window.__benchResult = R; return;
+    }
+
+    // 1) load: structure + graph messages → paint (+ settle when dynamic)
       R.load = await record(() => {
         post({ type: 'structure', tree: FX.structure, autoEngage: true });
         post({ type: 'graph', data: FX.graph, gitAvailable: false, fileGitStatus: {}, isReanalysis: false });

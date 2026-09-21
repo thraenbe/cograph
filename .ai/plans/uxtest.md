@@ -1,7 +1,7 @@
 # Plan — Feature 4: UX test suite (`uxtest`)
 
 Session: uxtest (branch `termi/s180-2`, base `shelf-base` 9eda4c8) · Planner phase · 2026-09-18
-Status: **awaiting approval — no feature code written.**
+Status: **executed (M0–M7), 2026-09-21.** Approved by Bela via session-110 (Q1 observational + `--strict`, Q2 d3 pinned devDep, Q3 keep artifacts). As-built deviations are listed at the end.
 
 ## Problem
 
@@ -251,3 +251,20 @@ Not touched: `src/**`, `esbuild.js`, `tsconfig.json`, CI.
   invariant violations fail the run from day one?
 - **Q2** OK to add `d3@7.9.0` as an exact-pinned devDependency (served locally in place of cdnjs)?
 - **Q3** Artifact retention: keep everything (default, recommended) or auto-prune to the last N runs?
+
+## As built — deviations from this plan (2026-09-21)
+
+- **Unit tests run under the Playwright runner + `c8`** (one more devDep), not `node --test`: this machine's Node 22
+  is built without TypeScript support. 63 tests, 81 % lines; code that executes inside Chromium is verified by
+  the synthetic-1k lab self-test, which c8 cannot count.
+- **Metrics read webview state, not only the DOM** (`getVisibleNodeIds()`, `state.frames`, the engines' link
+  lists; DOM fallback): perf's W3 detaches culled frames / LOD layers. Legibility stays DOM-based.
+- **Sweep score = picture quality only**, settle time listed separately, baseline reheated like every sample,
+  plus an at-fit legibility term. The first ranking ("defaults win") was an artefact of putting settle time into
+  the score; the Shelf sweeps on shelf-base are void because of F13. The real Shelf sweep is parked for the
+  integrated branch.
+- **Added beyond the plan** (requested by session-110 during execution): `--ext-root` (run the suite against any
+  checkout — used to verify F1–F6, F9, F10, F13 fixes), scenarios `45-force-reheat`, `75-lazy-expand`,
+  `85-hover-card`, hover-churn metric, `StepFinding`, Tier B `cold-open` hunt, `uxtest/docs/findings-2026-09.md`.
+- **Not done:** CI integration (out of scope as planned); AI fake-provider run (follow-up); T5 "follow a call
+  across folders" is not automated; Tier B on-save step reads `state.graphData`, not the painted picture.

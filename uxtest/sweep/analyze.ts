@@ -59,7 +59,8 @@ export interface GroupResult {
 export function analyzeGroup(samples: SweepSample[]): GroupResult {
   const ranked = [...samples].sort((a, b) => a.score - b.score);
   const baseline = samples.find(s => s.baseline) ?? null;
-  const best = ranked.find(s => !s.baseline) ?? null;
+  // A sample that never came to rest cannot be a recommendation, however good its last frame scored.
+  const best = ranked.find(s => !s.baseline && s.settled) ?? ranked.find(s => !s.baseline) ?? null;
   const improvementPct = baseline && best && baseline.score > 0 ? +(((baseline.score - best.score) / baseline.score) * 100).toFixed(1) : null;
   return { repo: samples[0]?.repo ?? '', engine: samples[0]?.engine ?? '', baseline, ranked, best, improvementPct, sensitivity: sensitivity(samples) };
 }

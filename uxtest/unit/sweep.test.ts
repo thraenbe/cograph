@@ -76,6 +76,8 @@ test.describe('analysis', () => {
     expect(g.best?.index).toBe(1);
     expect(g.improvementPct).toBe(66.7);
     expect(analyzeGroup([samples[1]]).improvementPct).toBeNull();
+    expect(analyzeGroup([samples[0], { ...samples[1], settled: false }, samples[2]]).best?.index).toBe(2); // unsettled never wins
+    expect(analyzeGroup([samples[0], { ...samples[1], settled: false }]).best?.index).toBe(1);             // …unless nothing settled
   });
 
   test('sensitivity excludes the baseline and sorts by |rho|', () => {

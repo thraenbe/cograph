@@ -14,6 +14,12 @@ const HOVER_DELAY_MS = 300;      // headers, labels, collapsed glyphs
 const HOVER_BG_DELAY_MS = 600;   // empty background of a file slot / file circle
 const HOVER_OFFSET = 14;
 const HOVER_MARGIN = 8;
+// A mouseout only counts as leaving if the pointer is not back on the same target within
+// this time. Hovering a collapsed glyph makes rendering.js draw cross-folder links that start
+// under the pointer and removes them again on its own mouseout: a ~30 ms out/over flicker for
+// as long as the pointer rests there (seen live on `click`, src/click). Without the grace
+// period every flicker cancelled the open timer and the card never appeared.
+const HOVER_LEAVE_GRACE_MS = 80;
 
 // Hit element class → which ancestor group carries the datum, which datum field holds
 // the path, and whether it is a background (slow) target. Frame and folder-box BODIES
@@ -65,6 +71,27 @@ function hcResolveTarget(el) {
     if (d && typeof d[t.field] === 'string' && d[t.field]) {
       return { kind: t.kind, path: d[t.field], background: t.background };
     }
+  }
+  return null;
+}
+
+/** Links are drawn over and under folders and files; they never own the hover. */
+function hcIsLink(el) {
+  if (!el || !el.closest) { return false; }
+  return el.tagName === 'line' || !!el.closest('g.links, g.f-links');
+}
+
+/**
+ * Target for a pointer event. A link lying on top of a glyph or header must not hide what
+ * is underneath, so for a link hit the stack at the pointer is searched past the links.
+ * elementsFromPoint is a hit test, used only for link hits and never in a tick path.
+ */
+function hcResolveAt(el, x, y, doc) {
+  const direct = hcResolveTarget(el);
+  if (direct || !hcIsLink(el) || !doc || typeof doc.elementsFromPoint !== 'function') { return direct; }
+  for (const under of doc.elementsFromPoint(x, y)) {
+    if (hcIsLink(under)) { continue; }
+    return hcResolveTarget(under); // the first non-link element decides, even if it is not a target
   }
   return null;
 }
@@ -153,12 +180,17 @@ function hcBuildElement(doc) {
 function createHoverCard(env) {
   const doc = env.doc, win = env.win;
   const ann = { root: '', aiEnabled: false, files: {}, folders: {}, stale: new Set() };
-  let counts = null, timer = null, pendingKey = null, shownKey = null;
+  let counts = null, timer = null, leaveTimer = null, pendingKey = null, shownKey = null;
   let px = 0, py = 0;
 
   const { card, parts } = hcBuildElement(doc);
 
+  function cancelLeave() {
+    if (leaveTimer) { win.clearTimeout(leaveTimer); leaveTimer = null; }
+  }
+
   function hide() {
+    cancelLeave();
     if (timer) { win.clearTimeout(timer); timer = null; }
     pendingKey = null;
     if (shownKey) { shownKey = null; card.classList.remove('visible'); }
@@ -187,10 +219,12 @@ function createHoverCard(env) {
     shownKey = key;
   }
 
+  function keyOf(target) { return target ? target.kind + ':' + target.path : null; }
+
   function onOver(event) {
-    const target = hcResolveTarget(event.target);
-    const key = target ? target.kind + ':' + target.path : null;
-    if (key && (key === shownKey || key === pendingKey)) { return; }
+    const target = hcResolveAt(event.target, event.clientX, event.clientY, doc);
+    const key = keyOf(target);
+    if (key && (key === shownKey || key === pendingKey)) { cancelLeave(); return; } // still on the same thing
     hide();
     if (!target || event.buttons) { return; } // a pressed button means a drag is in progress
     pendingKey = key;
@@ -198,10 +232,17 @@ function createHoverCard(env) {
   }
 
   function onOut(event) {
-    const next = hcResolveTarget(event.relatedTarget);
-    const key = next ? next.kind + ':' + next.path : null;
+    const key = keyOf(hcResolveAt(event.relatedTarget, event.clientX, event.clientY, doc));
     if (key && (key === shownKey || key === pendingKey)) { return; }
-    hide();
+    scheduleLeave();
+  }
+
+  // Not an immediate hide: see HOVER_LEAVE_GRACE_MS. A mouseover on another element hides at
+  // once anyway (onOver), so the grace only bridges re-renders under a resting pointer. Also
+  // used for mouseleave of #graph: when the element under the pointer is REMOVED (the cross
+  // links above), Chromium fires mouseleave up the whole ancestor chain, #graph included.
+  function scheduleLeave() {
+    if ((shownKey || pendingKey) && !leaveTimer) { leaveTimer = win.setTimeout(hide, HOVER_LEAVE_GRACE_MS); }
   }
 
   function onMove(event) { px = event.clientX; py = event.clientY; }
@@ -226,7 +267,7 @@ function createHoverCard(env) {
   root.addEventListener('mousemove', onMove, { passive: true });
   root.addEventListener('mousedown', hide, true);        // drag or pan starts
   root.addEventListener('wheel', hide, { passive: true, capture: true }); // zoom
-  root.addEventListener('mouseleave', hide);
+  root.addEventListener('mouseleave', scheduleLeave);
   win.addEventListener('message', onMessage);
   win.addEventListener('blur', hide);
   doc.addEventListener('keydown', onKey);
@@ -245,7 +286,7 @@ function createHoverCard(env) {
       root.removeEventListener('mousemove', onMove);
       root.removeEventListener('mousedown', hide, true);
       root.removeEventListener('wheel', hide, { capture: true });
-      root.removeEventListener('mouseleave', hide);
+      root.removeEventListener('mouseleave', scheduleLeave);
       win.removeEventListener('message', onMessage);
       win.removeEventListener('blur', hide);
       doc.removeEventListener('keydown', onKey);
@@ -257,7 +298,7 @@ function createHoverCard(env) {
 if (typeof module !== 'undefined') {
   module.exports = {
     createHoverCard, hcResolveTarget, hcRelPath, hcContent, hcFacts, hcFunctionCounts, hcPlace,
-    HOVER_DELAY_MS, HOVER_BG_DELAY_MS, HOVER_TARGETS,
+    hcResolveAt, hcIsLink, HOVER_DELAY_MS, HOVER_BG_DELAY_MS, HOVER_LEAVE_GRACE_MS, HOVER_TARGETS,
   };
 } else if (typeof document !== 'undefined' && document.getElementById('graph')) {
   createHoverCard({

@@ -52,6 +52,7 @@ function buildGraph(doc: Document): Record<string, any> {
   const tab = el(frame, 'g', 'frame-tab');
   const bubble = el(svg, 'g', 'folder-bubble', { folderPath: '/ws/src' });
   const fileBubble = el(svg, 'g', 'file-bubble', { filePath: '/ws/src/a.ts' });
+  const links = el(svg, 'g', 'links');
   return {
     root, svg,
     frameBody: el(frame, 'rect', 'folder-bubble-shape'),
@@ -67,6 +68,9 @@ function buildGraph(doc: Document): Record<string, any> {
     folderGlyph: el(svg, 'path', 'node', { id: 'f', isFolderCluster: true, _folderPath: '/ws/src/util' }),
     fileGlyph: el(svg, 'circle', 'node', { id: 'g', isFileCluster: true, _filePath: '/ws/src/a.ts' }),
     fnNode: el(svg, 'circle', 'node', { id: 'fn', file: '/ws/src/a.ts' }),
+    links,
+    crossHover: el(links, 'line', 'cross-hover', { source: 'f', target: 'x' }),
+    bundlePath: el(links, 'path', 'cross-bundle'),
   };
 }
 
@@ -100,6 +104,25 @@ suite('hoverCard — pure helpers', () => {
     for (const el of [g.frameBody, g.bubbleBody, g.fnNode, g.svg, null]) {
       assert.strictEqual(hc.hcResolveTarget(el), null);
     }
+  });
+
+  test('links never own the hover: a link hit resolves to what lies under it', () => {
+    const dom = new JSDOM('<div id="graph"></div>');
+    const g = buildGraph(dom.window.document);
+    assert.strictEqual(hc.hcIsLink(g.crossHover), true);
+    assert.strictEqual(hc.hcIsLink(g.bundlePath), true, 'anything inside g.links counts');
+    assert.strictEqual(hc.hcIsLink(g.folderGlyph), false);
+    assert.strictEqual(hc.hcIsLink(null), false);
+
+    const stack = (els: Element[]) => ({ elementsFromPoint: () => els });
+    assert.deepStrictEqual(
+      hc.hcResolveAt(g.crossHover, 1, 1, stack([g.crossHover, g.bundlePath, g.folderGlyph, g.svg])),
+      { kind: 'folder', path: '/ws/src/util', background: false });
+    assert.strictEqual(hc.hcResolveAt(g.crossHover, 1, 1, stack([g.crossHover, g.frameBody, g.folderGlyph])), null,
+      'the first non-link element decides: a link over a frame body is still no target');
+    assert.strictEqual(hc.hcResolveAt(g.crossHover, 1, 1, {}), null, 'no elementsFromPoint (jsdom): falls back to the direct hit');
+    assert.deepStrictEqual(hc.hcResolveAt(g.fileGlyph, 1, 1, stack([])), { kind: 'file', path: '/ws/src/a.ts', background: false },
+      'a direct target never needs the hit test');
   });
 
   test('facts: folder counts are recursive and prefix-safe; files skip an unknown count', () => {
@@ -210,15 +233,84 @@ suite('hoverCard — behaviour in a DOM', () => {
     assert.strictEqual(card.isVisible(), true, 'the 300 ms kept counting across title → label');
   });
 
-  test('leaving the target before the delay cancels it; leaving afterwards hides it', () => {
+  /** What a browser does when the pointer goes from `from` to `to`: mouseout, then mouseover. */
+  function moveOnto(to: Element, from: Element): void {
+    fire(from, 'mouseout', { relatedTarget: to });
+    fire(to, 'mouseover', { relatedTarget: from });
+  }
+
+  test('moving onto a non-target cancels a pending card and hides an open one at once', () => {
     hover(g.frameTitle);
-    fire(g.frameTitle, 'mouseout', { relatedTarget: g.frameBody });
+    moveOnto(g.frameBody, g.frameTitle);
     clock.tick(1000);
     assert.strictEqual(card.isVisible(), false);
     hover(g.frameTitle);
     clock.tick(hc.HOVER_DELAY_MS);
-    fire(g.frameTitle, 'mouseout', { relatedTarget: g.svg });
+    moveOnto(g.svg, g.frameTitle);
+    assert.strictEqual(card.isVisible(), false, 'no grace period when the pointer is on something else');
+  });
+
+  test('leaving #graph altogether (mouseout only) hides after the short grace period', () => {
+    hover(g.frameTitle);
+    clock.tick(hc.HOVER_DELAY_MS);
+    fire(g.frameTitle, 'mouseout', { relatedTarget: null });
+    assert.strictEqual(card.isVisible(), true);
+    clock.tick(hc.HOVER_LEAVE_GRACE_MS);
     assert.strictEqual(card.isVisible(), false);
+    hover(g.folderGlyph);
+    fire(g.folderGlyph, 'mouseout', { relatedTarget: null });
+    clock.tick(1000);
+    assert.strictEqual(card.isVisible(), false, 'a pending card is cancelled the same way');
+  });
+
+  test('regression (uxtest F9): cross links flickering under a resting pointer do not stop the card', () => {
+    // Seen live on click/src/click: hovering the glyph makes rendering.js draw line.cross-hover
+    // under the pointer and remove it again, an out/over pair every ~30 ms while the pointer rests.
+    hover(g.folderGlyph);
+    for (let t = 0; t < 900; t += 35) {
+      fire(g.folderGlyph, 'mouseout', { relatedTarget: g.crossHover });
+      // The link is removed while under the pointer → Chromium fires mouseleave on every
+      // ancestor, #graph included (this is what defeated the first version of the fix).
+      fire(g.root, 'mouseleave', { bubbles: false });
+      clock.tick(15);
+      fire(g.folderGlyph, 'mouseover', { relatedTarget: g.links });
+      clock.tick(20);
+      if (t >= hc.HOVER_DELAY_MS) { assert.strictEqual(card.isVisible(), true, `card open at ${t} ms`); }
+    }
+    assert.strictEqual(text('hc-name'), 'util/');
+    moveOnto(g.svg, g.folderGlyph);
+    assert.strictEqual(card.isVisible(), false, 'and it still goes away when the pointer really leaves');
+  });
+
+  test('really leaving #graph (mouseleave, no way back) hides after the grace period', () => {
+    hover(g.frameTitle);
+    clock.tick(hc.HOVER_DELAY_MS);
+    fire(g.root, 'mouseleave', { bubbles: false });
+    clock.tick(hc.HOVER_LEAVE_GRACE_MS - 1);
+    assert.strictEqual(card.isVisible(), true);
+    clock.tick(1);
+    assert.strictEqual(card.isVisible(), false);
+  });
+
+  test('regression (uxtest F9): the flicker does not restart the 300 ms either', () => {
+    hover(g.folderGlyph);
+    clock.tick(280);
+    fire(g.folderGlyph, 'mouseout', { relatedTarget: g.crossHover });
+    clock.tick(10);
+    fire(g.folderGlyph, 'mouseover', { relatedTarget: g.links });
+    clock.tick(10);
+    assert.strictEqual(card.isVisible(), true, 'open at 300 ms after the first hover, not 300 ms after the flicker');
+  });
+
+  test('a link that stays on top of a glyph does not hide what is under it', () => {
+    (dom.window.document as any).elementsFromPoint = () => [g.crossHover, g.folderGlyph, g.svg];
+    fire(g.crossHover, 'mousemove', { clientX: 100, clientY: 100 });
+    fire(g.crossHover, 'mouseover', { relatedTarget: g.svg, clientX: 100, clientY: 100 });
+    clock.tick(hc.HOVER_DELAY_MS);
+    assert.strictEqual(card.isVisible(), true);
+    assert.strictEqual(text('hc-name'), 'util/');
+    moveOnto(g.folderGlyph, g.crossHover);
+    assert.strictEqual(card.isVisible(), true, 'line → glyph is the same target');
   });
 
   for (const [name, act] of [

@@ -61,8 +61,17 @@ suite('frameChrome — path builders', () => {
 
   test('closedFolderPath is centred: extents symmetric around 0', () => {
     const d = fc.closedFolderPath(10);
-    assert.ok(d.startsWith(`M${-(2.8 * 10) / 2} `), d.slice(0, 12));
+    assert.ok(d.startsWith('M-10 '), d.slice(0, 12));
     assert.ok(d.endsWith('Z'));
+  });
+
+  test('closed-folder glyph fits its collision radius (F8)', () => {
+    for (const r of [8, 15, 40, 115]) {
+      const dims = fc.closedFolderDims(r);
+      assert.ok(dims.w / 2 <= r + 1e-9, `half-width <= r at r=${r}`);
+      assert.ok(dims.h / 2 <= r + 1e-9, `half-height <= r at r=${r}`);
+      assert.ok(dims.w > dims.h, 'still reads as a folder (wider than tall)');
+    }
   });
 
   test('small tab heights shrink radius and shoulder instead of degenerating', () => {

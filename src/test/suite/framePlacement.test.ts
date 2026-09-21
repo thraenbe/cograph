@@ -150,3 +150,50 @@ suite('placeMembersInSlots — placement stamps (F1)', () => {
     assert.ok(inside(n, INTERIOR));
   });
 });
+
+suite('collapsed-folder glyphs vs slots (F8)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const chrome = require('../../../src/webview/frameChrome.js');
+
+  test('a glyph packed among file slots cannot leave its solo slot or touch a file slot', () => {
+    const members: any[] = [];
+    for (let i = 0; i < 12; i++) { members.push({ id: `a${i}`, r: 10, file: 'a.ts', isFn: true }); }
+    for (let i = 0; i < 8; i++) { members.push({ id: `b${i}`, r: 10, file: 'b.ts', isFn: true }); }
+    const glyphR = 40;
+    members.push({ id: 'folder::/p/sub', r: glyphR, file: null, isFolderCluster: true });
+
+    const packed = frames.packContentSlots(members);
+    const glyphKey = packed.slotOf.get('folder::/p/sub');
+    const slot = packed.slots.get(glyphKey);
+    assert.ok(slot, 'glyph gets its own solo slot');
+    const dims = chrome.closedFolderDims(glyphR);
+
+    // The clamp keeps the glyph CENTRE within r of the slot walls; the F8
+    // invariant (silhouette inside the collision radius) then keeps the whole
+    // bbox inside the slot — check both clamp extremes and the centre.
+    const centres = [
+      { x: slot.x + glyphR, y: slot.y + glyphR },
+      { x: slot.x + slot.w - glyphR, y: slot.y + slot.h - glyphR },
+      { x: slot.x + slot.w / 2, y: slot.y + slot.h / 2 },
+    ];
+    for (const c of centres) {
+      const bbox = {
+        x0: c.x - dims.w / 2, x1: c.x + dims.w / 2,
+        y0: c.y - dims.h / 2, y1: c.y + dims.h / 2,
+      };
+      assert.ok(bbox.x0 >= slot.x - 1e-9 && bbox.x1 <= slot.x + slot.w + 1e-9,
+        'glyph bbox stays inside its slot horizontally');
+      assert.ok(bbox.y0 >= slot.y - 1e-9 && bbox.y1 <= slot.y + slot.h + 1e-9,
+        'glyph bbox stays inside its slot vertically');
+      assert.ok(bbox.x0 >= -1e-9 && bbox.y0 >= -1e-9
+        && bbox.x1 <= packed.w + 1e-9 && bbox.y1 <= packed.h + 1e-9,
+        'glyph bbox stays inside the packed content block (frame inner rect)');
+      for (const [key, other] of packed.slots) {
+        if (key === glyphKey) { continue; }
+        const overlap = bbox.x0 < other.x + other.w && bbox.x1 > other.x
+          && bbox.y0 < other.y + other.h && bbox.y1 > other.y;
+        assert.ok(!overlap, `glyph bbox must not intersect slot ${key}`);
+      }
+    }
+  });
+});

@@ -95,6 +95,12 @@ function setLayoutEngine(engine) {
   if (!['shelf', 'global'].includes(engine)) { engine = 'global'; }
   state.layoutEngine = engine;
   updateLayoutButtons();
+  // Detach the old engine's simulation BEFORE re-rendering: a still-settling
+  // global sim otherwise keeps firing ticks into the new engine's DOM (F3).
+  if (state.simulation && !state.simulation.isFrameFacade && state.simulation.on) {
+    state.simulation.on('tick', null).on('end', null);
+    state.simulation.stop();
+  }
   state.currentNodes.forEach(d => { d.fx = null; d.fy = null; });
   state.userZoomed = false; // an engine switch re-lays out — allow auto-fit
   if (engine === 'shelf' && state.viewMode === 'workflow') {
@@ -103,6 +109,18 @@ function setLayoutEngine(engine) {
     applyComplexity();
   }
   if (state.layoutMode === 'static') { setLayoutMode('static'); }
+  // One coalesced tick of the OLD engine may already sit in a rAF; it fires
+  // after this switch and scribbles on the new DOM. Queue a repair pass
+  // behind it (F3).
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      if (typeof usesFrames === 'function' && usesFrames() && typeof tickFrames === 'function') {
+        tickFrames();
+      } else if (typeof ticked === 'function' && state.currentNodes.length) {
+        ticked();
+      }
+    });
+  }
 }
 updateLayoutButtons(); // boot config may differ from the HTML's active buttons
 

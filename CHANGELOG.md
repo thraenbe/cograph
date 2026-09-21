@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Fixed
+- Switching **Global → Shelf while the Global simulation is still settling**
+  no longer floods the console with thousands of NaN line-attribute errors
+  (and the dropped frames they cost): the engine switch detaches the old
+  simulation's handlers before re-rendering, frame link data carries resolved
+  node objects, and a repair pass is queued behind any straggling coalesced
+  tick.
 - Booting with **Global + Static** as the configured default no longer shows
   an unusable un-fitted first screen: the static boot now fits the view after
   the synchronous settle has produced real positions (a static simulation

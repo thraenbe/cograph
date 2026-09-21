@@ -171,10 +171,7 @@ function renderFrameLayout(allLinks, visibleSet) {
   const { intra, cross } = splitEdgesByFrame(allLinks, id => frameOfId.get(id) ?? null);
   __fr.cross = cross;
   __fr.intraByFrame = intra;
-  for (const l of allLinks) {
-    l._s = __fr.byId.get(typeof l.source === 'object' ? l.source.id : l.source) || null;
-    l._t = __fr.byId.get(typeof l.target === 'object' ? l.target.id : l.target) || null;
-  }
+  stampLinkRefs(allLinks, __fr.byId);
   __fr.frameDom = new Map();
   __fr.counts = new Map();
   for (const f of frameData) {
@@ -351,6 +348,20 @@ function syncFrameSims(members) {
     alphaOf,
   });
   state.simulation._kind = 'frames';
+}
+
+/** Stamp node refs on link data and resolve string endpoints to node
+ *  objects. The object endpoints matter beyond convenience: a coalesced
+ *  global tick queued in a rAF right before an engine switch still runs one
+ *  last time against the NEW frame selections — with string endpoints it
+ *  wrote thousands of NaN line attributes per switch (F3). */
+function stampLinkRefs(allLinks, byId) {
+  for (const l of allLinks) {
+    l._s = byId.get(typeof l.source === 'object' ? l.source.id : l.source) || null;
+    l._t = byId.get(typeof l.target === 'object' ? l.target.id : l.target) || null;
+    if (l._s) { l.source = l._s; }
+    if (l._t) { l.target = l._t; }
+  }
 }
 
 function intraLinkIdsFor(path) {
@@ -808,7 +819,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     usesFrames, renderFrameLayout, tickFrames, tickFrame, teardownFrames,
     resetFrames, updateCrossLinks, syncFrameSims, applySimResult, applySimData,
-    applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit,
+    applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit, stampLinkRefs,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots,
     placeMembersInSlots,

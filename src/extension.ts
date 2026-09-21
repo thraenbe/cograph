@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { GraphProvider } from './graphProvider';
 import { SidebarProvider } from './sidebarProvider';
 import { ChatStore } from './graphIntelligence/chatStore';
+import { flushCacheWrites } from './cacheStore';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
@@ -54,4 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener);
 }
 
-export function deactivate() {}
+// VS Code awaits a returned promise on shutdown: persist a still-debounced graph cache.
+export function deactivate(): Promise<void> {
+  return flushCacheWrites();
+}

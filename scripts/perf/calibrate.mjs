@@ -78,6 +78,10 @@ async function oneRun(checkout, fixture) {
   const result = { checkout: checkout.name, fixture };
   try {
     const page = await app.firstWindow();
+    const consoleErrors = [];
+    page.on('console', (m) => { if (m.type() === 'error') { consoleErrors.push(m.text().slice(0, 200)); } });
+    page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${String(e.message).slice(0, 200)}`));
+    result.consoleErrors = consoleErrors;
     await page.waitForSelector('.monaco-workbench', { timeout: 60000 });
     // GPU feature status is only final once the GPU process reported in.
     result.gpu = await app.evaluate(async ({ app: a }) => {
@@ -91,17 +95,35 @@ async function oneRun(checkout, fixture) {
     await sleep(2500);
     await page.keyboard.press('Control+KeyB');               // close the primary side bar
     await sleep(300);
-    await page.keyboard.press('F1');
-    await page.keyboard.type('CoGraph: Load Synthetic Repo', { delay: 15 });
-    await sleep(800);
-    await page.keyboard.press('Enter');
-    await sleep(1200);
-    await page.keyboard.type(PICK[fixture], { delay: 15 });
-    await sleep(500);
-    await page.keyboard.press('Enter');
-    await page.mouse.move(3, 3);
-    const frame = await findGraphFrame(page, 60000);
-    if (!frame) { result.fatal = 'webview frame unreachable'; return result; }
+    // The dev command posts the graph 300 ms after creating the panel; on a cold
+    // profile the CDN-d3 checkouts can still be loading then and the message is
+    // lost (blank graph). Re-issue the command — the second open is cache-warm.
+    let frame = null;
+    for (let attempt = 0; attempt < 4 && !frame; attempt++) {
+      if (attempt) { await page.keyboard.press('Control+KeyW'); await sleep(500); }
+      await page.keyboard.press('F1');
+      await page.keyboard.type('CoGraph: Load Synthetic Repo', { delay: 15 });
+      await sleep(800);
+      await page.keyboard.press('Enter');
+      await sleep(1200);
+      await page.keyboard.type(PICK[fixture], { delay: 15 });
+      await sleep(500);
+      await page.keyboard.press('Enter');
+      await page.mouse.move(3, 3);
+      frame = await findGraphFrame(page, 12000);
+      result.loadAttempts = attempt + 1;
+    }
+    if (!frame) {
+      result.fatal = 'webview frame unreachable';
+      await page.screenshot({ path: join(DIR, '.out', `calib-fail-${checkout.name}-${fixture}.png`) }).catch(() => {});
+      result.frames = [];
+      for (const f of page.frames()) {
+        const probe = await f.evaluate(() => `d3=${typeof d3} state=${typeof state} graph=${typeof state !== 'undefined' && !!state.graphData} tree=${typeof state !== 'undefined' && !!state.structureTree} nodes=${typeof state !== 'undefined' && state.currentNodes ? state.currentNodes.length : -1} dom=${document.querySelectorAll('#graph *').length}`)
+          .catch((e) => `evaluate failed: ${String(e.message).slice(0, 60)}`);
+        result.frames.push(`${f.url().slice(0, 60)} → ${probe}`);
+      }
+      return result;
+    }
     await sleep(1500);
     await frame.evaluate((p) => { window.__benchInEditor = true; window.__benchParams = p; },
       `?engine=shelf&mode=dynamic&fx=${fixture}&max=${MAX_MS}`);

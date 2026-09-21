@@ -60,6 +60,12 @@ export class AnalyzerRunner {
     private readonly onResult: (stdout: string, workspaceRoot: string, meta: AnalyzerRunMeta) => void,
     private readonly log: (msg: string) => void = () => { /* no-op */ },
     private readonly onRetry: (attempt: number, max: number) => void = () => { /* no-op */ },
+    /**
+     * Preferred result sink: receives the merged graph object. When set, the
+     * runner skips `onResult` and with it the JSON.stringify → JSON.parse
+     * round-trip of the whole graph on the extension-host thread.
+     */
+    private readonly onGraph?: (graph: GraphData, workspaceRoot: string, meta: AnalyzerRunMeta) => void,
   ) {}
 
   killAll(): void {
@@ -130,7 +136,9 @@ export class AnalyzerRunner {
     }
 
     const candidateFilesFound = this.countCandidateSourceFiles(workspaceRoot, 1) > 0;
-    this.onResult(JSON.stringify(merged), workspaceRoot, { statuses, candidateFilesFound });
+    const meta: AnalyzerRunMeta = { statuses, candidateFilesFound };
+    if (this.onGraph) { this.onGraph(merged, workspaceRoot, meta); return; }
+    this.onResult(JSON.stringify(merged), workspaceRoot, meta);
   }
 
   /**

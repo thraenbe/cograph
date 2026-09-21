@@ -8,7 +8,7 @@ import { GitService } from './gitService';
 import { AnalyzerRunner, type AnalyzerRunMeta } from './analyzerRunner';
 import { scanStructure, type StructureTree } from './structureScanner';
 import { mergeGraph } from './graphMerge';
-import { loadCache, writeCache, type CacheLoadResult } from './cacheStore';
+import { loadCache, scheduleCacheWrite, type CacheLoadResult } from './cacheStore';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
@@ -83,12 +83,21 @@ export interface GraphData {
  *  frames (parent-inner-local rects); nodePositions stay absolute as in v1. */
 export const SAVED_LAYOUT_VERSION = 2;
 
+function gitStatusKey(n: GraphNode): string {
+  return `${n.gitStatus?.unstaged ?? ''}|${n.gitStatus?.staged ?? ''}`;
+}
+
 export class GraphProvider {
   private panel: vscode.WebviewPanel | undefined;
   private timelinePanel: vscode.WebviewPanel | undefined;
   private readonly context: vscode.ExtensionContext;
   private cachedNodes: GraphNode[] = [];
   private gitRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  /** node id → last git status sent to the webview (delta git-update payloads). */
+  private sentGitStatus = new Map<string, string>();
+  /** Monotonic stamp: a slow async git refresh must not overwrite a newer one. */
+  private gitRefreshSeq = 0;
+  private sentGitFor: GraphNode[] | undefined;
   private readonly gitService = new GitService();
   private readonly analyzerRunner: AnalyzerRunner;
   private readonly libraryDescriber: LibraryDescriber;
@@ -130,6 +139,8 @@ export class GraphProvider {
           this.panel.webview.html = getLoadingHtml(`Analyzing project… (retry ${attempt}/${max})`);
         }
       },
+      // Object sink: no stringify → parse round-trip of the whole graph.
+      (graph, workspaceRoot, meta) => this.handleAnalysisResult(graph, workspaceRoot, meta),
     );
     this.libraryDescriber = new LibraryDescriber(
       context.extensionPath,
@@ -166,7 +177,10 @@ export class GraphProvider {
 
     const scheduleRefresh = () => {
       if (this.gitRefreshTimer) { clearTimeout(this.gitRefreshTimer); }
-      this.gitRefreshTimer = setTimeout(() => this.refreshGitStatus(workspaceRoot), 300);
+      this.gitRefreshTimer = setTimeout(() => {
+        this.refreshGitStatusAsync(workspaceRoot).catch((err: unknown) =>
+          this.outputChannel.appendLine(`[git] status refresh failed: ${(err as Error).message}`));
+      }, 300);
     };
 
     const saveListener = vscode.workspace.onDidSaveTextDocument(doc => {
@@ -709,6 +723,7 @@ export class GraphProvider {
   private refreshGitStatus(workspaceRoot: string): void {
     if (!this.panel || this.cachedNodes.length === 0) { return; }
     this.gitService.applyGitStatuses(this.cachedNodes, workspaceRoot);
+    this.rememberSentGitStatus(this.cachedNodes);
     this.panel.webview.postMessage({
       type: 'git-update',
       nodes: this.cachedNodes.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
@@ -716,16 +731,57 @@ export class GraphProvider {
     });
   }
 
-  /** Parse stdout, guard empty graphs, and post the graph message. */
-  private handleAnalysisResult(stdout: string, workspaceRoot: string, meta?: AnalyzerRunMeta): void {
+  /**
+   * Hot path (every save and every .git/index change, debounced): git runs
+   * asynchronously and only nodes whose status actually changed are sent —
+   * the webview patches by id, so a delta is sufficient.
+   */
+  private async refreshGitStatusAsync(workspaceRoot: string): Promise<void> {
+    if (!this.panel || this.cachedNodes.length === 0) { return; }
+    const seq = ++this.gitRefreshSeq;
+    const nodes = this.cachedNodes;
+    // A new graph reached the webview with its own statuses → restart the delta baseline.
+    if (this.sentGitFor !== nodes) { this.sentGitStatus.clear(); this.sentGitFor = nodes; }
+    const ok = await this.gitService.applyGitStatusesAsync(nodes, workspaceRoot);
+    if (!ok || !this.panel || seq !== this.gitRefreshSeq || nodes !== this.cachedNodes) { return; }
+    const changed = nodes.filter(n => this.sentGitStatus.get(n.id) !== gitStatusKey(n));
+    this.rememberSentGitStatus(changed);
+    if (changed.length === 0 && !this.gitFileStatusChanged()) { return; }
+    this.panel.webview.postMessage({
+      type: 'git-update',
+      nodes: changed.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
+      fileGitStatus: this.gitService.fileStatuses,
+    });
+  }
+
+  private rememberSentGitStatus(nodes: GraphNode[]): void {
+    for (const n of nodes) { this.sentGitStatus.set(n.id, gitStatusKey(n)); }
+    this.sentFileStatusJson = JSON.stringify(this.gitService.fileStatuses);
+  }
+
+  private sentFileStatusJson = '';
+  private gitFileStatusChanged(): boolean {
+    const json = JSON.stringify(this.gitService.fileStatuses);
+    if (json === this.sentFileStatusJson) { return false; }
+    this.sentFileStatusJson = json;
+    return true;
+  }
+
+  /** Guard empty graphs and post the graph message. Accepts the merged graph
+   *  object (runner's onGraph sink) or, for legacy callers, its JSON text. */
+  private handleAnalysisResult(result: string | GraphData, workspaceRoot: string, meta?: AnalyzerRunMeta): void {
     if (!this.panel) { return; }
 
     let graph: GraphData;
-    try {
-      graph = JSON.parse(stdout);
-    } catch {
-      this.showError('CoGraph: Failed to parse graph data.');
-      return;
+    if (typeof result === 'string') {
+      try {
+        graph = JSON.parse(result);
+      } catch {
+        this.showError('CoGraph: Failed to parse graph data.');
+        return;
+      }
+    } else {
+      graph = result;
     }
 
     // A 0-node result is only a dead-end when NO skeleton is shown. With the
@@ -740,7 +796,7 @@ export class GraphProvider {
     const fileGitStatus = this.gitService.fileStatuses;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
     this.cachedGraph = graph;
-    if (this.currentStructure) { writeCache(workspaceRoot, graph, this.currentStructure); }
+    if (this.currentStructure) { scheduleCacheWrite(workspaceRoot, graph, this.currentStructure); }
     if (this.graphReadyResolve) {
       this.graphReadyResolve();
       this.graphReadyResolve = undefined;
@@ -792,7 +848,7 @@ export class GraphProvider {
       this.cachedGraph = this.spliceFiles(this.cachedGraph, files, patch);
       this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
       this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
-      if (this.currentStructure) { writeCache(workspaceRoot, this.cachedGraph, this.currentStructure); }
+      if (this.currentStructure) { scheduleCacheWrite(workspaceRoot, this.cachedGraph, this.currentStructure); }
       this.panel?.webview.postMessage({
         type: 'graph-patch',
         patch,
@@ -845,7 +901,7 @@ export class GraphProvider {
     this.cachedGraph = this.spliceFiles(this.cachedGraph, files, patch);
     this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
     this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
-    if (structure) { writeCache(workspaceRoot, this.cachedGraph, structure); }
+    if (structure) { scheduleCacheWrite(workspaceRoot, this.cachedGraph, structure); }
     this.panel?.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: files, fileGitStatus: this.gitService.fileStatuses });
   }
 

@@ -557,3 +557,32 @@ cross bundles below 0.4), frames outside the viewport (+240 px) are detached ent
 1 500 labelled nodes / 5 000 lines are in the viewport — they return 180 ms after the last zoom
 event. `state.svgNodes/svgLabels/svgLinks` always hold ALL elements (attached or not);
 `document.querySelector*` only sees what is attached.
+
+### W5 — extension host (items 1-5, 7) + F11 ready handshake (2026-09-21)
+| Item | What changed | Effect |
+|---|---|---|
+| W5-1 | `AnalyzerRunner` hands the merged graph **object** to the provider (`onGraph` sink); the old string callback stays for legacy callers | no `JSON.stringify` → `JSON.parse` round-trip of the whole graph per analysis (≈ 2× 10-20 ms @3k, grows with size) |
+| W5-2 | `gitService.applyGitStatusesAsync` (3 git calls in parallel via `execFile`), used by the debounced refresh (every save / `.git/index` change); **delta** `git-update` (only nodes whose status changed; nothing when unchanged); O(n²) sibling lookup → O(n) | hot path no longer blocks the extension host on 3 sync subprocesses; payload from "every node, every save" to typically 0-10 nodes |
+| W5-3 | `scheduleCacheWrite` — debounced (250 ms), newest-wins, `fs.promises` (batched `stat`), flushed on `deactivate` | cache write (stat sweep + stringify + write) no longer runs *before* the graph is posted |
+| W5-4 | scanner: O(n²) `childFolders.includes` → Set. **Async scan deliberately not wired**: measured 9-47 ms on the corpus, and `show()` is synchronous by contract (tests + annotate's flow) | — |
+| W5-5 | Java analyzer: CST cache bounded by source bytes (6 MB ≈ typical repo fully cached; beyond it files are re-parsed); all node analyzers write through `scripts/graphOutput.js` | guava: heap flat, both passes finish (85 s) and the run ends with `graph too large (2 653 296 edges from 59 343 definitions): too many ambiguous call names` + exit 3 instead of a V8 crash. Completing guava needs decision **D6** (ambiguous-name fan-out) |
+| W5-7 | d3 vendored (`dist/webview/d3.min.js`), CDN only as unbundled-dev fallback, CSP without external hosts | done in W2 |
+| **F11** | `WebviewReadyGate`: `structure`/`graph`/`graph-loaded`/`timeline-data` wait for the webview's `{type:'ready'}` (posted at DOMContentLoaded, when all script listeners exist); 150 ms fallback for webviews that never say ready (old behaviour, keeps all existing tests); a `ready` after a fallback delivery re-sends with the same `__seq`, which the webview de-duplicates before any listener | the "blank graph on cold open" race (2 of 3 cold opens in calibration, 1 of 13 in uxtest) is closed for the main, synthetic and timeline panels |
+Tests: 873 passing (W5/F11 add gitAsync, cacheStore async, analyzerRunner sink, graphOutput,
+analyzeJava bounded cache, webviewReadyGate, readyHandshake), lint 0 errors.
+
+### Final state vs. acceptance criteria (3k unless noted; in-editor where marked ★)
+| Metric | Baseline | Target | Result |
+|---|---|---|---|
+| Settle script per animation frame, 4 frames, workers on | 9.3 / 26.8 ms (p50/p95) | ≤ 2 / ≤ 4 | **1.7 / 3.3** headless, 2.4 ★ |
+| A frame settles (wall) | 10.7 s | ≤ 1 s | **0.37 s** ★ |
+| Expand-all settled | > 30 s | ≤ 2 s | **0.78 s** ★ (10k: 2.4 s ★, target ≤ 5 s) |
+| Drag handler / drag-to-paint | 53 ms / 150 ms frames | ≤ 2 ms / ≤ 1 frame | **0.2 ms / 1 frame at 60 fps** ★ |
+| Hover over / out | 33 / 32 ms | ≤ 2 ms | **0.5 / 0.4 ms** ★ |
+| Search keystroke | 78-98 ms | ≤ 10 ms | 10-14 ms ★ (first character = full pass; 10k: 34 ms vs ≤ 25) — **missed by a few ms** |
+| Zoom handler | 1.2-7.1 ms | ≤ 0.5 ms | **0.2 ms** ★ |
+| Pan/zoom, all expanded | 14 fps | 60 fps / gate ≥ 45 | **56.6 fps** ★ mixed, 65-67 pan/zoom-only (10k: 41.9 ★, gate ≥ 30) |
+| Stale positions never paint | — | unit-tested | ✔ (old gen, destroyed, re-created, wrong length) |
+| workers off == today | — | identical | ✔ same `localSim` functions by reference |
+| Git refresh blocks the host | 3 sync subprocesses | 0 | ✔ on the hot path (analysis-time calls stay sync) |
+| guava | V8 OOM @85 s | completes or fails < 30 s | fails **cleanly** but after 88 s (parse time) — completing needs D6 |

@@ -6,43 +6,40 @@ const go = require('../../../scripts/graphOutput.js');
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 suite('analyzer graph output guard', () => {
-  let savedExit: any;
-  let stderr: string[];
-  let savedWrite: any;
-  setup(() => {
-    savedExit = process.exitCode;
-    stderr = [];
-    savedWrite = process.stderr.write;
-    (process.stderr as any).write = (s: string) => { stderr.push(String(s)); return true; };
-  });
-  teardown(() => { (process.stderr as any).write = savedWrite; process.exitCode = savedExit; });
-
-  const sink = () => { const chunks: string[] = []; return { chunks, write: (s: string) => { chunks.push(s); return true; } }; };
+  function io() {
+    const out: string[] = [], err: string[] = [];
+    let exit: number | undefined;
+    return {
+      out, err, exitCode: () => exit,
+      io: { out: { write: (t: string) => { out.push(t); return true; } }, err: { write: (t: string) => { err.push(t); return true; } }, setExitCode: (c: number) => { exit = c; } },
+    };
+  }
 
   test('normal graph → one JSON line, byte-identical to the previous inline stringify', () => {
-    const out = sink();
+    const t = io();
     const graph = { nodes: [{ id: 'a' }], edges: [{ source: 'a', target: 'a' }], files: ['f.java'] };
-    assert.strictEqual(go.writeGraph(graph, out), true);
-    assert.deepStrictEqual(out.chunks, [JSON.stringify(graph) + '\n']);
-    assert.deepStrictEqual(stderr, []);
+    assert.strictEqual(go.writeGraph(graph, t.io), true);
+    assert.deepStrictEqual(t.out, [JSON.stringify(graph) + '\n']);
+    assert.deepStrictEqual(t.err, []);
+    assert.strictEqual(t.exitCode(), undefined);
   });
 
   test('too many edges → readable failure, exit code 3, nothing on stdout', () => {
-    const out = sink();
+    const t = io();
     const edges = new Array(go.MAX_EDGES + 1); // sparse: only the length matters
-    assert.strictEqual(go.writeGraph({ nodes: [{}, {}], edges, files: [] }, out), false);
-    assert.deepStrictEqual(out.chunks, []);
-    assert.strictEqual(process.exitCode, 3);
-    assert.ok(/graph too large \(1000001 edges from 2 definitions\): too many ambiguous call names/.test(stderr.join('')));
+    assert.strictEqual(go.writeGraph({ nodes: [{}, {}], edges, files: [] }, t.io), false);
+    assert.deepStrictEqual(t.out, []);
+    assert.strictEqual(t.exitCode(), 3);
+    assert.ok(/graph too large \(1000001 edges from 2 definitions\): too many ambiguous call names/.test(t.err.join('')));
   });
 
   test('a serialisation error never escapes as a crash', () => {
-    const out = sink();
+    const t = io();
     const cyclic: any = { nodes: [], edges: [], files: [] };
     cyclic.nodes.push(cyclic);
-    assert.strictEqual(go.writeGraph(cyclic, out), false);
-    assert.strictEqual(process.exitCode, 3);
-    assert.ok(/too large to serialise/.test(stderr.join('')));
-    assert.deepStrictEqual(out.chunks, []);
+    assert.strictEqual(go.writeGraph(cyclic, t.io), false);
+    assert.strictEqual(t.exitCode(), 3);
+    assert.ok(/too large to serialise/.test(t.err.join('')));
+    assert.deepStrictEqual(t.out, []);
   });
 });

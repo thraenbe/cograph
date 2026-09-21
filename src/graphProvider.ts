@@ -9,6 +9,7 @@ import { AnalyzerRunner, type AnalyzerRunMeta } from './analyzerRunner';
 import { scanStructure, type StructureTree } from './structureScanner';
 import { mergeGraph } from './graphMerge';
 import { loadCache, scheduleCacheWrite, type CacheLoadResult } from './cacheStore';
+import { WebviewReadyGate } from './webviewReadyGate';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
@@ -93,6 +94,8 @@ export class GraphProvider {
   private readonly context: vscode.ExtensionContext;
   private cachedNodes: GraphNode[] = [];
   private gitRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Holds host → webview messages until the main panel's webview said `ready` (F11). */
+  private readyGate: WebviewReadyGate | undefined;
   /** node id → last git status sent to the webview (delta git-update payloads). */
   private sentGitStatus = new Map<string, string>();
   /** Monotonic stamp: a slow async git refresh must not overwrite a newer one. */
@@ -221,6 +224,8 @@ export class GraphProvider {
 
     this.panel.onDidDispose(() => {
       this.panel = undefined;
+      this.readyGate?.dispose();
+      this.readyGate = undefined;
       saveListener.dispose();
       gitIndexWatcher.dispose();
       if (this.gitRefreshTimer) { clearTimeout(this.gitRefreshTimer); }
@@ -237,7 +242,9 @@ export class GraphProvider {
     });
 
     this.panel.webview.onDidReceiveMessage(async (message) => {
-      if (message.type === 'navigate') {
+      if (message.type === 'ready') {
+        this.readyGate?.markReady();   // webview listeners attached → deliver what waited
+      } else if (message.type === 'navigate') {
         this.navigateTo(message.file, message.line);
       } else if (message.type === 'open-docs') {
         const { libraryName, language } = message;
@@ -436,11 +443,10 @@ export class GraphProvider {
 
     if (autoEngage) {
       // Paint the skeleton immediately; the analyzer enriches it in the background.
-      this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
-      setTimeout(() => {
-        this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
-        this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
-      }, 150);
+      this.loadGraphHtml([
+        { type: 'structure', tree: structure, autoEngage: true },
+        { type: 'analysis-state', backgroundParsing: true },
+      ]);
     } else {
       // Small repo: behave exactly as before — plain graph, no skeleton.
       this.panel.webview.html = getLoadingHtml();
@@ -498,20 +504,21 @@ export class GraphProvider {
         ],
       },
     );
-    panel.webview.html = getWebviewHtml(panel.webview, this.context.extensionUri);
+    const gate = new WebviewReadyGate((m) => { void panel.webview.postMessage(m); }, 300);
+    panel.onDidDispose(() => gate.dispose());
     panel.webview.onDidReceiveMessage((message) => {
-      if (message.type === 'perf-report') {
+      if (message.type === 'ready') {
+        gate.markReady();
+      } else if (message.type === 'perf-report') {
         this.outputChannel.appendLine(`[perf synthetic ${pick.label}] ${JSON.stringify(message.report)}`);
         this.outputChannel.show(true);
       }
     });
+    panel.webview.html = getWebviewHtml(panel.webview, this.context.extensionUri);
+    gate.arm();
     // Same delivery order as a real large repo: skeleton first, analysis after.
-    setTimeout(() => {
-      panel.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
-      panel.webview.postMessage({
-        type: 'graph', data: graph, gitAvailable: false, fileGitStatus: {}, isReanalysis: false,
-      });
-    }, 300);
+    gate.post({ type: 'structure', tree: structure, autoEngage: true });
+    gate.post({ type: 'graph', data: graph, gitAvailable: false, fileGitStatus: {}, isReanalysis: false });
   }
 
   reloadLayout(): void {
@@ -633,14 +640,18 @@ export class GraphProvider {
 
     panel.webview.html = getLoadingHtml();
 
+    const timelineGate = new WebviewReadyGate((m) => { void panel.webview.postMessage(m); });
     panel.onDidDispose(() => {
+      timelineGate.dispose();
       if (this.timelinePanel === panel) {
         this.timelinePanel = undefined;
       }
     });
 
     panel.webview.onDidReceiveMessage((message) => {
-      if (message.type === 'navigate') {
+      if (message.type === 'ready') {
+        timelineGate.markReady();
+      } else if (message.type === 'navigate') {
         this.navigateTo(message.file, message.line);
       }
     });
@@ -672,13 +683,13 @@ export class GraphProvider {
           this.context.extensionUri,
           { timelineMode: true },
         );
-        setTimeout(() => {
-          panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
-          if (savedPayload) {
-            panel.webview.postMessage({ type: 'graph-loaded', payload: savedPayload });
-          }
-          this.postTimelineData(panel, graph, wsRoot);
-        }, 150);
+        timelineGate.arm();
+        timelineGate.post({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
+        if (savedPayload) {
+          timelineGate.post({ type: 'graph-loaded', payload: savedPayload });
+        }
+        // Computed asynchronously (git blame); queued behind `graph` if the page is still loading.
+        this.postTimelineData(panel, graph, wsRoot, (m) => timelineGate.post(m));
       },
     );
     runner.run(workspaceRoot);
@@ -692,6 +703,7 @@ export class GraphProvider {
     panel: vscode.WebviewPanel,
     graph: GraphData,
     workspaceRoot: string,
+    post: (message: object) => void = (m) => { void panel.webview.postMessage(m); },
   ): void {
     setImmediate(() => {
       if (this.timelinePanel !== panel) { return; }
@@ -699,7 +711,7 @@ export class GraphProvider {
         const intro = this.gitService.getIntroductionTimes(graph.nodes, workspaceRoot);
         const entries: Array<{ id: string; ts: number }> = [];
         for (const [id, ts] of intro) { entries.push({ id, ts }); }
-        panel.webview.postMessage({ type: 'timeline-data', nodes: entries });
+        post({ type: 'timeline-data', nodes: entries });
       } catch (err: unknown) {
         this.outputChannel.appendLine(`Timeline: blame failed — ${(err as Error).message}`);
       }
@@ -810,11 +822,22 @@ export class GraphProvider {
         this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
       }
     } else {
-      this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
-      setTimeout(() => {
-        this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
-      }, 150);
+      this.loadGraphHtml([{ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false }]);
     }
+  }
+
+  /**
+   * Assign the graph HTML and queue `messages` for it. They are delivered when
+   * the webview announces `ready` (or after the old 150 ms for a webview that
+   * never does) — never into a document that is still loading (F11).
+   */
+  private loadGraphHtml(messages: object[]): void {
+    if (!this.panel) { return; }
+    const panel = this.panel;
+    this.readyGate ??= new WebviewReadyGate((m) => { void this.panel?.webview.postMessage(m); });
+    panel.webview.html = getWebviewHtml(panel.webview, this.context.extensionUri);
+    this.readyGate.arm();
+    for (const m of messages) { this.readyGate.post(m); }
   }
 
   /** Map analyzer run metadata onto the actionable empty-state's display info. */
@@ -881,14 +904,11 @@ export class GraphProvider {
     const fileGitStatus = this.gitService.fileStatuses;
     if (this.graphReadyResolve) { this.graphReadyResolve(); this.graphReadyResolve = undefined; }
 
-    this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
-    setTimeout(() => {
-      // Only large repos engage the folder skeleton; small repos render the plain graph.
-      if (autoEngage) {
-        this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
-      }
-      this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
-    }, 150);
+    // Only large repos engage the folder skeleton; small repos render the plain graph.
+    this.loadGraphHtml([
+      ...(autoEngage ? [{ type: 'structure', tree: structure, autoEngage: true }] : []),
+      { type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false },
+    ]);
   }
 
   /**

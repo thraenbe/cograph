@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   webview page in headless Chrome (`scripts/perf/`).
 
 ### Changed
+- Saving a file no longer blocks the extension host on three `git` subprocesses, and only
+  functions whose git status actually changed are sent to the graph; the analysis cache is
+  written in the background after the graph is shown; the analysis result is no longer
+  serialised and re-parsed on its way to the panel.
 - **Interaction cost no longer grows with graph size.** Hovering a node highlights only
   its own links (was three passes over every link: 33 ms → 0.2 ms at 3 000 nodes,
   100 ms → 0.5 ms at 10 000); dragging a node re-draws only its own folder frame
@@ -57,6 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moves, and theme colours are read once per render instead of once per element.
 
 ### Fixed
+- **Blank graph on first open.** The graph data was sent to the panel on a timer; when the
+  panel's scripts were still loading (cold start) it was silently lost. The panel now tells
+  the extension when it is ready and the data waits for that.
+- Huge Java repos (e.g. guava) no longer crash the analyzer with an out-of-memory or
+  "Invalid string length" error: memory stays flat and an oversized result ends with a
+  readable "graph too large" message.
 - Shelf + Dynamic: after moving the Detail slider (or any re-render) the force sliders and
   drag reheats did nothing until the engine was toggled — simulations kept writing into
   discarded node objects.

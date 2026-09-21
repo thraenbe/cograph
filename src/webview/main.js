@@ -429,6 +429,14 @@ function renderGraph(data, isReanalysis = false) {
   renderLanguageLegend();
 }
 
+// ── Ready handshake (F11, readyHandshake.js) ────────────────────────────────
+// Dedupe first (its listener must precede every other one), announce `ready`
+// once all scripts ran.
+if (typeof installSeqDedupe === 'function') {
+  installSeqDedupe(window);
+  announceReady(document, (m) => vscode.postMessage(m));
+}
+
 window.addEventListener('message', (event) => {
   const message = event.data;
   if (message.type === 'lib-description') {

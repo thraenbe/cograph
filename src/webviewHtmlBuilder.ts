@@ -201,6 +201,7 @@ export function getWebviewHtml(
   const simPoolUri   = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'simPool.js'));
   const localSimWorkerUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'localSimWorker.js'));
   const simBackendUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'simBackend.js'));
+  const readyHandshakeUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'readyHandshake.js'));
   const hotCacheUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hotCache.js'));
   const hoverIndexUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverIndex.js'));
   const visibilityUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'visibility.js'));
@@ -502,6 +503,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${simBackendUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameRenderUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameInteractUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${readyHandshakeUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${scriptUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${controlsUri}?v=${nonce}"></script>
   ${timelineScriptTag}

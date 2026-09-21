@@ -36,6 +36,9 @@ for (const repo of repos) {
     const extras: Sample[] = (def.extra?.[repo] ?? []).map((e, i) => ({ index: 900 + i, unit: {}, explicit: e.values, label: e.label }));
     for (const sample of [...design, ...extras]) {
       test(`sweep · ${repo} · ${engine} · #${sample.index}`, async ({ browser }) => {
+        // Resumable: UXTEST_SWEEP_RESUME=1 (--resume) skips samples that already have a sample.json in this run id.
+        const doneFile = path.join(REPO_ROOT, 'uxtest', 'artifacts', process.env.UXTEST_RUN_ID ?? '', path.basename(repo), `sweep-${String(sample.index).padStart(2, '0')}-${engine}-dynamic`, 'sample.json');
+        test.skip(process.env.UXTEST_SWEEP_RESUME === '1' && fs.existsSync(doneFile), 'already sampled in this run');
         const lab = await openLab({ repo, engine, motion: 'dynamic', scenario: `sweep-${String(sample.index).padStart(2, '0')}`,
           browser, video: process.env.UXTEST_SWEEP_VIDEO === '1', keepSnapshots: false });
         const { page, ux } = lab;
@@ -76,7 +79,7 @@ for (const repo of repos) {
           const strayInput = lab.host.log.filter(l => ['get-func-source', 'navigate'].includes(l.message.type)).length;
           expect(strayInput, 'the sweep must not click into the graph').toBe(0);
           const record: SweepSample = { repo, engine, index: sample.index, baseline: sample.unit === null, label: sample.label, maxAbsCoord, values, dropped,
-            settleMs, settled: apply.still?.settled ?? false, movedNodes: moved.moved, maxMovePx: moved.max, metrics, score: layoutScore(metrics, 0, QUALITY_WEIGHTS),
+            settleMs, settleTicks: apply.still?.simTicks ?? null, settled: apply.still?.settled ?? false, movedNodes: moved.moved, maxMovePx: moved.max, metrics, score: layoutScore(metrics, 0, QUALITY_WEIGHTS),
             screenshot: path.relative(path.dirname(path.dirname(lab.outDir)), path.join(lab.outDir, end.screenshot ?? '')) };
           fs.writeFileSync(path.join(lab.outDir, 'sample.json'), JSON.stringify(record, null, 2));
         } finally { await lab.close(); }

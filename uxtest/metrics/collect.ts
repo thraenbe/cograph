@@ -132,7 +132,9 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
   (svgEl ? svgEl.querySelectorAll('.folder-bubble-shape') : []).forEach((el) => {
     if (!shown(el)) { return; }
     const b = el.getBoundingClientRect();
-    if (b.width > 0 && b.height > 0) { boxes.push({ x: b.left, y: b.top, w: b.width, h: b.height }); }
+    const d = (el.parentElement as any)?.__data__ ?? (el as any).__data__;
+    const path = d ? String(d.path ?? d.folderPath ?? '') : '';
+    if (b.width > 0 && b.height > 0) { boxes.push({ x: b.left, y: b.top, w: b.width, h: b.height, path: path || undefined }); }
   });
 
   const mem = (performance as any).memory;

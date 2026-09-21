@@ -12,7 +12,14 @@ export interface StillOpts {
 }
 export interface StillResult { settled: boolean; ms: number; frames: number; movingFrames: number; peakPx: number;
   /** ms from the start of the wait to the first observed movement; null when nothing moved. */
-  firstMoveMs: number | null }
+  firstMoveMs: number | null;
+  /** LOAD-INDEPENDENT settle measure: simulation ticks the layout needed, derived from d3's alpha schedule
+   *  (ticks = ln(alphaEnd / alphaPeak) / ln(1 - alphaDecay)); null when no single d3 simulation is exposed
+   *  (frames facade / worker sims). `ms` is wall-clock and depends on machine load — never compare it across
+   *  runs that did not have the machine to themselves. */
+  simTicks?: number | null;
+  /** animation frames in which the simulation's alpha changed (a rough tick count for any engine) */
+  alphaFrames?: number }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare const state: any;
@@ -28,6 +35,23 @@ function waitStillInPage(o: StillOpts): Promise<StillResult> {
     const t0 = performance.now();
     let ref = new Map<unknown, [number, number]>();
     let quiet = 0, frames = 0, movingFrames = 0, peakPx = 0, lastMoveMs = 0, firstMoveMs: number | null = null;
+    let alphaPeak = 0, alphaLast = -1, alphaAtLastMove = 0, alphaFrames = 0;
+    const sim = (): any => (st && st.simulation) || null;
+    const readAlpha = (): void => {
+      const s = sim();
+      if (!s || typeof s.alpha !== 'function') { return; }
+      const a = Number(s.alpha());
+      if (!Number.isFinite(a)) { return; }
+      if (alphaLast >= 0 && a !== alphaLast) { alphaFrames++; }
+      if (a > alphaPeak) { alphaPeak = a; }
+      alphaLast = a;
+    };
+    const simTicks = (): number | null => {
+      const s = sim();
+      if (!s || s.isFrameFacade || typeof s.alphaDecay !== 'function' || !(alphaPeak > 0) || !(alphaAtLastMove > 0) || alphaAtLastMove >= alphaPeak) { return null; }
+      const decay = Number(s.alphaDecay());
+      return decay > 0 && decay < 1 ? Math.round(Math.log(alphaAtLastMove / alphaPeak) / Math.log(1 - decay)) : null;
+    };
     const read = (): Map<unknown, [number, number]> => {
       const cur = new Map<unknown, [number, number]>();
       const nodes: any[] = (st && st.currentNodes) || [];
@@ -53,13 +77,15 @@ function waitStillInPage(o: StillOpts): Promise<StillResult> {
       return max;
     };
     const done = (settled: boolean): void => resolve({ settled, ms: Math.round(settled ? lastMoveMs : performance.now() - t0), frames, movingFrames,
-      peakPx: Number.isFinite(peakPx) ? +peakPx.toFixed(2) : -1, firstMoveMs: firstMoveMs === null ? null : Math.round(firstMoveMs) });
+      peakPx: Number.isFinite(peakPx) ? +peakPx.toFixed(2) : -1, firstMoveMs: firstMoveMs === null ? null : Math.round(firstMoveMs),
+      simTicks: simTicks(), alphaFrames });
     const tick = (): void => {
       const cur = read();
+      readAlpha();
       const d = frames === 0 ? Infinity : drift(cur);
       frames++;
       if (d > o.epsilonPx) {
-        if (frames > 1) { movingFrames++; lastMoveMs = performance.now() - t0; if (firstMoveMs === null) { firstMoveMs = lastMoveMs; } if (Number.isFinite(d) && d > peakPx) { peakPx = d; } }
+        if (frames > 1) { movingFrames++; lastMoveMs = performance.now() - t0; if (firstMoveMs === null) { firstMoveMs = lastMoveMs; } alphaAtLastMove = alphaLast; if (Number.isFinite(d) && d > peakPx) { peakPx = d; } }
         ref = cur; quiet = 0; // open a new window here
       } else { quiet++; }
       const mayFinish = !o.expectMotionMs || movingFrames > 0 || performance.now() - t0 >= o.expectMotionMs;

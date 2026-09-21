@@ -20,11 +20,12 @@ export interface StepContext {
 
 export interface ScoreWeights {
   nodeOverlap: number; labelOverlap: number; crossings: number; edgeLenCv: number;
-  settleSeconds: number; containment: number; whitespace: number; legibility: number;
+  settleSeconds: number; containment: number; whitespace: number; legibility: number; folderSeparation: number;
 }
 
 export const DEFAULT_WEIGHTS: ScoreWeights = {
   nodeOverlap: 4, labelOverlap: 2, crossings: 1.5, edgeLenCv: 0.5, settleSeconds: 0.15, containment: 6, whitespace: 1, legibility: 3,
+  folderSeparation: 6, // merged folders destroy the map's structure (R1/R2); without this term compact Global layouts win unfairly
 };
 
 type Rule = (m: LayoutMetrics, c: StepContext) => Finding | null;
@@ -95,7 +96,8 @@ export function layoutScore(m: LayoutMetrics, settleMs: number | null, w: ScoreW
     + w.settleSeconds * Math.min(30, (settleMs ?? 30000) / 1000)
     + w.containment * Math.min(1, containment)
     + w.whitespace * whitespace
-    + w.legibility * legibilityPenalty(m);
+    + w.legibility * legibilityPenalty(m)
+    + w.folderSeparation * Math.min(1, (m.folderOverlapRatio ?? 0) * 2); // 50 % of the box area in conflict = worst case
   return +score.toFixed(4);
 }
 

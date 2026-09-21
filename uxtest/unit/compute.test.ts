@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
-  bboxOf, computeMetrics, legibility, median, containment, edgeCrossings, edgeLengthStats, forEngine, isPinned, labelOverlapRatio,
+  bboxOf, computeMetrics, folderOverlapRatio, legibility, median, containment, edgeCrossings, edgeLengthStats, forEngine, isPinned, labelOverlapRatio,
   maxDisplacement, mulberry32, nodeOverlapPairs, offscreenRatio, pointInRect, rectOverlapPairs, rectsIntersect,
   sampleEdges, segmentsCross,
 } from '../metrics/compute';
@@ -182,4 +182,17 @@ test('legibility: on-screen node size, label height, share of tiny folder boxes'
   expect(computeMetrics(snap)).toMatchObject({ nodePxMedian: 2.5, labelPxMedian: 8, smallBoxShare: 0.667 });
   expect(legibility(snapshot())).toEqual({ nodePxMedian: 0, labelPxMedian: 0, smallBoxShare: 0 });
   expect(computeMetrics({ ...snap, engine: 'global' }).smallBoxShare).toBe(0.667); // DOM boxes count under either engine
+});
+
+test('folderOverlapRatio: territory conflicts between folders, nesting is legitimate', () => {
+  const tests = { x: 0, y: 0, w: 100, h: 100, path: '/r/tests' }, src = { x: 200, y: 0, w: 100, h: 100, path: '/r/src' };
+  const nested = { x: 10, y: 10, w: 50, h: 50, path: '/r/tests/unit' };
+  expect(folderOverlapRatio([tests, src])).toBe(0);                                  // separate territories
+  expect(folderOverlapRatio([tests, nested])).toBe(0);                               // child inside parent
+  expect(folderOverlapRatio([tests, { ...src, x: 50 }])).toBeCloseTo(5000 / 20000, 5); // half of each box shared
+  expect(folderOverlapRatio([tests, { ...tests, path: '/r/src' }])).toBe(0.5);       // fully merged siblings
+  expect(folderOverlapRatio([tests, { x: 0, y: 0, w: 100, h: 100 }])).toBe(0);       // boxes without a path are ignored
+  expect(folderOverlapRatio([{ ...tests, path: 'C:\\r\\tests' }, { ...nested, path: 'C:\\r\\tests\\unit' }])).toBe(0); // windows paths nest too
+  expect(folderOverlapRatio([])).toBe(0);
+  expect(computeMetrics(snapshot({ boxes: [tests, { ...src, x: 50 }] })).folderOverlapRatio).toBe(0.25);
 });

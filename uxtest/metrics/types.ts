@@ -27,7 +27,7 @@ export interface Snapshot {
   slots: SnapSlot[];
   edges: Array<[number, number]>;        // indices into nodes
   labels: Rect[];                        // screen coordinates, visible labels only
-  boxes?: Rect[];                        // screen coordinates of folder boxes (frames / drill-down boxes)
+  boxes?: Array<Rect & { path?: string }>; // screen coordinates of folder boxes (frames / drill-down boxes) + folder path
   labelsTruncated: boolean;
   domNodes: number;
   heapMB: number | null;
@@ -60,6 +60,9 @@ export interface LayoutMetrics {
   nodePxMedian?: number;                 // median on-screen node radius in px
   labelPxMedian?: number;                // median on-screen label height in px
   smallBoxShare?: number;                // folder boxes narrower or lower than 40 px / folder boxes
+  /** Overlap area between folder boxes that are NOT ancestor/descendant of each other, relative to the total box
+   *  area (0 = every folder has its own territory). Global layouts that merge folders score high here. */
+  folderOverlapRatio?: number;
   domNodes: number;
   heapMB: number | null;
 }

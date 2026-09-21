@@ -90,3 +90,11 @@ test('legibility: a wide-spread layout is penalised, old runs are estimated from
   expect(legibilityPenalty(old)).toBeCloseTo(1 - 1.213 / 6, 2);
   expect(QUALITY_WEIGHTS.settleSeconds).toBe(0);
 });
+
+test('folder separation: a layout that merges folders is ranked below one that keeps them apart', () => {
+  const apart = { ...clean, nodePxMedian: 2.5, labelPxMedian: 8, smallBoxShare: 0.2, labels: 20, folderOverlapRatio: 0 };
+  const merged = { ...apart, nodePxMedian: 5, folderOverlapRatio: 0.4 };               // bigger nodes, but folders on top of each other
+  expect(layoutScore(merged, 0, QUALITY_WEIGHTS)).toBeGreaterThan(layoutScore(apart, 0, QUALITY_WEIGHTS));
+  expect(layoutScore({ ...apart, folderOverlapRatio: undefined }, 0, QUALITY_WEIGHTS)).toBe(layoutScore(apart, 0, QUALITY_WEIGHTS)); // old runs: unknown = 0
+  expect(layoutScore({ ...apart, folderOverlapRatio: 0.9 }, 0, QUALITY_WEIGHTS)).toBe(layoutScore({ ...apart, folderOverlapRatio: 0.5 }, 0, QUALITY_WEIGHTS)); // capped
+});

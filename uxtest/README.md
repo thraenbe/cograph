@@ -173,7 +173,9 @@ npm run uxtest -- [flags]
   --run-id <id>       artifacts folder name (default: timestamp)
   --no-compile        skip the automatic `npm run compile` (and `bundle` for Tier B)
   --project <name>    lab (default) | sweep | report | vscode | examples | unit
-  --samples N --space <json> --video      sweep options
+  --samples N --space <json> --video      sweep options; `--resume --run-id <existing>` runs only the missing samples
+                      Aborting: Ctrl+C ends the runner's whole process group; after ANY abort the wrapper lists leftover
+                      worker/browser processes of this worktree - end them, they distort every later timing.
   --baseline <runId>  report: show metric deltas against another run
 npm run uxtest:unit        pure-module unit tests (Playwright runner, no browser)
 npm run uxtest:typecheck   tsc --noEmit over uxtest/

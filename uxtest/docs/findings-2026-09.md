@@ -34,6 +34,15 @@ Status as reported by the owning sessions; "verified" = re-run by uxtest via `--
   landed on drifting nodes and opened source popups (17 of 22 zod/Global samples), so "at fit" metrics were taken
   un-fitted behind a popup. Sweeps now call the product's `fitToView()` directly and assert that no click reached the
   graph. Found only by opening the keyframes — always look at the pictures before trusting a ranking.
+- Wall-clock settle times measure the MACHINE, not the code, as soon as several software-rendering pages share it:
+  a '3x slower settle' I reported was pure load (perf's bisect: identical tick counts on four SHAs, ms per tick varying
+  41 -> 74 for the same SHA). Report settle in simulation TICKS (alpha schedule) and keep wall-clock comparisons to
+  `--workers 1` on an idle machine.
+- Killing the Playwright RUNNER does not kill its workers or their Chromium pages: two orphans from aborted sweeps
+  span for 8 h 45 min and 5 h 55 min (47 % + 25 % CPU) under everybody's measurements. After any aborted run check
+  `ps` for `workerProcessEntry` / `chrome-headless-shell` with your worktree as cwd and end exactly those trees.
+- A picture score needs a term for every quality the eye judges: without folder separation the Global ranking
+  rewarded layouts that merged `tests/` into `src/`. `folderOverlapRatio` (non-nested folder boxes) is now part of it.
 - Controls inside a collapsed expander are "hidden", not "absent": open `#forces-advanced` before deciding a slider
   does not exist — otherwise a sweep silently drops exactly the parameters it was run for.
 

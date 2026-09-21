@@ -12,8 +12,9 @@
       "ranges": { "forceRepel": [0, 600], "forceLink": [0, 5] }
     },
     "global": {
-      "params": ["forceCenter", "forceRepel", "forceLink", "forceFileCluster", "forceFolderRepel", "forceFileRepel", "forceLinkDistance", "forceVelocityDecay", "forceCollidePad"],
-      "ranges": { "forceCenter": [0, 0.3], "forceFolderRepel": [0, 3], "forceFileRepel": [0, 3], "forceLink": [0, 5] }
+      "params": ["forceCenter", "forceRepel", "forceLink", "forceFileCluster", "forceFolderRepel", "forceFileRepel", "forceLinkDistance", "forceVelocityDecay", "forceCollidePad", "forceRepelRange"],
+      "unlimitedShare": { "forceRepelRange": 0.25 },
+      "ranges": { "forceRepelRange": [150, 1200], "forceCenter": [0, 0.3], "forceFolderRepel": [0, 3], "forceFileRepel": [0, 3], "forceLink": [0, 5] }
     }
   }
 }

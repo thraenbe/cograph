@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.3.0] - Unreleased
 
 ### Changed (UX)
+- The editor-title command is named **"CoGraph: Open or Reset Layout"** (was
+  "Open or Reload Layout" — it opens a fresh layout rather than loading a
+  saved graph). The command id is unchanged, existing keybindings keep working.
 - The language-colours toggle is labelled **Language** (was "Lang").
 - **One Forces box** in the left toolbar replaces the sliders split between the
   folder panel and the gear settings panel. It shows only what the current

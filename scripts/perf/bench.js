@@ -92,6 +92,32 @@
       R.viewport = { w: window.innerWidth, h: window.innerHeight };
     }
 
+    // 1b) force-slider reheat (F7/F13): how long until EVERY open frame visibly moves?
+    if (R.engine === 'shelf' && R.mode === 'dynamic' && state.frames && state.currentNodes.length > 50) {
+      const byFrame = new Map();
+      for (const n of state.currentNodes) {
+        if (!n._frame || n.fx != null) { continue; }
+        if (!byFrame.has(n._frame)) { byFrame.set(n._frame, []); }
+        byFrame.get(n._frame).push({ n, x: n.x, y: n.y });
+      }
+      const moved = new Set();
+      const t0 = performance.now();
+      let firstAll = null, firstHalf = null;
+      settings.repelForce = (settings.repelForce || 250) + 350;
+      state.simulation.alpha(0.3).restart();
+      while (performance.now() - t0 < 12000 && firstAll == null) {
+        await raf();
+        for (const [path, list] of byFrame) {
+          if (!moved.has(path) && list.some(e => Math.abs(e.n.x - e.x) + Math.abs(e.n.y - e.y) > 0.5)) { moved.add(path); }
+        }
+        const t = performance.now() - t0;
+        if (firstHalf == null && moved.size >= byFrame.size / 2) { firstHalf = r2(t); }
+        if (moved.size === byFrame.size) { firstAll = r2(t); }
+      }
+      R.reheat = { frames: byFrame.size, movedFrames: moved.size, halfMovingMs: firstHalf, allMovingMs: firstAll };
+      settings.repelForce -= 350;
+    }
+
     // 2) four open frames (shelf target scenario): 4 leaf-most folders with most files
     if (R.engine === 'shelf') {
       const tree = state.structureTree;
@@ -132,6 +158,27 @@
       svg.call(zoomBehavior.transform, base);
       R.panZoom = { handlerMs: stats(zt), frameIntervalMs: stats(rec.slice(2).map(f => f.dt)) };
       R.panZoom.fps = r2(1000 / R.panZoom.frameIntervalMs.mean);
+    }
+
+    // 4b) optional paint probe (?probe=lod): which SVG layers cost the frames?
+    if (P.get('probe') === 'lod') {
+      if (typeof setLayoutMode === 'function') { setLayoutMode('static'); await paint(); await sleep(400); }
+      const fpsNow = async () => {
+        const base = d3.zoomTransform(svg.node());
+        B.rec = []; B.acc = 0;
+        for (let i = 0; i < 60; i++) {
+          await raf();
+          svg.call(zoomBehavior.transform, d3.zoomIdentity.translate(base.x + 3 * i, base.y + 2 * i).scale(base.k * (1 + 0.2 * Math.sin(i / 10))));
+        }
+        const rec = B.rec; B.rec = null;
+        svg.call(zoomBehavior.transform, base);
+        return r2(1000 / stats(rec.slice(2).map(f => f.dt)).mean);
+      };
+      const hide = (sel, on) => document.querySelectorAll(sel).forEach(el => { el.style.display = on ? 'none' : ''; });
+      const layers = [['labels', 'g.f-labels, g.labels'], ['links', 'g.f-links'], ['nodes', 'g.f-nodes'], ['slots', 'g.f-slots'], ['bundles', 'line.cross-bundle']];
+      R.lodProbe = { k: r2(d3.zoomTransform(svg.node()).k), all: await fpsNow() };
+      for (const [name, sel] of layers) { hide(sel, true); R.lodProbe['minus_' + name] = await fpsNow(); }
+      for (const [, sel] of layers) { hide(sel, false); }
     }
 
     // 5) hover: mouseover/mouseout on a function node

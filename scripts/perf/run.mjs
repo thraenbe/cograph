@@ -67,6 +67,7 @@ const fmt = o => (o && o.n ? `${o.p50} / ${o.p95} / ${o.max}` : '–');
 function markdown(results) {
   const rows = [
     ['message → paint (ms)', r => r.load?.toPaintMs],
+    ['slider reheat: all frames moving after (ms)', r => r.reheat && `${r.reheat.allMovingMs ?? '> 12000'} (${r.reheat.movedFrames}/${r.reheat.frames})`],
     ['4 frames: script ms/frame p50/p95/max', r => fmt(r.fourFrames?.scriptPerFrameMs)],
     ['4 frames: settle wall (ms)', r => r.fourFrames && (r.fourFrames.timedOut ? `> ${r.fourFrames.settleWallMs}` : r.fourFrames.settleWallMs)],
     ['expand all: sync / to-paint (ms)', r => r.expandAll && `${r.expandAll.syncMs} / ${r.expandAll.toPaintMs}`],
@@ -105,10 +106,11 @@ async function main() {
     const send = cdp(ws);
     await send('Page.enable');
     for (const run of runs) {
-      const [engine, mode, fx, workers, max] = run.split(':');
+      const [engine, mode, fx, workers, max, probe] = run.split(':');
       const q = new URLSearchParams({ engine, mode, fx });
       if (workers) { q.set('workers', workers); }
       if (max) { q.set('max', max); }
+      if (probe) { q.set('probe', probe); }
       await send('Page.navigate', { url: `${base}?${q}` });
       const t0 = Date.now();
       let raw = null;

@@ -310,6 +310,15 @@ function syncFrameSims(members) {
     const same = existing && existing.gen !== -1
       && existing.byId.size === mems.length && mems.every(m => existing.byId.has(m.id));
     if (same) {
+      // F13: every render builds NEW node objects (prepareRenderData). A reused
+      // record must write into those — with stale _ref the simulation kept
+      // ticking into the discarded objects and nothing on screen moved (dead
+      // force sliders / drag reheats after any Detail change). Both transports
+      // keep their records' nodes on the main thread, so this covers workers too.
+      for (const m of mems) {
+        const ln = existing.byId.get(m.id);
+        if (ln) { ln._ref = m._ref ?? null; }
+      }
       if (existing.inner.w !== f.inner.w || existing.inner.h !== f.inner.h) {
         api.resizeSim(existing, f.inner);
       }

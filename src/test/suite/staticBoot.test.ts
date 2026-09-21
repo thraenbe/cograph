@@ -32,6 +32,17 @@ function makeFakeSim(nodes: any[]) {
   };
 }
 
+suite('global charge — Repel range (source contract)', () => {
+  test('startSimulation and rerunLayout both apply settings.repelRange as distanceMax', () => {
+    assert.ok(/forceManyBody\(\)\.strength\(chargeStrength\)\.distanceMax\(settings\.repelRange \?\? Infinity\)/.test(renderingSrc),
+      'startSimulation charge carries distanceMax(settings.repelRange ?? Infinity)');
+    const mainSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../../src/webview/main.js'), 'utf8');
+    assert.ok(/charge\.distanceMax\?\.\(settings\.repelRange \?\? Infinity\)/.test(mainSrc),
+      'rerunLayout re-applies distanceMax on the live simulation');
+  });
+});
+
 suite('global static boot (F4)', () => {
   test('freezes every node after a bounded synchronous settle', () => {
     const staticBootFreeze = extractStaticBootFreeze();

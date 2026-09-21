@@ -83,6 +83,7 @@ Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 |------|--------|
 | `00-smoke` | C1/C2/C3 checkpoints, engine × motion walk (the harness self-check and the F1/F2 regression) |
 | `10-engine-motion` | every toggle, `#layout-hint`, live `config` message, switching engines mid-settle (F3) |
+| `15-global-guard` | Global guard: hint + confirming click above 4 000 nodes, direct switch below (optional; `--repo synthetic-10k,click`) |
 | `20-detail` | Detail slider 0 → 1 → 0 |
 | `30-git-language` | git panel + `git-update`, legend, language swatches |
 | `40-folder-panel` | folder mode, every force slider incl. the ux "show more forces" set, folder filters via context menu |
@@ -96,6 +97,11 @@ Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 | `90-timeline` | timeline HTML + `timeline-data`, transport |
 | `95-workflow` | workflow graph, levels 0–9, back to folders |
 | `99-save-roundtrip` | v2 save → fresh panel → `graph-loaded` delta (R5), v1 payload migration |
+
+Rule scoping: `static-grid-overlap` (high) only fires for a GRID-BORN Shelf+Static layout (first load, Detail change,
+Node Size re-pack, engine switch into Shelf, restore). After an explicit Dynamic → Static freeze or a user drag the same
+overlap is reported as `frozen-overlap` (low) — Static means "keep what you see". A frame dropped onto a sibling by the
+user is `user-frame-overlap` (low). Steps that drag pass `{ userMoved: true }`.
 
 Policy: **observational**. Only a failed step fails the test. Product problems become *findings* in `run.json`
 (`findings[]` per step: rule, severity, ref to B1/B2/B6/R2/H4…); a scenario reports its own with `StepFinding`.

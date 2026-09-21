@@ -15,7 +15,7 @@ scenario('save-roundtrip', { perMotion: false }, async (lab, combo) => {
     await page.waitForTimeout(700);
     const f = await locateFrame(page, 'smallest');
     await dragBy(page, f.title, 60, 45);
-  });
+  }, { userMoved: true });
   const arranged = ux.lastSnapshot;
   await ux.step('Save layout', async () => {
     await clickSel(page, 'saveGraph');

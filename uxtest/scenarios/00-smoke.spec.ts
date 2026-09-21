@@ -3,7 +3,7 @@
 import { test, expect } from '@playwright/test';
 import { openLab } from '../lib/lab';
 import { matrix } from '../lib/matrix';
-import { clickNode, clickSel, fitToView, setSlider } from '../lib/actions';
+import { clickNode, clickSel, fitToView, setSlider, switchEngine } from '../lib/actions';
 
 for (const c of matrix({ perEngine: false, perMotion: false })) {
   test(`smoke · ${c.repo}`, async ({ browser }) => {
@@ -23,7 +23,7 @@ for (const c of matrix({ perEngine: false, perMotion: false })) {
       await ux.step('Fit the full-depth layout', async () => { await fitToView(page); });
 
       await ux.step('Motion: Dynamic', async () => { await clickSel(page, 'motionDynamic'); });
-      await ux.step('Engine: Global', async () => { await clickSel(page, 'engineGlobal'); });
+      await ux.step('Engine: Global', async () => { await switchEngine(page, 'global'); });
       await ux.step('Motion: Static', async () => { await clickSel(page, 'motionStatic'); });
       await ux.step('Engine: Shelf', async () => { await clickSel(page, 'engineShelf'); });
 

@@ -45,7 +45,7 @@ scenario('canvas', { largeOk: true }, async ({ page, ux }, combo) => {
     draggedId = n.id;
     draggedFrame = before?.nodes.find(x => x.id === n.id)?.frame ?? null;
     await dragBy(page, n, 24, 18);
-  });
+  }, { userMoved: true });
   if (dragNode.status === 'ok') {
     collateral(dragNode, before, ux.lastSnapshot, (frame, id) => id !== draggedId && (combo.engine === 'shelf' ? frame !== draggedFrame : combo.motion === 'static'));
   }
@@ -57,7 +57,7 @@ scenario('canvas', { largeOk: true }, async ({ page, ux }, combo) => {
     const f = await locateFrame(page, 'smallest');
     movedPath = f.path;
     await dragBy(page, f.title, 70, 50);
-  });
+  }, { userMoved: true });
   if (dragFrame.status === 'ok' && combo.engine === 'shelf') {
     collateral(dragFrame, before, ux.lastSnapshot, frame => !!frame && frame !== movedPath && !frame.startsWith(movedPath + '/') && !movedPath.startsWith(frame + '/'));
   }
@@ -66,7 +66,7 @@ scenario('canvas', { largeOk: true }, async ({ page, ux }, combo) => {
     if (combo.engine !== 'shelf') { throw new SkipStep('frame resize exists only in the shelf engine'); }
     const f = await locateFrame(page, 'smallest');
     await dragBy(page, { x: f.rect.x + f.rect.w - 4, y: f.rect.y + f.rect.h - 4 }, 60, 40);
-  });
+  }, { userMoved: true });
 
   await ux.step('Folder context menu', async () => {
     const f = await locateFrame(page, 'smallest');

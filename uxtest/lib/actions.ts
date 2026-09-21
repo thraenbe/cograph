@@ -295,3 +295,15 @@ export async function restAndWatchChurn(page: Page, p: Point, restMs = 1000): Pr
   await page.waitForTimeout(350);
   return page.evaluate(watchHoverChurnInPage, restMs);
 }
+
+export const GLOBAL_GUARD_NODES = 4000; // ux ee36bf5: state.currentNodes.length above which Engine:Global needs a confirming click
+
+/** Switch the engine like a user: above the guard threshold the first Global click only shows a hint. */
+export async function switchEngine(page: Page, engine: 'shelf' | 'global'): Promise<{ guarded: boolean }> {
+  await clickSel(page, engine === 'global' ? 'engineGlobal' : 'engineShelf');
+  if (engine !== 'global') { return { guarded: false }; }
+  await page.waitForTimeout(250);
+  const guarded = await page.locator(SEL.globalGuardHint.css).first().isVisible().catch(() => false);
+  if (guarded) { await clickSel(page, 'engineGlobal'); } // confirm within the 6 s window
+  return { guarded };
+}

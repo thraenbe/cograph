@@ -54,7 +54,7 @@ H4 (no collateral movement) → `collateral-movement`. H5/H6 are human judgement
 | bug | signal |
 |-----|--------|
 | B1 nodes outside slot/frame | `node-outside-slot`, `node-outside-frame`, `static-grid-overlap` |
-| (note) | `static-grid-overlap` right after a Dynamic → Static switch is the frozen dynamic picture, not B1 — it only counts on first load, after a Detail change or after Reset |
+| (scoping) | `static-grid-overlap` fires only for grid-born layouts; after Dynamic → Static or a user drag the overlap is `frozen-overlap` (low, legitimate) |
 | B2 nodes pinned to the frame wall | `nodes-pinned-to-wall` |
 | B6 static-mode label clutter | `label-clutter` |
 | B7 panel vanishes after open | Tier B only (`uxtest:vscode`, step "Panel still alive after 15 s") |

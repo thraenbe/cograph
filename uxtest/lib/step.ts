@@ -9,7 +9,8 @@ import { drainFps, type FpsWindow } from './fps';
 import { collectSnapshot } from '../metrics/collect';
 import { computeMetrics } from '../metrics/compute';
 import type { LayoutMetrics, Snapshot } from '../metrics/types';
-import { findingsFor, type Finding } from '../metrics/score';
+import { findingsFor, type Finding, type LayoutBirth } from '../metrics/score';
+import { median } from '../metrics/compute';
 import { log } from './log';
 
 export interface StepRecord {
@@ -28,7 +29,21 @@ export interface StepRecord {
   findings: Finding[];
 }
 
-export interface StepOpts { settle?: boolean; metrics?: boolean; stillTimeoutMs?: number; expectMotionMs?: number }
+export interface StepOpts { settle?: boolean; metrics?: boolean; stillTimeoutMs?: number; expectMotionMs?: number;
+  /** The step drags nodes/folders by hand: overlaps after it are the user's doing, not a layout bug. */
+  userMoved?: boolean }
+
+/** How the layout of `cur` was born, given the previous snapshot and its birth (see LayoutBirth). */
+export function layoutBirth(prev: Snapshot | null, prevBirth: LayoutBirth, cur: Snapshot, userMoved: boolean): LayoutBirth {
+  if (userMoved) { return 'user-moved'; }
+  if (!prev) { return 'grid'; }
+  const repacked = prev.engine !== cur.engine || prev.viewMode !== cur.viewMode || prev.nodes.length !== cur.nodes.length
+    || Math.abs(median(prev.nodes.map(n => n.r)) - median(cur.nodes.map(n => n.r))) > 0.01;
+  if (repacked) { return 'grid'; }                                   // engine switch, Detail change, Node Size re-pack
+  if (prev.motion === 'dynamic' && cur.motion === 'static') { return 'frozen'; } // explicit freeze
+  if (cur.motion === 'dynamic') { return 'grid'; }                    // a later freeze decides
+  return prevBirth;
+}
 
 export interface RecorderDeps {
   page: Page;
@@ -59,6 +74,7 @@ export function slug(s: string): string {
 export class StepRecorder {
   readonly steps: StepRecord[] = [];
   lastSnapshot: Snapshot | null = null;
+  birth: LayoutBirth = 'grid';
   private readonly t0: number;
   private errCursor = 0;
 
@@ -93,7 +109,7 @@ export class StepRecorder {
     rec.consoleErrors = this.d.errors.slice(this.errCursor);
     this.errCursor = this.d.errors.length;
     if (rec.metrics && this.lastSnapshot) {
-      rec.findings = findingsFor(rec.metrics, { engine: this.lastSnapshot.engine, motion: this.lastSnapshot.motion,
+      rec.findings = findingsFor(rec.metrics, { engine: this.lastSnapshot.engine, motion: this.lastSnapshot.motion, birth: this.birth,
         settled: rec.still ? rec.still.settled : null, consoleErrors: rec.consoleErrors.length, longFrames: rec.fps?.longFrames ?? 0 });
     }
     if (reported) { rec.findings.push(reported); }
@@ -114,6 +130,7 @@ export class StepRecorder {
     await page.screenshot({ path: path.join(outDir, rec.screenshot), timeout: 45000 }); // a settling 30k-node page answers slowly
     if (opts.metrics === false || !target) { return; }
     const snap = await collectSnapshot(target, { maxLabels: this.d.caps.maxLabels });
+    this.birth = layoutBirth(this.lastSnapshot, this.birth, snap, opts.userMoved === true);
     this.lastSnapshot = snap;
     rec.metrics = computeMetrics(snap, this.d.caps);
     if (this.d.keepSnapshots) {

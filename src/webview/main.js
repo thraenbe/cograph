@@ -89,11 +89,55 @@ function setLayoutMode(mode) {
   if (state.simulation) state.simulation.alpha(0.3).restart();
 }
 
+// Global guard (F-guard): the first click on Engine: Global above
+// GLOBAL_GUARD.N nodes only warns; a second click within the window switches.
+let __globalGuard = null;
+let __guardHintTimer = null;
+function globalGuardInstance() {
+  if (!__globalGuard && typeof createGlobalGuard === 'function') {
+    __globalGuard = createGlobalGuard();
+  }
+  return __globalGuard;
+}
+function showGlobalGuardHint(kind) {
+  const el = document.getElementById('global-guard-hint');
+  if (!el) { return; }
+  el.textContent = (typeof globalGuardHintText === 'function') ? globalGuardHintText(kind) : '';
+  el.style.display = '';
+  clearTimeout(__guardHintTimer);
+  __guardHintTimer = setTimeout(hideGlobalGuardHint, 6000);
+}
+function hideGlobalGuardHint() {
+  clearTimeout(__guardHintTimer);
+  const el = document.getElementById('global-guard-hint');
+  if (el) { el.style.display = 'none'; }
+}
+/** Hint (never block) when Detail pushes an already-Global layout past N. */
+function maybeWarnGlobalSize() {
+  if (typeof GLOBAL_GUARD === 'undefined' || state.layoutEngine !== 'global') { return; }
+  if (state.currentNodes.length > GLOBAL_GUARD.N) {
+    if (!state._globalSizeHinted) {
+      state._globalSizeHinted = true;
+      showGlobalGuardHint('detail');
+    }
+  } else {
+    state._globalSizeHinted = false;
+  }
+}
+
 // Engine axis — 'shelf' (folder frames; implies the File lens) | 'global'
 // (classic single simulation). Re-renders, then re-applies a static freeze so
 // the target engine honours the current motion mode.
-function setLayoutEngine(engine) {
+function setLayoutEngine(engine, opts = {}) {
   if (!['shelf', 'global'].includes(engine)) { engine = 'global'; }
+  if (engine === 'global' && state.layoutEngine !== 'global') {
+    const guard = globalGuardInstance();
+    if (guard && guard.check(state.currentNodes.length, opts) === 'blocked') {
+      showGlobalGuardHint('switch');
+      return; // a second click within the window switches
+    }
+  }
+  hideGlobalGuardHint();
   state.layoutEngine = engine;
   updateLayoutButtons();
   // Detach the old engine's simulation BEFORE re-rendering: a still-settling
@@ -402,6 +446,7 @@ function applyComplexity() {
   }
 
   renderElements(elements, positionHints);
+  maybeWarnGlobalSize();
 }
 
 // ── Main entry ────────────────────────────────────────────────────────────────
@@ -505,6 +550,18 @@ window.addEventListener('message', (event) => {
     if (gitPanel) gitPanel.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     state.allScannedFiles = message.data.files ?? [];
+    // Boot guard: a Global boot config with a first graph beyond the guard
+    // threshold would freeze on any expansion — start in Shelf and say so.
+    if (!state._globalBootGuarded) {
+      state._globalBootGuarded = true;
+      const realNodes = (message.data.nodes ?? []).filter(n => !n.isLibrary).length;
+      if (state.layoutEngine === 'global' && typeof GLOBAL_GUARD !== 'undefined'
+          && realNodes > GLOBAL_GUARD.N) {
+        state.layoutEngine = 'shelf';
+        updateLayoutButtons();
+        showGlobalGuardHint('boot');
+      }
+    }
     window.resetTimelineState?.();
     if (classifyGraphMessage(message.data) === 'ingest') {
       // Skeleton is showing — fold the analysis result into it without losing
@@ -603,7 +660,7 @@ window.addEventListener('message', (event) => {
     // Live push of cograph.layout.defaultEngine / defaultMode (engine first —
     // it re-renders; the motion freeze must land on the new engine).
     if (['shelf', 'global'].includes(message.defaultEngine)) {
-      setLayoutEngine(message.defaultEngine);
+      setLayoutEngine(message.defaultEngine, { force: true }); // user changed the setting
     }
     if (['dynamic', 'static'].includes(message.defaultMode)) {
       setLayoutMode(message.defaultMode);
@@ -626,7 +683,7 @@ window.addEventListener('message', (event) => {
       ? saved.layoutEngine
       : (saved.layoutMode === 'shelf' ? 'shelf' : 'global');
     const savedMotion = saved.layoutMode === 'static' ? 'static' : 'dynamic';
-    if (savedEngine !== state.layoutEngine) { setLayoutEngine(savedEngine); }
+    if (savedEngine !== state.layoutEngine) { setLayoutEngine(savedEngine, { force: true }); } // a saved Global view IS the explicit choice
 
     const isGlobalRestore = savedEngine === 'global';
     if (isGlobalRestore) {

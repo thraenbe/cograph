@@ -87,6 +87,10 @@
         post({ type: 'graph', data: FX.graph, gitAvailable: false, fileGitStatus: {}, isReanalysis: false });
       });
       R.load.renderedNodes = state.currentNodes.length; R.load.dom = domCount();
+    // ux's Global boot guard: a Global boot config + a first graph beyond the guard → Shelf + hint
+    { const hint = document.getElementById('global-guard-hint');
+      R.bootGuard = { requestedEngine: R.engine, engineAfterLoad: state.layoutEngine,
+        hintVisible: !!hint && hint.style.display !== 'none' && !!hint.textContent, hintText: hint ? hint.textContent.slice(0, 90) : null }; }
     } else {
       R.graphNodes = state.graphData ? state.graphData.nodes.length : 0;
       R.viewport = { w: window.innerWidth, h: window.innerHeight };

@@ -68,7 +68,7 @@
       },
       {
         "command": "cograph.openOrReload",
-        "title": "CoGraph: Open or Reload Layout",
+        "title": "CoGraph: Open or Reset Layout",
         "icon": {
           "light": "./media/icon-light.svg",
           "dark": "./media/icon-dark.svg"

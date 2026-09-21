@@ -99,6 +99,14 @@ suite('package.json contributions', () => {
     assert.strictEqual(props['cograph.graphIntelligence.annotate.maxRunBudgetUsd'].default, 2);
   });
 
+  test("'Open or Reset Layout' title with the UNCHANGED command id", () => {
+    const cmds = pkg.contributes?.commands ?? [];
+    const cmd = cmds.find((c: { command: string }) => c.command === 'cograph.openOrReload');
+    assert.ok(cmd, 'cograph.openOrReload must keep its id — keybindings/users depend on it');
+    assert.strictEqual(cmd.title, 'CoGraph: Open or Reset Layout',
+      "the command opens a FRESH layout; 'Reload' read like loading a saved graph");
+  });
+
   test('view id matches SidebarProvider.viewType', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { SidebarProvider } = require('../../sidebarProvider');

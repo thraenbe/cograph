@@ -45,6 +45,8 @@ export interface RunRecord {
   consoleErrors: string[]; blockedRequests: string[]; perfReport: unknown; simTransport: SimTransport;
   /** Which analyzers produced the graph (hash of the checkout-under-test's analyzer scripts) + its size. */
   analyzerHash?: string | null; edges?: number;
+  /** Lab boot timing: HTML + scripts ready, then host messages posted → first nodes in state (≈ first paint of the graph). */
+  boot?: { pageReadyMs: number; firstNodesMs: number; analysisMs: number };
 }
 
 export interface Lab {
@@ -78,12 +80,16 @@ async function wireNetwork(page: Page, origin: string, blocked: string[]): Promi
   });
 }
 
-async function boot(page: Page, host: FakeHost, server: LabServer, o: LabOpts, stillTimeout: number): Promise<void> {
+async function boot(page: Page, host: FakeHost, server: LabServer, o: LabOpts, stillTimeout: number): Promise<{ pageReadyMs: number; firstNodesMs: number }> {
+  const t0 = Date.now();
   await page.goto(server.pageUrl({ engine: o.engine, motion: o.motion, perf: true, timeline: o.timeline, workers: o.workers }));
   await page.waitForSelector('#graph svg', { state: 'attached', timeout: 15000 });
+  const pageReadyMs = Date.now() - t0;
+  const t1 = Date.now();
   for (const r of host.openingMessages()) { await postToWebview(page, r.message, r.delayMs); }
   await page.waitForFunction('typeof state !== "undefined" && state.currentNodes && state.currentNodes.length > 0',
-    undefined, { timeout: Math.max(30000, stillTimeout) });
+    undefined, { timeout: Math.max(Number(process.env.UXTEST_BOOT_TIMEOUT_MS ?? 30000), stillTimeout) });
+  return { pageReadyMs, firstNodesMs: Date.now() - t1 };
 }
 
 export async function openLab(o: LabOpts): Promise<Lab> {
@@ -128,7 +134,8 @@ export async function openLab(o: LabOpts): Promise<Lab> {
       .filter(e => e && /sim-workers/.test(String(e.event))).map(e => `${e?.event}: ${e?.detail ?? ''}`);
     return { requested: workers, ...live, fallbacks };
   };
-  try { await boot(page, host, server, { ...o, engine, motion, workers }, cfg.still.timeoutMs); }
+  let bootTiming = { pageReadyMs: 0, firstNodesMs: 0 };
+  try { bootTiming = await boot(page, host, server, { ...o, engine, motion, workers }, cfg.still.timeoutMs); }
   catch (err) {
     log.error('lab-boot-failed', { repo: repo.name, error: String(err), errors });
     await context.close().catch(() => undefined);
@@ -156,6 +163,7 @@ export async function openLab(o: LabOpts): Promise<Lab> {
       hostMode: host.mode, startedAt: startedAt.toISOString(), durationMs: Date.now() - startedAt.getTime(),
       video: videoRel, steps: ux.steps, hostLog: host.log, consoleErrors: errors, blockedRequests: blocked, perfReport, simTransport: transport,
       analyzerHash: repo.analyzerHash ?? null, edges: repo.graph.edges.length,
+      boot: { ...bootTiming, analysisMs: repo.analysisMs },
     };
     fs.writeFileSync(path.join(outDir, 'run.json'), JSON.stringify(record, null, 2));
     log.info('run-written', { outDir, steps: ux.steps.length, errors: errors.length });

@@ -2,7 +2,7 @@
 // Results land on window.__benchResult (read by run.mjs over CDP).
 // Scenarios: load · 4 open frames · expand all · pan/zoom · hover · drag · search.
 (async function () {
-  const P = new URLSearchParams(location.search);
+  const P = new URLSearchParams(window.__benchParams || location.search);
   const B = window.__bench;
   const R = { engine: P.get('engine'), mode: P.get('mode'), workers: P.get('workers') || 'default', fixture: P.get('fx') };
   const raf = () => new Promise(r => B.rawRaf(r));
@@ -67,23 +67,30 @@
   const domCount = () => document.querySelectorAll('#graph *').length;
 
   try {
-    await new Promise((res, rej) => {
-      const s = document.createElement('script');
-      s.nonce = (document.querySelector('script[nonce]') || {}).nonce || '';
-      s.src = `fixture-${R.fixture}.js`; s.onload = res; s.onerror = () => rej(new Error('fixture load'));
-      document.head.appendChild(s);
-    });
-    const FX = window.__FIXTURE;
-    R.graphNodes = FX.graph.nodes.length; R.graphEdges = FX.graph.edges.length;
-    R.payloadMB = r2(JSON.stringify(FX.graph).length / 1e6);
-    const tc = performance.now(); structuredClone(FX.graph); R.structuredCloneMs = r2(performance.now() - tc);
+    // In-editor calibration (calibrate.mjs): the extension already loaded the
+    // synthetic repo into a real webview — skip the fixture + load scenario.
+    if (!window.__benchInEditor) {
+      await new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.nonce = (document.querySelector('script[nonce]') || {}).nonce || '';
+        s.src = `fixture-${R.fixture}.js`; s.onload = res; s.onerror = () => rej(new Error('fixture load'));
+        document.head.appendChild(s);
+      });
+      const FX = window.__FIXTURE;
+      R.graphNodes = FX.graph.nodes.length; R.graphEdges = FX.graph.edges.length;
+      R.payloadMB = r2(JSON.stringify(FX.graph).length / 1e6);
+      const tc = performance.now(); structuredClone(FX.graph); R.structuredCloneMs = r2(performance.now() - tc);
 
-    // 1) load: structure + graph messages → paint (+ settle when dynamic)
-    R.load = await record(() => {
-      post({ type: 'structure', tree: FX.structure, autoEngage: true });
-      post({ type: 'graph', data: FX.graph, gitAvailable: false, fileGitStatus: {}, isReanalysis: false });
-    });
-    R.load.renderedNodes = state.currentNodes.length; R.load.dom = domCount();
+      // 1) load: structure + graph messages → paint (+ settle when dynamic)
+      R.load = await record(() => {
+        post({ type: 'structure', tree: FX.structure, autoEngage: true });
+        post({ type: 'graph', data: FX.graph, gitAvailable: false, fileGitStatus: {}, isReanalysis: false });
+      });
+      R.load.renderedNodes = state.currentNodes.length; R.load.dom = domCount();
+    } else {
+      R.graphNodes = state.graphData ? state.graphData.nodes.length : 0;
+      R.viewport = { w: window.innerWidth, h: window.innerHeight };
+    }
 
     // 2) four open frames (shelf target scenario): 4 leaf-most folders with most files
     if (R.engine === 'shelf') {
@@ -188,6 +195,22 @@
         }
         R.searchKeystrokeSyncMs = stats(ks);
       }
+    }
+    // 8) pan/zoom again with motion Static (no simulation running): the paint ceiling
+    if (window.__benchInEditor && typeof setLayoutMode === 'function') {
+      setLayoutMode('static');
+      await paint(); await sleep(300);
+      const base = d3.zoomTransform(svg.node());
+      B.rec = []; B.acc = 0;
+      for (let i = 0; i < 90; i++) {
+        await raf();
+        const k = base.k * (1 + 0.4 * Math.sin(i / 14));
+        svg.call(zoomBehavior.transform, d3.zoomIdentity.translate(base.x + 3 * i, base.y + 2 * i).scale(k));
+      }
+      const rec = B.rec; B.rec = null;
+      svg.call(zoomBehavior.transform, base);
+      const iv = stats(rec.slice(2).map(f => f.dt));
+      R.panZoomStatic = { frameIntervalMs: iv, fps: r2(1000 / iv.mean) };
     }
     R.simBackend = (typeof simApi === 'function') ? simApi().kind : 'n/a';
     R.posted = B.posted.filter(t => t === 'webview-log').length;

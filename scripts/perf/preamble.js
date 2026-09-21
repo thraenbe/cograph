@@ -3,7 +3,7 @@
 // frame intervals, long animation frames; stubs acquireVsCodeApi.
 // URL params: engine, mode, workers, fx (fixture), max (ms cap per scenario).
 (function () {
-  const P = new URLSearchParams(location.search);
+  const P = new URLSearchParams(window.__benchParams || location.search);
   window.__benchConfig = {
     defaultEngine: P.get('engine') || 'shelf',
     defaultMode: P.get('mode') || 'static',

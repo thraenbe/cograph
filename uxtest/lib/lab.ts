@@ -89,6 +89,7 @@ export async function openLab(o: LabOpts): Promise<Lab> {
   const server = await startServer();
   const ownBrowser = o.browser ? null : await chromium.launch({ headless: !o.headed });
   const browser = o.browser ?? (ownBrowser as Browser);
+  const videoT0 = Date.now(); // recording starts with the context, so step offsets count from here
   const context = await browser.newContext({
     viewport: cfg.viewport, deviceScaleFactor: 1,
     recordVideo: o.video === false ? undefined : { dir: outDir, size: cfg.viewport },
@@ -105,7 +106,7 @@ export async function openLab(o: LabOpts): Promise<Lab> {
   await attachFpsTrace(page);
   await attachHost(page, host);
 
-  const ux = new StepRecorder({ page, outDir, still: cfg.still, caps: cfg.caps, errors, keepSnapshots: o.keepSnapshots !== false });
+  const ux = new StepRecorder({ page, outDir, still: cfg.still, caps: cfg.caps, errors, keepSnapshots: o.keepSnapshots !== false, t0: videoT0 });
   try { await boot(page, host, server, { ...o, engine, motion }, cfg.still.timeoutMs); }
   catch (err) {
     log.error('lab-boot-failed', { repo: repo.name, error: String(err), errors });

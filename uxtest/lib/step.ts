@@ -37,6 +37,7 @@ export interface RecorderDeps {
   caps: { maxLabels: number; maxCrossingEdges: number; maxOverlapNodes: number };
   errors: string[];             // live list filled by the lab's console/pageerror hooks
   keepSnapshots: boolean;
+  t0?: number;                  // epoch ms when the video started (context creation)
 }
 
 /** Thrown by a scenario to mark a step as skipped (e.g. a selector the ux session removed). */
@@ -49,10 +50,11 @@ export function slug(s: string): string {
 export class StepRecorder {
   readonly steps: StepRecord[] = [];
   lastSnapshot: Snapshot | null = null;
-  private readonly t0 = Date.now();
+  private readonly t0: number;
   private errCursor = 0;
 
   constructor(private readonly d: RecorderDeps) {
+    this.t0 = d.t0 ?? Date.now();
     fs.mkdirSync(path.join(d.outDir, 'steps'), { recursive: true });
   }
 

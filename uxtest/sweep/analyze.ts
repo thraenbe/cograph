@@ -99,7 +99,8 @@ export function recommendationsMarkdown(groups: GroupResult[]): string {
       lines.push('', 'Sensitivity (Spearman ρ of the force value against …; |ρ| > 0.5 matters, sign + means "more force → worse"):', '',
         '| force | score | overlap | crossings | settle time |', '|---|---|---|---|---|');
       for (const s of g.sensitivity) { lines.push(`| ${s.param} | ${s.vsScore} | ${s.vsOverlap} | ${s.vsCrossings} | ${s.vsSettle} |`); }
-      if (g.ranked[0]?.dropped.length) { lines.push('', `Not available in this UI (skipped): ${g.ranked[0].dropped.join(', ')}`); }
+      const dropped = [...new Set(g.ranked.flatMap(s => s.dropped))];
+      if (dropped.length) { lines.push('', `Not available in this UI (skipped): ${dropped.join(', ')}`); }
       lines.push('');
     }
   }

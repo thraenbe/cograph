@@ -43,6 +43,7 @@ if (value('samples')) { env.UXTEST_SWEEP_SAMPLES = value('samples'); }
 if (value('space')) { env.UXTEST_SWEEP_SPACE = path.resolve(value('space')); }
 if (flag('video')) { env.UXTEST_SWEEP_VIDEO = '1'; }
 if (project === 'report' && value('run-id')) { env.UXTEST_REPORT_RUN = value('run-id'); }
+if (value('baseline')) { env.UXTEST_REPORT_BASELINE = value('baseline'); }
 
 // The lab serves the compiled html builder + analyzers glue from out/.
 const extRoot = env.UXTEST_EXT_ROOT ?? root;

@@ -1,8 +1,13 @@
 // In-page geometry snapshot. `snapshotInPage` is serialized by Playwright and
 // runs inside the webview, so it must stay self-contained (no imports, no
-// outer-scope references). It reads only what is stable across the ux/perf
-// refactors: rendered SVG elements + their d3 data, and state.frames rects
-// (with a DOM fallback when state.frames is unavailable).
+// outer-scope references).
+//
+// Two kinds of data, deliberately from two sources:
+//  - LAYOUT INVARIANTS (overlap, containment, crossings) come from STATE (state.currentNodes filtered by
+//    getVisibleNodeIds(), state.frames, the engines' link lists). The perf branch detaches culled frames and
+//    LOD layers from the document, so the DOM only holds what is on screen at the current zoom.
+//  - LEGIBILITY (labels, folder boxes) stays DOM-based: it describes what is actually painted.
+// Every state source has a DOM fallback, so the snapshot still works if an internal is renamed.
 import type { Frame, Page } from '@playwright/test';
 import type { Snapshot } from './types';
 
@@ -13,6 +18,8 @@ declare const state: any;
 declare const nodeRadius: any;
 declare const FRAME: any;
 declare const SLOT: any;
+declare const getVisibleNodeIds: any;
+declare const __fr: any;
 
 function snapshotInPage(opts: CollectOpts): Snapshot {
   const g = globalThis as any;
@@ -55,31 +62,50 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
     }
   }
 
-  // ── nodes (rendered + visible only) ───────────────────────────────────────
+  // ── nodes: state first (complete under culling/LOD), rendered DOM as fallback ──────────────
   const nodes: Snapshot['nodes'] = [];
   const indexOf = new Map<string, number>();
-  const els = svgEl ? svgEl.querySelectorAll('circle.regular-node, path.cloud-node, circle.lib-node') : [];
-  els.forEach((el) => {
-    const d = (el as any).__data__;
-    if (!d || d.id === undefined || typeof d.x !== 'number' || typeof d.y !== 'number' || !shown(el)) { return; }
-    if (indexOf.has(d.id)) { return; }
-    const r = radiusOf ? radiusOf(d) : Number(el.getAttribute('r')) || 3;
+  const pushNode = (d: any, fallbackR: number): void => {
+    if (!d || d.id === undefined || typeof d.x !== 'number' || typeof d.y !== 'number' || indexOf.has(String(d.id))) { return; }
     const own = ownerOf.get(d.id);
-    indexOf.set(d.id, nodes.length);
-    nodes.push({ id: String(d.id), x: d.x, y: d.y, r,
+    indexOf.set(String(d.id), nodes.length);
+    nodes.push({ id: String(d.id), x: d.x, y: d.y, r: radiusOf ? radiusOf(d) : fallbackR,
       kind: d.isLibrary ? 'lib' : (d.isCluster || d.isSynthetic || d.isFolderCluster || d.isFileCluster) ? 'cluster' : 'fn',
       file: d.file ?? d._filePath ?? null, frame: own ? own.frame : null, slot: own ? own.slot : null });
-  });
+  };
+  let visibleIds: Set<unknown> | null = null;
+  try { visibleIds = typeof getVisibleNodeIds === 'function' ? getVisibleNodeIds() : null; } catch { visibleIds = null; }
+  if (visibleIds && Array.isArray(st.currentNodes)) {
+    const libsDrawn = st.layoutEngine !== 'shelf'; // the shelf engine does not draw library nodes
+    for (const d of st.currentNodes) { if (visibleIds.has(d.id) && !d.isFileAnchor && (libsDrawn || !d.isLibrary)) { pushNode(d, 3); } }
+  } else {
+    (svgEl ? svgEl.querySelectorAll('circle.regular-node, path.cloud-node, circle.lib-node') : []).forEach((el) => {
+      if (shown(el)) { pushNode((el as any).__data__, Number(el.getAttribute('r')) || 3); }
+    });
+  }
 
-  // ── edges (rendered lines with both endpoints visible) ────────────────────
+  // ── edges: the engines' own link lists, rendered lines as fallback ────────────────────────
   const edges: Snapshot['edges'] = [];
   const idOf = (v: any): string | null => (v == null ? null : String(typeof v === 'object' ? v.id : v));
-  (svgEl ? svgEl.querySelectorAll('line') : []).forEach((el) => {
-    const d = (el as any).__data__;
-    if (!d || !shown(el)) { return; }
+  const pushEdge = (d: any): void => {
+    if (!d) { return; }
     const a = indexOf.get(idOf(d._s ?? d.source) ?? ''), b = indexOf.get(idOf(d._t ?? d.target) ?? '');
     if (a !== undefined && b !== undefined && a !== b) { edges.push([a, b]); }
-  });
+  };
+  let fromState = false;
+  try {
+    if (st.layoutEngine === 'shelf' && typeof __fr !== 'undefined' && __fr.intraByFrame) {
+      for (const list of __fr.intraByFrame.values()) { for (const l of list) { pushEdge(l); } }
+      fromState = true; // drawn lines of the shelf engine = intra-frame links (cross-frame calls are bundles)
+    } else if (st.simulation && !st.simulation.isFrameFacade && st.simulation.force) {
+      const links = st.simulation.force('link') && st.simulation.force('link').links ? st.simulation.force('link').links() : null;
+      if (Array.isArray(links)) { for (const l of links) { pushEdge(l); } fromState = true; }
+    }
+  } catch { fromState = false; }
+  if (!fromState) {
+    edges.length = 0;
+    (svgEl ? svgEl.querySelectorAll('line') : []).forEach((el) => { if (shown(el)) { pushEdge((el as any).__data__); } });
+  }
 
   // ── labels (screen space, actually painted) ───────────────────────────────
   const labels: Snapshot['labels'] = [];

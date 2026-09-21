@@ -10,7 +10,9 @@ export interface StillOpts {
    *  (or this many ms passed). Reheats can take seconds to reach a visible frame. */
   expectMotionMs?: number;
 }
-export interface StillResult { settled: boolean; ms: number; frames: number; movingFrames: number; peakPx: number }
+export interface StillResult { settled: boolean; ms: number; frames: number; movingFrames: number; peakPx: number;
+  /** ms from the start of the wait to the first observed movement; null when nothing moved. */
+  firstMoveMs: number | null }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare const state: any;
@@ -25,7 +27,7 @@ function waitStillInPage(o: StillOpts): Promise<StillResult> {
     const st: any = typeof state !== 'undefined' ? state : null;
     const t0 = performance.now();
     let ref = new Map<unknown, [number, number]>();
-    let quiet = 0, frames = 0, movingFrames = 0, peakPx = 0, lastMoveMs = 0;
+    let quiet = 0, frames = 0, movingFrames = 0, peakPx = 0, lastMoveMs = 0, firstMoveMs: number | null = null;
     const read = (): Map<unknown, [number, number]> => {
       const cur = new Map<unknown, [number, number]>();
       const nodes: any[] = (st && st.currentNodes) || [];
@@ -51,13 +53,13 @@ function waitStillInPage(o: StillOpts): Promise<StillResult> {
       return max;
     };
     const done = (settled: boolean): void => resolve({ settled, ms: Math.round(settled ? lastMoveMs : performance.now() - t0), frames, movingFrames,
-      peakPx: Number.isFinite(peakPx) ? +peakPx.toFixed(2) : -1 });
+      peakPx: Number.isFinite(peakPx) ? +peakPx.toFixed(2) : -1, firstMoveMs: firstMoveMs === null ? null : Math.round(firstMoveMs) });
     const tick = (): void => {
       const cur = read();
       const d = frames === 0 ? Infinity : drift(cur);
       frames++;
       if (d > o.epsilonPx) {
-        if (frames > 1) { movingFrames++; lastMoveMs = performance.now() - t0; if (Number.isFinite(d) && d > peakPx) { peakPx = d; } }
+        if (frames > 1) { movingFrames++; lastMoveMs = performance.now() - t0; if (firstMoveMs === null) { firstMoveMs = lastMoveMs; } if (Number.isFinite(d) && d > peakPx) { peakPx = d; } }
         ref = cur; quiet = 0; // open a new window here
       } else { quiet++; }
       const mayFinish = !o.expectMotionMs || movingFrames > 0 || performance.now() - t0 >= o.expectMotionMs;

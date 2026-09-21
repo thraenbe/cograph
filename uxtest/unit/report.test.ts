@@ -19,7 +19,7 @@ function run(over: Partial<RunRecord> = {}): RunRecord {
     consoleErrors: ['console.error: <line> attribute x1: Expected length, "NaN".'],
     hostLog: [{ atMs: 5, message: { type: 'dirty-state' } }],
     steps: [
-      { index: 1, name: 'Overview <C1>', status: 'ok', videoAtMs: 1500, durationMs: 900, still: { settled: true, ms: 480, frames: 41, movingFrames: 0, peakPx: 0 },
+      { index: 1, name: 'Overview <C1>', status: 'ok', videoAtMs: 1500, durationMs: 900, still: { settled: true, ms: 480, frames: 41, movingFrames: 0, peakPx: 0, firstMoveMs: null },
         fps: { frames: 60, avgMs: 16.7, p95Ms: 18, maxMs: 40, longFrames: 0, minFps: 25 }, metrics: { ...metrics, nodeOverlapPairs: 503 },
         screenshot: 'steps/01-overview.png', snapshot: 'steps/01-overview.snapshot.json', consoleErrors: [],
         findings: [{ rule: 'static-grid-overlap', severity: 'high', ref: 'B1/R2', message: '503 overlapping node pair(s)' }] },
@@ -48,7 +48,7 @@ test('run report: findings, matrix, seekable steps, baseline deltas', () => {
   const runDir = path.join(root, 'run-b'), baseDir = path.join(root, 'run-a');
   writeRun(runDir, 'click/smoke-shelf-static', run());
   writeRun(runDir, 'click/sweep-01-shelf-dynamic', run({ scenario: 'sweep-01' }));
-  writeRun(baseDir, 'click/smoke-shelf-static', run({ steps: [{ ...run().steps[0], metrics: { ...metrics, nodeOverlapPairs: 0 }, still: { settled: true, ms: 900, frames: 1, movingFrames: 0, peakPx: 0 } }] }));
+  writeRun(baseDir, 'click/smoke-shelf-static', run({ steps: [{ ...run().steps[0], metrics: { ...metrics, nodeOverlapPairs: 0 }, still: { settled: true, ms: 900, frames: 1, movingFrames: 0, peakPx: 0, firstMoveMs: null } }] }));
   fs.mkdirSync(path.join(runDir, 'not-a-run'));
   fs.writeFileSync(path.join(runDir, 'stray.txt'), 'x');
 

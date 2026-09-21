@@ -1,5 +1,9 @@
 // frameScheduler.js — one rAF loop driving at most `maxActive` frame
-// simulations, ranked user-interacted > just-expanded > path. Settled and
+// simulations per animation frame. Ranking: user-interacted first, then the
+// frame that waited longest (round-robin — after a global reheat every frame
+// starts moving at once instead of queueing behind the first four for their
+// whole settle, F7), then just-expanded, then path. Frames with nothing to
+// simulate (`isInert`) settle immediately and never occupy a slot. Settled and
 // off-viewport records cost nothing; results whose record or generation went
 // stale between pick and delivery are dropped (the #50 async-race class,
 // handled once). Pure logic — raf/caf/now/tick are injected for tests.
@@ -29,7 +33,9 @@ function createScheduler(opts) {
   const budgetOf = (typeof opts.budgetMs === 'function')
     ? opts.budgetMs : () => (opts.budgetMs ?? Infinity);
 
+  const isInert = opts.isInert;        // optional (rec) => true when no free member exists
   const recs = new Map();              // path -> SimRecord
+  let turn = 0;                        // monotonic stamp for the round-robin
   let running = false;
   let paused = false;
   let handle = null;
@@ -38,10 +44,13 @@ function createScheduler(opts) {
   function pick() {
     const cand = [];
     for (const r of recs.values()) {
-      if (!r.settled && isVisible(r)) { cand.push(r); }
+      if (r.settled) { continue; }
+      if (isInert && isInert(r)) { r.settled = true; continue; }
+      if (isVisible(r)) { cand.push(r); }
     }
     cand.sort((a, b) =>
-      (b.userTs - a.userTs) || (b.expandedTs - a.expandedTs) || (a.path < b.path ? -1 : 1));
+      (b.userTs - a.userTs) || ((a._turn || 0) - (b._turn || 0))
+      || (b.expandedTs - a.expandedTs) || (a.path < b.path ? -1 : 1));
     return cand.slice(0, maxActiveOf());
   }
 
@@ -52,6 +61,7 @@ function createScheduler(opts) {
     const t0 = budget < Infinity ? now() : 0;
     for (const rec of pick()) {
       if (beforeTick) { beforeTick(rec); }
+      rec._turn = ++turn;
       const r = tick(rec);
       // Stale drop: the record was removed/recreated while this step ran.
       if (r && recs.get(r.path) === rec && r.gen === rec.gen) {

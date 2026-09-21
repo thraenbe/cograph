@@ -83,6 +83,8 @@ function ensureFrameScheduler() {
       if (f) { syncPins(rec, frInnerOrigin(f), simApi()); }
     },
     onPauseChange: (paused) => { const a = simApi(); if (a.setPaused) { a.setPaused(paused); } },
+    // Nothing free to move (no members, or every member pinned): settle at once.
+    isInert: (rec) => !rec.nodes.some(n => n.fx == null),
     // Per-step work touches ONLY the frames that ticked. File slots and
     // cross-link bundles depend on frame geometry alone, which does not
     // move during settle — they update on render / frame moves.

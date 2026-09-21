@@ -33,6 +33,7 @@ function makeSched(over: any = {}) {
     onResult: over.onResult,
     onPauseChange: over.onPauseChange,
     budgetMs: over.budgetMs,
+    isInert: over.isInert,
   });
   return { sched, rafQueue, ticked, results, tickClock: () => clock };
 }
@@ -187,5 +188,39 @@ suite('frameScheduler', () => {
     sched.pauseAll(); sched.pauseAll();
     sched.resumeAll(); sched.resumeAll();
     assert.deepStrictEqual(seen, [true, false]);
+  });
+
+  // ── F7: no frame waits behind the others' whole settle ──
+  test('round-robin: after a global reheat every frame ticks within ceil(n / maxActive) steps', () => {
+    const slow = (r: any) => { r.alpha *= 0.99; return { path: r.path, gen: r.gen, nodes: [] }; }; // ~700 ticks to settle
+    const { sched } = makeSched({ maxActive: 4, tick: slow });
+    const paths = Array.from({ length: 12 }, (_, i) => `/f${String(i).padStart(2, '0')}`);
+    paths.forEach(p => sched.add(rec(p)));
+    const seen = new Set<string>();
+    for (let step = 0; step < 3; step++) { sched.step().forEach((r: any) => seen.add(r.path)); }
+    assert.strictEqual(seen.size, 12, 'all 12 frames moved within 3 animation frames (was: 4, for ~300 frames)');
+    const counts = new Map<string, number>();
+    for (let step = 0; step < 30; step++) { sched.step().forEach((r: any) => counts.set(r.path, (counts.get(r.path) || 0) + 1)); }
+    assert.deepStrictEqual([...new Set(counts.values())], [10], 'ticks are shared evenly');
+  });
+
+  test('a user-interacted frame keeps a slot every step while the rest rotate', () => {
+    const slow = (r: any) => ({ path: r.path, gen: r.gen, nodes: [] });
+    const { sched } = makeSched({ maxActive: 2, tick: slow });
+    ['/a', '/b', '/c', '/d'].forEach(p => sched.add(rec(p)));
+    sched.bumpUser('/d');
+    const steps = [0, 1, 2].map(() => sched.step().map((r: any) => r.path));
+    assert.ok(steps.every(s => s[0] === '/d'), 'dragged frame first, always');
+    assert.deepStrictEqual(steps.map(s => s[1]), ['/a', '/b', '/c'], 'the other slot rotates');
+  });
+
+  test('inert frames (nothing free to simulate) settle immediately and never take a slot', () => {
+    const { sched, ticked } = makeSched({ maxActive: 1, isInert: (r: any) => r.inert === true });
+    sched.add(rec('/a-empty-parent', { inert: true }));
+    sched.add(rec('/b'));
+    const out = sched.step();
+    assert.deepStrictEqual(out.map((r: any) => r.path), ['/b']);
+    assert.deepStrictEqual(ticked, ['/b']);
+    assert.strictEqual(sched.get('/a-empty-parent').settled, true);
   });
 });

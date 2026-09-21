@@ -586,3 +586,34 @@ analyzeJava bounded cache, webviewReadyGate, readyHandshake), lint 0 errors.
 | workers off == today | — | identical | ✔ same `localSim` functions by reference |
 | Git refresh blocks the host | 3 sync subprocesses | 0 | ✔ on the hot path (analysis-time calls stay sync) |
 | guava | V8 OOM @85 s | completes or fails < 30 s | fails **cleanly** but after 88 s (parse time) — completing needs D6 |
+
+### Merge pass (2026-09-21)
+`c702c0c` = termi/s178 (final ux + annotate) → `f71d3fe` (+ uxtest + ux F4) → `1f94f61`, `a3ebf10`
+(uxtest-only follow-ups). Judgement resolutions: memoised `getCSSVar` keeps ux's body-scoped
+read and is self-contained (their test extracts it by source); `updateTextVisibility` gate also
+keys on ux's B6 dense-slot threshold; cached cross-link routing adopts ux's tab-based port
+rect; annotate's `setBackgroundParsing` kept around the ready gate / `scheduleCacheWrite`.
+Post-merge fixes found by the checklist and by uxtest's lab test: (1) the frame facade forwarded
+only four force keys on a reheat, so ux's advanced keys never reached a live sim in either
+transport → now forwarded opaquely; (2) **W3 bug of mine**: after shelf → global → shelf the
+DOM culler re-inserted the previous session's frames before the next render (root glyph
+missing at Detail 0) → the culler only re-inserts frames it detached, reset on teardown
+(`c400e1f`). Lesson: read a suite's pass/fail line, not its coverage tail. Finding for uxtest:
+its Tier-A lab ran the sync path only (stub Uris had no `fsPath`) — fixed on their side.
+
+### D6 — ambiguous call names (commit 55613d5, decision by Bela 2026-09-21)
+All five analyzers: a name with > 8 definitions is narrowed to the caller's file → directory →
+top-level package, used as soon as ≤ 8 remain, else dropped. ≤ 8: untouched; outputs without an
+ambiguous name are byte-identical (identity test per analyzer). Old analyzers (c400e1f) vs new,
+same machine, sequential:
+
+| repo (analyzer) | edges before → after | output | time | narrowed / dropped |
+|---|---|---|---|---|
+| click (py) | 3 752 → 3 653 (−2.6 %) | 1.1 → 1.1 MB | 0.95 → 0.68 s | 8 / 1 |
+| django (py) | 119 498 → 76 248 (−36 %) | 34.9 → 25.8 MB | 16.3 → 18.2 s | 1 545 / 965 |
+| junit5 (java) | 250 564 → 29 784 (−88 %) | 89.6 → 16.4 MB | 18.0 → 16.9 s | 1 628 / 4 111 |
+| **guava (java)** | fails (2 653 296 edges) → **146 602, completes** | – → 63.4 MB | 82 s (fail) → **74 s** | 14 491 / 7 918 |
+
+Analysis time is parse-bound and barely moves; the win is downstream (transport, merge, cache,
+layout, cross-folder bundling) and guava going from "fails" to "works". `measure-all.sh` not
+re-run (as instructed).

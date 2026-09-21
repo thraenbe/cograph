@@ -90,9 +90,10 @@ reanalysis-scheduling path would re-load the gun. Fix shape: same captured
   - **Global engine** still ticks on the main thread (128 ms/tick @3k, F12: a 13-minute freeze
     on zod with extreme slider values) → W4: same worker, single-sim mode + separation-force
     rewrite (precomputed membership, no per-tick allocation).
-  - **Analyzer call fan-out** (D6, pending): a bare-name call links to every same-named
-    definition → guava 2.65 M edges, django/junit5 hairballs. Proposed: narrow by file →
-    directory → package when a name has > 8 candidates.
+  - **Analyzer call fan-out** — D6 shipped 2026-09-21 (`scripts/narrowCalls.js`, mirrored in
+    `analyze.py`): > 8 same-named definitions → file → directory → top-level package → drop.
+    Follow-ups: use each analyzer's import map as a stage (a name imported from module X should
+    resolve to X even across packages); guava still needs 74 s (parse-bound → sharding, W5-6).
   - When the global engine moves into the worker (W4), every Global-only force key must travel
     with the settings patch too — notably ux's F4 `repelRange` (charge `.distanceMax`) and the
     drill-down/file separation forces, which exist only in `rendering.js`/`drilldown.js` today.

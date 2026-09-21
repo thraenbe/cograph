@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layouts are unchanged. Saved with the view (older saves load as unlimited).
 
 ### Fixed
+- **Saved views now come back under the Global engine** (pre-existing since
+  v1 saves): the restore consumes the saved detail depth and expanded folders
+  and re-renders BEFORE applying node positions — they used to land on the
+  fresh panel's default expansion — and afterwards the view repaints and
+  re-fits instead of re-running the simulation over the restored layout.
 - Shelf layouts restore deterministically from the saved payload alone: the
   content block's offset inside each frame (which depends on how the layout
   grew — detail changes, parse patches) is now saved with the frame rects, so

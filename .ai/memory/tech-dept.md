@@ -84,3 +84,10 @@ reanalysis-scheduling path would re-load the gun. Fix shape: same captured
   under Shelf (orchestrator decision, uxtest F5). Follow-up: design library
   rendering inside frames (own shelf strip? per-frame lib slots?) and re-enable
   the toggle.
+
+- **2026-09-21 — Tab titles unreadable when zoomed far out (uxtest, zod).** At
+  fit-to-view all 51 folder boxes render < 40 px on screen, so the Draft A tab
+  labels are illegible. Follow-up idea: constant on-screen tab label size
+  (counter-scale the tab text/glyph against the zoom transform below a
+  threshold). No action yet per orchestrator.
+

@@ -136,7 +136,7 @@ require('../../../src/webview/controls.js');
 
 // Also get applyResizeDelta / applySavedViewSettings / buildSavePayload for direct testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { applyResizeDelta, applySavedViewSettings, buildSavePayload, clearSearch, updateSearchCount } = require('../../../src/webview/controls.js');
+const { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, buildSavePayload, clearSearch, updateSearchCount } = require('../../../src/webview/controls.js');
 
 // Load popups.js factory for textarea handler tests
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -758,6 +758,53 @@ suite('applySavedViewSettings()', () => {
     assert.strictEqual(st().clusterGroupBy, before.clusterGroupBy);
     assert.strictEqual(st().gitMode, before.gitMode);
     assert.strictEqual(st().folderMode, before.folderMode);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: applySavedDrilldownState — Global engine restore (F14)
+// ---------------------------------------------------------------------------
+
+suite('applySavedDrilldownState()', () => {
+  const st = () => (global as any).state;
+  let sliderCalls: number[];
+  let parseCalls: number;
+
+  setup(() => {
+    sliderCalls = [];
+    parseCalls = 0;
+    (global as any).setDetailSlider = (v: number) => sliderCalls.push(v);
+    (global as any).requestParseForExpanded = () => { parseCalls++; };
+    st().detailDepth = 0.2;
+    st().expandedFolders = new Set(['/old']);
+  });
+
+  teardown(() => {
+    delete (global as any).setDetailSlider;
+    delete (global as any).requestParseForExpanded;
+  });
+
+  test('applies detailDepth and expandedFolders from the payload', () => {
+    const changed = applySavedDrilldownState({
+      settings: { detailDepth: 0.6 },
+      expandedFolders: ['/p', '/p/a'],
+    });
+    assert.strictEqual(changed, true);
+    assert.strictEqual(st().detailDepth, 0.6);
+    assert.deepStrictEqual([...st().expandedFolders].sort(), ['/p', '/p/a']);
+    assert.deepStrictEqual(sliderCalls, [0.6], 'slider synced');
+    assert.strictEqual(parseCalls, 1, 'expansion requests parses');
+  });
+
+  test('v1 payloads (no drill-down state) change nothing', () => {
+    const changed = applySavedDrilldownState({ settings: {}, nodePositions: {} });
+    assert.strictEqual(changed, false);
+    assert.strictEqual(st().detailDepth, 0.2);
+    assert.deepStrictEqual([...st().expandedFolders], ['/old']);
+  });
+
+  test('null payload is a no-op', () => {
+    assert.strictEqual(applySavedDrilldownState(null), false);
   });
 });
 

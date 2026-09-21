@@ -43,6 +43,25 @@ suite('global charge — Repel range (source contract)', () => {
   });
 });
 
+suite('graph-loaded restore ordering (F14, source contract)', () => {
+  test('Global consumes drill-down state and renders BEFORE positions; repaints after', () => {
+    const mainSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../../src/webview/main.js'), 'utf8');
+    const handler = mainSrc.slice(mainSrc.indexOf("message.type === 'graph-loaded'"));
+    const drilldownAt = handler.indexOf('applySavedDrilldownState');
+    const renderAt = handler.indexOf('applyComplexity()');
+    const positionsAt = handler.indexOf('nodePositions[n.id]');
+    assert.ok(drilldownAt > 0 && renderAt > drilldownAt && positionsAt > renderAt,
+      'order must be: drill-down state → render → positions');
+    assert.ok(/isGlobalRestore\) \{\n\s+state\.hasFitted = false;[^]*?ticked\(\);/.test(handler),
+      'Global repaints + re-fits after positions instead of re-rendering');
+    const tail = handler.slice(positionsAt);
+    const secondRender = tail.indexOf('applyComplexity()');
+    assert.ok(/isGlobalRestore/.test(tail.slice(0, secondRender)) || secondRender < 0,
+      'any render after positions must be the non-Global (shelf) branch');
+  });
+});
+
 suite('global static boot (F4)', () => {
   test('freezes every node after a bounded synchronous settle', () => {
     const staticBootFreeze = extractStaticBootFreeze();

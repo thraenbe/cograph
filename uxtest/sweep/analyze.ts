@@ -10,6 +10,10 @@ export interface SweepSample {
   settleMs: number | null; settled: boolean;
   /** Nodes displaced > 0.5 px by applying the sample's forces, and the largest displacement (absent in old runs). */
   movedNodes?: number; maxMovePx?: number;
+  /** Largest |x| or |y| of any node in the end state — a runaway integrator shows up as 1e6+ (F12). */
+  maxAbsCoord?: number;
+  /** Set for explicit regression tuples; they are reported but never ranked or used for sensitivity. */
+  label?: string;
   metrics: LayoutMetrics; score: number; screenshot: string;
 }
 
@@ -56,15 +60,18 @@ export function sensitivity(samples: SweepSample[]): Sensitivity[] {
 export interface GroupResult {
   repo: string; engine: string; baseline: SweepSample | null; ranked: SweepSample[];
   best: SweepSample | null; improvementPct: number | null; sensitivity: Sensitivity[];
+  extras: SweepSample[];
 }
 
-export function analyzeGroup(samples: SweepSample[]): GroupResult {
+export function analyzeGroup(all: SweepSample[]): GroupResult {
+  const samples = all.filter(s => !s.label); // explicit regression tuples are not part of the design
   const ranked = [...samples].sort((a, b) => a.score - b.score);
   const baseline = samples.find(s => s.baseline) ?? null;
   // A sample that never came to rest cannot be a recommendation, however good its last frame scored.
   const best = ranked.find(s => !s.baseline && s.settled) ?? ranked.find(s => !s.baseline) ?? null;
   const improvementPct = baseline && best && baseline.score > 0 ? +(((baseline.score - best.score) / baseline.score) * 100).toFixed(1) : null;
-  return { repo: samples[0]?.repo ?? '', engine: samples[0]?.engine ?? '', baseline, ranked, best, improvementPct, sensitivity: sensitivity(samples) };
+  return { repo: all[0]?.repo ?? '', engine: all[0]?.engine ?? '', baseline, ranked, best, improvementPct, sensitivity: sensitivity(samples),
+    extras: all.filter(s => !!s.label) };
 }
 
 /** Re-score from the stored metrics so old runs are ranked by the current (quality-only) formula. */
@@ -142,6 +149,9 @@ export function recommendationsMarkdown(groups: GroupResult[]): string {
           : `${inert} of ${g.ranked.length - 1} swept samples showed no motion to the settle detector. This run predates displacement measurement; fast worker sims can finish before the detector samples, so this is NOT evidence that nothing moved.`);
       }
       if (unsettled) { lines.push('', `${unsettled} sample(s) were still moving at the timeout (marked ✗) — a layout that never comes to rest is itself a finding.`); }
+      for (const x of g.extras) {
+        lines.push('', `Regression tuple "${x.label}": ${x.settled ? `settled after ${fmt(x.settleMs)} ms` : 'did NOT settle inside the window'}, max |coordinate| ${fmt(x.maxAbsCoord)} px, score ${x.score}, ${fmt(x.movedNodes)} nodes moved — values ${Object.entries(x.values).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+      }
       const dropped = [...new Set(g.ranked.flatMap(s => s.dropped))];
       if (dropped.length) { lines.push('', `Not available in this UI (skipped): ${dropped.join(', ')}`); }
       lines.push('');

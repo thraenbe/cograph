@@ -14,6 +14,7 @@
     "global": {
       "params": ["forceCenter", "forceRepel", "forceLink", "forceFileCluster", "forceLinkDistance", "forceVelocityDecay", "forceCollidePad", "forceRepelRange"],
       "unlimitedShare": { "forceRepelRange": 0.25 },
+      "extra": { "zod": [ { "label": "F12 runaway tuple", "values": { "forceCenter": 0.075, "forceRepel": 191, "forceLink": 4.8, "forceFileCluster": 0.98, "forceFolderRepel": 0.26, "forceFileRepel": 2.12 } } ] },
       "ranges": { "forceRepelRange": [150, 1200], "forceCenter": [0, 0.3], "forceLink": [0, 5] }
     }
   }

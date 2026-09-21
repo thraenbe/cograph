@@ -88,6 +88,10 @@ test.describe('analysis', () => {
     expect(g.best?.index).toBe(1);
     expect(g.improvementPct).toBe(66.7);
     expect(analyzeGroup([samples[1]]).improvementPct).toBeNull();
+    const withTuple = analyzeGroup([...samples, sample({ index: 900, label: 'F12 runaway tuple', score: 0.01, maxAbsCoord: 3221, values: { repel: 191 } })]);
+    expect(withTuple.best?.index).toBe(1);                       // a regression tuple is never ranked …
+    expect(withTuple.extras.map(x => x.label)).toEqual(['F12 runaway tuple']);
+    expect(recommendationsMarkdown([withTuple])).toContain('max |coordinate| 3221 px'); // … but always reported
     expect(analyzeGroup([samples[0], { ...samples[1], settled: false }, samples[2]]).best?.index).toBe(2); // unsettled never wins
     expect(analyzeGroup([samples[0], { ...samples[1], settled: false }]).best?.index).toBe(1);             // …unless nothing settled
   });

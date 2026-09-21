@@ -638,7 +638,7 @@ panel) → round 2.
 | Pan/zoom, all expanded (W3b gate ≥ 45 @3k, ≥ 30 @10k) | 14 / 4.7 fps | gate | **56.6 / 41.9 fps ★**, pan- or zoom-only 57-67; fmt 3.9 → 65 |
 | Slider reheat → all frames moving (F7) | 10.6 s | — | **89 ms** |
 | Search keystroke | 78-98 ms | ≤ 10 ms | 10-14 ms ★ (10k 34 vs ≤ 25) — **missed** on the first character |
-| Blank graph on cold open (F11) | 2/3 and 1/13 cold opens | 0 | ready handshake; uxtest acceptance run pending |
+| Blank graph on cold open (F11) | 2/3 and 1/13 cold opens | 0 | **0 of 10** (f71d3fe) and **0 of 30** (91a65fa) blank cold opens in real VS Code — uxtest acceptance **PASS** |
 | guava | V8 OOM / 2.65 M edges | completes or fails < 30 s | **completes**: 146 602 edges in 74 s — time target **missed** (parse-bound) |
 | workers off == today · stale positions never paint | — | yes | ✔ same functions by reference · ✔ unit-tested |
 

@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Fixed
+- Collapsed-folder glyphs no longer overlap file slots or poke out of their
+  frame: the closed-folder silhouette now stays inside the node's collision
+  radius, which is exactly what the packer, the collide force and the slot
+  clamp budget for.
 - "Show Libraries" is disabled with a hint under the Shelf engine ("Libraries
   are shown in the Global engine") instead of being a silent no-op — the
   shelf does not render library nodes yet.

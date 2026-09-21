@@ -102,18 +102,26 @@ function memberCounts(members) {
   return { files: files.size, fns };
 }
 
+/** Closed-folder glyph dimensions for a collapsed folder with collision
+ *  radius r. The WHOLE silhouette must stay inside that radius — the packer,
+ *  the collide force and the slot clamp all budget exactly r, so a wider
+ *  shape bleeds into neighbouring slots or out of the frame (F8). */
+function closedFolderDims(r) {
+  const w = 2 * r;
+  const h = 1.2 * r;
+  return { w, h, tw: w * 0.48, th: h * 0.45 };
+}
+
 /** Compact closed-folder silhouette for a collapsed folder glyph, centred at
  *  (0,0), sized from the node's collision radius r. */
 function closedFolderPath(r) {
-  const w = 2.8 * r;
-  const h = 1.7 * r;
-  const th = h * 0.45;
-  return tabBodyPath(-w / 2, -h / 2, w, h, w * 0.48, th);
+  const d = closedFolderDims(r);
+  return tabBodyPath(-d.w / 2, -d.h / 2, d.w, d.h, d.tw, d.th);
 }
 
 if (typeof module !== 'undefined') {
   module.exports = {
     TAB, DENSE, FOLDER_GLYPH, tabWidth, tabChars, cutLabel, slotLabelText, fitScale,
-    tabBodyPath, tabOnlyPath, rectPath, countsText, memberCounts, closedFolderPath,
+    tabBodyPath, tabOnlyPath, rectPath, countsText, memberCounts, closedFolderPath, closedFolderDims,
   };
 }

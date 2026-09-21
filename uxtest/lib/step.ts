@@ -111,7 +111,7 @@ export class StepRecorder {
     }
     if (target) { rec.fps = await drainFps(target); }
     rec.screenshot = path.join('steps', `${base}.png`);
-    await page.screenshot({ path: path.join(outDir, rec.screenshot) });
+    await page.screenshot({ path: path.join(outDir, rec.screenshot), timeout: 45000 }); // a settling 30k-node page answers slowly
     if (opts.metrics === false || !target) { return; }
     const snap = await collectSnapshot(target, { maxLabels: this.d.caps.maxLabels });
     this.lastSnapshot = snap;

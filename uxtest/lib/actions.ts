@@ -256,3 +256,35 @@ export async function locateFrame(page: Page, pick: 'smallest' | 'largest' = 'sm
   }
   throw new SkipStep(`no folder frame${pathSuffix ? ` ending in "${pathSuffix}"` : ''} with a grabbable title on screen ${JSON.stringify(why)}`);
 }
+
+export interface HoverChurn { restMs: number; rebuilds: number; added: number; removed: number; attrWrites: number }
+
+/** Runs in the page. Counts how often the hover overlay (`line.cross-hover`) is torn down and rebuilt
+ *  while the pointer does not move. One build on entry is expected; more is churn (F10). */
+function watchHoverChurnInPage(restMs: number): Promise<HoverChurn> {
+  return new Promise((resolve) => {
+    const root = document.querySelector('#graph svg');
+    const out: HoverChurn = { restMs, rebuilds: 0, added: 0, removed: 0, attrWrites: 0 };
+    if (!root) { return resolve(out); }
+    const isHover = (n: Node): boolean => n instanceof Element && (n.classList.contains('cross-hover') || !!n.querySelector?.('.cross-hover'));
+    const mo = new MutationObserver((records) => {
+      let addedNow = 0;
+      for (const r of records) {
+        if (r.type === 'attributes') { if (r.target instanceof Element && r.target.classList.contains('cross-hover')) { out.attrWrites++; } continue; }
+        r.addedNodes.forEach((n) => { if (isHover(n)) { addedNow++; } });
+        r.removedNodes.forEach((n) => { if (isHover(n)) { out.removed++; } });
+      }
+      if (addedNow) { out.rebuilds++; out.added += addedNow; }
+    });
+    mo.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['x1', 'y1', 'x2', 'y2', 'd'] });
+    setTimeout(() => { mo.disconnect(); resolve(out); }, restMs);
+  });
+}
+
+/** Rest the pointer on `p` and report hover-overlay churn. The observer is armed AFTER the pointer
+ *  arrived and the first overlay was built, so every rebuild it sees happened under a resting pointer. */
+export async function restAndWatchChurn(page: Page, p: Point, restMs = 1000): Promise<HoverChurn> {
+  await glideTo(page, p);
+  await page.waitForTimeout(350);
+  return page.evaluate(watchHoverChurnInPage, restMs);
+}

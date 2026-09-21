@@ -548,3 +548,12 @@ one 10-20 ms DOM pass plus a full repaint. That is the exact case a Canvas2D nod
 would fix (W3b estimate: 3-4 days incl. quadtree hit-testing for hover/drag/click/context
 menu and coordination with annotate's hover card). Cheaper round-2 step first: split a giant
 frame's position apply across animation frames and cap visible labels per frame.
+
+**uxtest-visible behaviour of W3 (so scenarios do not flag it):** function labels, intra-frame
+lines, function dots and slot file names are *removed from the DOM* (not hidden) by zoom level
+(labels < `textFadeThreshold` 0.5, lines < 0.4, dots + slot names < 0.3; only the 200 strongest
+cross bundles below 0.4), frames outside the viewport (+240 px) are detached entirely, and
+**during a pan/zoom gesture** labels + intra-frame lines additionally park whenever more than
+1 500 labelled nodes / 5 000 lines are in the viewport — they return 180 ms after the last zoom
+event. `state.svgNodes/svgLabels/svgLinks` always hold ALL elements (attached or not);
+`document.querySelector*` only sees what is attached.

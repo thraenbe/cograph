@@ -30,6 +30,10 @@ Status as reported by the owning sessions; "verified" = re-run by uxtest via `--
 - A metric must follow the product's own geometry parameters: `nodesPinnedToWall` tested the UNPADDED slot wall, so
   every sample with slot pad ≥ 2 px looked wall-free (click: 94 → 0 exactly at slot pad 2). Caught while re-ranking;
   the interior now moves inward with `settings.slotPad`.
+- Measurement runs must not depend on gestures that can miss: on a never-settling layout the double-click "fit"
+  landed on drifting nodes and opened source popups (17 of 22 zod/Global samples), so "at fit" metrics were taken
+  un-fitted behind a popup. Sweeps now call the product's `fitToView()` directly and assert that no click reached the
+  graph. Found only by opening the keyframes — always look at the pictures before trusting a ranking.
 - Controls inside a collapsed expander are "hidden", not "absent": open `#forces-advanced` before deciding a slider
   does not exist — otherwise a sweep silently drops exactly the parameters it was run for.
 

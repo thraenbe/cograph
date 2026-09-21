@@ -7,7 +7,7 @@ import * as path from 'path';
 import { openLab } from '../lib/lab';
 import { loadConfig, selectedRepos } from '../lib/corpus';
 import { engines } from '../lib/matrix';
-import { fitToView, setSlider } from '../lib/actions';
+import { fitDirect, setSlider } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 import { layoutScore, QUALITY_WEIGHTS } from '../metrics/score';
 import { collectSnapshot } from '../metrics/collect';
@@ -47,7 +47,7 @@ for (const repo of repos) {
           await ux.step('Full detail, fitted', async () => {
             const cur = Number(await page.locator(SEL.detailSlider.css).inputValue());
             if (Math.abs(cur - space.detail) > 0.005) { await setSlider(page, 'detailSlider', space.detail); }
-            await fitToView(page);
+            await fitDirect(page);
           }, { stillTimeoutMs: space.settleTimeoutMs, metrics: false });
           const beforeForces = await collectSnapshot(page, { maxLabels: 10 });
           const apply = await ux.step(sample.label ? `Regression tuple: ${sample.label}` : sample.unit ? `Apply forces (sample ${sample.index})` : 'Defaults (baseline)', async () => {
@@ -68,11 +68,13 @@ for (const repo of repos) {
             }
           }, { stillTimeoutMs: space.settleTimeoutMs, expectMotionMs: space.motionGraceMs, armBefore: true });
           const moved = ux.lastSnapshot ? maxDisplacement(beforeForces, ux.lastSnapshot) : { moved: 0, max: 0 };
-          const end = await ux.step('End state (fitted)', async () => { await fitToView(page); });
+          const end = await ux.step('End state (fitted)', async () => { await fitDirect(page); });
           expect(end.metrics, 'end-state metrics').toBeTruthy();
           const metrics = end.metrics!;
           const settleMs = apply.still ? apply.still.ms : null;
           const maxAbsCoord = Math.round((ux.lastSnapshot?.nodes ?? []).reduce((m, n) => Math.max(m, Math.abs(n.x), Math.abs(n.y)), 0));
+          const strayInput = lab.host.log.filter(l => ['get-func-source', 'navigate'].includes(l.message.type)).length;
+          expect(strayInput, 'the sweep must not click into the graph').toBe(0);
           const record: SweepSample = { repo, engine, index: sample.index, baseline: sample.unit === null, label: sample.label, maxAbsCoord, values, dropped,
             settleMs, settled: apply.still?.settled ?? false, movedNodes: moved.moved, maxMovePx: moved.max, metrics, score: layoutScore(metrics, 0, QUALITY_WEIGHTS),
             screenshot: path.relative(path.dirname(path.dirname(lab.outDir)), path.join(lab.outDir, end.screenshot ?? '')) };

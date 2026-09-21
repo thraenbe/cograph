@@ -317,3 +317,13 @@ export async function switchEngine(page: Page, engine: 'shelf' | 'global'): Prom
   if (guarded) { await clickSel(page, 'engineGlobal'); } // confirm within the 6 s window
   return { guarded };
 }
+
+/** Measurement-grade fit: call the product's own fitToView() instead of the double-click gesture. On a layout that
+ *  is still moving the gesture can land on a drifting node (opening a source popup instead of fitting) — fine to
+ *  discover in a UX walkthrough, fatal for a sweep whose metrics are taken "at fit". Also closes stray popups. */
+export async function fitDirect(page: Page): Promise<void> {
+  await page.keyboard.press('Escape');
+  const ok = await page.evaluate('typeof fitToView === "function" ? (fitToView(), true) : false');
+  if (!ok) { await fitToView(page); return; }
+  await page.waitForTimeout(750); // fitToView() animates for 500 ms
+}

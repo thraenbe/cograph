@@ -87,9 +87,13 @@ reanalysis-scheduling path would re-load the gun. Fix shape: same captured
     Canvas2D layer for function nodes + intra-frame links above ~2 000 visible elements
     (frames/slots/labels/bundles stay SVG; quadtree hit-testing; ~3-4 days; touches annotate's
     hover card). The agreed W3b gate passes without it (56.6 fps @3k, 41.9 @10k in-editor).
-  - **Global engine** still ticks on the main thread (128 ms/tick @3k, F12: a 13-minute freeze
-    on zod with extreme slider values) → W4: same worker, single-sim mode + separation-force
-    rewrite (precomputed membership, no per-tick allocation).
+  - **Global engine** still ticks on the main thread (128 ms/tick @3k) → W4: same worker,
+    single-sim mode + separation-force rewrite (precomputed membership, no per-tick allocation).
+    CORRECTION (2026-09-21, root cause found by session-111): the F12 zod freeze is NOT tick
+    cost — nested drill-down cluster pulls SUM per node (zod: factor 16 vs a stability limit of
+    ~2), coordinates run away to 1e40 and everything downstream chokes. Moving the sim into a
+    worker would not have fixed it; the per-node stability clamp (1.5·alpha in
+    `createDrilldownClusterForce`) must travel WITH the force into the worker.
   - **Analyzer call fan-out** — D6 shipped 2026-09-21 (`scripts/narrowCalls.js`, mirrored in
     `analyze.py`): > 8 same-named definitions → file → directory → top-level package → drop.
     Follow-ups: use each analyzer's import map as a stage (a name imported from module X should

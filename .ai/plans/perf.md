@@ -646,7 +646,9 @@ panel) → round 2.
 guava's 74 s (needs sharding); `cograph.layout.workers` not live; async structure scan not wired.
 
 **Round 2 (also in `.ai/memory/tech-dept.md`):** (1) W4 global engine in the worker — must carry
-`repelRange` and the separation forces, fixes F12 (13-minute zod freeze); (2) analyzer sharding
+`repelRange`, the separation forces AND ux's per-node stability clamp of the drill-down cluster
+force (F12's root cause is a numerical runaway from summed nested pulls, not tick cost — a
+worker alone would not have fixed it); (2) analyzer sharding
 (W5-6) for parse-bound repos; (3) giant-frame apply splitting, then Canvas2D only if needed
 (fmt-class repos: drag 15 fps, settle 22 ms/frame at rest); (4) first-character keystroke
 (index labels, or apply the big flip in chunks); (5) import-map stage for D6; (6) revoke the

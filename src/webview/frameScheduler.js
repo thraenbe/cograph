@@ -8,8 +8,12 @@ function createScheduler(opts) {
   const raf = opts.raf;
   const caf = opts.caf;
   const now = opts.now || (() => Date.now());
-  const maxActive = opts.maxActive ?? 4;
+  // Number, or a function (worker transport: every frame with fresh positions
+  // may be drained each animation frame → Infinity; sync path → 4).
+  const maxActiveOf = (typeof opts.maxActive === 'function')
+    ? opts.maxActive : () => (opts.maxActive ?? 4);
   const onTick = opts.onTick || (() => {});
+  const onResult = opts.onResult;      // optional: per result, inside the budget clock
   const tick = opts.tick;              // (rec) => {path, gen, nodes} | null
   const beforeTick = opts.beforeTick;  // optional per-record pre-step hook
   // Optional instrumentation hooks (perf.js): loop started, one step's
@@ -17,6 +21,13 @@ function createScheduler(opts) {
   const onWake = opts.onWake;
   const onStep = opts.onStep;          // (ms, recordsTicked)
   const onIdle = opts.onIdle;
+  const onPauseChange = opts.onPauseChange; // (paused) — worker transport mirrors it
+  // Optional main-thread budget per step in ms (number or function). Worker
+  // transport: applying positions is pure DOM work, so a step stops once the
+  // budget is spent (after at least one result); the rest — whose inboxes keep
+  // only the newest positions — are drained on the following frames.
+  const budgetOf = (typeof opts.budgetMs === 'function')
+    ? opts.budgetMs : () => (opts.budgetMs ?? Infinity);
 
   const recs = new Map();              // path -> SimRecord
   let running = false;
@@ -31,17 +42,23 @@ function createScheduler(opts) {
     }
     cand.sort((a, b) =>
       (b.userTs - a.userTs) || (b.expandedTs - a.expandedTs) || (a.path < b.path ? -1 : 1));
-    return cand.slice(0, maxActive);
+    return cand.slice(0, maxActiveOf());
   }
 
   function step() {
     if (paused) { return []; }
     const out = [];
+    const budget = budgetOf();
+    const t0 = budget < Infinity ? now() : 0;
     for (const rec of pick()) {
       if (beforeTick) { beforeTick(rec); }
       const r = tick(rec);
       // Stale drop: the record was removed/recreated while this step ran.
-      if (r && recs.get(r.path) === rec && r.gen === rec.gen) { out.push(r); }
+      if (r && recs.get(r.path) === rec && r.gen === rec.gen) {
+        out.push(r);
+        if (onResult) { onResult(r); }
+        if (now() - t0 >= budget) { break; }
+      }
     }
     if (out.length) { onTick(out); }
     return out;
@@ -89,8 +106,15 @@ function createScheduler(opts) {
       wake();
     },
     setVisibility(fn) { isVisible = fn || (() => true); wake(); },
-    pauseAll() { paused = true; },
-    resumeAll() { paused = false; wake(); },
+    pauseAll() {
+      if (!paused && onPauseChange) { onPauseChange(true); }
+      paused = true;
+    },
+    resumeAll() {
+      if (paused && onPauseChange) { onPauseChange(false); }
+      paused = false;
+      wake();
+    },
     isPaused() { return paused; },
     maxAlpha(alphaOfFn) {
       let m = 0;

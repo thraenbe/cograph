@@ -69,6 +69,7 @@
   try {
     await new Promise((res, rej) => {
       const s = document.createElement('script');
+      s.nonce = (document.querySelector('script[nonce]') || {}).nonce || '';
       s.src = `fixture-${R.fixture}.js`; s.onload = res; s.onerror = () => rej(new Error('fixture load'));
       document.head.appendChild(s);
     });
@@ -188,6 +189,8 @@
         R.searchKeystrokeSyncMs = stats(ks);
       }
     }
+    R.simBackend = (typeof simApi === 'function') ? simApi().kind : 'n/a';
+    R.posted = B.posted.filter(t => t === 'webview-log').length;
     R.errors = B.errors;
   } catch (e) {
     R.fatal = String(e && e.stack || e);

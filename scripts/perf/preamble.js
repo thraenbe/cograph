@@ -48,6 +48,7 @@
   } catch (e) { /* Chrome < 123: no long-animation-frame entries */ }
 
   window.addEventListener('error', (e) => B.errors.push(String(e.message)));
+  document.addEventListener('securitypolicyviolation', (e) => B.errors.push(`CSP ${e.violatedDirective}: ${e.blockedURI}`));
   window.acquireVsCodeApi = () => ({
     postMessage: (m) => { B.posted.push(m && m.type); },
     getState: () => null, setState: () => {},

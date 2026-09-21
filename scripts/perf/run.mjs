@@ -5,9 +5,10 @@
 //   e.g. node scripts/perf/run.mjs shelf:dynamic:3k shelf:static:3k:off global:dynamic:3k
 // Prints a markdown table; writes raw JSON to scripts/perf/.out/ (or --out).
 import { spawn } from 'child_process';
-import { writeFileSync, mkdtempSync, rmSync } from 'fs';
+import { createServer } from 'http';
+import { writeFileSync, mkdtempSync, rmSync, readFile } from 'fs';
 import { tmpdir } from 'os';
-import { dirname, join } from 'path';
+import { dirname, join, normalize, extname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const DIR = dirname(fileURLToPath(import.meta.url));
@@ -19,6 +20,22 @@ const outFile = outIdx >= 0 ? args.splice(outIdx, 2)[1] : join(OUT, `results-${s
 const runs = args.length ? args : ['shelf:dynamic:3k', 'shelf:static:3k'];
 const CHROME = process.env.CHROME_BIN || 'google-chrome';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const ROOT = resolve(DIR, '..', '..');
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+
+/** Static server over the repo root (127.0.0.1 only): webviews fetch() the worker bundle. */
+function serve() {
+  const server = createServer((req, res) => {
+    const file = normalize(join(ROOT, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
+    if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+    readFile(file, (err, data) => {
+      if (err) { res.writeHead(404).end(); return; }
+      res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+      res.end(data);
+    });
+  });
+  return new Promise(ok => server.listen(0, '127.0.0.1', () => ok(server)));
+}
 
 async function connect(port) {
   for (let i = 0; i < 75; i++) {
@@ -60,6 +77,7 @@ function markdown(results) {
     ['drag handler ms p50/p95/max', r => fmt(r.drag?.handlerMs)],
     ['drag frames-to-DOM p50', r => r.drag?.framesToDomUpdate.p50],
     ['search keystroke ms p50/p95/max', r => fmt(r.searchKeystrokeSyncMs)],
+    ['sim backend', r => r.simBackend],
     ['errors', r => (r.fatal ? 'FATAL' : (r.errors || []).length)],
   ];
   const head = results.map(r => `${r.engine}+${r.mode} ${r.fixture}${r.workers !== 'default' ? ' w=' + r.workers : ''}`);
@@ -75,10 +93,12 @@ async function main() {
   const profile = mkdtempSync(join(tmpdir(), 'cograph-perf-'));
   const chrome = spawn(CHROME, [
     '--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
-    '--allow-file-access-from-files', '--window-size=1600,1000', '--no-first-run',
+    '--window-size=1600,1000', '--no-first-run',
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding', 'about:blank',
   ], { stdio: 'ignore' });
   const results = [];
+  const server = await serve();
+  const base = `http://127.0.0.1:${server.address().port}/scripts/perf/.out/page.html`;
   try {
     const ws = new WebSocket(await connect(port));
     await new Promise((resolve, reject) => { ws.addEventListener('open', resolve); ws.addEventListener('error', reject); });
@@ -89,7 +109,7 @@ async function main() {
       const q = new URLSearchParams({ engine, mode, fx });
       if (workers) { q.set('workers', workers); }
       if (max) { q.set('max', max); }
-      await send('Page.navigate', { url: `file://${OUT}/page.html?${q}` });
+      await send('Page.navigate', { url: `${base}?${q}` });
       const t0 = Date.now();
       let raw = null;
       while (!raw && Date.now() - t0 < 900000) {
@@ -108,6 +128,7 @@ async function main() {
     writeFileSync(outFile, JSON.stringify({ chrome: version, date: new Date().toISOString(), results }, null, 1));
     ws.close();
   } finally {
+    server.close();
     chrome.kill();
     await sleep(300);
     rmSync(profile, { recursive: true, force: true });

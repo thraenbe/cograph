@@ -30,24 +30,67 @@ const __fr = {
 
 function frInnerOrigin(f) { return innerOrigin(f); } // frames.js global
 
+const FR_APPLY_BUDGET_MS = 1;
+
+// ── Simulation transport (sync localSim | worker pool, see simBackend.js) ─────
+function simApi() {
+  if (!__fr.backend) {
+    const cfg = (typeof window !== 'undefined' && window.COGRAPH_CONFIG) || {};
+    const syncApi = {
+      kind: 'sync', createSim, tickSim, pin, release, applySettings,
+      resizeSim, updateSlots, destroySim, alphaOf, unsettle,
+    };
+    if (typeof createSimBackend !== 'function') { __fr.backend = { api: () => syncApi }; return syncApi; }
+    __fr.backend = createSimBackend({
+      mode: cfg.workers, workerUri: cfg.workerUri, syncApi,
+      env: {
+        Worker: (typeof Worker !== 'undefined') ? Worker : undefined,
+        fetch: (typeof fetch === 'function') ? (u) => fetch(u) : undefined,
+        Blob: (typeof Blob !== 'undefined') ? Blob : undefined,
+        createObjectURL: (typeof URL !== 'undefined' && URL.createObjectURL) ? (b) => URL.createObjectURL(b) : undefined,
+        hardwareConcurrency: (typeof navigator !== 'undefined') ? navigator.hardwareConcurrency : undefined,
+      },
+      onPositions: () => { if (__fr.sched) { __fr.sched.wake(); } },
+      onFallback: onSimBackendFallback,
+      log: (entry) => { if (typeof vscode !== 'undefined') { vscode.postMessage({ type: 'webview-log', entry }); } },
+    });
+  }
+  return __fr.backend.api();
+}
+
+/** The worker pool died: rebuild every record on the synchronous transport. */
+function onSimBackendFallback() {
+  for (const [path, rec] of [...__fr.sims]) {
+    rec.gen = -1;                       // proxy records: nothing left to notify
+    __fr.sims.delete(path);
+    if (__fr.sched) { __fr.sched.remove(path); }
+  }
+  if (state.frames && usesFrames()) { syncFrameSims(__fr.members); }
+}
+
 function ensureFrameScheduler() {
   if (__fr.sched) { return __fr.sched; }
   __fr.sched = createScheduler({
     raf: (cb) => requestAnimationFrame(cb),
     caf: (h) => cancelAnimationFrame(h),
     now: () => performance.now(),
-    maxActive: 4,
-    tick: (rec) => tickSim(rec),
+    // Sync: ≤4 simulations tick per animation frame. Workers: every frame that
+    // received fresh positions may be drained.
+    maxActive: () => (simApi().kind === 'worker' ? Infinity : 4),
+    tick: (rec) => simApi().tickSim(rec),
     beforeTick: (rec) => {
       const f = state.frames && state.frames.byPath.get(rec.path);
-      if (f) { syncPins(rec, frInnerOrigin(f), { pin, release }); }
+      if (f) { syncPins(rec, frInnerOrigin(f), simApi()); }
     },
-    onTick: (results) => {
-      // Per-step work touches ONLY the frames that ticked. File slots and
-      // cross-link bundles depend on frame geometry alone, which does not
-      // move during settle — they update on render / frame moves.
-      for (const r of results) { applySimResult(r); }
-    },
+    onPauseChange: (paused) => { const a = simApi(); if (a.setPaused) { a.setPaused(paused); } },
+    // Per-step work touches ONLY the frames that ticked. File slots and
+    // cross-link bundles depend on frame geometry alone, which does not
+    // move during settle — they update on render / frame moves.
+    // onResult (not onTick) so the DOM writes count against the step budget.
+    onResult: (r) => applySimResult(r),
+    // Workers: applying positions is the only main-thread cost left — cap it
+    // per animation frame; unpainted inboxes keep just the newest positions.
+    budgetMs: () => (simApi().kind === 'worker' ? FR_APPLY_BUDGET_MS : Infinity),
     // perf.js hooks — each is one boolean check while perfLog is off.
     onWake: () => { if (typeof perfMark === 'function') { perfMark('sim:start'); } },
     onStep: (ms) => {
@@ -253,6 +296,7 @@ function onFrameContextMenu(event, f) {
 // ── Simulations ───────────────────────────────────────────────────────────────
 function syncFrameSims(members) {
   const sched = ensureFrameScheduler();
+  const api = simApi();
   const alive = new Set();
   for (const [path, f] of state.frames.byPath) {
     const mems = members.get(path) || [];
@@ -265,16 +309,16 @@ function syncFrameSims(members) {
       && existing.byId.size === mems.length && mems.every(m => existing.byId.has(m.id));
     if (same) {
       if (existing.inner.w !== f.inner.w || existing.inner.h !== f.inner.h) {
-        resizeSim(existing, f.inner);
+        api.resizeSim(existing, f.inner);
       }
       if (!sameSlotGeometry(slots, existing.slotById)) {
-        updateSlots(existing, slots);       // geometry changed → clamp + reheat
+        api.updateSlots(existing, slots);   // geometry changed → clamp + reheat
       } else {
         existing.slotById = slots;          // identical geometry → refresh reference
       }
       continue;
     }
-    if (existing) { destroySim(existing); sched.remove(path); }
+    if (existing) { api.destroySim(existing); sched.remove(path); }
     // Seed local positions from current absolute ones when they already lie
     // inside the frame (continuity); everything else starts on the spiral.
     const io = frInnerOrigin(f);
@@ -288,22 +332,23 @@ function syncFrameSims(members) {
         seed.set(m.id, { x: lx, y: ly });
       }
     }
-    const rec = createSim(f, mems, intraLinks, settings,
-      { d3: (typeof d3 !== 'undefined') ? d3 : null }, seed, slots);
+    const rec = api.createSim(f, mems, intraLinks, settings,
+      { d3: (typeof d3 !== 'undefined') ? d3 : null, paused: sched.isPaused() || state.layoutMode === 'static' },
+      seed, slots);
     __fr.sims.set(path, rec);
     sched.add(rec, { expanded: true });
     applySimData(rec, f); // first paint already inside the frame
   }
   for (const [path, rec] of [...__fr.sims]) {
-    if (!alive.has(path)) { destroySim(rec); __fr.sims.delete(path); sched.remove(path); }
+    if (!alive.has(path)) { api.destroySim(rec); __fr.sims.delete(path); sched.remove(path); }
   }
   state.simulation = createFrameSimFacade({
     sched,
     getSims: () => __fr.sims,
     getNodes: () => state.currentNodes,
     getSettings: () => settings,
-    ls: { applySettings, unsettle },
-    alphaOf,
+    ls: { applySettings: (r, p) => simApi().applySettings(r, p), unsettle: (r, a) => simApi().unsettle(r, a) },
+    alphaOf: (r) => simApi().alphaOf(r),
   });
   state.simulation._kind = 'frames';
 }
@@ -521,7 +566,7 @@ function updateCrossHover() {
 function teardownFrames() {
   setFrameSliderNoops(false);
   if (__fr.sched) { __fr.sched.stop(); }
-  for (const rec of __fr.sims.values()) { destroySim(rec); }
+  for (const rec of __fr.sims.values()) { simApi().destroySim(rec); }
   __fr.sims.clear();
   __fr.frameSel.clear();
   if (__fr.frameDom) { __fr.frameDom.clear(); }
@@ -672,7 +717,7 @@ function createFrameResizeDrag() {
       pinFrame(state.frames, f.path, null, { w, h });
       const rec = __fr.sims.get(f.path);
       const nf = state.frames.byPath.get(f.path);
-      if (rec && nf) { resizeSim(rec, nf.inner); }
+      if (rec && nf) { simApi().resizeSim(rec, nf.inner); }
       if (__fr.sched) { __fr.sched.wake(); }
       tickFrame(f.path);
       updateCrossLinks();
@@ -794,7 +839,7 @@ function applyFrameDisplaySettings() {
       const sn = ln._ref;
       if (sn) { ln.r = ((sn._size ?? 8) / 2) * settings.nodeSize; }
     }
-    unsettle(rec, 0.1);
+    simApi().unsettle(rec, 0.1);
   }
   if (__fr.sched) { __fr.sched.wake(); }
 }

@@ -1,7 +1,9 @@
 // Perf bench, step 1: build the page + fixtures into scripts/perf/.out/.
 //
 // The page is the REAL webview HTML (getWebviewHtml with a `vscode` mock and
-// file:// URIs), CSP stripped, d3 loaded locally, with preamble.js in front
+// server-root-relative URIs — run.mjs serves the repo over http so the worker
+// bundle can be fetch()ed like in a webview). The CSP is KEPT (cspSource = 'self',
+// injected scripts carry the page nonce) so worker-src/connect-src are exercised; preamble.js goes in front
 // (rAF instrumentation + acquireVsCodeApi stub) and bench.js behind.
 // Fixtures: the cograph.dev.loadSynthetic presets, plus optional corpus repos
 // analysed with this checkout's analyzers.
@@ -34,16 +36,18 @@ function buildPage() {
 
   const d3Path = D3_CANDIDATES.find(p => fs.existsSync(p));
   if (!d3Path) { throw new Error('d3.min.js not found — run npm ci'); }
+  const rel = (abs) => '/' + path.relative(ROOT, abs).split(path.sep).join('/');
   let html = getWebviewHtml(
-    { asWebviewUri: (u) => 'file://' + u.fsPath, cspSource: 'file:' },
+    { asWebviewUri: (u) => rel(u.fsPath), cspSource: "'self'" },
     { fsPath: ROOT },
   );
-  html = html.replace(/<meta http-equiv="Content-Security-Policy"[\s\S]*?\/>/, '');
+  const nonce = (html.match(/nonce-([0-9a-f]+)/) || [])[1];
+  if (!nonce) { throw new Error('no CSP nonce found in the webview HTML'); }
   html = html.replace(/<script nonce="[0-9a-f]+"\s+src="[^"]*d3\.min\.js[^"]*"><\/script>/,
-    `<script src="file://${__dirname}/preamble.js"></script>\n  <script src="file://${d3Path}"></script>`);
+    `<script nonce="${nonce}" src="${rel(path.join(__dirname, 'preamble.js'))}"></script>\n  <script nonce="${nonce}" src="${rel(d3Path)}"></script>`);
   html = html.replace(/<script nonce="[0-9a-f]+">window\.COGRAPH_CONFIG = ([^<]*);<\/script>/,
-    '<script>window.COGRAPH_CONFIG = Object.assign($1, window.__benchConfig);</script>');
-  html = html.replace('</body>', `<script src="file://${__dirname}/bench.js"></script>\n</body>`);
+    `<script nonce="${nonce}">window.COGRAPH_CONFIG = Object.assign($1, window.__benchConfig);</script>`);
+  html = html.replace('</body>', `<script nonce="${nonce}" src="${rel(path.join(__dirname, 'bench.js'))}"></script>\n</body>`);
   for (const marker of ['preamble.js', '__benchConfig', 'bench.js']) {
     if (!html.includes(marker)) { throw new Error(`page patching failed: ${marker}`); }
   }

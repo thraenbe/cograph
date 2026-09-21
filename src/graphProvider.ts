@@ -159,6 +159,7 @@ export class GraphProvider {
         retainContextWhenHidden: true,
         localResourceRoots: [
           vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview'),
+          vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'),
         ],
       }
     );
@@ -316,6 +317,9 @@ export class GraphProvider {
       } else if (message.type === 'perf-report') {
         // Local-only instrumentation (cograph.debug.perfLog) — see src/webview/perf.js.
         this.outputChannel.appendLine(`[perf] ${JSON.stringify(message.report)}`);
+      } else if (message.type === 'webview-log') {
+        // Structured webview diagnostics (e.g. simulation workers falling back).
+        this.outputChannel.appendLine(`[webview] ${JSON.stringify(message.entry)}`);
       } else if (message.type === 'dirty-state') {
         this.setDirty(!!message.dirty);
       } else if (message.type === 'retry-analysis') {
@@ -474,7 +478,10 @@ export class GraphProvider {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview')],
+        localResourceRoots: [
+          vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview'),
+          vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'),
+        ],
       },
     );
     panel.webview.html = getWebviewHtml(panel.webview, this.context.extensionUri);
@@ -597,6 +604,7 @@ export class GraphProvider {
         retainContextWhenHidden: true,
         localResourceRoots: [
           vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview'),
+          vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'),
         ],
       },
     );

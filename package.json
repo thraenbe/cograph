@@ -231,6 +231,21 @@
           ],
           "default": "shelf",
           "description": "Layout engine the graph opens with."
+        },
+        "cograph.layout.workers": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Auto: run the Shelf engine's folder simulations in background workers when the host supports it, otherwise on the UI thread.",
+            "On: like Auto, and log a warning when workers cannot be started.",
+            "Off: simulate on the UI thread (the pre-1.3 behaviour)."
+          ],
+          "default": "auto",
+          "description": "Run layout simulations off the UI thread (Web Workers). Applies the next time the graph panel opens."
         }
       }
     }
@@ -265,6 +280,7 @@
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.32.0",
     "d3": "7.9.0",
+    "d3-force": "3.0.0",
     "esbuild": "^0.28.1",
     "eslint": "^8.0.0",
     "glob": "^13.0.6",

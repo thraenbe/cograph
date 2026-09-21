@@ -628,6 +628,18 @@ window.addEventListener('message', (event) => {
     const savedMotion = saved.layoutMode === 'static' ? 'static' : 'dynamic';
     if (savedEngine !== state.layoutEngine) { setLayoutEngine(savedEngine); }
 
+    const isGlobalRestore = savedEngine === 'global';
+    if (isGlobalRestore) {
+      // Global consumes the drill-down state here (the frames engine consumes
+      // it in applyPendingLayout as frames appear) and re-renders FIRST, so
+      // the saved positions land on the saved visible node set (F14).
+      if (typeof applySavedDrilldownState === 'function') {
+        applySavedDrilldownState(message.payload);
+      }
+      state.savedLayout = null; // consumed — nothing left for the frames path
+      applyComplexity();
+    }
+
     // Apply saved node positions (stamped: a saved position is a placement,
     // so the shelf grid must not overwrite it)
     if (!state.slotPlacedIds) { state.slotPlacedIds = new Set(); }
@@ -654,8 +666,16 @@ window.addEventListener('message', (event) => {
       }
     }
 
-    // Re-apply clustering and colors so the restored state renders correctly
-    applyComplexity();
+    // Re-apply clustering so the restored state renders correctly. Under
+    // Global the render already happened ABOVE — re-rendering here would
+    // re-settle the simulation and move the restored positions (F14); a
+    // repaint + re-fit is all that is left to do.
+    if (isGlobalRestore) {
+      state.hasFitted = false; // auto-fit the RESTORED layout, not the throwaway settle
+      ticked();
+    } else {
+      applyComplexity();
+    }
     if (savedMotion === 'static') { setLayoutMode('static'); } // pin AFTER the final render
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     // Restoring a saved graph is not a dirty change — sync local flag with extension

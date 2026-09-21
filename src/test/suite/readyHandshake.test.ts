@@ -53,7 +53,7 @@ suite('ready handshake — GraphProvider (F11)', () => {
     const provider = new GraphProvider({ extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as any);
     const posted: any[] = [];
     const webview: any = { html: '', cspSource: 'x', asWebviewUri: (u: vscode.Uri) => u, postMessage: (m: any) => { posted.push(m); return Promise.resolve(true); } };
-    (provider as any).panel = { webview };
+    (provider as any).panel = { webview, title: '', reveal: () => undefined };
     return { provider: provider as any, posted, webview };
   }
 
@@ -92,5 +92,14 @@ suite('ready handshake — GraphProvider (F11)', () => {
     t.provider.panel = undefined;
     t.provider.loadGraphHtml([{ type: 'graph' }]);
     assert.strictEqual(t.provider.readyGate, undefined);
+  });
+
+  test('graph-loaded of a saved view stays BEHIND a still-queued graph (slow cold open)', async () => {
+    const t = make();
+    t.provider.loadGraphHtml([{ type: 'graph' }]);
+    await t.provider.loadGraph({ name: 'saved', nodes: {} }, '/ws/.cograph/saved.json'); // panel exists → no graph-ready wait
+    assert.deepStrictEqual(t.posted, [], 'neither message enters the loading document');
+    t.provider.readyGate.markReady();
+    assert.deepStrictEqual(t.posted.map((m: any) => m.type), ['graph', 'graph-loaded']);
   });
 });

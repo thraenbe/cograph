@@ -160,7 +160,17 @@ function wireSlider(id, valId, settingsKey, onInput) {
 }
 
 wireSlider('slider-text-fade', 'val-text-fade', 'textFadeThreshold', applyDisplaySettings);
-wireSlider('slider-node-size', 'val-node-size', 'nodeSize', applyDisplaySettings);
+wireSlider('slider-node-size', 'val-node-size', 'nodeSize', () => {
+  applyDisplaySettings();
+  // Node size changes slot geometry in the shelf: re-render (debounced) so
+  // the packer resizes slots and the static grid re-places members (F16).
+  if (typeof usesFrames === 'function' && usesFrames()) {
+    clearTimeout(state._nodeSizeTimer);
+    state._nodeSizeTimer = setTimeout(() => {
+      if (typeof applyFileClusters === 'function') { applyFileClusters(); }
+    }, 120);
+  }
+});
 wireSlider('slider-text-size', 'val-text-size', 'textSize', applyDisplaySettings);
 wireSlider('slider-link-thickness', 'val-link-thickness', 'linkThickness', applyDisplaySettings);
 wireSlider('slider-center-force', 'val-center-force', 'centerForce', rerunLayout);
@@ -355,6 +365,28 @@ function buildSavePayload() {
   return payload;
 }
 
+/** Consume a saved layout's drill-down state (detail depth + expanded
+ *  folders). The frames engine does this in applyPendingLayout as frames
+ *  appear; the Global engine calls it once on graph-loaded, BEFORE node
+ *  positions are applied, so they land on the saved visible set (F14).
+ *  Returns true when anything was applied. */
+function applySavedDrilldownState(payload) {
+  if (!payload) { return false; }
+  let changed = false;
+  const saved = payload.settings || {};
+  if (saved.detailDepth != null) {
+    state.detailDepth = saved.detailDepth;
+    if (typeof setDetailSlider === 'function') { setDetailSlider(state.detailDepth); }
+    changed = true;
+  }
+  if (Array.isArray(payload.expandedFolders)) {
+    state.expandedFolders = new Set(payload.expandedFolders);
+    if (typeof requestParseForExpanded === 'function') { requestParseForExpanded(); }
+    changed = true;
+  }
+  return changed;
+}
+
 /** Restore saved display settings from a graph-loaded payload onto state + the
  *  control DOM (buildSavePayload's read-side mirror). Any saved cluster lens
  *  (removed Class/Connect, legacy 'connectivity'/'auto') loads as File. */
@@ -469,7 +501,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 if (typeof module !== 'undefined') {
-  module.exports = { applyResizeDelta, applySavedViewSettings, buildSavePayload, clearSearch, updateSearchCount };
+  module.exports = { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, buildSavePayload, clearSearch, updateSearchCount };
 }
 
 // ── Resize math helper ────────────────────────────────────────────────────────

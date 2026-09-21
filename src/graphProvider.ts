@@ -627,7 +627,10 @@ export class GraphProvider {
       this.setPanelTitle(this.getCleanTitle());
     }
     this.currentSavedGraphPath = filePath;
-    this.panel?.webview.postMessage({ type: 'graph-loaded', payload: data });
+    // Through the ready gate when one exists: on a slow cold open the 2 s fallback
+    // above can fire while `graph` is still queued — graph-loaded must stay behind it.
+    const loaded = { type: 'graph-loaded', payload: data };
+    if (this.readyGate) { this.readyGate.post(loaded); } else { void this.panel?.webview.postMessage(loaded); }
     if (name && filePath) {
       this._sidebar?.setCurrentGraph({ name, file: filePath });
     }

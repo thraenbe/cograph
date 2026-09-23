@@ -177,10 +177,12 @@ function renderFrameLayout(allLinks, visibleSet) {
       linkG.classed('bundles-hidden', false);
       updateCrossLinks();
     })
-    // Drop: one re-render re-packs unpinned siblings around the pinned drop
-    // rect (updateFrames treats it as an obstacle) with the 200ms glide.
-    .on('end.repack', () => {
-      if (usesFrames() && typeof applyFileClusters === 'function') { applyFileClusters(); }
+    // Drop: resolve overlaps INCREMENTALLY — a full re-render would re-shelve
+    // the whole parent (uxtest measured 756 foreign nodes moving 1.5k px for a
+    // 70px drag). Only siblings intersecting the dropped rect shift, minimally
+    // and capped to the parent; everything else stays put.
+    .on('end.repack', function (event, f) {
+      if (usesFrames()) { resolveDropOverlaps(f); }
     });
   sel.select('.folder-bubble-titlebar').call(titleDrag);
   // Drag-handle discoverability: hovering the strip marks the frame group so
@@ -283,6 +285,68 @@ function renderFrameLayout(allLinks, visibleSet) {
 function shouldRefit(bounds, k, viewW, viewH, userZoomed, interacting) {
   if (userZoomed || interacting || !bounds || !k || !viewW || !viewH) { return false; }
   return bounds.w * k > viewW * 1.3 || bounds.h * k > viewH * 1.3;
+}
+
+/** Translate a frame (and its whole subtree: nodes, pins, sub-frames) by a
+ *  parent-local delta WITHOUT pinning it. The moved frames glide (200ms). */
+function translateFrameSubtree(f, dx, dy) {
+  if (!dx && !dy) { return; }
+  f.local.x = Math.round((f.local.x ?? 0) + dx);
+  f.local.y = Math.round((f.local.y ?? 0) + dy);
+  resolveAbs(state.frames);
+  const under = (p) => p === f.path || p.startsWith(f.path + '/') || p.startsWith(f.path + '\\');
+  if (!__fr.animateMoves) { __fr.animateMoves = new Set(); }
+  for (const path of state.frames.byPath.keys()) {
+    if (!under(path)) { continue; }
+    for (const m of (__fr.members.get(path) || [])) {
+      const n = m._ref;
+      if (!n) { continue; }
+      n.x += dx; n.y += dy;
+      if (n.fx != null) { n.fx += dx; n.fy += dy; }
+    }
+    __fr.animateMoves.add(path);
+    tickFrame(path);
+  }
+}
+
+/** Drop resolution (R1c): the dropped frame is sacred — it stays EXACTLY
+ *  where the user released it. Only siblings whose rect intersects the
+ *  dropped rect shift, each by the minimum translation (shelf axis
+ *  preferred), gap-padded and clamped inside the parent. NO cascade: a
+ *  displaced sibling overlapping a third frame is accepted — uxtest measured
+ *  a full re-shelve moving 756 foreign nodes 1.5k px for a 70px drag, and a
+ *  frame sliding away from the pointer is worse than an overlap. */
+function resolveDropOverlaps(dropped) {
+  const fs = state.frames;
+  const f = fs && fs.byPath.get(dropped && dropped.path);
+  if (!f) { return; }
+  const parent = fs.byPath.get(f.parent);
+  if (!parent) { return; }
+  const pad = FRAME.GAP;
+  const touchesDrop = (b) =>
+    f.local.x < b.local.x + b.local.w + pad && b.local.x < f.local.x + f.local.w + pad
+    && f.local.y < b.local.y + b.local.h + pad && b.local.y < f.local.y + f.local.h + pad;
+  for (const sibPath of parent.children) {
+    if (sibPath === f.path) { continue; }
+    const s2 = fs.byPath.get(sibPath);
+    if (!s2 || s2.pinned || !touchesDrop(s2)) { continue; }
+    // Candidate pushes: right / left / down / up. Smallest wins, with a bias
+    // toward the shelf axis (x) so rows stay rows.
+    const cands = [
+      { dx: (f.local.x + f.local.w + pad) - s2.local.x, dy: 0 },
+      { dx: (f.local.x - pad) - (s2.local.x + s2.local.w), dy: 0 },
+      { dx: 0, dy: (f.local.y + f.local.h + pad) - s2.local.y },
+      { dx: 0, dy: (f.local.y - pad) - (s2.local.y + s2.local.h) },
+    ].sort((a, b) =>
+      (Math.abs(a.dx) + Math.abs(a.dy) * 1.6) - (Math.abs(b.dx) + Math.abs(b.dy) * 1.6));
+    const want = cands[0];
+    const target = clampFrameLocal(fs, sibPath, {
+      x: s2.local.x + want.dx, y: s2.local.y + want.dy,
+    });
+    translateFrameSubtree(s2, target.x - s2.local.x, target.y - s2.local.y);
+  }
+  if (typeof linkG !== 'undefined') { updateCrossLinks(); } // layer absent in unit tests
+  if (typeof window !== 'undefined') { window.markDirty?.(); }
 }
 
 function frameDragDeps() {
@@ -851,6 +915,7 @@ if (typeof module !== 'undefined') {
     usesFrames, renderFrameLayout, tickFrames, tickFrame, teardownFrames,
     resetFrames, updateCrossLinks, syncFrameSims, applySimResult, applySimData,
     applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit, stampLinkRefs,
+    resolveDropOverlaps, translateFrameSubtree,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots,
     placeMembersInSlots,

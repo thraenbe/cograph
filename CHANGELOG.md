@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layouts are unchanged. Saved with the view (older saves load as unlimited).
 
 ### Fixed
+- Dropping a dragged frame keeps it EXACTLY where it was released: only
+  siblings whose rect intersects the drop shift (minimally, along the shelf
+  row), everything else stays put — no more whole-shelf re-flow on drop.
 - Frame drags are contained and truthful: a child frame stays inside its
   parent on all four sides while dragging, the parent chain's outline updates
   live, siblings re-pack around the drop position (with the glide), hovering

@@ -459,6 +459,25 @@ function updateFrames(prev, tree, expanded, members, opts = {}) {
 }
 
 // ── User interaction ──────────────────────────────────────────────────────────
+/** Clamp a frame's desired parent-local position so it stays inside its
+ *  parent's inner rect on all four sides (drag containment — R1). Children of
+ *  the root keep the classic >=0 clamp (the root canvas grows freely), as
+ *  does any child larger than its parent's inner rect. */
+function clampFrameLocal(fs, path, pos) {
+  const f = fs.byPath.get(path);
+  if (!f || !pos) { return pos; }
+  const parent = fs.byPath.get(f.parent);
+  if (!parent || parent.kind === 'root') {
+    return { x: Math.max(0, pos.x), y: Math.max(0, pos.y) };
+  }
+  const maxX = parent.inner.w - f.local.w;
+  const maxY = parent.inner.h - f.local.h;
+  return {
+    x: maxX >= 0 ? Math.max(0, Math.min(maxX, pos.x)) : Math.max(0, pos.x),
+    y: maxY >= 0 ? Math.max(0, Math.min(maxY, pos.y)) : Math.max(0, pos.y),
+  };
+}
+
 function pinFrame(fs, path, localPos, size) {
   const f = fs.byPath.get(path);
   if (!f || f.kind === 'root') { return; }
@@ -564,7 +583,7 @@ function deserializeFrames(saved, fs) {
 if (typeof module !== 'undefined') {
   module.exports = {
     FRAME, SLOT, frDirname, ownerFolderOf, collectMembers, contentBlockSize,
-    slotKeyOf, packContentSlots, slotInteriorFor, slotInteriors, gridPositions,
+    slotKeyOf, packContentSlots, slotInteriorFor, slotInteriors, gridPositions, clampFrameLocal,
     rectsOverlap, shelfPack, buildFrames, updateFrames, packFrame, packItems,
     pinFrame, unpinFrame, resolveAbs, innerOrigin, toAbs, toLocal,
     frameBounds, hitTest, titleBarRect, intersectsViewport,

@@ -166,9 +166,28 @@ function renderFrameLayout(allLinks, visibleSet) {
     // which moves with the drag → feedback loop, the frame leaps around).
     // Same fix P1 shipped for node drags.
     .container(function () { return g.node(); })
-    .on('start.fitguard', () => { state._frameInteracting = true; })
-    .on('end.fitguard', () => { state._frameInteracting = false; });
+    .on('start.fitguard', () => {
+      state._frameInteracting = true;
+      // Cross bundles + hover lines re-anchor on every frame move — hide them
+      // for the duration instead of dragging arrowheads across the canvas.
+      linkG.classed('bundles-hidden', true);
+    })
+    .on('end.fitguard', () => {
+      state._frameInteracting = false;
+      linkG.classed('bundles-hidden', false);
+      updateCrossLinks();
+    })
+    // Drop: one re-render re-packs unpinned siblings around the pinned drop
+    // rect (updateFrames treats it as an obstacle) with the 200ms glide.
+    .on('end.repack', () => {
+      if (usesFrames() && typeof applyFileClusters === 'function') { applyFileClusters(); }
+    });
   sel.select('.folder-bubble-titlebar').call(titleDrag);
+  // Drag-handle discoverability: hovering the strip marks the frame group so
+  // CSS can brighten the flap (cursor is already 'grab').
+  sel.select('.folder-bubble-titlebar')
+    .on('mouseenter.afford', function () { d3.select(this.parentNode).classed('drag-hover', true); })
+    .on('mouseleave.afford', function () { d3.select(this.parentNode).classed('drag-hover', false); });
   sel.select('.folder-bubble-shape').call(createFrameResizeDrag());
   sel.on('contextmenu', onFrameContextMenu);
 
@@ -271,7 +290,14 @@ function frameDragDeps() {
     frames: () => state.frames,
     framePaths: () => [...state.frames.byPath.keys()],
     nodesOf: (path) => (__fr.members.get(path) || []).map(m => m._ref).filter(Boolean),
-    pin: (fs, path, pos) => pinFrame(fs, path, pos),
+    pin: (fs, path, pos) => {
+      // Contain the drag inside the parent on all four sides, then keep the
+      // ancestor chain's DOM truthful — pinFrame can grow ancestors, and a
+      // drag only re-ticks the moved subtree otherwise (R1).
+      pinFrame(fs, path, clampFrameLocal(fs, path, pos));
+      let p = fs.byPath.get(path)?.parent;
+      while (p) { tickFrame(p); p = fs.byPath.get(p)?.parent; }
+    },
     origin: frInnerOrigin,
     onMoved: (path) => { tickFrame(path); updateCrossLinks(); },
   };

@@ -42,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layouts are unchanged. Saved with the view (older saves load as unlimited).
 
 ### Fixed
+- Frame drags are contained and truthful: a child frame stays inside its
+  parent on all four sides while dragging, the parent chain's outline updates
+  live, siblings re-pack around the drop position (with the glide), hovering
+  the title strip brightens the flap so the drag handle is discoverable, and
+  cross-folder bundles hide while a frame is dragged instead of riding along.
 - **Dragging a folder frame by its title strip no longer makes it leap around
   the window**: the drag measured the pointer against the dragged frame's own
   moving coordinate system; it is now measured against the stable canvas

@@ -362,6 +362,8 @@ export interface FrameDragResult {
   samples: number;
   /** geometry with the button still down (last pointer position) and right after the drop */
   midDrag: Snapshot | null; afterDrop: Snapshot | null;
+  /** how far the DRAGGED frame moved between release (button still down) and the settled drop */
+  releaseToDropPx: number | null;
   midDragScreenshot?: string;             // set by the caller when it saved one
 }
 
@@ -371,7 +373,7 @@ export interface FrameDragResult {
 export async function dragFrame(page: Page, hit: FrameHit, dx: number, dy: number, steps = 12, midDragScreenshot?: string): Promise<FrameDragResult> {
   await glideTo(page, hit.title);
   const grabbed = await page.evaluate(frameUnderPointInPage, hit.title);
-  const out: FrameDragResult = { path: hit.path, grabbed, pointerDx: dx, pointerDy: dy, frameDx: 0, frameDy: 0, maxJumpPx: 0, maxStepPx: 0, samples: 0, midDrag: null, afterDrop: null };
+  const out: FrameDragResult = { path: hit.path, grabbed, pointerDx: dx, pointerDy: dy, frameDx: 0, frameDy: 0, maxJumpPx: 0, maxStepPx: 0, samples: 0, midDrag: null, afterDrop: null, releaseToDropPx: null };
   if (grabbed !== hit.path) { return out; } // the caller decides (wrong-frame-grab finding); do not drag a stranger
   const start = await page.evaluate(frameRectInPage, hit.path);
   await page.mouse.down();
@@ -396,6 +398,8 @@ export async function dragFrame(page: Page, hit: FrameHit, dx: number, dy: numbe
   await page.mouse.up();
   await page.waitForTimeout(900); // drop re-pack + glide
   out.afterDrop = await collectSnapshot(page, { maxLabels: 10 });
+  const atRelease = out.midDrag?.frames.find(f => f.path === hit.path)?.rect, atDrop = out.afterDrop?.frames.find(f => f.path === hit.path)?.rect;
+  if (atRelease && atDrop) { out.releaseToDropPx = +Math.hypot(atDrop.x - atRelease.x, atDrop.y - atRelease.y).toFixed(1); }
   const end = await page.evaluate(frameRectInPage, hit.path);
   if (start && end) { out.frameDx = +(end.x - start.x).toFixed(1); out.frameDy = +(end.y - start.y).toFixed(1); }
   return out;
@@ -413,5 +417,5 @@ export function judgeFrameDrag(r: FrameDragResult): string {
   if (r.samples && Math.hypot(r.frameDx, r.frameDy) < 0.3 * Math.hypot(r.pointerDx, r.pointerDy)) {
     throw new StepFinding({ rule: 'frame-did-not-follow', severity: 'medium', message: `pointer moved ${r.pointerDx},${r.pointerDy} px but the frame only ${r.frameDx},${r.frameDy}` });
   }
-  return `drag ok: grabbed ${r.path.split('/').pop()}, frame moved ${r.frameDx},${r.frameDy} px for ${r.pointerDx},${r.pointerDy} px pointer, max step ${r.maxJumpPx} px (pointer ${r.maxStepPx} px)`;
+  return `drag ok: grabbed ${r.path.split('/').pop()}, frame moved ${r.frameDx},${r.frameDy} px for ${r.pointerDx},${r.pointerDy} px pointer, max step ${r.maxJumpPx} px (pointer ${r.maxStepPx} px), release→drop ${r.releaseToDropPx ?? '–'} px`;
 }

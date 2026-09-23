@@ -15,6 +15,9 @@ function visibleKey(inp) {
     inp.query, !!inp.showLibraries, !!inp.existingFilesOnly, !!inp.showOrphans,
     inp.nodes ? inp.nodes.length : 0, inp.connected ? inp.connected.size : 0,
     inp.onlyShowFolder ?? null, inp.hiddenFolders ? [...inp.hiddenFolders] : [],
+    // File-level filters (R2a) — without them the memo returns stale sets
+    // after Hide file / Show only this file.
+    inp.onlyShowFile ?? null, inp.hiddenFiles ? [...inp.hiddenFiles] : [],
   ]);
 }
 

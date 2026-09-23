@@ -59,6 +59,8 @@ const state = {
   allScannedFiles: [],
   hiddenFolders: new Set(),
   onlyShowFolder: null,
+  hiddenFiles: new Set(),        // file-level filters (R2a), mirroring the folder ones
+  onlyShowFile: null,
   // ── File-cluster (folder drill-down — the 'file' lens) ────────────────────
   // Active when clusterGroupBy === 'file' && viewMode !== 'workflow' &&
   // structureTree is set (isDrilldown()).

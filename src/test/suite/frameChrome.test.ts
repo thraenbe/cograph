@@ -37,8 +37,18 @@ suite('frameChrome — path builders', () => {
     const d = fc.tabBodyPath(0, 0, 300, 200, 80);
     assert.ok(d.startsWith('M0 '), d.slice(0, 12));
     assert.ok(d.endsWith('Z'));
-    // body top edge sits at y = TAB.H (the shoulder curve descends th)
-    assert.ok(d.includes(` ${fc.TAB.H}H`), 'shoulder must land on the body top edge');
+    // Manila step (R4): the body's top edge right of the flap sits at
+    // y = TAB.STEP — a shallow step, NOT a full flap-height (TAB.H) lower.
+    assert.ok(d.includes(` ${fc.TAB.STEP}H`), 'shoulder must land on the shallow step');
+    assert.ok(!d.includes(` ${fc.TAB.H}H`), 'a full-flap drop would be the old silhouette');
+    assert.ok(fc.TAB.STEP < fc.TAB.H, 'the step is shallower than the flap');
+    assert.ok(Math.abs(fc.TAB.STEP - fc.TAB.H * 0.35) <= 1, 'step ~ th*0.35 per the sketch');
+  });
+
+  test('closed-folder glyph shares the manila silhouette (step present)', () => {
+    const d = fc.closedFolderDims(20);
+    assert.ok(d.step > 0 && d.step < d.th, 'closed glyph has the same shallow step');
+    assert.ok(!fc.closedFolderPath(20).includes('NaN'));
   });
 
   test('tabBodyPath honours x/y offsets (absolute-coordinate callers)', () => {
@@ -107,6 +117,7 @@ suite('frameChrome — counts', () => {
   test('long form when the strip is wide, short form when narrow', () => {
     assert.strictEqual(fc.countsText(33, 410, 200), '33 files · 410 fns');
     assert.strictEqual(fc.countsText(33, 410, 40), '33 · 410');
+    assert.strictEqual(fc.countsText(1, 1, 200), '1 file · 1 fn', 'singulars');
   });
 
   test('memberCounts: functions counted, clusters not; files deduplicated', () => {
@@ -142,5 +153,44 @@ suite('frameChrome — counts', () => {
   test('memberCounts tolerates empty/missing input', () => {
     assert.deepStrictEqual(fc.memberCounts([]), { files: 0, fns: 0 });
     assert.deepStrictEqual(fc.memberCounts(undefined), { files: 0, fns: 0 });
+  });
+});
+
+suite('R3/R4 render contracts', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs2 = require('fs');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path2 = require('path');
+  const read = (f: string) =>
+    fs2.readFileSync(path2.resolve(__dirname, '../../../src/webview/' + f), 'utf8');
+
+  test('cross bundles use the fixed-size user-space marker (R3)', () => {
+    const rendering = read('rendering.js');
+    const marker = rendering.slice(rendering.indexOf("'arrow-bundle'") - 200,
+      rendering.indexOf("'arrow-bundle'") + 600);
+    assert.ok(marker.includes("'markerUnits', 'userSpaceOnUse'"),
+      'bundle heads must not scale with the 24px bundle strokes');
+    const fr = read('frameRender.js');
+    const join = fr.slice(fr.indexOf("line.cross-bundle').data(bundles"));
+    assert.ok(join.slice(0, 800).includes('url(#arrow-bundle)'),
+      'bundles carry the dedicated marker');
+    assert.ok(!join.slice(0, 800).includes("url(#arrow)'"),
+      'the stroke-scaled #arrow stays off bundles');
+  });
+
+  test('the packer reserves the name line above the content (R4)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fr = require('../../../src/webview/frames.js');
+    assert.ok(fr.FRAME.NAME_H >= 14, 'one label height reserved');
+    const f = { kind: 'folder', abs: { x: 100, y: 200 } };
+    const io = fr.innerOrigin(f);
+    assert.strictEqual(io.y - f.abs.y, fr.FRAME.PAD + fr.FRAME.TITLE + fr.FRAME.NAME_H,
+      'content (and with it the first slot row) starts below the name line');
+    // symmetric outer/inner round trip keeps saved rects consistent
+    const g2 = { kind: 'folder', inner: { w: 300, h: 200 }, userSize: null };
+    const o = fr.outerOf ? fr.outerOf(g2) : null;
+    if (o) {
+      assert.strictEqual(o.h, 200 + 2 * fr.FRAME.PAD + fr.FRAME.TITLE + fr.FRAME.NAME_H);
+    }
   });
 });

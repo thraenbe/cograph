@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.3.0] - Unreleased
 
 ### Changed (UX)
+- **Manila-folder silhouette**: the flap sits top-left as before, but the
+  body's top edge right of it is only a shallow step below the flap top; the
+  folder NAME moved out of the flap into the body (top-left, counts on the
+  same line), and open and collapsed folders share one silhouette. The
+  content area reserves the name line, so slots never collide with it.
+- **Cross-folder bundle arrowheads are a fixed ~9 units** and sit at the
+  flap's port, instead of scaling with the bundle stroke into ~100px
+  triangles.
 - The editor-title command is named **"CoGraph: Open or Reset Layout"** (was
   "Open or Reload Layout" — it opens a fresh layout rather than loading a
   saved graph). The command id is unchanged, existing keybindings keep working.
@@ -29,6 +37,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Added
+- **File slots are draggable**: grab a slot by its label band and place it
+  anywhere inside its frame — it pins there (saved with the layout), its
+  functions ride along, and the other slots re-pack around it. Node drags,
+  double-click-to-open and the context menu on the slot body keep working.
+- **File-level filters**: right-click a file slot (Shelf) or a file circle
+  (Global) to **Hide file** or **Show only this file** — with "Show all" once
+  anything is hidden, mirroring the folder menu. Hidden files appear as chips
+  in the Folder panel's filter list and are saved with the layout (older
+  saves load unchanged). Empty folders no longer show a "0 files · 0 fns"
+  count.
 - **Global guard**: switching to the Global engine with more than 4,000
   simulated nodes no longer freezes the page by surprise — the first click
   shows a hint ("Global is slow above 4,000 nodes — lower Detail first, or
@@ -42,6 +60,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layouts are unchanged. Saved with the view (older saves load as unlimited).
 
 ### Fixed
+- Dropping a dragged frame keeps it EXACTLY where it was released: only
+  siblings whose rect intersects the drop shift (minimally, along the shelf
+  row), everything else stays put — no more whole-shelf re-flow on drop.
+- Frame drags are contained and truthful: a child frame stays inside its
+  parent on all four sides while dragging, the parent chain's outline updates
+  live, siblings re-pack around the drop position (with the glide), hovering
+  the title strip brightens the flap so the drag handle is discoverable, and
+  cross-folder bundles hide while a frame is dragged instead of riding along.
+- **Dragging a folder frame by its title strip no longer makes it leap around
+  the window**: the drag measured the pointer against the dragged frame's own
+  moving coordinate system; it is now measured against the stable canvas
+  (the same fix node drags received in 1.2's performance pass).
 - The Global layout could run away on deeply nested repos and freeze the page
   for minutes (zod at extreme force sliders): folder cluster pulls are nested,
   so deep nodes received a summed pull far past the integrator's stability

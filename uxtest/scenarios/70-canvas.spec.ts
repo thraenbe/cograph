@@ -2,8 +2,9 @@
 // frame, expand/collapse folder + file, the three context menus. Drags are
 // checked for collateral movement (H4 / T3: nothing outside the folder may move).
 import { scenario } from '../lib/scenario';
-import { backgroundPoint, clickNode, ctxMenuClick, ctxMenuLabels, dragBy, fitToView, locateFrame, locateNode, restAndWatchChurn, rightClick, setSlider, wheelZoom, type Point } from '../lib/actions';
+import { backgroundPoint, clickNode, need, ctxMenuClick, ctxMenuLabels, dragBy, dragFrame, fitToView, judgeFrameDrag, locateFrame, locateNode, restAndWatchChurn, rightClick, setSlider, wheelZoom, type Point } from '../lib/actions';
 import { SkipStep, StepFinding, type StepRecord } from '../lib/step';
+import { SEL } from '../selectors';
 import { maxDisplacement } from '../metrics/compute';
 import type { Snapshot } from '../metrics/types';
 
@@ -53,13 +54,15 @@ scenario('canvas', { largeOk: true }, async ({ page, ux }, combo) => {
   await ux.step('Fit before folder work', async () => { await fitToView(page); });
   before = ux.lastSnapshot;
   let movedPath = '';
-  const dragFrame = await ux.step('Drag a folder by its title', async () => {
+  let dragNote = '';
+  const dragFrameStep = await ux.step('Drag a folder by its title', async () => {
     const f = await locateFrame(page, 'smallest');
     movedPath = f.path;
-    await dragBy(page, f.title, 70, 50);
+    dragNote = judgeFrameDrag(await dragFrame(page, f, 70, 50));
   }, { userMoved: true });
-  if (dragFrame.status === 'ok' && combo.engine === 'shelf') {
-    collateral(dragFrame, before, ux.lastSnapshot, frame => !!frame && frame !== movedPath && !frame.startsWith(movedPath + '/') && !movedPath.startsWith(frame + '/'));
+  dragFrameStep.note = [dragNote, dragFrameStep.note].filter(Boolean).join(' | ');
+  if (dragFrameStep.status === 'ok' && combo.engine === 'shelf') {
+    collateral(dragFrameStep, before, ux.lastSnapshot, frame => !!frame && frame !== movedPath && !frame.startsWith(movedPath + '/') && !movedPath.startsWith(frame + '/'));
   }
 
   await ux.step('Resize a frame from its bottom-right corner', async () => {
@@ -117,4 +120,95 @@ scenario('canvas', { largeOk: true }, async ({ page, ux }, combo) => {
     const n = await locateNode(page, { kind: 'folder', pick: 'largest' });
     await churnCheck(`the collapsed folder glyph ${n.label}`, n);
   }, { metrics: false, settle: false });
+
+  // ── ux-round2: file-level filters (R2a) and slot dragging (R2b) — every step skips on branches without them ──
+  const slotLabel = async (): Promise<{ x: number; y: number; file: string } | null> => page.evaluate(() => {
+    for (const g of document.querySelectorAll('#graph g.file-slot')) {
+      const d = (g as unknown as { __data__?: { file?: string } }).__data__;
+      const el = g.querySelector('.file-slot-label');
+      if (!d?.file || !el) { continue; }
+      const b = el.getBoundingClientRect();
+      if (b.left > 230 && b.right < window.innerWidth - 20 && b.top > 10 && b.bottom < window.innerHeight - 60 && document.elementFromPoint(b.left + 8, b.top + b.height / 2)?.closest('g.file-slot') === g) {
+        return { x: b.left + 8, y: b.top + b.height / 2, file: d.file };
+      }
+    }
+    return null;
+  });
+  let hiddenFile = '';
+  await ux.step('File context menu → Hide file (R2a)', async () => {
+    if (combo.engine !== 'shelf') { throw new SkipStep('file slots exist only in the shelf engine'); }
+    await setSlider(page, 'detailSlider', 1);
+    await fitToView(page);
+    await page.waitForTimeout(600);
+    const f = await locateFrame(page, 'smallest');
+    await wheelZoom(page, { x: f.rect.x + f.rect.w / 2, y: f.rect.y + f.rect.h / 2 }, -240, 4);
+    await page.waitForTimeout(500);
+    const l = await slotLabel();
+    if (!l) { throw new SkipStep('no file slot label on screen'); }
+    await rightClick(page, l);
+    if (!(await ctxMenuLabels(page)).some(x => /hide file/i.test(x))) { await page.keyboard.press('Escape'); throw new SkipStep('no "Hide file" item (ux-round2 R2a not on this branch)'); }
+    const before = ux.lastSnapshot?.nodes.length ?? 0;
+    hiddenFile = l.file;
+    await ctxMenuClick(page, /hide file/i);
+    await page.waitForTimeout(500);
+    const after = await page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as number;
+    if (before && after >= before) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a', message: `Hide file on ${hiddenFile}: visible nodes ${before} → ${after}` }); }
+  });
+  await ux.step('Hidden file appears as a chip; click unhides (R2a)', async () => {
+    if (!hiddenFile) { throw new SkipStep('nothing hidden'); }
+    await need(page, 'fileFilterChip');
+    const chip = page.locator(SEL.fileFilterChip.css).first();
+    if (await chip.count() === 0) { throw new StepFinding({ rule: 'file-filter-chip-missing', severity: 'medium', ref: 'R2a', message: `no .chip-file for the hidden file ${hiddenFile}` }); }
+    await chip.click();
+  });
+  await ux.step('File context menu → Show only this file → Show all (R2a)', async () => {
+    const l = await slotLabel();
+    if (!l) { throw new SkipStep('no file slot label on screen'); }
+    await rightClick(page, l);
+    if (!(await ctxMenuLabels(page)).some(x => /show only this file/i.test(x))) { await page.keyboard.press('Escape'); throw new SkipStep('no "Show only this file" item'); }
+    await ctxMenuClick(page, /show only this file/i);
+    await page.waitForTimeout(500);
+    const only = await page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as number;
+    const l2 = await slotLabel();
+    if (l2) { await rightClick(page, l2); await ctxMenuClick(page, /^show all$/i); }
+    await page.waitForTimeout(500);
+    const all = await page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as number;
+    if (!(only < all)) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a', message: `Show only this file left ${only} visible, Show all ${all}` }); }
+  });
+  await ux.step('Drag a file slot by its label band (R2b)', async () => {
+    if (combo.engine !== 'shelf') { throw new SkipStep('file slots exist only in the shelf engine'); }
+    await need(page, 'fileSlotHandle');
+    const h = await page.evaluate(() => {
+      for (const el of document.querySelectorAll('#graph g.file-slot rect.file-slot-handle')) {
+        const b = el.getBoundingClientRect();
+        if (b.width > 30 && b.left > 230 && b.right < window.innerWidth - 20 && b.top > 10 && b.bottom < window.innerHeight - 60
+          && document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el) {
+          const g = el.closest('g.file-slot') as unknown as { __data__?: { file?: string } };
+          const shape = el.parentElement?.querySelector('.file-slot-shape')?.getBoundingClientRect();
+          return { x: b.left + b.width / 2, y: b.top + b.height / 2, file: g?.__data__?.file ?? '', sx: shape?.left ?? 0, sy: shape?.top ?? 0 };
+        }
+      }
+      return null;
+    });
+    if (!h) { throw new SkipStep('no hittable slot handle on screen'); }
+    const memberBefore = ux.lastSnapshot?.nodes.filter(n => n.file === h.file).map(n => ({ id: n.id, x: n.x, y: n.y })) ?? [];
+    await dragBy(page, h, 45, 30);
+    await page.waitForTimeout(400);
+    const moved = await page.evaluate((file) => {
+      for (const g of document.querySelectorAll('#graph g.file-slot')) {
+        const d = (g as unknown as { __data__?: { file?: string } }).__data__;
+        if (d?.file === file) { const b = g.querySelector('.file-slot-shape')?.getBoundingClientRect(); return b ? { x: b.left, y: b.top } : null; }
+      }
+      return null;
+    }, h.file);
+    if (!moved || Math.hypot(moved.x - h.sx, moved.y - h.sy) < 10) { throw new StepFinding({ rule: 'slot-drag-noop', severity: 'high', ref: 'R2b', message: `slot ${h.file} did not follow the drag (${moved ? Math.hypot(moved.x - h.sx, moved.y - h.sy).toFixed(1) : 'gone'} px)` }); }
+    (page as unknown as { __slotMembers?: unknown }).__slotMembers = memberBefore;
+  }, { userMoved: true });
+  await ux.step('Slot members rode along with the slot (R2b)', async () => {
+    const before = (page as unknown as { __slotMembers?: Array<{ id: string; x: number; y: number }> }).__slotMembers;
+    if (!before || !before.length) { throw new SkipStep('no slot dragged'); }
+    const after = new Map((ux.lastSnapshot?.nodes ?? []).map(n => [n.id, n]));
+    const stayed = before.filter(b => { const a = after.get(b.id); return a && Math.hypot(a.x - b.x, a.y - b.y) < 5; }).length;
+    if (stayed > before.length / 2) { throw new StepFinding({ rule: 'slot-members-left-behind', severity: 'high', ref: 'R2b', message: `${stayed} of ${before.length} members of the dragged slot did not move with it` }); }
+  }, { settle: false, metrics: false });
 });

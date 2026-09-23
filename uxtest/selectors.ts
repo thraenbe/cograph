@@ -15,6 +15,9 @@ export const SEL = {
   frameTitle: { css: '#graph g.frame .folder-bubble-titlebar' },
   frameTab: { css: '#graph g.frame .frame-tab', optional: true, note: 'ux: index-tab header replaces the titlebar' },
   fileSlot: { css: '#graph g.file-slot' },
+  fileSlotHandle: { css: '#graph g.file-slot rect.file-slot-handle', optional: true, note: 'ux-round2 R2b: drag handle = the slot label band' },
+  fileFilterChip: { css: '#folder-filters-body .chip-file', optional: true, note: 'ux-round2 R2a: hidden-file chip, click to unhide' },
+  arrowBundleMarker: { css: '#arrow-bundle', optional: true, note: 'ux-round2 R3: marker for cross bundles' },
   fnNode: { css: '#graph circle.regular-node' },
   clusterNode: { css: '#graph path.cloud-node' },
   ctxMenu: { css: '#ctx-menu' },
@@ -111,4 +114,4 @@ export type SelName = keyof typeof SEL;
 /** Selectors only present in the timeline variant of the HTML. */
 export const TIMELINE_ONLY: SelName[] = ['tlPlay', 'tlReset', 'tlPos', 'tlSpeed'];
 /** Selectors created at runtime by the renderer (absent from the static HTML). */
-export const RUNTIME_ONLY: SelName[] = ['svg', 'frame', 'frameTitle', 'frameTab', 'fileSlot', 'fnNode', 'clusterNode', 'ctxMenuItems', 'hoverCard', 'hoverCardVisible', 'hoverCardName', 'hoverCardPath', 'hoverCardFacts', 'hoverCardSummary', 'hoverCardBadge'];
+export const RUNTIME_ONLY: SelName[] = ['svg', 'frame', 'frameTitle', 'frameTab', 'fileSlot', 'fnNode', 'clusterNode', 'ctxMenuItems', 'fileSlotHandle', 'fileFilterChip', 'arrowBundleMarker', 'hoverCard', 'hoverCardVisible', 'hoverCardName', 'hoverCardPath', 'hoverCardFacts', 'hoverCardSummary', 'hoverCardBadge'];

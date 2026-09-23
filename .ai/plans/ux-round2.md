@@ -6,14 +6,30 @@ Base: `termi/s111` @ c805ddd. No code until approval.
 
 ## Investigation results (all verified in code)
 
-**(1) Folder drag.** `pinFrame` (frames.js) clamps only `x,y ≥ 0` — but it DOES
-grow the parent's inner rect on right/bottom overflow. The bug is downstream:
-`moveFrameTo` (frameInteract.js) re-ticks only the dragged SUBTREE
-(`deps.onMoved` over paths under `f.path`), so the parent's grown rect never
-reaches the DOM — visually the child leaves a stale parent box (`cast-drag-2`:
-'click' outside an unchanged 'src'). Siblings never react because nothing
-re-packs, and the "giant grey arrowhead" riding along is the cross-bundle
-marker (finding 3) being re-drawn against the moving frame.
+**(1) Folder drag — THE JUMPING (traced in the lab, Shelf+Static, click,
+zoom k = 0.233).** Root cause: `createFrameTitleDrag` (frameInteract.js) has
+**no `.container()`**, so d3-drag measures `event.x/y` against
+`this.parentNode` — the dragged frame's own `<g>`, whose transform we rewrite
+on every move. The pointer is expressed in a coordinate system that moves
+with the dragged element → feedback loop. Trace: a smooth, monotonic +90 px
+screen drag (expected ≈ +386 graph px, ~+43/step) produced `moveFrameTo`
+x-targets **249 → 209 → 378** (−40, then +169) — non-monotonic leaps, exactly
+Bela's video. P1 fixed this very bug for node drags with
+`.container(() => g.node())`; the title drag never got it.
+Candidates excluded by the same trace: zero `updateFrames` /
+`applyPendingLayout` / `fitToView` / zoom-transform changes fired during the
+drag (b, c out); perf's culling/worker don't exist on this branch and the bug
+fully reproduces (d, e out as primary). Bonus finding: the drag ENGAGED A
+DIFFERENT FRAME than the one under the pointer (`_dragStart` landed on
+`examples/complex/complex` while mousedown hit `tests/test_utils`' strip) —
+overlapping sibling frames stack their transparent strips and the topmost
+(deepest) wins. And the original static symptoms stand: `pinFrame` grows the
+parent on right/bottom but `moveFrameTo` re-ticks only the dragged subtree,
+so the grown parent never reaches the DOM; nothing re-packs siblings.
+For uxtest: `locateFrame`'s grip selector matches my pointer-events-none
+`.frame-tab` group first and validates hits against the whole frame
+(`grp.contains(top)`), so its drag steps can silently miss or grab the wrong
+frame — worth a locator fix on their side.
 
 **(2) File filters.** No `hiddenFiles`/`onlyShowFile` exists anywhere. On
 `develop`, perf rewrote `getVisibleNodeIds` as a memo (`visibility.js`
@@ -34,6 +50,14 @@ are fine.
 ## Proposals
 
 ### R1 — Folder drag in Shelf (do NOW, one commit)
+0. **FIX THE JUMPING (item 1 by Bela's correction)**: configure the title
+   drag with `.container(() => g.node())` — set at MY call site in
+   frameRender on the behavior returned by `createFrameTitleDrag`
+   (a behavior config, not a listener; frameInteract.js stays untouched).
+   Same fix P1 shipped for node drags. Also `.filter()` nothing — but the
+   wrong-frame grabs shrink as containment (R1.1) and drop re-pack (R1.3)
+   remove strip overlaps; if uxtest still sees cross-grabs after that, a
+   topmost-under-pointer subject check is the follow-up.
 1. **Containment on all four sides** while dragging AND on drop: new pure
    `clampFrameLocal(fs, path, pos)` in frames.js (right/bottom clamp against
    the parent's inner rect; falls back to grow only when the child is larger
@@ -100,6 +124,27 @@ are fine.
   before/after from the uxtest lab (smoke scenario, click) — at plan time
   there is nothing to photograph.
 
+### R4 — Manila-folder silhouette + name into the body (with R3, one commit)
+Bela's two sketches (2026-09-23): the tab becomes an EMPTY flap on the
+top-left (shape + small folder glyph only), the body's top edge right of the
+flap sits a SHALLOW STEP below the flap top (~`th·0.35` ≈ 8 px at th 22, new
+`TAB.STEP` constant) instead of a full tab-height lower, and the folder NAME
+moves out of the flap INTO the body: drawn top-left inside the body just
+below the flap, same font, ellipsis at frame width, counts on the same line
+(right-aligned). Whole strip incl. flap stays the drag handle; hover-card
+target rect and the cross-bundle port follow the flap; `TAB.H`/packer reserve
+unchanged (the shape just fills more of the reserved strip).
+- frameChrome.js: `tabBodyPath` gains the step (right top edge at
+  `y + TAB.STEP`), `closedFolderPath` gets the same silhouette (name
+  below/inside as space allows) so open and closed folders match; pure path
+  tests on the strings (step present, both engines' callers unchanged).
+- Because the name line now sits at the top of the body: the packer reserves
+  one label height above the first slot row — bump the frame's content-area
+  top inset by `SLOT.LABEL_H` when the frame has members (frames.js,
+  geometry-additive; saved layouts unaffected since rects are stored
+  outer-local). Verified by a packer test: first slot row's y ≥ name line.
+- Keyframe for Bela from the uxtest lab (smoke, click) after implementation.
+
 ## Ownership / boundaries
 - frames.js, frameRender render+interaction paths, folder.js, controls.js,
   styles.css, main.js filter scan: mine. frameInteract.js and frameRender
@@ -129,7 +174,8 @@ file filter chips inside `#folder-filters-body` (`.chip-file`),
 CHANGED: cross-bundle `marker-end` value.
 
 ## Commit plan (after approval)
-1. R1 folder drag (clamp + ancestor tick + drop re-pack + hover + bundle hide)
-2. R3 bundle marker (small, independent — early so Bela sees the arrows fixed)
+1. R1 folder drag (container fix FIRST, then clamp + ancestor tick + drop
+   re-pack + hover + bundle hide)
+2. R3 bundle marker + R4 manila silhouette (one visual commit, keyframe after)
 3. R2a file filters + menus + save
 4. R2b slot dragging + persistence

@@ -88,6 +88,7 @@ function slotLabelText(name, count, slotW, charW) {
 /** Counts for the free strip right of the tab: long form while it fits,
  *  compact "N · M" when the strip is narrow. */
 function countsText(files, fns, freeW) {
+  if (!files && !fns) { return ''; } // an empty folder's "0 files · 0 fns" is noise
   const long = `${files} ${files === 1 ? 'file' : 'files'} · ${fns} ${fns === 1 ? 'fn' : 'fns'}`;
   return long.length * TAB.CNT_CHAR_W < freeW ? long : `${files} · ${fns}`;
 }

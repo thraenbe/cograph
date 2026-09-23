@@ -201,6 +201,14 @@ function getVisibleNodeIds() {
         if (inside(hf)) return;
       }
     }
+    // File-level filters (R2a): functions by their file, collapsed file::
+    // nodes by their path; folder glyphs are unaffected.
+    if (state.onlyShowFile || (state.hiddenFiles && state.hiddenFiles.size)) {
+      const ff = n.isFileCluster ? n._filePath
+        : (n.file && !n.isLibrary && !n.isCluster && !n.isSynthetic ? n.file : null);
+      if (ff != null && typeof fileFilterAllows === 'function'
+          && !fileFilterAllows(ff, state.onlyShowFile, state.hiddenFiles)) return;
+    }
     if (tlPredicate && !tlPredicate(n)) return;
     visible.add(n.id);
   });
@@ -627,6 +635,9 @@ window.addEventListener('message', (event) => {
 
     // Apply saved display state (defined in controls.js).
     applySavedViewSettings(saved);
+    if (typeof applySavedFileFilters === 'function') {
+      applySavedFileFilters(message.payload); // engine-independent (R2a)
+    }
 
     // Two-axis restore. Legacy payloads carried only layoutMode, where 'shelf'
     // meant the frames engine with dynamic motion.

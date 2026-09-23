@@ -213,11 +213,29 @@ function renderFileCircles(fileG, nodesByFile) {
     .on('contextmenu', (event, d) => {
       event.preventDefault();
       event.stopPropagation();
-      showContextMenu(event, [
-        { label: 'Rename',       action: () => {} },
-        { label: 'New function', action: () => {} },
+      const items = [
+        { label: pathBasename(d.filePath), isHeader: true },
         { label: 'Go to File',   action: () => vscode.postMessage({ type: 'navigate', file: d.filePath, line: 1 }) },
-      ]);
+        { label: 'Hide file', action: () => {
+          state.hiddenFiles.add(d.filePath);
+          applyFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          window.markDirty?.();
+        } },
+        { label: 'Show only this file', action: () => {
+          state.onlyShowFile = d.filePath;
+          applyFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          window.markDirty?.();
+        } },
+      ];
+      if (state.hiddenFiles.size || state.onlyShowFile || state.hiddenFolders.size || state.onlyShowFolder) {
+        items.push({ label: 'Show all', action: () => {
+          state.hiddenFiles.clear(); state.onlyShowFile = null;
+          state.hiddenFolders.clear(); state.onlyShowFolder = null;
+          applyFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          window.markDirty?.();
+        } });
+      }
+      showContextMenu(event, items);
     });
 }
 

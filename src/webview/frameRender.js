@@ -382,7 +382,7 @@ function onFrameContextMenu(event, f) {
     { label: 'Go to folder', action: () => vscode.postMessage({ type: 'navigate', file: fp, line: 1 }) },
   ];
   if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-    items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); updateFolderPanel(); } });
+    items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles.clear(); state.onlyShowFile = null; applyFilters(); updateFolderPanel(); } });
   }
   showContextMenu(event, items);
 }
@@ -890,10 +890,29 @@ function renderFrameSlots(f, sub) {
     if (typeof showContextMenu !== 'function') { return; }
     event.preventDefault();
     event.stopPropagation();
-    showContextMenu(event, [
+    const items = [
       { label: slotBasename(d.file), isHeader: true },
       { label: 'Go to File', action: () => vscode.postMessage({ type: 'navigate', file: d.file, line: 1 }) },
-    ]);
+      { label: 'Hide file', action: () => {
+        state.hiddenFiles.add(d.file);
+        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        window.markDirty?.();
+      } },
+      { label: 'Show only this file', action: () => {
+        state.onlyShowFile = d.file;
+        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        window.markDirty?.();
+      } },
+    ];
+    if (state.hiddenFiles.size || state.onlyShowFile || state.hiddenFolders.size || state.onlyShowFolder) {
+      items.push({ label: 'Show all', action: () => {
+        state.hiddenFiles.clear(); state.onlyShowFile = null;
+        state.hiddenFolders.clear(); state.onlyShowFolder = null;
+        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        window.markDirty?.();
+      } });
+    }
+    showContextMenu(event, items);
   });
   return sel;
 }

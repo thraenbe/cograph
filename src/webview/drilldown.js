@@ -97,7 +97,7 @@ function renderDrilldownBoxes(boxes) {
         { label: 'Go to folder',          action: () => vscode.postMessage({ type: 'navigate', file: d.folderPath, line: 1 }) },
       ];
       if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); ticked(); updateFolderPanel(); } });
+        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles.clear(); state.onlyShowFile = null; applyFilters(); ticked(); updateFolderPanel(); } });
       }
       showContextMenu(event, items);
     });

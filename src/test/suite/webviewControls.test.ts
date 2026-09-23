@@ -136,7 +136,7 @@ require('../../../src/webview/controls.js');
 
 // Also get applyResizeDelta / applySavedViewSettings / buildSavePayload for direct testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, buildSavePayload, clearSearch, updateSearchCount } = require('../../../src/webview/controls.js');
+const { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, applySavedFileFilters, fileFilterAllows, buildSavePayload, clearSearch, updateSearchCount, updateFolderPanel } = require('../../../src/webview/controls.js');
 
 // Load popups.js factory for textarea handler tests
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -805,6 +805,79 @@ suite('applySavedDrilldownState()', () => {
 
   test('null payload is a no-op', () => {
     assert.strictEqual(applySavedDrilldownState(null), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: file-level filters (R2a)
+// ---------------------------------------------------------------------------
+
+suite('file filters (R2a)', () => {
+  const st = () => (global as any).state;
+  const doc = dom.window.document;
+
+  let savedBasename: any;
+  setup(() => {
+    st().hiddenFiles = new Set();
+    st().onlyShowFile = null;
+    st().hiddenFolders = new Set();
+    st().onlyShowFolder = null;
+    savedBasename = (global as any).pathBasename;
+    (global as any).pathBasename = (fp: string) => fp.split('/').pop(); // folder.js global
+  });
+
+  teardown(() => { (global as any).pathBasename = savedBasename; });
+
+  test('fileFilterAllows mirrors the folder rules', () => {
+    assert.strictEqual(fileFilterAllows('/p/a.ts', null, new Set()), true);
+    assert.strictEqual(fileFilterAllows('/p/a.ts', null, new Set(['/p/a.ts'])), false);
+    assert.strictEqual(fileFilterAllows('/p/a.ts', '/p/a.ts', new Set()), true);
+    assert.strictEqual(fileFilterAllows('/p/b.ts', '/p/a.ts', new Set()), false);
+    // only-show wins even when also hidden (matches the folder semantics order)
+    assert.strictEqual(fileFilterAllows('/p/a.ts', '/p/a.ts', new Set(['/p/a.ts'])), false);
+  });
+
+  test('save payload carries the file filters additively; restore round-trips', () => {
+    st().currentNodes = [];
+    st().hiddenFiles = new Set(['/p/b.ts', '/p/a.ts']);
+    st().onlyShowFile = '/p/z.ts';
+    const p = buildSavePayload();
+    assert.deepStrictEqual(p.hiddenFiles, ['/p/a.ts', '/p/b.ts'], 'sorted, additive');
+    assert.strictEqual(p.onlyShowFile, '/p/z.ts');
+    st().hiddenFiles = new Set(); st().onlyShowFile = null;
+    applySavedFileFilters(JSON.parse(JSON.stringify(p)));
+    assert.deepStrictEqual([...st().hiddenFiles].sort(), ['/p/a.ts', '/p/b.ts']);
+    assert.strictEqual(st().onlyShowFile, '/p/z.ts');
+  });
+
+  test('old saves without the fields change nothing', () => {
+    st().hiddenFiles = new Set(['/keep.ts']);
+    st().onlyShowFile = '/keep2.ts';
+    assert.strictEqual(applySavedFileFilters({ settings: {}, nodePositions: {} }), false);
+    assert.deepStrictEqual([...st().hiddenFiles], ['/keep.ts']);
+    assert.strictEqual(st().onlyShowFile, '/keep2.ts');
+  });
+
+  test('filter chips render for files and clear them', () => {
+    st().hiddenFiles = new Set(['/p/hidden.ts']);
+    st().onlyShowFile = '/p/only.ts';
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    const chips = body.querySelectorAll('.chip-file');
+    assert.strictEqual(chips.length, 2, 'one chip per file filter');
+    (body.querySelector('[data-action="unhide-file"]') as any).click();
+    assert.strictEqual(st().hiddenFiles.size, 0, 'chip unhides the file');
+    (body.querySelector('[data-action="clear-only-file"]') as any)?.click();
+    assert.strictEqual(st().onlyShowFile, null);
+  });
+
+  test('Show All clears file filters too', () => {
+    st().hiddenFiles = new Set(['/p/x.ts']);
+    st().hiddenFolders = new Set(['/p']);
+    updateFolderPanel();
+    (doc.getElementById('btn-folder-show-all') as any).click();
+    assert.strictEqual(st().hiddenFiles.size, 0);
+    assert.strictEqual(st().hiddenFolders.size, 0);
   });
 });
 

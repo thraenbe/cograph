@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Added
+- **File-level filters**: right-click a file slot (Shelf) or a file circle
+  (Global) to **Hide file** or **Show only this file** — with "Show all" once
+  anything is hidden, mirroring the folder menu. Hidden files appear as chips
+  in the Folder panel's filter list and are saved with the layout (older
+  saves load unchanged). Empty folders no longer show a "0 files · 0 fns"
+  count.
 - **Global guard**: switching to the Global engine with more than 4,000
   simulated nodes no longer freezes the page by surprise — the first click
   shows a hint ("Global is slow above 4,000 nodes — lower Detail first, or

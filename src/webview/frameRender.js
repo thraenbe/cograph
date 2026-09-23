@@ -503,14 +503,16 @@ function tickFrame(path) {
     sub.select('.frame-tab-glyph')
       .attr('transform', 'translate(9,6) scale(0.85)')
       .attr('fill', mutedFill);
+    // R4: the flap is empty (glyph only) — the name lives in the body, on the
+    // reserved line just below the flap; ellipsis at the frame width.
     sub.select('.folder-bubble-label')
-      .attr('x', TAB.TEXT_X).attr('y', TAB.TEXT_Y)
-      .text(cutLabel(name, tabChars(tw)));
+      .attr('x', 10).attr('y', TAB.H + 10)
+      .text(cutLabel(name, Math.max(4, Math.floor((f.abs.w * 0.6) / TAB.CHAR_W))));
     const cnt = __fr.counts && __fr.counts.get(path);
     sub.select('.frame-tab-counts')
-      .attr('x', f.abs.w - 4).attr('y', TAB.H - 6)
+      .attr('x', f.abs.w - 6).attr('y', TAB.H + 10)
       .attr('fill', mutedFill)
-      .text(cnt ? countsText(cnt.files, cnt.fns, f.abs.w - tw - TAB.CNT_PAD) : '');
+      .text(cnt ? countsText(cnt.files, cnt.fns, f.abs.w - 20 - name.length * TAB.CHAR_W) : '');
     sub.select('.folder-bubble-titlebar')
       .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', 30);
   }
@@ -591,7 +593,7 @@ function updateCrossLinks() {
     .attr('stroke-width', d => settings.linkThickness * edgeWeightScale(d.count))
     .attr('stroke-dasharray', d => d.pending ? '4,3' : null)
     .attr('opacity', 0.55)
-    .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
+    .attr('marker-end', settings.arrows ? 'url(#arrow-bundle)' : null)
     .attr('x1', d => d.x1).attr('y1', d => d.y1)
     .attr('x2', d => d.x2).attr('y2', d => d.y2)
     .each(function (d) {
@@ -604,7 +606,7 @@ function updateCrossLinks() {
     .attr('stroke', getCSSVar('--cograph-link-hover'))
     .attr('stroke-width', Math.max(1.5, settings.linkThickness))
     .attr('opacity', 0.9)
-    .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
+    .attr('marker-end', settings.arrows ? 'url(#arrow-bundle)' : null)
     .attr('x1', d => d.x1).attr('y1', d => d.y1)
     .attr('x2', d => d.x2).attr('y2', d => d.y2);
 }
@@ -792,7 +794,7 @@ function createFrameResizeDrag() {
     })
     .on('drag', function (event, f) {
       const w = Math.max(FRAME.MIN_INNER_W + 2 * FRAME.PAD, event.x - f.abs.x);
-      const h = Math.max(FRAME.MIN_INNER_H + 2 * FRAME.PAD + FRAME.TITLE, event.y - f.abs.y);
+      const h = Math.max(FRAME.MIN_INNER_H + 2 * FRAME.PAD + FRAME.TITLE + FRAME.NAME_H, event.y - f.abs.y);
       pinFrame(state.frames, f.path, null, { w, h });
       const rec = __fr.sims.get(f.path);
       const nf = state.frames.byPath.get(f.path);

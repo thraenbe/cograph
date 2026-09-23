@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.3.0] - Unreleased
 
 ### Changed (UX)
+- **Manila-folder silhouette**: the flap sits top-left as before, but the
+  body's top edge right of it is only a shallow step below the flap top; the
+  folder NAME moved out of the flap into the body (top-left, counts on the
+  same line), and open and collapsed folders share one silhouette. The
+  content area reserves the name line, so slots never collide with it.
+- **Cross-folder bundle arrowheads are a fixed ~9 units** and sit at the
+  flap's port, instead of scaling with the bundle stroke into ~100px
+  triangles.
 - The editor-title command is named **"CoGraph: Open or Reset Layout"** (was
   "Open or Reload Layout" — it opens a fresh layout rather than loading a
   saved graph). The command id is unchanged, existing keybindings keep working.

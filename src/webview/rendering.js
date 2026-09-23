@@ -19,6 +19,23 @@ defs.append('marker')
   .attr('d', 'M0,-5L10,0L0,5')
   .attr('fill', 'context-stroke');
 
+// Fixed-size arrowhead for cross-folder bundles: #arrow scales with the
+// stroke width (markerUnits defaults to strokeWidth) and bundle strokes reach
+// ~24px, giving ~96px triangles. userSpaceOnUse keeps this head ~9 graph
+// units — it scales with the zoom like the graph itself.
+defs.append('marker')
+  .attr('id', 'arrow-bundle')
+  .attr('viewBox', '0 -5 10 10')
+  .attr('refX', 10)
+  .attr('refY', 0)
+  .attr('markerWidth', 9)
+  .attr('markerHeight', 9)
+  .attr('markerUnits', 'userSpaceOnUse')
+  .attr('orient', 'auto')
+  .append('path')
+  .attr('d', 'M0,-5L10,0L0,5')
+  .attr('fill', 'context-stroke');
+
 // Default glow filter
 const glowFilter = defs.append('filter')
   .attr('id', 'glow')

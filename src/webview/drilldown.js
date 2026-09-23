@@ -177,13 +177,13 @@ function tickDrilldownBoxes() {
     el.select('.frame-tab-glyph')
       .attr('transform', `translate(${minX + 9},${minY + 6}) scale(0.85)`);
     el.select('.frame-tab-counts')
-      .attr('x', maxX - 4).attr('y', minY + TAB.H - 6)
-      .text(d.counts ? countsText(d.counts.files, d.counts.fns, w - tw - TAB.CNT_PAD) : '');
+      .attr('x', maxX - 6).attr('y', minY + TAB.H + 10)
+      .text(d.counts ? countsText(d.counts.files, d.counts.fns, w - 20 - d.shortName.length * TAB.CHAR_W) : '');
     el.select('.folder-bubble-titlebar')
       .attr('x', minX).attr('y', minY).attr('width', w).attr('height', DD_TITLEBAR_HEIGHT);
     el.select('.folder-bubble-label')
-      .attr('x', minX + TAB.TEXT_X).attr('y', minY + TAB.TEXT_Y)
-      .text(cutLabel(d.shortName, tabChars(tw)));
+      .attr('x', minX + 10).attr('y', minY + TAB.H + 10)
+      .text(cutLabel(d.shortName, Math.max(4, Math.floor((w * 0.6) / TAB.CHAR_W))));
   });
 }
 

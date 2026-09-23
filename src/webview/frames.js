@@ -13,6 +13,7 @@
 const FRAME = {
   PAD: 40,               // == FOLDER_PADDING (folder.js)
   TITLE: 30,             // == FOLDER_TITLEBAR_HEIGHT (folder.js)
+  NAME_H: 16,            // the folder name line inside the body (R4) — content starts below it
   GAP: 8,                // gap inside a content block between member slots
   K: 1.6,                // content packing slack: A = K · Σ(2r+GAP)²
   ITEM_GAP: 16,          // gap between shelf-packed items
@@ -259,7 +260,7 @@ function visiblyOpenFolders(tree, expanded) {
 function outerOf(f) {
   if (f.kind === 'root') { return { w: f.inner.w, h: f.inner.h }; }
   let w = f.inner.w + 2 * FRAME.PAD;
-  let h = f.inner.h + 2 * FRAME.PAD + FRAME.TITLE;
+  let h = f.inner.h + 2 * FRAME.PAD + FRAME.TITLE + FRAME.NAME_H;
   if (f.userSize) { w = Math.max(w, f.userSize.w); h = Math.max(h, f.userSize.h); }
   return { w, h };
 }
@@ -302,7 +303,7 @@ function packFrame(fs, f, members) {
 
 function innerOrigin(f) {
   if (f.kind === 'root') { return { x: f.abs.x, y: f.abs.y }; }
-  return { x: f.abs.x + FRAME.PAD, y: f.abs.y + FRAME.PAD + FRAME.TITLE };
+  return { x: f.abs.x + FRAME.PAD, y: f.abs.y + FRAME.PAD + FRAME.TITLE + FRAME.NAME_H };
 }
 
 function resolveAbs(fs) {
@@ -570,7 +571,7 @@ function deserializeFrames(saved, fs) {
     f.local.w = r.w; f.local.h = r.h;
     f.inner = {
       w: Math.max(FRAME.MIN_INNER_W, r.w - 2 * FRAME.PAD),
-      h: Math.max(FRAME.MIN_INNER_H, r.h - 2 * FRAME.PAD - FRAME.TITLE),
+      h: Math.max(FRAME.MIN_INNER_H, r.h - 2 * FRAME.PAD - FRAME.TITLE - FRAME.NAME_H),
     };
     if (r.cx != null) { f.contentPos = { x: r.cx, y: r.cy ?? 0 }; }
     f.pinned = !!r.pinned;

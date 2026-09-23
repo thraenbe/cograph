@@ -5,7 +5,8 @@ import { scenario } from '../lib/scenario';
 import { backgroundPoint, clickNode, need, ctxMenuClick, ctxMenuLabels, dragBy, dragFrame, fitToView, judgeFrameDrag, locateFrame, locateNode, restAndWatchChurn, rightClick, setSlider, wheelZoom, type Point } from '../lib/actions';
 import { SkipStep, StepFinding, type StepRecord } from '../lib/step';
 import { SEL } from '../selectors';
-import { maxDisplacement } from '../metrics/compute';
+import * as path from 'path';
+import { computeMetrics, maxDisplacement } from '../metrics/compute';
 import type { Snapshot } from '../metrics/types';
 
 function collateral(rec: StepRecord, before: Snapshot | null, after: Snapshot | null, keep: (frame: string | null, id: string) => boolean): void {
@@ -15,7 +16,8 @@ function collateral(rec: StepRecord, before: Snapshot | null, after: Snapshot | 
   if (d.moved > 0) { rec.findings.push({ rule: 'collateral-movement', severity: 'high', ref: 'H4/T3', message: `${d.moved} node(s) outside the dragged folder moved (max ${d.max}px)` }); }
 }
 
-scenario('canvas', { largeOk: true }, async ({ page, ux }, combo) => {
+scenario('canvas', { largeOk: true }, async (lab, combo) => {
+  const { page, ux } = lab;
   /** F10: the hover overlay must be built once, not rebuilt every frame under a resting pointer. */
   const churnCheck = async (what: string, p: Point): Promise<void> => {
     const c = await restAndWatchChurn(page, p, 1000);
@@ -55,14 +57,33 @@ scenario('canvas', { largeOk: true }, async ({ page, ux }, combo) => {
   before = ux.lastSnapshot;
   let movedPath = '';
   let dragNote = '';
+  let drag: Awaited<ReturnType<typeof dragFrame>> | null = null;
   const dragFrameStep = await ux.step('Drag a folder by its title', async () => {
     const f = await locateFrame(page, 'smallest');
     movedPath = f.path;
-    dragNote = judgeFrameDrag(await dragFrame(page, f, 70, 50));
+    drag = await dragFrame(page, f, 70, 50, 12, path.join(lab.outDir, 'steps', `${String(ux.steps.length).padStart(2, '0')}-drag-a-folder-MID-DRAG.png`));
+    dragNote = judgeFrameDrag(drag);
   }, { userMoved: true });
   dragFrameStep.note = [dragNote, dragFrameStep.note].filter(Boolean).join(' | ');
-  if (dragFrameStep.status === 'ok' && combo.engine === 'shelf') {
-    collateral(dragFrameStep, before, ux.lastSnapshot, frame => !!frame && frame !== movedPath && !frame.startsWith(movedPath + '/') && !movedPath.startsWith(frame + '/'));
+  if (dragFrameStep.status === 'ok' && combo.engine === 'shelf' && drag && before) {
+    const d = drag as Awaited<ReturnType<typeof dragFrame>>;
+    const outside = (frame: string | null): boolean => !!frame && frame !== movedPath && !frame.startsWith(movedPath + '/') && !movedPath.startsWith(frame + '/');
+    // H4, DRAG PHASE: while the button is down nothing but the dragged subtree may move.
+    if (d.midDrag) {
+      const mid = maxDisplacement(before, d.midDrag, n => outside(n.frame));
+      dragFrameStep.note += ` | during drag: ${mid.moved} outside node(s) moved (max ${mid.max} px)`;
+      if (mid.moved > 0) { dragFrameStep.findings.push({ rule: 'collateral-movement', severity: 'high', ref: 'H4/T3', message: `${mid.moved} node(s) outside the dragged folder moved WHILE the button was down (max ${mid.max} px)` }); }
+    }
+    // DROP: a sibling re-pack is by design (glide) - reported as info; frames overlapping afterwards is not.
+    if (d.midDrag && d.afterDrop) {
+      const rep = maxDisplacement(d.midDrag, d.afterDrop, n => outside(n.frame));
+      const framesBefore = new Map(d.midDrag.frames.map(f => [f.path, f.rect]));
+      const movedFrames = d.afterDrop.frames.filter(f => { const b = framesBefore.get(f.path); return b && outside(f.path) && Math.hypot(f.rect.x - b.x, f.rect.y - b.y) > 0.5; }).length;
+      const overlaps = computeMetrics(d.afterDrop).frameOverlapPairs;
+      dragFrameStep.note += ` | on drop: ${rep.moved} node(s) in ${movedFrames} frame(s) re-packed (max ${rep.max} px), frame overlaps after ${overlaps}`;
+      if (rep.moved > 0 || movedFrames > 0) { dragFrameStep.findings.push({ rule: 'drop-repack', severity: 'low', ref: 'ux-round2 R1', message: `drop re-packed ${movedFrames} sibling frame(s) / ${rep.moved} node(s), max displacement ${rep.max} px, frame overlaps after: ${overlaps}` }); }
+      if (overlaps > 0) { dragFrameStep.findings.push({ rule: 'frame-overlap', severity: 'high', ref: 'R2/H1', message: `${overlaps} sibling frame pair(s) overlap after the drop re-pack` }); }
+    }
   }
 
   await ux.step('Resize a frame from its bottom-right corner', async () => {

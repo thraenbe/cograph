@@ -3,6 +3,8 @@
 import type { Page } from '@playwright/test';
 import { SEL, type SelName } from '../selectors';
 import { SkipStep, StepFinding } from './step';
+import { collectSnapshot } from '../metrics/collect';
+import type { Snapshot } from '../metrics/types';
 
 export interface Point { x: number; y: number }
 export type NodePick = { kind: 'folder' | 'file' | 'fn'; pick?: 'largest' | 'first'; id?: string };
@@ -358,15 +360,18 @@ export interface FrameDragResult {
   frameDx: number; frameDy: number;       // total frame travel
   maxJumpPx: number; maxStepPx: number;   // largest per-step frame move vs the largest per-step pointer move
   samples: number;
+  /** geometry with the button still down (last pointer position) and right after the drop */
+  midDrag: Snapshot | null; afterDrop: Snapshot | null;
+  midDragScreenshot?: string;             // set by the caller when it saved one
 }
 
 /** Drag a folder by its title strip in small steps and watch the frame follow. Asserts the grab hit the intended
  *  frame; reports the largest per-step jump of the frame so a scenario can flag `drag-jump` (frame moves more than
  *  twice the pointer step: it is being pulled by something other than the pointer). */
-export async function dragFrame(page: Page, hit: FrameHit, dx: number, dy: number, steps = 12): Promise<FrameDragResult> {
+export async function dragFrame(page: Page, hit: FrameHit, dx: number, dy: number, steps = 12, midDragScreenshot?: string): Promise<FrameDragResult> {
   await glideTo(page, hit.title);
   const grabbed = await page.evaluate(frameUnderPointInPage, hit.title);
-  const out: FrameDragResult = { path: hit.path, grabbed, pointerDx: dx, pointerDy: dy, frameDx: 0, frameDy: 0, maxJumpPx: 0, maxStepPx: 0, samples: 0 };
+  const out: FrameDragResult = { path: hit.path, grabbed, pointerDx: dx, pointerDy: dy, frameDx: 0, frameDy: 0, maxJumpPx: 0, maxStepPx: 0, samples: 0, midDrag: null, afterDrop: null };
   if (grabbed !== hit.path) { return out; } // the caller decides (wrong-frame-grab finding); do not drag a stranger
   const start = await page.evaluate(frameRectInPage, hit.path);
   await page.mouse.down();
@@ -385,7 +390,12 @@ export async function dragFrame(page: Page, hit: FrameHit, dx: number, dy: numbe
     }
     prev = cur;
   }
+  // Button still down: this is the drag phase the H4 rule judges.
+  out.midDrag = await collectSnapshot(page, { maxLabels: 10 });
+  if (midDragScreenshot) { await page.screenshot({ path: midDragScreenshot }); out.midDragScreenshot = midDragScreenshot; }
   await page.mouse.up();
+  await page.waitForTimeout(900); // drop re-pack + glide
+  out.afterDrop = await collectSnapshot(page, { maxLabels: 10 });
   const end = await page.evaluate(frameRectInPage, hit.path);
   if (start && end) { out.frameDx = +(end.x - start.x).toFixed(1); out.frameDy = +(end.y - start.y).toFixed(1); }
   return out;

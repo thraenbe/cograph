@@ -101,20 +101,14 @@ function orphanReport() {
       const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
       const ppid = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
       const cwd = readlinkSync(`/proc/${pid}/cwd`);
-      if (ppid === 1 || (/workerProcessEntry/.test(cmdline) && cwd === root && !isDescendantOfMe(ppid))) { if (cwd === root) { mine.push(pid); } }
+      // An orphan has been re-parented to init; workers of ANOTHER live run of this worktree are not orphans.
+      if (ppid === 1 && cwd === root) { mine.push(pid); }
     } catch { /* process ended or is not ours to read */ }
   }
   if (mine.length) {
     process.stderr.write(`uxtest: WARNING - ${mine.length} leftover worker/browser process(es) of this worktree: ${mine.join(' ')}. `
       + 'They burn CPU under every later measurement; inspect with `ps -o pid,ppid,pcpu,etime,cmd -p <pids>` and end them.\n');
   }
-}
-function isDescendantOfMe(pid) {
-  for (let p = pid, hops = 0; p > 1 && hops < 32; hops++) {
-    if (p === process.pid) { return true; }
-    try { const stat = readFileSync(`/proc/${p}/stat`, 'utf8'); p = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]); } catch { return false; }
-  }
-  return false;
 }
 
 const status = await runGroup('npx', args, env);

@@ -98,3 +98,10 @@ test('folder separation: a layout that merges folders is ranked below one that k
   expect(layoutScore({ ...apart, folderOverlapRatio: undefined }, 0, QUALITY_WEIGHTS)).toBe(layoutScore(apart, 0, QUALITY_WEIGHTS)); // old runs: unknown = 0
   expect(layoutScore({ ...apart, folderOverlapRatio: 0.9 }, 0, QUALITY_WEIGHTS)).toBe(layoutScore({ ...apart, folderOverlapRatio: 0.5 }, 0, QUALITY_WEIGHTS)); // capped
 });
+
+test('R3/R4 rules: giant arrowheads and slot rows over the name line', () => {
+  expect(rules({ maxMarkerPx: 19.9 })).toEqual([]);
+  expect(rules({ maxMarkerPx: 21, maxMarkerId: 'arrow' })).toEqual(['giant-arrowhead']);
+  expect(rules({ slotsOverName: 2 })).toEqual(['slot-over-name']);
+  expect(rules({ slotsOverName: 2 }, { engine: 'global' })).toEqual([]);
+});

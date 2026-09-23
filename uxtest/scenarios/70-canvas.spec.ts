@@ -82,7 +82,8 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
       const overlaps = computeMetrics(d.afterDrop).frameOverlapPairs;
       dragFrameStep.note += ` | on drop: ${rep.moved} node(s) in ${movedFrames} frame(s) re-packed (max ${rep.max} px), frame overlaps after ${overlaps}`;
       if (rep.moved > 0 || movedFrames > 0) { dragFrameStep.findings.push({ rule: 'drop-repack', severity: 'low', ref: 'ux-round2 R1', message: `drop re-packed ${movedFrames} sibling frame(s) / ${rep.moved} node(s), max displacement ${rep.max} px, frame overlaps after: ${overlaps}` }); }
-      if (overlaps > 0) { dragFrameStep.findings.push({ rule: 'frame-overlap', severity: 'high', ref: 'R2/H1', message: `${overlaps} sibling frame pair(s) overlap after the drop re-pack` }); }
+      // R1c: the drop position is sacred and siblings shift only minimally, so residual overlaps after a drop are intended (low).
+      if (overlaps > 0) { dragFrameStep.findings.push({ rule: 'user-frame-overlap', severity: 'low', ref: 'R1c', message: `${overlaps} sibling frame pair(s) still overlap after the drop (intended by the no-cascade rule)` }); }
     }
   }
 
@@ -168,11 +169,13 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
     if (!l) { throw new SkipStep('no file slot label on screen'); }
     await rightClick(page, l);
     if (!(await ctxMenuLabels(page)).some(x => /hide file/i.test(x))) { await page.keyboard.press('Escape'); throw new SkipStep('no "Hide file" item (ux-round2 R2a not on this branch)'); }
-    const before = ux.lastSnapshot?.nodes.length ?? 0;
+    // Compare like with like: the visible set right before and right after the menu action.
+    const visibleNow = (): Promise<number> => page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as Promise<number>;
+    const before = await visibleNow();
     hiddenFile = l.file;
     await ctxMenuClick(page, /hide file/i);
     await page.waitForTimeout(500);
-    const after = await page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as number;
+    const after = await visibleNow();
     if (before && after >= before) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a', message: `Hide file on ${hiddenFile}: visible nodes ${before} → ${after}` }); }
   });
   await ux.step('Hidden file appears as a chip; click unhides (R2a)', async () => {

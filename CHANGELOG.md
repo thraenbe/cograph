@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layouts are unchanged. Saved with the view (older saves load as unlimited).
 
 ### Fixed
+- **Dragging a folder frame by its title strip no longer makes it leap around
+  the window**: the drag measured the pointer against the dragged frame's own
+  moving coordinate system; it is now measured against the stable canvas
+  (the same fix node drags received in 1.2's performance pass).
 - The Global layout could run away on deeply nested repos and freeze the page
   for minutes (zod at extreme force sliders): folder cluster pulls are nested,
   so deep nodes received a summed pull far past the integrator's stability

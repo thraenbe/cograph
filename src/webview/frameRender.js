@@ -161,6 +161,11 @@ function renderFrameLayout(allLinks, visibleSet) {
     .attr('font-size', `${12 * settings.textSize}px`)
     .attr('fill', (typeof isLightTheme === 'function' && isLightTheme()) ? '#333333' : '#cccccc');
   const titleDrag = createFrameTitleDrag(frameDragDeps())
+    // The pointer must be measured against the STABLE zoomed layer, never the
+    // dragged frame's own <g> (d3-drag's default container is this.parentNode,
+    // which moves with the drag → feedback loop, the frame leaps around).
+    // Same fix P1 shipped for node drags.
+    .container(function () { return g.node(); })
     .on('start.fitguard', () => { state._frameInteracting = true; })
     .on('end.fitguard', () => { state._frameInteracting = false; });
   sel.select('.folder-bubble-titlebar').call(titleDrag);

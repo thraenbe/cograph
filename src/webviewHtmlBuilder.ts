@@ -178,6 +178,7 @@ export function getWebviewHtml(
   const frameChromeUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameChrome.js'));
   const forcesPanelUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'forcesPanel.js'));
   const globalGuardUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'globalGuard.js'));
+  const slotDragUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'slotDrag.js'));
   const perfUri      = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'perf.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
@@ -483,6 +484,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${controlsUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${forcesPanelUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${globalGuardUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${slotDragUri}?v=${nonce}"></script>
   ${timelineScriptTag}
 </body>
 </html>`;

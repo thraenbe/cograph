@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Added
+- **File slots are draggable**: grab a slot by its label band and place it
+  anywhere inside its frame — it pins there (saved with the layout), its
+  functions ride along, and the other slots re-pack around it. Node drags,
+  double-click-to-open and the context menu on the slot body keep working.
 - **File-level filters**: right-click a file slot (Shelf) or a file circle
   (Global) to **Hide file** or **Show only this file** — with "Show all" once
   anything is hidden, mirroring the folder menu. Hidden files appear as chips

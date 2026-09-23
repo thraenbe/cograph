@@ -349,6 +349,51 @@ function resolveDropOverlaps(dropped) {
   if (typeof window !== 'undefined') { window.markDirty?.(); }
 }
 
+/** Deps for slot drags (R2b). Slot data is frame-local; pins are stored
+ *  content-local. */
+function slotDragDeps(framePath) {
+  return {
+    container: function () { return g.node(); },
+    frame: () => state.frames && state.frames.byPath.get(framePath),
+    bounds: (fr) => {
+      const off = fr.kind === 'root'
+        ? { x: 0, y: 0 }
+        : { x: FRAME.PAD, y: FRAME.PAD + FRAME.TITLE + FRAME.NAME_H };
+      return { x0: off.x, y0: off.y, x1: off.x + fr.inner.w, y1: off.y + fr.inner.h };
+    },
+    move: (handleEl, d, dx, dy) => {
+      const fr = state.frames.byPath.get(framePath);
+      const grp = d3.select(handleEl.parentNode);
+      grp.select('.file-slot-shape').attr('x', d.x).attr('y', d.y);
+      grp.select('.file-slot-handle').attr('x', d.x).attr('y', d.y);
+      grp.select('.file-slot-label').attr('x', d.x + 6).attr('y', d.y + 11);
+      // live slot rect (sims clamp/pull against it) + member nodes ride along
+      const live = fr && fr.slots && fr.slots.get(d.key);
+      if (live) { live.x += dx; live.y += dy; }
+      for (const m of (__fr.members.get(framePath) || [])) {
+        if (!m._ref || (fr.slotOf && fr.slotOf.get(m.id)) !== d.key) { continue; }
+        m._ref.x += dx; m._ref.y += dy;
+        if (m._ref.fx != null) { m._ref.fx += dx; m._ref.fy += dy; }
+      }
+      tickFrame(framePath);
+    },
+    commit: (fr, d) => {
+      const off = fr.kind === 'root'
+        ? { x: 0, y: 0 }
+        : { x: FRAME.PAD, y: FRAME.PAD + FRAME.TITLE + FRAME.NAME_H };
+      if (!fr.slotPins) { fr.slotPins = new Map(); }
+      fr.slotPins.set(d.key, {
+        x: d.x - off.x - fr.contentPos.x,
+        y: d.y - off.y - fr.contentPos.y,
+      });
+      // One re-render: the pinned slot becomes a fixed obstacle, free slots
+      // re-pack around it, sims re-target, the static grid re-places.
+      if (typeof applyFileClusters === 'function') { applyFileClusters(); }
+      if (typeof window !== 'undefined') { window.markDirty?.(); }
+    },
+  };
+}
+
 function frameDragDeps() {
   return {
     frames: () => state.frames,
@@ -855,6 +900,8 @@ function renderFrameSlots(f, sub) {
           .attr('rx', 6).attr('stroke-width', 1.2).attr('pointer-events', 'all');
         grp.append('text').attr('class', 'file-slot-label')
           .attr('pointer-events', 'none').attr('font-weight', '600');
+        grp.append('rect').attr('class', 'file-slot-handle')
+          .attr('fill', 'transparent').attr('pointer-events', 'all').attr('cursor', 'grab');
         return grp;
       },
       update => update,
@@ -876,12 +923,17 @@ function renderFrameSlots(f, sub) {
       .attr('stroke', color).attr('stroke-opacity', changed ? 0.95 : 0.5)
       .attr('stroke-width', changed ? 2 : 1.2)
       .attr('stroke-dasharray', d.count ? null : '4 3');
+    grp.select('.file-slot-handle')
+      .attr('x', d.x).attr('y', d.y).attr('width', d.w).attr('height', SLOT.LABEL_H);
     grp.select('.file-slot-label')
       .attr('x', d.x + 6).attr('y', d.y + 11)
       .attr('font-size', `${9 * settings.textSize}px`)
       .attr('fill', color).attr('fill-opacity', 0.9)
       .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize));
   });
+  if (typeof createSlotDrag === 'function' && f.kind !== 'root') {
+    sel.select('rect.file-slot-handle').call(createSlotDrag(slotDragDeps(f.path)));
+  }
   sel.on('dblclick', (event, d) => {
     event.stopPropagation();
     vscode.postMessage({ type: 'navigate', file: d.file, line: 1 });

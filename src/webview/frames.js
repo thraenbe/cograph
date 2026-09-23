@@ -101,7 +101,7 @@ function slotKeyOf(m) {
  * Returns {w, h, slots: Map<key, {x,y,w,h,file,count}>, slotOf: Map<id, key>}
  * with slot rects local to the content-block origin. Deterministic.
  */
-function packContentSlots(members) {
+function packContentSlots(members, pins) {
   if (!members.length) { return { w: 0, h: 0, slots: new Map(), slotOf: new Map() }; }
   const groups = new Map();
   for (const m of members) {
@@ -127,11 +127,26 @@ function packContentSlots(members) {
     items.push({ key, w, h });
     meta.set(key, { file: mems[0].file || null, count: fns });
   }
-  const p = shelfPack(items, { gap: SLOT.BETWEEN });
+  // User-pinned slots (R2b) become fixed obstacles: they keep their dragged
+  // position (clamped >= 0), the rest shelf-packs around them.
+  const fixedRects = [];
+  const freeItems = [];
+  const pinnedAt = new Map();
+  for (const it of items) {
+    const pin = pins && pins.get(it.key);
+    if (pin) {
+      const px = Math.max(0, Math.round(pin.x)), py = Math.max(0, Math.round(pin.y));
+      pinnedAt.set(it.key, { x: px, y: py });
+      fixedRects.push({ x: px, y: py, w: it.w, h: it.h });
+    } else {
+      freeItems.push(it);
+    }
+  }
+  const p = shelfPack(freeItems, { gap: SLOT.BETWEEN, fixed: fixedRects });
   const slots = new Map();
   const slotOf = new Map();
   for (const it of items) {
-    const pos = p.pos[it.key];
+    const pos = pinnedAt.get(it.key) ?? p.pos[it.key];
     slots.set(it.key, { x: pos.x, y: pos.y, w: it.w, h: it.h, ...meta.get(it.key) });
   }
   for (const m of members) { slotOf.set(m.id, slotKeyOf(m)); }
@@ -236,6 +251,7 @@ function newFrame(path, kind, parent) {
     abs: { x: 0, y: 0, w: 0, h: 0 },
     pinned: false,
     userSize: null,
+    slotPins: new Map(),   // slotKey -> {x,y} content-local (R2b slot drags)
     memberCount: 0,
     slots: new Map(),      // per-file slot rects, local to the content block
     slotOf: new Map(),     // member id -> slot key
@@ -294,7 +310,7 @@ function packItems(fs, f) {
 function packFrame(fs, f, members) {
   const mem = members.get(f.path) ?? [];
   f.memberCount = mem.length;
-  const slotted = packContentSlots(mem);
+  const slotted = packContentSlots(mem, f.slotPins);
   f.slots = slotted.slots;
   f.slotOf = slotted.slotOf;
   f.content = { w: slotted.w, h: slotted.h };
@@ -358,6 +374,7 @@ function carryFrame(prev, path) {
     userSize: old.userSize ? { ...old.userSize } : null,
     slots: new Map(old.slots || []),
     slotOf: new Map(old.slotOf || []),
+    slotPins: new Map(old.slotPins || []),
   };
 }
 
@@ -424,7 +441,7 @@ function updateFrames(prev, tree, expanded, members, opts = {}) {
     // Slots are cheap and deterministic — recompute them every update.
     const mem = members.get(f.path) ?? [];
     f.memberCount = mem.length;
-    const slotted = packContentSlots(mem);
+    const slotted = packContentSlots(mem, f.slotPins);
     f.slots = slotted.slots;
     f.slotOf = slotted.slotOf;
     f.content = { w: Math.max(f.content.w, slotted.w), h: Math.max(f.content.h, slotted.h) };
@@ -556,6 +573,11 @@ function serializeFrames(fs) {
       pinned: !!f.pinned,
       cx: f.contentPos.x ?? 0, cy: f.contentPos.y ?? 0,
     };
+    if (f.slotPins && f.slotPins.size) {
+      const sp = {};
+      for (const [k, v] of f.slotPins) { sp[k] = [Math.round(v.x), Math.round(v.y)]; }
+      out[p].sp = sp; // additive (R2b): dragged slot positions
+    }
   }
   return out;
 }
@@ -574,6 +596,9 @@ function deserializeFrames(saved, fs) {
       h: Math.max(FRAME.MIN_INNER_H, r.h - 2 * FRAME.PAD - FRAME.TITLE - FRAME.NAME_H),
     };
     if (r.cx != null) { f.contentPos = { x: r.cx, y: r.cy ?? 0 }; }
+    if (r.sp) {
+      f.slotPins = new Map(Object.entries(r.sp).map(([k, v]) => [k, { x: v[0], y: v[1] }]));
+    }
     f.pinned = !!r.pinned;
     applied.push(p);
   }

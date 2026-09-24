@@ -101,7 +101,9 @@ test('folder separation: a layout that merges folders is ranked below one that k
 
 test('R3/R4 rules: giant arrowheads and slot rows over the name line', () => {
   expect(rules({ maxMarkerPx: 19.9 })).toEqual([]);
-  expect(rules({ maxMarkerPx: 21, maxMarkerId: 'arrow' })).toEqual(['giant-arrowhead']);
+  expect(rules({ maxMarkerPx: 21, maxMarkerId: 'arrow', nodePxMedian: 3 })).toEqual(['giant-arrowhead']);
+  expect(rules({ maxMarkerPx: 90, maxMarkerId: 'arrow', nodePxMedian: 100 })).toEqual([]); // 9-unit marker at 10x zoom
+  expect(rules({ maxMarkerPx: 160, maxMarkerId: 'arrow', nodePxMedian: 40 })).toEqual(['giant-arrowhead']);
   expect(rules({ slotsOverName: 2 })).toEqual(['slot-over-name']);
   expect(rules({ slotsOverName: 2 }, { engine: 'global' })).toEqual([]);
 });

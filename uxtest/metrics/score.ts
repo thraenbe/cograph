@@ -51,7 +51,10 @@ const RULES: Rule[] = [
     ? { rule: 'label-clutter', severity: m.labelOverlapRatio > 0.6 ? 'medium' : 'low', ref: 'B6/R4', message: `${(m.labelOverlapRatio * 100).toFixed(0)} % of visible labels overlap another label` } : null,
   (m) => m.offscreenNodeRatio > 0.15
     ? { rule: 'graph-overflows-viewport', severity: 'low', ref: 'R1', message: `${(m.offscreenNodeRatio * 100).toFixed(0)} % of nodes are outside the viewport` } : null,
-  (m) => (m.maxMarkerPx ?? 0) > 20 ? { rule: 'giant-arrowhead', severity: 'medium', ref: 'R3', message: `an arrowhead (${m.maxMarkerId}) is ${m.maxMarkerPx} px on screen` } : null,
+  // An arrowhead is "giant" relative to the nodes it points at: > 20 px AND more than twice the median node
+  // radius at the same zoom (a fixed 9-unit marker at 10x zoom is 90 px next to 100 px nodes - fine).
+  (m) => (m.maxMarkerPx ?? 0) > 20 && (m.maxMarkerPx ?? 0) > 2 * Math.max(1, m.nodePxMedian ?? 0)
+    ? { rule: 'giant-arrowhead', severity: 'medium', ref: 'R3/F20', message: `an arrowhead (${m.maxMarkerId}) is ${m.maxMarkerPx} px on screen vs a median node radius of ${m.nodePxMedian ?? '?'} px` } : null,
   (m, c) => shelf(c) && (m.slotsOverName ?? 0) > 0 ? { rule: 'slot-over-name', severity: 'high', ref: 'R4', message: `${m.slotsOverName} frame(s) whose slot row intersects the folder name line` } : null,
   (_m, c) => c.settled === false ? { rule: 'did-not-settle', severity: 'medium', ref: 'P3/H2', message: 'layout still moving at the settle timeout' } : null,
   (_m, c) => c.consoleErrors > 0 ? { rule: 'console-error', severity: 'high', message: `${c.consoleErrors} console/page error(s) during the step` } : null,

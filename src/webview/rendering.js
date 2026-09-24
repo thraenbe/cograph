@@ -641,8 +641,10 @@ function renderCloudNodes(visibleSet, nodes = state.currentNodes, parent = nodeG
         { label: 'Hide folder',           action: () => { state.hiddenFolders.add(fp); applyStructuralFilters(); ticked(); updateFolderPanel(); } },
         { label: 'Go to folder',          action: () => vscode.postMessage({ type: 'navigate', file: fp, line: 1 }) },
       ];
-      if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyStructuralFilters(); ticked(); updateFolderPanel(); } });
+      if (state.hiddenFolders.size > 0 || state.onlyShowFolder || state.hiddenFiles?.size || state.onlyShowFile) {
+        // 'Show all' clears EVERY view filter, file-level included — a glyph's
+        // menu must not strand an onlyShowFile no slot menu can reach.
+        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles?.clear(); state.onlyShowFile = null; applyStructuralFilters(); ticked(); updateFolderPanel(); } });
       }
       showContextMenu(event, items);
     })

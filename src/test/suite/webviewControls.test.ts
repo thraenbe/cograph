@@ -1103,6 +1103,26 @@ suite('Filters section (W2)', () => {
     assert.strictEqual(label.getAttribute('title'), hostile, 'title survives quotes');
   });
 
+  test('every Show all action clears the FILE filters too', () => {
+    // A glyph menu's Show all cleared only the folder sets, stranding an
+    // onlyShowFile the user could not see a slot menu for (uxtest,
+    // synthetic-1k: only=f0.ts survived Show all).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    for (const f of ['folder.js', 'frameRender.js', 'rendering.js', 'drilldown.js']) {
+      const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/' + f), 'utf8');
+      for (const m of src.matchAll(/label: 'Show all', action: \(\) => \{[\s\S]*?\}(?: \}\);|,)/g)) {
+        assert.ok(m[0].includes('state.onlyShowFile = null'),
+          `${f}: a Show all action must clear onlyShowFile: ${m[0].slice(0, 90)}`);
+        assert.ok(/hiddenFiles[^\n]*clear\(\)/.test(m[0]),
+          `${f}: a Show all action must clear hiddenFiles`);
+      }
+      assert.ok([...src.matchAll(/label: 'Show all'/g)].length > 0 || f === 'drilldown.js', `${f} has a Show all`);
+    }
+  });
+
   test('context-menu filter labels are sentence case in every engine', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fsMod = require('fs');

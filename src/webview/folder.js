@@ -302,8 +302,10 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
         { label: 'Hide folder',      action: () => { state.hiddenFolders.add(d.folderPath); applyStructuralFilters(); ticked(); updateFolderPanel(); } },
         { label: 'Only show this folder', action: () => { state.onlyShowFolder = d.folderPath; applyStructuralFilters(); ticked(); updateFolderPanel(); } },
       ];
-      if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyStructuralFilters(); ticked(); updateFolderPanel(); } });
+      if (state.hiddenFolders.size > 0 || state.onlyShowFolder || state.hiddenFiles?.size || state.onlyShowFile) {
+        // 'Show all' clears EVERY view filter, file-level included — a glyph's
+        // menu must not strand an onlyShowFile no slot menu can reach.
+        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles?.clear(); state.onlyShowFile = null; applyStructuralFilters(); ticked(); updateFolderPanel(); } });
       }
       showContextMenu(event, items);
     });

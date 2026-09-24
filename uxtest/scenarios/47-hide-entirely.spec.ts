@@ -70,7 +70,7 @@ scenario('hide-entirely', { largeOk: false }, async ({ page, ux }, combo) => {
     if (!(await ctxMenuLabels(page)).some(x => /hide folder/i.test(x))) { await page.keyboard.press('Escape'); throw new SkipStep('no "Hide folder" item'); }
     await ctxMenuClick(page, /hide folder/i);
     await page.waitForTimeout(1800); // glide + the ~230 ms re-fit
-    const uz = await page.evaluate('typeof userZoomed === "undefined" ? null : userZoomed');
+    const uz = await page.evaluate('typeof state === "object" && "userZoomed" in state ? state.userZoomed : null');
     ux.steps[ux.steps.length - 1].note = `hid ${f.path.split('/').pop()}; userZoomed ${uz}`;
   });
   if (refit.status === 'ok' && refit.metrics && refit.metrics.offscreenNodeRatio > 0) {

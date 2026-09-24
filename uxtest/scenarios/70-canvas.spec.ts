@@ -2,7 +2,7 @@
 // frame, expand/collapse folder + file, the three context menus. Drags are
 // checked for collateral movement (H4 / T3: nothing outside the folder may move).
 import { scenario } from '../lib/scenario';
-import { backgroundPoint, clickNode, clickSel, need, ctxMenuClick, ctxMenuLabels, dragBy, dragFrame, fitToView, judgeFrameDrag, locateFrame, locateNode, restAndWatchChurn, rightClick, setSlider, wheelZoom, type Point } from '../lib/actions';
+import { backgroundPoint, clickNode, clickSel, fitDirect, need, ctxMenuClick, ctxMenuLabels, dragBy, dragFrame, fitToView, judgeFrameDrag, locateFrame, locateNode, restAndWatchChurn, rightClick, setSlider, wheelZoom, type Point } from '../lib/actions';
 import { SkipStep, StepFinding, type StepRecord } from '../lib/step';
 import { SEL } from '../selectors';
 import * as path from 'path';
@@ -178,18 +178,25 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
   }, { metrics: false, settle: false });
 
   // ── ux-round2: file-level filters (R2a) and slot dragging (R2b) — every step skips on branches without them ──
-  const slotLabel = async (): Promise<{ x: number; y: number; file: string } | null> => page.evaluate(() => {
+  /** First on-screen, hittable slot label; `minFns` > 0 skips files with fewer function nodes (DOM counts need >= 2). */
+  const slotLabel = async (minFns = 0): Promise<{ x: number; y: number; file: string } | null> => page.evaluate((minFns) => {
+    const fns = new Map<string, number>();
+    if (minFns > 0) {
+      const nodes = (Function('return typeof state === "object" ? state.currentNodes : []')() ?? []) as Array<{ file?: string; isCluster?: boolean; isLibrary?: boolean; isSynthetic?: boolean }>;
+      for (const n of nodes) { if (n.file && !n.isCluster && !n.isLibrary && !n.isSynthetic) { fns.set(n.file, (fns.get(n.file) ?? 0) + 1); } }
+    }
     for (const g of document.querySelectorAll('#graph g.file-slot')) {
       const d = (g as unknown as { __data__?: { file?: string } }).__data__;
       const el = g.querySelector('.file-slot-label');
       if (!d?.file || !el) { continue; }
+      if (minFns > 0 && (fns.get(d.file) ?? 0) < minFns) { continue; }
       const b = el.getBoundingClientRect();
       if (b.left > 230 && b.right < window.innerWidth - 20 && b.top > 10 && b.bottom < window.innerHeight - 60 && document.elementFromPoint(b.left + 8, b.top + b.height / 2)?.closest('g.file-slot') === g) {
         return { x: b.left + 8, y: b.top + b.height / 2, file: d.file };
       }
     }
     return null;
-  });
+  }, minFns);
   /** perf's LOD parks function circles below zoom 0.3: a DOM count is only meaningful above that. Zoom into
    *  the given point until k >= 0.5 (no re-render happens: zoom is a transform). */
   const ensureLod = async (at: { x: number; y: number }): Promise<number> => {
@@ -272,8 +279,8 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
       const l0 = await slotLabel();
       if (l0) { await rightClick(page, l0); if ((await ctxMenuLabels(page)).some(x => /^show all$/i.test(x))) { await ctxMenuClick(page, /^show all$/i); } else { await page.keyboard.press('Escape'); } await page.waitForTimeout(300); }
     }
-    const l = await slotLabel();
-    if (!l) { throw new SkipStep('no file slot label on screen'); }
+    const l = await slotLabel(2);
+    if (!l) { throw new SkipStep('no on-screen slot label of a file with >= 2 functions'); }
     // DOM counts: drawn (attached + displayed) function circles of the file / of any other file.
     const drawn = (): Promise<{ mine: number; others: number; attached: number; frames: number; k: number; only: string | null; hidden: number }> => page.evaluate(`(() => { const f = ${JSON.stringify(l.file)};
       let mine = 0, others = 0, attached = 0;
@@ -287,17 +294,22 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
     await rightClick(page, l);
     if (!(await ctxMenuLabels(page)).some(x => /show only this file/i.test(x))) { await page.keyboard.press('Escape'); throw new SkipStep('no "Show only this file" item'); }
     await ctxMenuClick(page, /show only this file/i);
-    await page.waitForTimeout(500);
-    await ensureLod(l);
+    await page.waitForTimeout(700);
+    // The shelf re-packs to the one remaining slot; with a user zoom (no automatic re-fit) it can land off-screen.
+    let l2 = await slotLabel();
+    const emptied = !l2 && !await page.evaluate(`[...document.querySelectorAll('#graph g.file-slot')].some(g => { const b = g.getBoundingClientRect(); return b.right > 230 && b.left < innerWidth && b.bottom > 0 && b.top < innerHeight; })`);
+    if (!l2) { await fitDirect(page); await page.waitForTimeout(700); l2 = await slotLabel(); }
+    if (l2) { await ensureLod(l2); l2 = await slotLabel(); }
     const only = await drawn(), onlyVisible = await visibleNow();
-    const l2 = await slotLabel();
     if (l2) { await rightClick(page, l2); await ctxMenuClick(page, /^show all$/i); }
     await page.waitForTimeout(500);
     if (l2) { await ensureLod(l2); }
     const back = await drawn(), all = await visibleNow();
     const fmt = (d: typeof start): string => `${d.mine}/${d.others} (attached ${d.attached}, frames ${d.frames}, k ${d.k}, only ${d.only ? d.only.split('/').pop() : '-'}, hidden ${d.hidden})`;
     const rec = ux.steps[ux.steps.length - 1];
-    rec.note = `${l.file.split('/').pop()}: drawn mine/others ${fmt(start)} → show only ${fmt(only)} → show all ${fmt(back)}; visible set ${all0} → ${onlyVisible} → ${all}`;
+    rec.note = `${l.file.split('/').pop()}: drawn mine/others ${fmt(start)} → show only ${fmt(only)}${emptied ? ' (viewport was EMPTY after Show only - fitted to continue)' : ''} → show all ${fmt(back)}; visible set ${all0} → ${onlyVisible} → ${all}`;
+    if (emptied) { rec.findings.push({ rule: 'filter-empties-viewport', severity: 'medium', ref: 'round3 W2b/e22c370', message: `after "Show only this file" (${l.file.split('/').pop()}) at a user zoom the re-packed slot is off-screen: blank canvas until the user fits` }); }
+    if (!l2) { throw new SkipStep('no slot label on screen even after a fit - cannot reach Show all'); }
     if (only.others > 0 || only.mine === 0) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a/F17', message: `Show only this file: ${rec.note}` }); }
     if (back.others < start.others || back.mine < start.mine) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a/F17', message: `Show all did not restore: drawn ${back.mine}/${back.others} vs ${start.mine}/${start.others} before` }); }
   });

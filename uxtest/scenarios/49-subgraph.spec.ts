@@ -20,7 +20,7 @@ scenario('subgraph', { perMotion: false, scope: scopeFixture }, async ({ page, u
     await gate();
     await setSlider(page, 'detailSlider', 0);
     await page.waitForTimeout(1200);
-    const counts = await page.evaluate(() => [...document.querySelectorAll('#graph text')].map(t => (t.textContent || '').trim()).map(t => /^(\d[\d,.]*)\s+files?$/.exec(t)).filter((m): m is RegExpExecArray => !!m).map(m => Number(m[1].replace(/[,.]/g, ''))));
+    const counts = await page.evaluate(() => [...document.querySelectorAll('#graph text, #graph tspan')].map(t => (t.textContent || '').replace(/\s+/g, ' ')).map(t => /(\d[\d,.]*)\s*files?\b/i.exec(t)).filter((m): m is RegExpExecArray => !!m).map(m => Number(m[1].replace(/[,.]/g, ''))));
     const folders = (repo.structure.folders ?? {}) as Record<string, { path?: string; fileCount?: number; totalFiles?: number }>;
     const inc = folders[`${sc.root}/${sc.include[0]}`] ?? Object.values(folders).find(f => f.path === `${sc.root}/${sc.include[0]}`);
     const structureCount = inc?.totalFiles ?? inc?.fileCount ?? null;

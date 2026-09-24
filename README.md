@@ -35,7 +35,8 @@ toolbar to toggle overlays.
 ## Features
 
 - **Static analysis, zero config** — extracts the call graph using each language's native tooling: Python's built-in `ast`, the TypeScript compiler API, `java-parser` for Java, and `web-tree-sitter` for C++. No runtime instrumentation, no setup.
-- **Interactive graph** — zoom, pan, drag nodes, and filter by function name.
+- **Two layout engines** — **Shelf** packs every open folder into its own non-overlapping frame with a slot per file and simulates only what is open (the default, and what keeps large repositories navigable); **Global** is the classic single force-directed graph. **Dynamic | Static** picks whether the layout keeps settling or is frozen where it was placed. Shelf simulations run in background workers.
+- **Interactive graph** — zoom, pan, drag nodes and frames, and filter by function name.
 - **Click-to-navigate** — click any node to open the file and jump to the function definition.
 - **Function source popup** — click a node to open a draggable, resizable popup showing syntax-highlighted source code; multiple popups can be open simultaneously.
 - **OOP class overlay** — visualize class hierarchies, fields, and methods; toggle with the **Class** button.
@@ -48,7 +49,9 @@ toolbar to toggle overlays.
 - **Subgraphs** — visualize part of the project. **CoGraph: Only visualize folder…** (command palette) opens one folder and its subfolders; **⊂ Create new Subgraph** in the sidebar opens an explorer-like picker to choose several folders and saves them as a subgraph next to your layouts. Folders left out stay listed under FILTERS in the Folder panel, where one click brings them in; Save keeps the scope with the layout.
 - **Open Chat** — focus the Cograph activity-bar view with the active graph already selected.
 - **Hover card** — rest the pointer on a folder or file to see its path, size and languages, plus its AI summary once generated.
-- **Settings panel** — tune layout forces (center, repel, link strength, link distance), display options (node size, text size, link thickness, arrows), and visibility toggles (orphan nodes, library nodes).
+- **Hide what you do not need** — right-click a folder or a file for **Hide** or **Show only this one**: it leaves the layout entirely and the remaining folders close the gap. Every hide is listed under **FILTERS** in the Folder panel and is reversible one by one or with **Show all**, and hides are saved with the layout.
+- **Forces box** — the left toolbar shows only the forces the current engine uses, with a **show more forces** expander for the advanced ones. Under Static motion it explains that forces are off instead of showing dead sliders.
+- **Settings panel** — display options (node size, text size, link thickness, arrows) and visibility toggles (orphan nodes, library nodes).
 
 ## Graph Intelligence (AI features)
 

@@ -132,7 +132,8 @@ messages), else `setScope`. Also offered from the sidebar card context menu late
 
 ### 6. Protocol (agreed shape with session-111, 2026-09-24)
 
-Session-111's review asked for: full structure tree (yes), scoped graph data (yes), message
+Session-111 ACKed this shape on 2026-09-24 (their plan W4, `.ai/plans/round3-webview.md` on
+`termi/s111`). Session-111's review asked for: full structure tree (yes), scoped graph data (yes), message
 name `subgraph`, relative POSIX paths only, `subgraph` before `structure`, and a `subgraph-exit`.
 All taken. Two things I keep: `root` (the webview cannot turn relative paths into tree paths
 without the workspace root — the tree root is the common root of the files, not the workspace)
@@ -145,8 +146,11 @@ host → webview
   "name": "backend" | null,        // null = unsaved scope ("Only visualize folder")
   "root": "/abs/workspace",        // relative paths below are relative to this
   "include": ["src/server", "src/db"],   // workspace-relative POSIX; folder + descendants; [] = no scope
-  "exclude": ["src/server/tests"] }      // optional carve-outs inside include (Q5); usually []
+  "exclude": ["src/server/tests"] }      // carve-outs inside include (Q5); ALWAYS present, [] when unused
 ```
+- `exclude` is always present (empty array when unused) so the webview has one shape to map.
+- Re-sent after Save / Save-As / rename, so the panel's section header shows the new name
+  without a reload (session-111's ask).
 - Sent BEFORE `structure` and `graph` on open (all three through the ready gate, so the first
   frame build is already scoped, no flash of the full project) and again on every change.
   `include: []` means whole project: the webview clears its scope state.

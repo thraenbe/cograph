@@ -246,14 +246,20 @@ suite('node snap-back to its slot (W5)', () => {
   const frr = require('../../../src/webview/frameRender.js');
   const io = { x: frames.FRAME.PAD, y: frames.FRAME.PAD + frames.FRAME.TITLE + frames.FRAME.NAME_H };
 
-  test('a drop outside the slot interior reheats first, releases a microtask later', async () => {
-    const d = world('dynamic', io.x + 500, io.y + 500);
+  test('a drop outside the slot moves the PIN inside, paints, reheats, then frees', async () => {
+    const d: any = world('dynamic', io.x + 500, io.y + 500);
     assert.strictEqual(frr.snapBackToSlot(d), true);
+    // The pin (the facade's transport, worker-safe) now sits INSIDE the slot
+    // interior — the local sim copy never saw the big-graph direct drag, so
+    // releasing alone corrected nothing (the click miss).
+    const interior = frames.slotInteriorFor((global as any).state.frames.byPath.get('/p/a'), 'n1');
+    assert.ok(d.fx > io.x + interior.x && d.fx < io.x + interior.x + interior.w, `fx inside, got ${d.fx}`);
+    assert.ok(d.fy > io.y + interior.y && d.fy < io.y + interior.y + interior.h, `fy inside, got ${d.fy}`);
+    assert.strictEqual(d.x, d.fx, 'painted immediately (datum drives tickFrame)');
     assert.deepStrictEqual(simCalls, ['alphaTarget(0.3)', 'restart'],
-      'the facade reheat happens WHILE the pin is set (its scan bumps this frame)');
-    assert.ok(d.fx != null, 'still pinned synchronously');
-    await Promise.resolve();
-    assert.strictEqual(d.fx, null, 'released after the facade scan');
+      'reheat while pinned — the restart scan bumps exactly this frame');
+    await new Promise(r => setTimeout(r, 230));
+    assert.strictEqual(d.fx, null, 'freed once the sim owns the position');
     assert.strictEqual(d.fy, null);
     assert.ok(simCalls.includes('alphaTarget(0)'), 'cooled after the release');
   });

@@ -499,11 +499,24 @@ function snapBackToSlot(d) {
   const io = frInnerOrigin(f);
   if (d.fx >= io.x + interior.x && d.fx <= io.x + interior.x + interior.w
     && d.fy >= io.y + interior.y && d.fy <= io.y + interior.y + interior.h) { return false; }
+  // Move the PIN into the slot instead of merely releasing it: in big-graph
+  // Dynamic the drag wrote the abs node directly and the LOCAL sim copy
+  // never left the slot, so a released sim has nothing to correct and never
+  // emits (the click miss). The pin is the facade's transport — beforeTick
+  // syncs it into the local sim on either transport — and the direct x/y
+  // write plus tickFrame paints the snap immediately.
+  const mx = Math.min(12, interior.w / 4), my = Math.min(12, interior.h / 4);
+  d.fx = Math.max(io.x + interior.x + mx, Math.min(io.x + interior.x + interior.w - mx, d.fx));
+  d.fy = Math.max(io.y + interior.y + my, Math.min(io.y + interior.y + interior.h - my, d.fy));
+  d.x = d.fx; d.y = d.fy;
+  tickFrame(d._frame);
   if (state.simulation) { state.simulation.alphaTarget(0.3).restart(); }
-  Promise.resolve().then(() => {
-    d.fx = null; d.fy = null;
-    if (state.simulation) { state.simulation.alphaTarget(0); }
-  });
+  if (typeof setTimeout === 'function') {
+    setTimeout(() => {
+      d.fx = null; d.fy = null; // free it once the sim owns the position
+      if (state.simulation) { state.simulation.alphaTarget(0); }
+    }, 200);
+  }
   return true;
 }
 

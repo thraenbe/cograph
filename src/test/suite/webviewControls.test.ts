@@ -1115,3 +1115,91 @@ suite('Filters section (W2)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Suite: Subgraph block in the Filters section (round 3 W4)
+// ---------------------------------------------------------------------------
+
+suite('Subgraph block (W4)', () => {
+  const st = () => (global as any).state;
+  const doc = dom.window.document;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const scMod = require('../../../src/webview/scope.js');
+
+  const originalVscode = (global as any).vscode;
+  let posted: any[];
+  let savedBasename: any;
+  let savedExcluded: any;
+  let savedASF: any;
+  setup(() => {
+    posted = [];
+    (global as any).vscode = { postMessage: (m: any) => posted.push(m) };
+    savedBasename = (global as any).pathBasename;
+    (global as any).pathBasename = (fp: string) => fp.split('/').pop();
+    savedExcluded = (global as any).excludedTopFolders;
+    (global as any).excludedTopFolders = scMod.excludedTopFolders;
+    savedASF = (global as any).applyStructuralFilters;
+    (global as any).applyStructuralFilters = () => {};
+    st().hiddenFiles = new Set(); st().onlyShowFile = null;
+    st().hiddenFolders = new Set(); st().onlyShowFolder = null;
+    st().scopePending = new Set();
+    st().structureTree = {
+      root: '/r',
+      folders: {
+        '/r': { parent: null, fileCount: 9 },
+        '/r/src': { parent: '/r', fileCount: 6 },
+        '/r/docs': { parent: '/r', fileCount: 3 },
+      },
+    };
+    st().scope = { name: 'click core', root: '/r',
+      include: new Set(['/r/src']), exclude: new Set() };
+  });
+  teardown(() => {
+    (global as any).vscode = originalVscode;
+    (global as any).pathBasename = savedBasename;
+    (global as any).excludedTopFolders = savedExcluded;
+    (global as any).applyStructuralFilters = savedASF;
+    st().scope = null; st().scopePending = new Set(); st().structureTree = null;
+  });
+
+  test('the section renders the name, the excluded rows and the exit action', () => {
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    assert.ok(body.querySelector('.subgraph-head')!.textContent!.includes('click core'));
+    const rows = body.querySelectorAll('.subgraph-row');
+    assert.strictEqual(rows.length, 1, 'one maximal excluded subtree (docs)');
+    assert.ok(rows[0].textContent!.includes('docs · 3'), 'name and recursive file count');
+    assert.ok(body.querySelector('.subgraph-exit'), 'exit action present');
+  });
+
+  test('Visualize posts subgraph-include with the RELATIVE path and goes pending', () => {
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    (body.querySelector('.subgraph-visualize') as any).click();
+    assert.deepStrictEqual(posted, [{ type: 'subgraph-include', path: 'docs' }]);
+    assert.ok(st().scopePending.has('docs'));
+    const body2 = doc.getElementById('folder-filters-body')!;
+    assert.ok(body2.querySelector('.subgraph-pending'), 'row shows the pending mark');
+    assert.strictEqual(body2.querySelector('.subgraph-visualize'), null);
+  });
+
+  test('exit posts subgraph-exit; Show All never does and keeps the scope', () => {
+    st().hiddenFolders = new Set(['/r/src/x']);
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    (body.querySelector('#btn-folder-show-all') as any).click();
+    assert.deepStrictEqual(posted, [], 'Show All does NOT touch the host scope (Q3)');
+    assert.ok(st().scope, 'scope survives Show All');
+    (doc.querySelector('#folder-filters-body .subgraph-exit') as any).click();
+    assert.deepStrictEqual(posted, [{ type: 'subgraph-exit' }]);
+  });
+
+  test('an unsaved scope is labelled and a cleared scope removes the section', () => {
+    st().scope.name = null;
+    updateFolderPanel();
+    assert.ok(doc.querySelector('#folder-filters-body .subgraph-head')!.textContent!.includes('unsaved'));
+    st().scope = null;
+    updateFolderPanel();
+    assert.strictEqual(doc.querySelector('#folder-filters-body .subgraph-head'), null);
+  });
+});

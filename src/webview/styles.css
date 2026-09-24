@@ -1350,3 +1350,31 @@ g.frame.drag-hover > .folder-bubble-shape { stroke-opacity: 0.9; }
 .bundles-hidden line.cross-bundle,
 .bundles-hidden line.cross-hover { display: none; }
 
+
+/* ── Subgraph block in the Filters section (round 3 W4) ─────────────────── */
+.subgraph-head {
+  margin: 8px 0 2px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground, #858585);
+}
+.subgraph-visualize {
+  background: none;
+  border: 1px solid var(--vscode-button-background, #0e639c);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--vscode-button-background, #4da3e0);
+  padding: 0 6px;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+.subgraph-visualize:hover {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+}
+.subgraph-pending {
+  color: var(--vscode-descriptionForeground, #858585);
+  flex-shrink: 0;
+}

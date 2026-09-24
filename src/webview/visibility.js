@@ -18,6 +18,8 @@ function visibleKey(inp) {
     // File-level filters (R2a) — without them the memo returns stale sets
     // after Hide file / Show only this file.
     inp.onlyShowFile ?? null, inp.hiddenFiles ? [...inp.hiddenFiles] : [],
+    // Subgraph scope (round 3 W4) — same rule: every filter is key material.
+    inp.scope ? [[...inp.scope.include].sort(), [...(inp.scope.exclude || [])].sort()] : null,
   ]);
 }
 

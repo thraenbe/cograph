@@ -112,6 +112,59 @@ function memberInScope(d, sc) {
   return true;
 }
 
+/** Map the host's `subgraph` message (workspace-relative POSIX include/
+ *  exclude + native workspace root) to absolute tree paths. Returns null for
+ *  the no-scope form (include []). Unknown keys (__seq etc.) are ignored. */
+function mapSubgraphMessage(m) {
+  if (!m || !Array.isArray(m.include) || !m.include.length) { return null; }
+  const root = String(m.root || '').replace(/[\\/]+$/, '');
+  const sep = root.includes('\\') ? '\\' : '/';
+  const abs = (rel) => {
+    const parts = String(rel).split('/').filter(x => x && x !== '.');
+    return parts.length ? root + sep + parts.join(sep) : root;
+  };
+  return {
+    name: m.name ?? null,
+    root,
+    include: new Set(m.include.map(abs)),
+    exclude: new Set((m.exclude || []).map(abs)),
+  };
+}
+
+/** A subgraph's MAXIMAL excluded subtrees, for the Filters panel: walk from
+ *  the root, descend through containers (ancestors of an include) and
+ *  included folders (to surface exclude carve-outs), and report the first
+ *  out-of-scope folder on each branch. fileCount is the tree's recursive
+ *  count. Deterministic (sorted). */
+function excludedTopFolders(tree, sg) {
+  if (!tree || !tree.folders || !sg) { return []; }
+  const out = [];
+  const kidsOf = (p) => {
+    const info = tree.folders[p];
+    if (info && Array.isArray(info.childFolders)) { return [...info.childFolders].sort(); }
+    return Object.keys(tree.folders).filter(q => tree.folders[q].parent === p).sort();
+  };
+  const visit = (p) => {
+    for (const c of kidsOf(p)) {
+      let underEx = false;
+      for (const ex of sg.exclude) { if (pathUnder(c, ex)) { underEx = true; break; } }
+      let underInc = false, container = false;
+      for (const inc of sg.include) {
+        if (pathUnder(c, inc)) { underInc = true; break; }
+        if (pathUnder(inc, c)) { container = true; }
+      }
+      if (underEx || (!underInc && !container)) {
+        out.push({ path: c, fileCount: tree.folders[c] ? (tree.folders[c].fileCount ?? 0) : 0 });
+        continue; // maximal subtree — never descend into it
+      }
+      visit(c);
+    }
+  };
+  visit(tree.root);
+  return out;
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { pathUnder, buildScope, scopeActive, frameFolderVisible, memberInScope };
+  module.exports = { pathUnder, buildScope, scopeActive, frameFolderVisible, memberInScope,
+    mapSubgraphMessage, excludedTopFolders };
 }

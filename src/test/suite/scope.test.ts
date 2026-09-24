@@ -276,3 +276,54 @@ suite('scope — wiring contracts', () => {
     }
   });
 });
+
+suite('scope — subgraph message border (W4)', () => {
+  test('the real host sample maps to absolute tree paths; unknown keys ignored', () => {
+    // Verbatim sample from session-178's buildSubgraphMessage() (click corpus).
+    const m = { type: 'subgraph', name: 'click core',
+      root: '/home/bela/cograph/test-projects/click',
+      include: ['src/click', 'tests/typing'], exclude: [], __seq: 1 };
+    const sg = sc.mapSubgraphMessage(m)!;
+    assert.strictEqual(sg.name, 'click core');
+    assert.deepStrictEqual([...sg.include].sort(), [
+      '/home/bela/cograph/test-projects/click/src/click',
+      '/home/bela/cograph/test-projects/click/tests/typing',
+    ]);
+    assert.strictEqual(sg.exclude.size, 0);
+  });
+
+  test('no-scope form clears; "." means the root; Windows roots keep their separator', () => {
+    assert.strictEqual(sc.mapSubgraphMessage({ name: null, root: '/r', include: [], exclude: [] }), null);
+    const dot = sc.mapSubgraphMessage({ root: '/r/', include: ['.'], exclude: [] })!;
+    assert.deepStrictEqual([...dot.include], ['/r'], 'trailing slash stripped, . = root');
+    const win = sc.mapSubgraphMessage({ root: 'C:\\repo', include: ['src/click'], exclude: [] })!;
+    assert.deepStrictEqual([...win.include], ['C:\\repo\\src\\click']);
+  });
+
+  test('excludedTopFolders reports maximal subtrees only (nearest-listed-ancestor)', () => {
+    const tree = {
+      root: '/r',
+      folders: {
+        '/r': { parent: null, fileCount: 30 },
+        '/r/src': { parent: '/r', fileCount: 20 },
+        '/r/src/click': { parent: '/r/src', fileCount: 15 },
+        '/r/src/click/gen': { parent: '/r/src/click', fileCount: 3 },
+        '/r/src/other': { parent: '/r/src', fileCount: 5 },
+        '/r/src/other/deep': { parent: '/r/src/other', fileCount: 2 },
+        '/r/tests': { parent: '/r', fileCount: 9 },
+        '/r/tests/typing': { parent: '/r/tests', fileCount: 4 },
+        '/r/docs': { parent: '/r', fileCount: 1 },
+      },
+    };
+    const sg = { include: new Set(['/r/src/click', '/r/tests/typing']), exclude: new Set<string>() };
+    assert.deepStrictEqual(sc.excludedTopFolders(tree, sg), [
+      { path: '/r/docs', fileCount: 1 },
+      { path: '/r/src/other', fileCount: 5 },
+    ], 'containers (src, tests) descend; included subtrees give no rows; '
+      + '/r/src/other/deep folds into its maximal excluded parent');
+    // exclude carve-out inside an include is listed too
+    const sg2 = { include: new Set(['/r/src']), exclude: new Set(['/r/src/other']) };
+    const rows2 = sc.excludedTopFolders(tree, sg2);
+    assert.ok(rows2.some((r: any) => r.path === '/r/src/other' && r.fileCount === 5));
+  });
+});

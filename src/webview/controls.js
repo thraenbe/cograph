@@ -315,7 +315,8 @@ function updateFolderPanel() {
   if (!body) return;
 
   const hasFilters = state.onlyShowFolder || state.hiddenFolders.size > 0
-    || state.onlyShowFile || (state.hiddenFiles && state.hiddenFiles.size > 0);
+    || state.onlyShowFile || (state.hiddenFiles && state.hiddenFiles.size > 0)
+    || !!state.scope; // W4: an active subgraph always shows its section
 
   if (hasFilters) {
     body.style.display = '';
@@ -361,7 +362,42 @@ function updateFolderPanel() {
       </div>`);
   });
   rows.push(`<button class="folder-filter-show-all" id="btn-folder-show-all">Show All</button>`);
+
+  // Subgraph section (W4): the scope's name, one row per maximal EXCLUDED
+  // subtree with a Visualize action, and an exit row. 'Show All' above only
+  // clears the view filters — it never touches the host scope (Q3).
+  if (state.scope && typeof excludedTopFolders === 'function') {
+    const relOf = (abs) => abs === state.scope.root ? '.'
+      : abs.slice(state.scope.root.length + 1).replace(/\\/g, '/');
+    rows.push(`<div class="folder-filter-subhead subgraph-head">Subgraph: ${escHtml(state.scope.name ?? 'unsaved')}</div>`);
+    for (const ex of excludedTopFolders(state.structureTree, state.scope)) {
+      const rel = relOf(ex.path);
+      const pending = state.scopePending && state.scopePending.has(rel);
+      rows.push(`
+      <div class="folder-filter-row subgraph-row">
+        <span class="folder-filter-icon folder-filter-icon--hidden">⊘</span>
+        <span class="folder-filter-label" title="${escHtml(ex.path)}">${escHtml(pathBasename(ex.path))} · ${ex.fileCount}</span>
+        ${pending
+    ? '<span class="subgraph-pending">…</span>'
+    : `<button class="subgraph-visualize" data-rel="${escHtml(rel)}">Visualize</button>`}
+      </div>`);
+    }
+    rows.push(`<button class="folder-filter-show-all subgraph-exit">Show whole project</button>`);
+  }
   body.innerHTML = rows.join('');
+
+  body.querySelectorAll('.subgraph-visualize').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const rel = btn.dataset.rel;
+      state.scopePending = state.scopePending || new Set();
+      state.scopePending.add(rel);
+      vscode.postMessage({ type: 'subgraph-include', path: rel });
+      updateFolderPanel(); // pending spinner until the re-sent `subgraph` lands
+    });
+  });
+  body.querySelector('.subgraph-exit')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'subgraph-exit' });
+  });
 
   body.querySelector('#btn-folder-show-all')?.addEventListener('click', () => {
     state.hiddenFolders.clear(); state.onlyShowFolder = null;

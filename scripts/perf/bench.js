@@ -205,6 +205,27 @@
       window.__benchResult = R; return;
     }
 
+    // 1e) optional check (?probe=fileFilter): do file-level filters (R2a) reach the DOM
+    // through the memoised getVisibleNodeIds? Hide one file, count its nodes still shown.
+    if (P.get('probe') === 'fileFilter') {
+      applyDetailDepth(1); await paint();
+      const shown = () => state.svgNodes.nodes().filter(el => el.style.display !== 'none');
+      const target = state.currentNodes.find(n => n.file && !n.isCluster && !n.isSynthetic && !n.isLibrary).file;
+      const ofFile = () => shown().filter(el => el.__data__.file === target).length;
+      const before = ofFile();
+      applyFilters(); await paint();                    // warm the memo with the current inputs
+      state.hiddenFiles = state.hiddenFiles || new Set(); state.hiddenFiles.add(target);
+      applyFilters(); await paint(); await paint();
+      const afterHide = ofFile();
+      state.hiddenFiles.delete(target);
+      state.onlyShowFile = target; applyFilters(); await paint(); await paint();
+      const onlyThis = { ofFile: ofFile(), total: shown().length };
+      state.onlyShowFile = null; applyFilters(); await paint(); await paint();
+      R.fileFilter = { target, nodesOfFileBefore: before, stillShownAfterHide: afterHide, onlyThis, restored: ofFile(),
+        memoHonoursFileFilters: afterHide === 0 && onlyThis.ofFile === before && onlyThis.total === before };
+      window.__benchResult = R; return;
+    }
+
     // 1c) optional repro (?probe=switch): shelf → global → shelf, Detail 0 — is the glyph in the DOM?
     if (P.get('probe') === 'switch') {
       const snap = (tag) => ({ tag, engine: state.layoutEngine, mode: state.layoutMode, k: r2(d3.zoomTransform(svg.node()).k),

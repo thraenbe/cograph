@@ -9,7 +9,7 @@ import { SEL } from '../selectors';
 
 interface FrameGeom { path: string; x: number; y: number; w: number; h: number }
 
-scenario('hide-entirely', { perMotion: false, largeOk: false }, async ({ page, ux }, combo) => {
+scenario('hide-entirely', { largeOk: false }, async ({ page, ux }, combo) => {
   const round3 = (): Promise<boolean> => page.evaluate('typeof frameFolderVisible === "function"') as Promise<boolean>;
   const gate = async (): Promise<void> => { if (!await round3()) { throw new SkipStep('round-3 scope.js not on this branch'); } };
   const frames = (): Promise<FrameGeom[]> => page.evaluate(`[...document.querySelectorAll('#graph g.frame, #graph g.folder-bubble')].map(g => { const d = g.__data__ || {}; const b = (g.querySelector(':scope > .folder-bubble-shape') || g).getBoundingClientRect(); return { path: String(d.path || d.folderPath || ''), x: b.left, y: b.top, w: b.width, h: b.height }; })`) as Promise<FrameGeom[]>;

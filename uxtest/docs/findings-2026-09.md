@@ -100,3 +100,12 @@ Global (2 x 64 LHS samples + a 42-run candidate pass scored WITH folder separati
   (session-111 implements this as W5); in Shelf+Static a dropped node stays where dropped (unchanged).
   Suite: `node-outside-slot` after a user drag is a high finding in Dynamic (ref B1/W5) and a low
   `user-node-outside-slot` note in Static; scenario 70 has an explicit "drag out of its slot" step (`no-snap-back`).
+
+## Round 3 (hide entirely / glyph label / subgraph scope), verified on frozen checkouts of termi/s111
+
+| # | Finding | Evidence | Owner | Status |
+|---|---------|----------|-------|--------|
+| F21 | **Global engine, W1b (a27d6bd): hiding a folder leaves the cross-boundary edges into it in `g.links` with UNRESOLVED endpoints** (`__data__.source/target` are id strings, one end inside the hidden folder). Every simulation tick then writes `x1/y1/x2/y2 = NaN` → 4 console errors per line per tick (click, hide `examples/imagepipe`: 25 such lines, 28 300 errors in 1.5 s; the canvas scenario accumulated 1 035 780). Not on W1a-only 89874da (0 errors) and not on develop 7d91c5d. | `hide-entirely`/`canvas`/`folder-panel` global/dynamic on a27d6bd: `console-error`; diag: `{lines: 938, bad: 25, sample: source tests/test_chain.py::test_pipeline (visible) → target examples/imagepipe/imagepipe.py::processor (not visible)}` | ux (session-111) | open |
+| F22 | **Shelf, W1a (89874da/a27d6bd): hiding a folder removes its frame from the DOM but nothing re-packs** — the parent keeps its size and every sibling keeps its rect (click: `examples` 1257×1194 before and after hiding `inout`; zod: `app` unchanged after hiding `(doc)`), in Static AND Dynamic. The gap stays where the frame was. Hiding a file removes its slot the same way (slot gone, frame unchanged). Chip ✕ / Show all bring frame and slot back. | `hide-entirely` shelf/static + shelf/dynamic on a27d6bd: `no-repack-after-hide`; snapshots 01 vs 02 (identical rects) | ux (session-111) | open - re-pack may be a later W1 step; the rule stays |
+
+Also seen (not new): in Global+Static the double-click fit leaves 18 of 19 frames off-screen at Detail 1 (`graph-overflows-viewport`, F4 family) so the hide steps skip there; the Global hide is covered by the Dynamic run.

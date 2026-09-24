@@ -44,7 +44,9 @@ export function layoutBirth(prev: Snapshot | null, prevBirth: LayoutBirth, cur: 
     || Math.abs(median(prev.nodes.map(n => n.r)) - median(cur.nodes.map(n => n.r))) > 0.01;
   if (repacked) { return 'grid'; }                                   // engine switch, Detail change, Node Size re-pack
   if (prev.motion === 'dynamic' && cur.motion === 'static') { return 'frozen'; } // explicit freeze
-  if (cur.motion === 'dynamic') { return 'grid'; }                    // a later freeze decides
+  // Dynamic keeps a user drop where it landed (pinned): the user-made picture persists until something re-packs.
+  // A Static → Dynamic toggle re-runs the layout, so that one counts as a new grid.
+  if (cur.motion === 'dynamic') { return prev.motion === 'dynamic' && prevBirth === 'user-moved' ? 'user-moved' : 'grid'; }
   return prevBirth;
 }
 

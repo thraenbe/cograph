@@ -76,6 +76,8 @@ test('layoutBirth: grid-born vs frozen vs user-moved', () => {
   expect(layoutBirth({ ...stat, engine: 'global' }, 'frozen', stat, false)).toBe('grid');                      // engine switch into Shelf
   expect(layoutBirth(stat, 'grid', stat, true)).toBe('user-moved');                  // drag
   expect(layoutBirth(stat, 'user-moved', stat, false)).toBe('user-moved');           // …until something re-packs
-  expect(layoutBirth(stat, 'user-moved', dyn, false)).toBe('grid');
+  expect(layoutBirth(stat, 'user-moved', dyn, false)).toBe('grid');                 // Static → Dynamic re-runs the layout
+  expect(layoutBirth(dyn, 'user-moved', dyn, false)).toBe('user-moved');             // Dynamic keeps a user drop pinned
+  expect(layoutBirth(dyn, 'grid', dyn, false)).toBe('grid');
   expect(layoutBirth(stat, 'grid', { ...stat, viewMode: 'workflow' }, false)).toBe('grid');
 });

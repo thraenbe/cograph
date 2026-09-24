@@ -450,6 +450,24 @@ function updateFrames(prev, tree, expanded, members, opts = {}) {
     const slotted = packContentSlots(mem, f.slotPins);
     f.slots = slotted.slots;
     f.slotOf = slotted.slotOf;
+    // W2b: a scope change (hide/unhide/Show all) re-SHELVES every affected
+    // ancestor instead of growing in place: unpinned children shelf up (the
+    // glide animates), pinned frames stay where the user put them, and the
+    // frame may SHRINK back to its exact packed size. Affected = its child
+    // set changed, its slot set changed, or a child was re-packed below.
+    if (opts.reshelve) {
+      const prevF = prev.byPath.get(f.path);
+      const kids = prevF && (f.children.length !== prevF.children.length
+        || f.children.some((c, i) => c !== prevF.children[i]));
+      const keys = [...slotted.slots.keys()].sort().join('|');
+      const prevKeys = prevF && prevF.slots ? [...prevF.slots.keys()].sort().join('|') : keys;
+      if (kids || keys !== prevKeys || f.children.some(c => repacked.has(c))) {
+        f.content = { w: slotted.w, h: slotted.h };
+        packItems(fs, f);
+        repacked.add(f.path);
+        return;
+      }
+    }
     f.content = { w: Math.max(f.content.w, slotted.w), h: Math.max(f.content.h, slotted.h) };
     let needW = f.content.w > 0 ? f.contentPos.x + f.content.w : 0;
     let needH = f.content.w > 0 ? f.contentPos.y + f.content.h : 0;

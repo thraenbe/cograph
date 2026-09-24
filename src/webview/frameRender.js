@@ -156,6 +156,15 @@ function renderFrameLayout(allLinks, visibleSet) {
   const active = sc && scopeActive(sc);
   const allow = active ? ((d) => memberInScope(d, sc)) : null;
   const folderOk = active ? ((p) => frameFolderVisible(p, sc)) : null;
+  // A CHANGED scope re-shelves the affected parents (W2b) — a merely ACTIVE
+  // one (e.g. a restored save) keeps the laid-out rects.
+  const scopeSig = !active ? '' : JSON.stringify([
+    [...sc.hiddenFolders].sort(), sc.onlyShowFolder,
+    [...sc.hiddenFiles].sort(), sc.onlyShowFile,
+    sc.subgraph ? [[...sc.subgraph.include].sort(), [...(sc.subgraph.exclude || [])].sort()] : null,
+  ]);
+  const reshelve = __fr.scopeSig !== undefined && __fr.scopeSig !== scopeSig;
+  __fr.scopeSig = scopeSig;
   const members = collectMembers(state.currentNodes, tree, settings.nodeSize, allow);
   const prevAbs = new Map();
   if (state.frames && state.frames.byPath) {
@@ -163,7 +172,7 @@ function renderFrameLayout(allLinks, visibleSet) {
       if (f2.abs) { prevAbs.set(p2, { x: f2.abs.x, y: f2.abs.y }); }
     }
   }
-  const upd = updateFrames(state.frames, tree, state.expandedFolders, members, { folderOk });
+  const upd = updateFrames(state.frames, tree, state.expandedFolders, members, { folderOk, reshelve });
   state.frames = upd.frames;
   // Re-pack animation: frames that already existed and were MOVED by this
   // layout pass glide to their new spot (drags/sim ticks stay instant).

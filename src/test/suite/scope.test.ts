@@ -135,6 +135,67 @@ suite('scope — frames integration (hide removes the frame/slot)', () => {
   });
 });
 
+suite('scope — re-shelve on scope change (W2b)', () => {
+  const tree = {
+    root: '/r',
+    folders: {
+      '/r': { parent: null },
+      '/r/a': { parent: '/r' }, '/r/b': { parent: '/r' }, '/r/c': { parent: '/r' },
+    },
+  };
+  const nodes = [
+    { id: '1', file: '/r/a/x.ts', _size: 8 }, { id: '2', file: '/r/b/y.ts', _size: 8 },
+    { id: '3', file: '/r/c/z.ts', _size: 8 },
+  ];
+  const expanded = new Set(['/r', '/r/a', '/r/b', '/r/c']);
+  const s = sc.buildScope({ hiddenFolders: new Set(['/r/a']), onlyShowFolder: null,
+    hiddenFiles: new Set(), onlyShowFile: null, scope: null });
+  const folderOk = (p: string) => sc.frameFolderVisible(p, s);
+  const scopedMembers = () => fr.collectMembers(nodes, tree, 2.5, (d: any) => sc.memberInScope(d, s));
+
+  test('hiding the first child closes the gap: siblings shelf up like a fresh pack', () => {
+    const before = fr.buildFrames(tree, expanded, fr.collectMembers(nodes, tree, 2.5));
+    const upd = fr.updateFrames(before, tree, expanded, scopedMembers(), { folderOk, reshelve: true });
+    const fresh = fr.buildFrames(tree, expanded, scopedMembers(), folderOk);
+    for (const p of ['/r/b', '/r/c']) {
+      assert.deepStrictEqual(
+        { x: upd.frames.byPath.get(p).local.x, y: upd.frames.byPath.get(p).local.y },
+        { x: fresh.byPath.get(p).local.x, y: fresh.byPath.get(p).local.y },
+        `${p} sits where a fresh shelf pack puts it — no gap at the removed frame`);
+    }
+    assert.ok(upd.repacked.has('/r'), 'the parent re-packed');
+  });
+
+  test('a user-pinned sibling keeps its position through the re-shelve', () => {
+    const before = fr.buildFrames(tree, expanded, fr.collectMembers(nodes, tree, 2.5));
+    const b = before.byPath.get('/r/b');
+    b.pinned = true;
+    const pinnedAt = { x: b.local.x, y: b.local.y };
+    const upd = fr.updateFrames(before, tree, expanded, scopedMembers(), { folderOk, reshelve: true });
+    assert.deepStrictEqual(
+      { x: upd.frames.byPath.get('/r/b').local.x, y: upd.frames.byPath.get('/r/b').local.y },
+      pinnedAt, 'pinned frames never move on a scope change');
+  });
+
+  test('without reshelve (a restored save) rects are kept', () => {
+    const before = fr.buildFrames(tree, expanded, fr.collectMembers(nodes, tree, 2.5));
+    const cAt = { ...before.byPath.get('/r/c').local };
+    const upd = fr.updateFrames(before, tree, expanded, scopedMembers(), { folderOk });
+    assert.strictEqual(upd.frames.byPath.get('/r/c').local.x, cAt.x, 'no silent re-shelve');
+    assert.strictEqual(upd.frames.byPath.get('/r/c').local.y, cAt.y);
+  });
+
+  test('unhide re-shelves the returning frame in without a gap', () => {
+    const hidden = fr.buildFrames(tree, expanded, scopedMembers(), folderOk);
+    const upd = fr.updateFrames(hidden, tree, expanded,
+      fr.collectMembers(nodes, tree, 2.5), { reshelve: true });
+    const fresh = fr.buildFrames(tree, expanded, fr.collectMembers(nodes, tree, 2.5));
+    assert.deepStrictEqual(
+      { x: upd.frames.byPath.get('/r/a').local.x, y: upd.frames.byPath.get('/r/a').local.y },
+      { x: fresh.byPath.get('/r/a').local.x, y: fresh.byPath.get('/r/a').local.y });
+  });
+});
+
 suite('scope — Global engine (W1b)', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const dd = require('../../../src/webview/drilldown.js');
@@ -201,7 +262,7 @@ suite('scope — wiring contracts', () => {
   test('the render passes the scope into BOTH seams (frames and members)', () => {
     const src = read('frameRender.js');
     assert.ok(src.includes('collectMembers(state.currentNodes, tree, settings.nodeSize, allow)'));
-    assert.ok(src.includes('updateFrames(state.frames, tree, state.expandedFolders, members, { folderOk })'));
+    assert.ok(src.includes('updateFrames(state.frames, tree, state.expandedFolders, members, { folderOk, reshelve })'));
   });
 
   test('every filter MUTATION triggers the structural re-render', () => {

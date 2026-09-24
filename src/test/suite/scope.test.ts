@@ -327,3 +327,42 @@ suite('scope — subgraph message border (W4)', () => {
     assert.ok(rows2.some((r: any) => r.path === '/r/src/other' && r.fileCount === 5));
   });
 });
+
+suite('scope — links leave the render data with their hidden endpoint (F21)', () => {
+  const byId = new Map<string, any>([
+    ['a', { id: 'a', file: '/r/src/a.ts' }],
+    ['b', { id: 'b', file: '/r/tests/b.ts' }],
+    ['c', { id: 'c', file: '/r/src/c.ts' }],
+  ]);
+  const s = sc.buildScope({ hiddenFolders: new Set(['/r/tests']), onlyShowFolder: null,
+    hiddenFiles: new Set(), onlyShowFile: null, scope: null });
+
+  test('string AND object endpoints are resolved; cross-boundary links drop', () => {
+    const links = [
+      { source: 'a', target: 'c' },                        // in scope, unresolved
+      { source: 'a', target: 'b' },                        // one end hidden, unresolved
+      { source: byId.get('c'), target: byId.get('a') },    // in scope, resolved
+      { source: byId.get('b'), target: byId.get('c') },    // one end hidden, resolved
+      { source: 'a', target: 'lib:unknown' },              // unknown id stays
+    ];
+    const kept = sc.linksInScope(links, byId, s);
+    assert.deepStrictEqual(kept.map((l: any) => [
+      typeof l.source === 'object' ? l.source.id : l.source,
+      typeof l.target === 'object' ? l.target.id : l.target,
+    ]), [['a', 'c'], ['c', 'a'], ['a', 'lib:unknown']],
+    'every link touching the hidden folder is gone from the render data — '
+    + 'an unresolved survivor would write NaN x1/y1/x2/y2 on every tick');
+  });
+
+  test('the render joins the SCOPED list into the DOM and the simulation', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/rendering.js'), 'utf8');
+    assert.ok(src.includes('state.svgLinks = renderLinks(drawLinks, visibleSet)'),
+      'the DOM join gets the scoped links (F21)');
+    assert.ok(src.includes('startSimulation(drawLinks)'),
+      'the simulation gets the same scoped list');
+  });
+});

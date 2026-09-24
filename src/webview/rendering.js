@@ -888,26 +888,27 @@ function renderElements(elements, positionHints = new Map()) {
 
 // The pre-frames render path, verbatim (single global simulation + overlays).
 function renderGlobalLayout(allLinks, visibleSet) {
-  state.svgLinks = renderLinks(allLinks, visibleSet);
+  // Structural scope (round 3): links with an out-of-scope endpoint leave
+  // the DOM and the simulation alike. Dropping them only from the link force
+  // left <line> elements with UNRESOLVED string endpoints — NaN writes on
+  // every tick (F21). Display filtering (visibleSet) stays separate.
+  let drawLinks = allLinks;
+  if (typeof buildScope === 'function' && typeof linksInScope === 'function') {
+    const sc = buildScope(state);
+    if (scopeActive(sc)) {
+      drawLinks = linksInScope(allLinks, new Map(state.currentNodes.map(n => [n.id, n])), sc);
+    }
+  }
+  state.svgLinks = renderLinks(drawLinks, visibleSet);
   state.svgNodes = renderNodes(visibleSet);
   state.svgCloudNodes = renderCloudNodes(visibleSet);
   state.svgLabels = renderLabels(visibleSet);
   const libNodeData = state.currentNodes.filter(n => n.isLibrary);
   state.svgLibNodes = renderLibraryNodes(libNodeData, visibleSet);
   state.svgLibLabels = renderLibraryLabels(libNodeData, visibleSet);
-  // Structural scope (round 3): the link force must not tug visible nodes
-  // toward hidden endpoints. Display filtering (visibleSet) is separate —
-  // search/timeline never reshape the simulation.
-  let simLinks = allLinks;
-  if (typeof buildScope === 'function') {
-    const sc = buildScope(state);
-    if (scopeActive(sc)) {
-      const byId = new Map(state.currentNodes.map(n => [n.id, n]));
-      const ok = (x) => { const n = (x && typeof x === 'object') ? x : byId.get(x); return !n || memberInScope(n, sc); };
-      simLinks = allLinks.filter(l => ok(l.source) && ok(l.target));
-    }
-  }
-  startSimulation(simLinks);
+  // The simulation gets the same scoped list (link force must not tug
+  // visible nodes toward hidden endpoints either).
+  startSimulation(drawLinks);
   if (typeof isDrilldown === 'function' && isDrilldown()) {
     // File (drill-down) mode: boxes around each opened folder's contents.
     // Boxes/circles/forces are the drill-down's structure, not an overlay —

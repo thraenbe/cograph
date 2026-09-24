@@ -164,7 +164,20 @@ function excludedTopFolders(tree, sg) {
   return out;
 }
 
+/** Links whose BOTH endpoints are in scope. Endpoints may still be id
+ *  strings (before d3 resolves them) or node objects — both are handled;
+ *  unknown ids stay (libraries, synthetics). Out-of-scope links must leave
+ *  the RENDER data, not only the link force: an unresolved string endpoint
+ *  makes every tick write NaN coordinates (F21). */
+function linksInScope(links, byId, sc) {
+  const ok = (x) => {
+    const n = (x && typeof x === 'object') ? x : byId.get(x);
+    return !n || memberInScope(n, sc);
+  };
+  return links.filter(l => ok(l.source) && ok(l.target));
+}
+
 if (typeof module !== 'undefined') {
   module.exports = { pathUnder, buildScope, scopeActive, frameFolderVisible, memberInScope,
-    mapSubgraphMessage, excludedTopFolders };
+    mapSubgraphMessage, excludedTopFolders, linksInScope };
 }

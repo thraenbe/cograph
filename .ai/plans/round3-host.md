@@ -11,7 +11,8 @@ partial visualisation as a first-class flow:
 - **Command** `CoGraph: Only visualize folder…` — pick one folder, see only that.
 - **Subgraph** — a persisted selection of folders, created from the sidebar with an explorer-like
   picker, listed next to the saved graphs, opened like one.
-- Folders left out of a subgraph stay listed in the panel's Filters, one click brings one in.
+- Folders left out of a subgraph stay listed in the existing FILTERS section of the Folder panel
+  (no new panel — Bela's correction of 2026-09-24), one click brings one in.
 
 Today the host has no notion of scope: `show()` scans the whole workspace, sends the full
 structure and the full (cached) graph, every `expand-folder` and on-save re-parse is unscoped,
@@ -21,8 +22,9 @@ and a saved layout is positions + view settings only.
 
 Mine: subgraph model and file format, the command, the sidebar button and picker, host-side
 scoping of graph / patch / git data, the scope protocol (proposed here, reviewed by session-111).
-Session-111: everything the graph webview does with the scope (remove excluded frames, Filters
-panel with "Visualize", root handling), hide-entirely, collapsed-glyph names.
+Session-111: everything the graph webview does with the scope (remove excluded frames, the
+existing FILTERS section listing excluded folders with "Visualize", root handling),
+hide-entirely, collapsed-glyph names.
 
 ## Decisions to confirm (product questions, with my recommended default)
 
@@ -148,8 +150,8 @@ host → webview
   scope arrives as `graph-patch { patch: {nodes:[],edges:[]}, replacedFiles: [...] }`, a folder
   entering as a normal `graph-patch` (plus `analysis-state parsingFolder` while it parses).
 - `structure` is unchanged (full tree). The webview removes frames/slots/glyphs of excluded
-  folders the same way "hide entirely" does, and lists `excluded` under Filters › Subgraph with
-  a "Visualize" action. Root: when exactly one top-level folder is included, promoting it to
+  folders the same way "hide entirely" does, and lists `excluded` in the Folder panel's existing
+  FILTERS section with a "Visualize" action. Root: when exactly one top-level folder is included, promoting it to
   the frame root is the webview's decision (I have no opinion, the host does not care).
 
 webview → host
@@ -209,6 +211,6 @@ Command: QuickPick stub returns a folder → `showScoped` called with the relati
 
 ## Out of scope
 
-Everything in the graph webview (session-111), hide-entirely, Filters panel UI, glyph names,
+Everything in the graph webview (session-111), hide-entirely, the FILTERS section UI, glyph names,
 scoping the AI features (annotations already work per path; chat/workflow keep the full graph —
 noted as a follow-up), multi-root workspaces.

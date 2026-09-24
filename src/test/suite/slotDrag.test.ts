@@ -112,4 +112,26 @@ suite('slot drag wiring (R2b, source contracts)', () => {
       'slot drags measure against the stable zoomed layer (the R1 lesson)');
     assert.ok(deps.includes('fr.slotPins.set(d.key'), 'drop writes the content-local pin');
   });
+
+  test('root-frame slots get the drag behavior too (F19)', () => {
+    // A handle with cursor:grab but no behavior lets the mousedown fall
+    // through to the zoom behavior: the view pans, the slot only APPEARS to
+    // move, and its members stay put (uxtest slot-members-left-behind).
+    const attach = src.slice(src.indexOf("typeof createSlotDrag === 'function'"),
+      src.indexOf('createSlotDrag(slotDragDeps'));
+    assert.ok(!attach.includes("kind !== 'root'"),
+      'createSlotDrag must be attached for every frame, including root');
+  });
+
+  test('slot chrome, member grid and pin math share one content origin (F19)', () => {
+    // renderFrameSlots' off must equal innerOrigin minus f.abs — the packer
+    // grids members from innerOrigin, so a mismatch draws the chrome
+    // NAME_H px away from where the members (and the drop pin) land.
+    const render = src.slice(src.indexOf('function renderFrameSlots'), src.indexOf('Settings glue'));
+    assert.ok(render.includes('y: FRAME.PAD + FRAME.TITLE + FRAME.NAME_H'),
+      'renderFrameSlots reserves the R4 name line like innerOrigin does');
+    const deps = src.slice(src.indexOf('function slotDragDeps'), src.indexOf('function frameDragDeps'));
+    const offs = deps.match(/y: FRAME\.PAD \+ FRAME\.TITLE \+ FRAME\.NAME_H/g) || [];
+    assert.strictEqual(offs.length, 2, 'bounds and commit use the same origin');
+  });
 });

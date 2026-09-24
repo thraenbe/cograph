@@ -1185,9 +1185,12 @@ function slotBasename(file) {
 /** Static per-file slot rects inside a frame (drawn once per render; the
  *  frame group's transform carries them on moves). */
 function renderFrameSlots(f, sub) {
+  // Frame-local content origin — MUST match innerOrigin (frames.js) minus
+  // f.abs, and the offsets in slotDragDeps: the packer, the member grid and
+  // the pin math all measure from there (R4 added NAME_H; F19).
   const off = f.kind === 'root'
     ? { x: 0, y: 0 }
-    : { x: FRAME.PAD, y: FRAME.PAD + FRAME.TITLE };
+    : { x: FRAME.PAD, y: FRAME.PAD + FRAME.TITLE + FRAME.NAME_H };
   const data = [];
   for (const [key, s] of (f.slots || new Map())) {
     if (!s.file) { continue; } // glyph solo slots need no chrome
@@ -1236,7 +1239,10 @@ function renderFrameSlots(f, sub) {
       .attr('fill', color).attr('fill-opacity', 0.9)
       .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize));
   });
-  if (typeof createSlotDrag === 'function' && f.kind !== 'root') {
+  // Every frame's slots are draggable, INCLUDING the root frame's: a handle
+  // without a drag behavior lets the mousedown fall through to the zoom
+  // behavior, and the whole view pans under the pointer (F19).
+  if (typeof createSlotDrag === 'function') {
     sel.select('rect.file-slot-handle').call(createSlotDrag(slotDragDeps(f.path)));
   }
   sel.on('dblclick', (event, d) => {

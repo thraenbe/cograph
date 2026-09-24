@@ -34,6 +34,9 @@ const HOVER_TARGETS = [
   { cls: 'folder-bubble-titlebar', group: 'g.folder-bubble', field: 'folderPath', kind: 'folder', background: false },
   { cls: 'folder-bubble-label',    group: 'g.folder-bubble', field: 'folderPath', kind: 'folder', background: false },
   { cls: 'file-slot-label',        group: 'g.file-slot',     field: 'file',       kind: 'file',   background: false },
+  // The R2b drag handle covers the label band and is the topmost element
+  // there — without this row no slot label ever hovers (F18).
+  { cls: 'file-slot-handle',       group: 'g.file-slot',     field: 'file',       kind: 'file',   background: false },
   { cls: 'file-slot-shape',        group: 'g.file-slot',     field: 'file',       kind: 'file',   background: true },
   { cls: 'file-circle-label',      group: 'g.file-bubble',   field: 'filePath',   kind: 'file',   background: false },
   { cls: 'file-circle-subtitle',   group: 'g.file-bubble',   field: 'filePath',   kind: 'file',   background: false },

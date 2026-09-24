@@ -1,0 +1,1379 @@
+{
+ "date": "2026-09-21T08:41:49.967Z",
+ "runs": [
+  {
+   "checkout": "w3",
+   "fixture": "3k",
+   "consoleErrors": [
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Unable to create workbench contribution 'workbench.contrib.agentHostTerminal'. Error: [createInstance] wbe depends on UNKNOWN service remoteAgentHostService.\n    at a._throwIfStric"
+   ],
+   "gpu": {
+    "2d_canvas": "enabled",
+    "GPU0": "VENDOR= 0x8086 [Google Inc. (Intel)], DEVICE=0x7d55 [ANGLE (Intel, Mesa Intel(R) Arc(tm) Graphics (MTL), OpenGL ES 3.2 Mesa 26.0.8-1ubuntu0.3)], DRIVER_VENDOR=Mesa, DRIVER_VERSION=26.0.8 *ACTIVE*",
+    "Machine model name": "",
+    "Machine model version": "",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "disabled_off",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "disabled_software",
+    "vulkan": "disabled_off",
+    "webgl": "enabled",
+    "webgl2": "enabled",
+    "webgpu": "disabled_off",
+    "webnn": "disabled_off"
+   },
+   "loadAttempts": 1,
+   "engine": "shelf",
+   "mode": "dynamic",
+   "workers": "default",
+   "graphNodes": 3000,
+   "viewport": {
+    "w": 1600,
+    "h": 935
+   },
+   "fourFrames": {
+    "syncMs": 279.6,
+    "toPaintMs": 318.3,
+    "timedOut": false,
+    "settleWallMs": 403.4,
+    "activeFrames": 6,
+    "scriptPerFrameMs": {
+     "n": 6,
+     "mean": 2.4,
+     "p50": 2.4,
+     "p95": 4.1,
+     "max": 4.1
+    },
+    "frameIntervalMs": {
+     "n": 7,
+     "mean": 19.54,
+     "p50": 16.7,
+     "p95": 33.3,
+     "max": 33.3
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 805,
+    "dom": 2092,
+    "frames": 8
+   },
+   "expandAll": {
+    "syncMs": 562.7,
+    "toPaintMs": 597.7,
+    "timedOut": false,
+    "settleWallMs": 750.4,
+    "activeFrames": 11,
+    "scriptPerFrameMs": {
+     "n": 11,
+     "mean": 1.89,
+     "p50": 2.2,
+     "p95": 2.5,
+     "max": 2.5
+    },
+    "frameIntervalMs": {
+     "n": 12,
+     "mean": 17.17,
+     "p50": 16.7,
+     "p95": 22.8,
+     "max": 22.8
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 3000,
+    "dom": 2578,
+    "frames": 30
+   },
+   "panZoom": {
+    "k": 4,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.22,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 3.1
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 22.35,
+     "p50": 20.5,
+     "p95": 41.1,
+     "max": 47.1
+    },
+    "fps": 44.74,
+    "mixedScriptMs": 0.1,
+    "panFps": 64.81,
+    "panScriptMs": 0.1,
+    "zoomFps": 65.1,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 3,
+    "lod": "full",
+    "domAttached": 2578
+   },
+   "panZoomFit": {
+    "k": 0.12,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.18,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 0.3
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 14.57,
+     "p50": 14.6,
+     "p95": 16.7,
+     "max": 34.3
+    },
+    "fps": 68.63,
+    "mixedScriptMs": 0.1,
+    "panFps": 57.84,
+    "panScriptMs": 0.1,
+    "zoomFps": 70.82,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 30,
+    "lod": "no-labels no-links no-nodes",
+    "domAttached": 1207
+   },
+   "lodIntegrity": {
+    "ok": true,
+    "expected": {
+     "frames": 30,
+     "nodes": 3000,
+     "labels": 3000,
+     "links": 9510
+    },
+    "afterRerender": {
+     "frames": 30,
+     "nodes": 3000,
+     "labels": 3000,
+     "links": 9510
+    },
+    "circlesAttachedAtFit": 0,
+    "framesAttachedZoomedIn": 4
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 3.68,
+     "p50": 0.5,
+     "p95": 16.5,
+     "max": 16.5
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 0.46,
+     "p50": 0.4,
+     "p95": 0.6,
+     "max": 0.6
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 0.21,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 0.5
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 1,
+     "p50": 1,
+     "p95": 1,
+     "max": 1
+    },
+    "scriptPerFrameMs": {
+     "n": 59,
+     "mean": 3.3,
+     "p50": 3,
+     "p95": 6.5,
+     "max": 6.6
+    },
+    "frameIntervalMs": {
+     "n": 118,
+     "mean": 15.1,
+     "p50": 16.6,
+     "p95": 16.8,
+     "max": 26.4
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 12.88,
+    "p50": 14.2,
+    "p95": 21.2,
+    "max": 21.2
+   },
+   "panZoomStatic": {
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 17.67,
+     "p50": 16.7,
+     "p95": 25.8,
+     "max": 42.5
+    },
+    "fps": 56.59
+   },
+   "simBackend": "worker",
+   "posted": 0,
+   "errors": [],
+   "rep": 0
+  },
+  {
+   "checkout": "w3",
+   "fixture": "3k",
+   "consoleErrors": [
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Unable to create workbench contribution 'workbench.contrib.agentHostTerminal'. Error: [createInstance] wbe depends on UNKNOWN service remoteAgentHostService.\n    at a._throwIfStric"
+   ],
+   "gpu": {
+    "2d_canvas": "enabled",
+    "GPU0": "VENDOR= 0x8086 [Google Inc. (Intel)], DEVICE=0x7d55 [ANGLE (Intel, Mesa Intel(R) Arc(tm) Graphics (MTL), OpenGL ES 3.2 Mesa 26.0.8-1ubuntu0.3)], DRIVER_VENDOR=Mesa, DRIVER_VERSION=26.0.8 *ACTIVE*",
+    "Machine model name": "",
+    "Machine model version": "",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "disabled_off",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "disabled_software",
+    "vulkan": "disabled_off",
+    "webgl": "enabled",
+    "webgl2": "enabled",
+    "webgpu": "disabled_off",
+    "webnn": "disabled_off"
+   },
+   "loadAttempts": 1,
+   "engine": "shelf",
+   "mode": "dynamic",
+   "workers": "default",
+   "graphNodes": 3000,
+   "viewport": {
+    "w": 1536,
+    "h": 863
+   },
+   "fourFrames": {
+    "syncMs": 243.3,
+    "toPaintMs": 284.9,
+    "timedOut": false,
+    "settleWallMs": 373.5,
+    "activeFrames": 7,
+    "scriptPerFrameMs": {
+     "n": 7,
+     "mean": 1.89,
+     "p50": 2.3,
+     "p95": 3.7,
+     "max": 3.7
+    },
+    "frameIntervalMs": {
+     "n": 8,
+     "mean": 17.54,
+     "p50": 16.7,
+     "p95": 23.7,
+     "max": 23.7
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 805,
+    "dom": 2092,
+    "frames": 8
+   },
+   "expandAll": {
+    "syncMs": 650.1,
+    "toPaintMs": 685.5,
+    "timedOut": false,
+    "settleWallMs": 845.9,
+    "activeFrames": 12,
+    "scriptPerFrameMs": {
+     "n": 12,
+     "mean": 2.57,
+     "p50": 2.4,
+     "p95": 6.2,
+     "max": 6.2
+    },
+    "frameIntervalMs": {
+     "n": 13,
+     "mean": 16.35,
+     "p50": 16.7,
+     "p95": 16.7,
+     "max": 16.7
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 3000,
+    "dom": 2578,
+    "frames": 30
+   },
+   "panZoom": {
+    "k": 4,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.23,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 6.4
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 21.08,
+     "p50": 16.7,
+     "p95": 39.4,
+     "max": 53.1
+    },
+    "fps": 47.44,
+    "mixedScriptMs": 0.1,
+    "panFps": 63.69,
+    "panScriptMs": 0.1,
+    "zoomFps": 67.11,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 3,
+    "lod": "full",
+    "domAttached": 2578
+   },
+   "panZoomFit": {
+    "k": 0.11,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.19,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 0.3
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 15.37,
+     "p50": 16.3,
+     "p95": 19.3,
+     "max": 36
+    },
+    "fps": 65.06,
+    "mixedScriptMs": 0.1,
+    "panFps": 60.98,
+    "panScriptMs": 0.1,
+    "zoomFps": 60.86,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 30,
+    "lod": "no-labels no-links no-nodes",
+    "domAttached": 1207
+   },
+   "lodIntegrity": {
+    "ok": true,
+    "expected": {
+     "frames": 30,
+     "nodes": 3000,
+     "labels": 3000,
+     "links": 9510
+    },
+    "afterRerender": {
+     "frames": 30,
+     "nodes": 3000,
+     "labels": 3000,
+     "links": 9510
+    },
+    "circlesAttachedAtFit": 0,
+    "framesAttachedZoomedIn": 4
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 3.7,
+     "p50": 0.5,
+     "p95": 16.6,
+     "max": 16.6
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 0.5,
+     "p50": 0.5,
+     "p95": 0.7,
+     "max": 0.7
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 0.23,
+     "p50": 0.2,
+     "p95": 0.5,
+     "max": 0.5
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 1,
+     "p50": 1,
+     "p95": 1,
+     "max": 1
+    },
+    "scriptPerFrameMs": {
+     "n": 59,
+     "mean": 3.8,
+     "p50": 3,
+     "p95": 7.1,
+     "max": 7.7
+    },
+    "frameIntervalMs": {
+     "n": 118,
+     "mean": 15.61,
+     "p50": 16.6,
+     "p95": 20.4,
+     "max": 26.5
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 9.45,
+    "p50": 10.1,
+    "p95": 14.4,
+    "max": 14.4
+   },
+   "panZoomStatic": {
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 16.29,
+     "p50": 16.6,
+     "p95": 24.6,
+     "max": 34.6
+    },
+    "fps": 61.39
+   },
+   "simBackend": "worker",
+   "posted": 0,
+   "errors": [],
+   "rep": 1
+  },
+  {
+   "checkout": "w3",
+   "fixture": "3k",
+   "consoleErrors": [
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Unable to create workbench contribution 'workbench.contrib.agentHostTerminal'. Error: [createInstance] wbe depends on UNKNOWN service remoteAgentHostService.\n    at a._throwIfStric"
+   ],
+   "gpu": {
+    "2d_canvas": "enabled",
+    "GPU0": "VENDOR= 0x8086 [Google Inc. (Intel)], DEVICE=0x7d55 [ANGLE (Intel, Mesa Intel(R) Arc(tm) Graphics (MTL), OpenGL ES 3.2 Mesa 26.0.8-1ubuntu0.3)], DRIVER_VENDOR=Mesa, DRIVER_VERSION=26.0.8 *ACTIVE*",
+    "Machine model name": "",
+    "Machine model version": "",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "disabled_off",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "disabled_software",
+    "vulkan": "disabled_off",
+    "webgl": "enabled",
+    "webgl2": "enabled",
+    "webgpu": "disabled_off",
+    "webnn": "disabled_off"
+   },
+   "loadAttempts": 1,
+   "engine": "shelf",
+   "mode": "dynamic",
+   "workers": "default",
+   "graphNodes": 3000,
+   "viewport": {
+    "w": 1600,
+    "h": 935
+   },
+   "fourFrames": {
+    "syncMs": 268.1,
+    "toPaintMs": 326.9,
+    "timedOut": false,
+    "settleWallMs": 364,
+    "activeFrames": 4,
+    "scriptPerFrameMs": {
+     "n": 4,
+     "mean": 2.35,
+     "p50": 2.5,
+     "p95": 4.2,
+     "max": 4.2
+    },
+    "frameIntervalMs": {
+     "n": 5,
+     "mean": 16.02,
+     "p50": 16.7,
+     "p95": 16.8,
+     "max": 16.8
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 805,
+    "dom": 2092,
+    "frames": 8
+   },
+   "expandAll": {
+    "syncMs": 591.4,
+    "toPaintMs": 626,
+    "timedOut": false,
+    "settleWallMs": 779.1,
+    "activeFrames": 12,
+    "scriptPerFrameMs": {
+     "n": 12,
+     "mean": 2.42,
+     "p50": 2.2,
+     "p95": 8.3,
+     "max": 8.3
+    },
+    "frameIntervalMs": {
+     "n": 13,
+     "mean": 16.5,
+     "p50": 16.7,
+     "p95": 16.8,
+     "max": 16.8
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 3000,
+    "dom": 2578,
+    "frames": 30
+   },
+   "panZoom": {
+    "k": 4,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.28,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 7.8
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 22.9,
+     "p50": 22.2,
+     "p95": 37.9,
+     "max": 40.9
+    },
+    "fps": 43.67,
+    "mixedScriptMs": 0.1,
+    "panFps": 64.85,
+    "panScriptMs": 0.1,
+    "zoomFps": 68.59,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 3,
+    "lod": "full",
+    "domAttached": 2578
+   },
+   "panZoomFit": {
+    "k": 0.12,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.18,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 0.6
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 15.34,
+     "p50": 15.9,
+     "p95": 21.4,
+     "max": 24.6
+    },
+    "fps": 65.19,
+    "mixedScriptMs": 0.1,
+    "panFps": 60.35,
+    "panScriptMs": 0.1,
+    "zoomFps": 59.1,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 30,
+    "lod": "no-labels no-links no-nodes",
+    "domAttached": 1207
+   },
+   "lodIntegrity": {
+    "ok": true,
+    "expected": {
+     "frames": 30,
+     "nodes": 3000,
+     "labels": 3000,
+     "links": 9510
+    },
+    "afterRerender": {
+     "frames": 30,
+     "nodes": 3000,
+     "labels": 3000,
+     "links": 9510
+    },
+    "circlesAttachedAtFit": 0,
+    "framesAttachedZoomedIn": 4
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 4.22,
+     "p50": 0.4,
+     "p95": 19.5,
+     "max": 19.5
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 0.44,
+     "p50": 0.4,
+     "p95": 0.7,
+     "max": 0.7
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 0.22,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 0.5
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 1,
+     "p50": 1,
+     "p95": 1,
+     "max": 1
+    },
+    "scriptPerFrameMs": {
+     "n": 59,
+     "mean": 2.82,
+     "p50": 2.8,
+     "p95": 3.9,
+     "max": 4
+    },
+    "frameIntervalMs": {
+     "n": 118,
+     "mean": 17.39,
+     "p50": 16.7,
+     "p95": 20,
+     "max": 20.5
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 12.25,
+    "p50": 17.8,
+    "p95": 20.8,
+    "max": 20.8
+   },
+   "panZoomStatic": {
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 19.6,
+     "p50": 18.7,
+     "p95": 36,
+     "max": 40
+    },
+    "fps": 51.02
+   },
+   "simBackend": "worker",
+   "posted": 0,
+   "errors": [],
+   "rep": 2
+  },
+  {
+   "checkout": "w3",
+   "fixture": "10k",
+   "consoleErrors": [
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Unable to create workbench contribution 'workbench.contrib.agentHostTerminal'. Error: [createInstance] wbe depends on UNKNOWN service remoteAgentHostService.\n    at a._throwIfStric"
+   ],
+   "gpu": {
+    "2d_canvas": "enabled",
+    "GPU0": "VENDOR= 0x8086 [Google Inc. (Intel)], DEVICE=0x7d55 [ANGLE (Intel, Mesa Intel(R) Arc(tm) Graphics (MTL), OpenGL ES 3.2 Mesa 26.0.8-1ubuntu0.3)], DRIVER_VENDOR=Mesa, DRIVER_VERSION=26.0.8 *ACTIVE*",
+    "Machine model name": "",
+    "Machine model version": "",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "disabled_off",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "disabled_software",
+    "vulkan": "disabled_off",
+    "webgl": "enabled",
+    "webgl2": "enabled",
+    "webgpu": "disabled_off",
+    "webnn": "disabled_off"
+   },
+   "loadAttempts": 1,
+   "engine": "shelf",
+   "mode": "dynamic",
+   "workers": "default",
+   "graphNodes": 10000,
+   "viewport": {
+    "w": 1600,
+    "h": 935
+   },
+   "fourFrames": {
+    "syncMs": 294.6,
+    "toPaintMs": 337.1,
+    "timedOut": false,
+    "settleWallMs": 512,
+    "activeFrames": 13,
+    "scriptPerFrameMs": {
+     "n": 13,
+     "mean": 2.41,
+     "p50": 2.5,
+     "p95": 4.8,
+     "max": 4.8
+    },
+    "frameIntervalMs": {
+     "n": 14,
+     "mean": 16.61,
+     "p50": 16.7,
+     "p95": 22.7,
+     "max": 22.7
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 907,
+    "dom": 2633,
+    "frames": 9
+   },
+   "expandAll": {
+    "syncMs": 1514.7,
+    "toPaintMs": 1611.6,
+    "timedOut": false,
+    "settleWallMs": 2362.2,
+    "activeFrames": 47,
+    "scriptPerFrameMs": {
+     "n": 47,
+     "mean": 2.26,
+     "p50": 2.1,
+     "p95": 3.7,
+     "max": 4.1
+    },
+    "frameIntervalMs": {
+     "n": 48,
+     "mean": 17.26,
+     "p50": 16.7,
+     "p95": 16.7,
+     "max": 48.2
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 10000,
+    "dom": 5159,
+    "frames": 100
+   },
+   "panZoom": {
+    "k": 4,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.23,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 6.2
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 23.84,
+     "p50": 20.6,
+     "p95": 43.1,
+     "max": 44.6
+    },
+    "fps": 41.95,
+    "mixedScriptMs": 0.1,
+    "panFps": 59.24,
+    "panScriptMs": 0.1,
+    "zoomFps": 59.24,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 4,
+    "lod": "full",
+    "domAttached": 5159
+   },
+   "panZoomFit": {
+    "k": 0.05,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.18,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 0.3
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 17.61,
+     "p50": 16.7,
+     "p95": 29,
+     "max": 40.8
+    },
+    "fps": 56.79,
+    "mixedScriptMs": 0.1,
+    "panFps": 58.34,
+    "panScriptMs": 0.1,
+    "zoomFps": 60.9,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 100,
+    "lod": "no-labels no-links no-nodes",
+    "domAttached": 3027
+   },
+   "lodIntegrity": {
+    "ok": true,
+    "expected": {
+     "frames": 100,
+     "nodes": 10000,
+     "labels": 10000,
+     "links": 28504
+    },
+    "afterRerender": {
+     "frames": 100,
+     "nodes": 10000,
+     "labels": 10000,
+     "links": 28504
+    },
+    "circlesAttachedAtFit": 0,
+    "framesAttachedZoomedIn": 5
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 7.4,
+     "p50": 0.7,
+     "p95": 34.2,
+     "max": 34.2
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 0.72,
+     "p50": 0.6,
+     "p95": 1.2,
+     "max": 1.2
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 0.2,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 0.6
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 1,
+     "p50": 1,
+     "p95": 1,
+     "max": 1
+    },
+    "scriptPerFrameMs": {
+     "n": 59,
+     "mean": 2.88,
+     "p50": 2.8,
+     "p95": 4.3,
+     "max": 5.3
+    },
+    "frameIntervalMs": {
+     "n": 118,
+     "mean": 17.14,
+     "p50": 16.7,
+     "p95": 19.1,
+     "max": 33.4
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 28,
+    "p50": 34.5,
+    "p95": 42.5,
+    "max": 42.5
+   },
+   "panZoomStatic": {
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 22.07,
+     "p50": 17.5,
+     "p95": 37,
+     "max": 64
+    },
+    "fps": 45.31
+   },
+   "simBackend": "worker",
+   "posted": 0,
+   "errors": [],
+   "rep": 0
+  },
+  {
+   "checkout": "w3",
+   "fixture": "10k",
+   "consoleErrors": [
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Unable to create workbench contribution 'workbench.contrib.agentHostTerminal'. Error: [createInstance] wbe depends on UNKNOWN service remoteAgentHostService.\n    at a._throwIfStric"
+   ],
+   "gpu": {
+    "2d_canvas": "enabled",
+    "GPU0": "VENDOR= 0x8086 [Google Inc. (Intel)], DEVICE=0x7d55 [ANGLE (Intel, Mesa Intel(R) Arc(tm) Graphics (MTL), OpenGL ES 3.2 Mesa 26.0.8-1ubuntu0.3)], DRIVER_VENDOR=Mesa, DRIVER_VERSION=26.0.8 *ACTIVE*",
+    "Machine model name": "",
+    "Machine model version": "",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "disabled_off",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "disabled_software",
+    "vulkan": "disabled_off",
+    "webgl": "enabled",
+    "webgl2": "enabled",
+    "webgpu": "disabled_off",
+    "webnn": "disabled_off"
+   },
+   "loadAttempts": 1,
+   "engine": "shelf",
+   "mode": "dynamic",
+   "workers": "default",
+   "graphNodes": 10000,
+   "viewport": {
+    "w": 1536,
+    "h": 863
+   },
+   "fourFrames": {
+    "syncMs": 244.4,
+    "toPaintMs": 306.4,
+    "timedOut": false,
+    "settleWallMs": 477.5,
+    "activeFrames": 13,
+    "scriptPerFrameMs": {
+     "n": 13,
+     "mean": 2.3,
+     "p50": 2.2,
+     "p95": 5.7,
+     "max": 5.7
+    },
+    "frameIntervalMs": {
+     "n": 14,
+     "mean": 15.56,
+     "p50": 16.6,
+     "p95": 16.7,
+     "max": 16.7
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 907,
+    "dom": 2633,
+    "frames": 9
+   },
+   "expandAll": {
+    "syncMs": 1451.3,
+    "toPaintMs": 1538.2,
+    "timedOut": false,
+    "settleWallMs": 2440.9,
+    "activeFrames": 55,
+    "scriptPerFrameMs": {
+     "n": 55,
+     "mean": 2.49,
+     "p50": 2.2,
+     "p95": 7.6,
+     "max": 12.6
+    },
+    "frameIntervalMs": {
+     "n": 56,
+     "mean": 17.39,
+     "p50": 16.7,
+     "p95": 22.1,
+     "max": 33.3
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 10000,
+    "dom": 5159,
+    "frames": 100
+   },
+   "panZoom": {
+    "k": 4,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.29,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 9.2
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 27.35,
+     "p50": 27.5,
+     "p95": 43.5,
+     "max": 71.7
+    },
+    "fps": 36.56,
+    "mixedScriptMs": 0.1,
+    "panFps": 60.28,
+    "panScriptMs": 0.1,
+    "zoomFps": 57.27,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 4,
+    "lod": "full",
+    "domAttached": 5159
+   },
+   "panZoomFit": {
+    "k": 0.05,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.19,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 0.4
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 16.77,
+     "p50": 16.7,
+     "p95": 24.9,
+     "max": 38
+    },
+    "fps": 59.63,
+    "mixedScriptMs": 0.1,
+    "panFps": 57.67,
+    "panScriptMs": 0.1,
+    "zoomFps": 62.03,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 100,
+    "lod": "no-labels no-links no-nodes",
+    "domAttached": 3027
+   },
+   "lodIntegrity": {
+    "ok": true,
+    "expected": {
+     "frames": 100,
+     "nodes": 10000,
+     "labels": 10000,
+     "links": 28504
+    },
+    "afterRerender": {
+     "frames": 100,
+     "nodes": 10000,
+     "labels": 10000,
+     "links": 28504
+    },
+    "circlesAttachedAtFit": 0,
+    "framesAttachedZoomedIn": 5
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 7.28,
+     "p50": 1.4,
+     "p95": 31.2,
+     "max": 31.2
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 0.7,
+     "p50": 0.6,
+     "p95": 1.1,
+     "max": 1.1
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 0.23,
+     "p50": 0.2,
+     "p95": 0.4,
+     "max": 0.5
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 1,
+     "p50": 1,
+     "p95": 1,
+     "max": 1
+    },
+    "scriptPerFrameMs": {
+     "n": 59,
+     "mean": 3.04,
+     "p50": 2.8,
+     "p95": 5.3,
+     "max": 7.4
+    },
+    "frameIntervalMs": {
+     "n": 118,
+     "mean": 17.21,
+     "p50": 16.7,
+     "p95": 20,
+     "max": 21.1
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 32.93,
+    "p50": 38,
+    "p95": 44.9,
+    "max": 44.9
+   },
+   "panZoomStatic": {
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 25.71,
+     "p50": 23.8,
+     "p95": 38.6,
+     "max": 54.6
+    },
+    "fps": 38.9
+   },
+   "simBackend": "worker",
+   "posted": 0,
+   "errors": [],
+   "rep": 1
+  },
+  {
+   "checkout": "w3",
+   "fixture": "10k",
+   "consoleErrors": [
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Ignoring terminal.integrated.initialHint.copilotCli as terminal.integrated.initialHint is true",
+    "%c  ERR color: #f33 Unable to create workbench contribution 'workbench.contrib.agentHostTerminal'. Error: [createInstance] wbe depends on UNKNOWN service remoteAgentHostService.\n    at a._throwIfStric"
+   ],
+   "gpu": {
+    "2d_canvas": "enabled",
+    "GPU0": "VENDOR= 0x8086 [Google Inc. (Intel)], DEVICE=0x7d55 [ANGLE (Intel, Mesa Intel(R) Arc(tm) Graphics (MTL), OpenGL ES 3.2 Mesa 26.0.8-1ubuntu0.3)], DRIVER_VENDOR=Mesa, DRIVER_VERSION=26.0.8 *ACTIVE*",
+    "Machine model name": "",
+    "Machine model version": "",
+    "direct_rendering_display_compositor": "disabled_off_ok",
+    "gpu_compositing": "enabled",
+    "multiple_raster_threads": "enabled_on",
+    "opengl": "enabled_on",
+    "rasterization": "enabled",
+    "raw_draw": "disabled_off_ok",
+    "skia_graphite": "disabled_off",
+    "trees_in_viz": "disabled_off",
+    "video_decode": "enabled",
+    "video_encode": "disabled_software",
+    "vulkan": "disabled_off",
+    "webgl": "enabled",
+    "webgl2": "enabled",
+    "webgpu": "disabled_off",
+    "webnn": "disabled_off"
+   },
+   "loadAttempts": 1,
+   "engine": "shelf",
+   "mode": "dynamic",
+   "workers": "default",
+   "graphNodes": 10000,
+   "viewport": {
+    "w": 1600,
+    "h": 626
+   },
+   "fourFrames": {
+    "syncMs": 232.1,
+    "toPaintMs": 320.7,
+    "timedOut": false,
+    "settleWallMs": 464.3,
+    "activeFrames": 8,
+    "scriptPerFrameMs": {
+     "n": 8,
+     "mean": 4.3,
+     "p50": 4.6,
+     "p95": 7,
+     "max": 7
+    },
+    "frameIntervalMs": {
+     "n": 9,
+     "mean": 23.1,
+     "p50": 20.7,
+     "p95": 33.4,
+     "max": 33.4
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 907,
+    "dom": 2633,
+    "frames": 9
+   },
+   "expandAll": {
+    "syncMs": 2040.3,
+    "toPaintMs": 2211.5,
+    "timedOut": false,
+    "settleWallMs": 2691.6,
+    "activeFrames": 26,
+    "scriptPerFrameMs": {
+     "n": 26,
+     "mean": 2.48,
+     "p50": 2.5,
+     "p95": 4.8,
+     "max": 5.3
+    },
+    "frameIntervalMs": {
+     "n": 27,
+     "mean": 23.14,
+     "p50": 16.7,
+     "p95": 33.4,
+     "max": 93.5
+    },
+    "longFrames": 0,
+    "worstLongFrameMs": 0,
+    "worstRenderMs": 0,
+    "renderedNodes": 10000,
+    "dom": 5159,
+    "frames": 100
+   },
+   "panZoom": {
+    "k": 4,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.28,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 10.7
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 27.99,
+     "p50": 27.9,
+     "p95": 45.2,
+     "max": 60.8
+    },
+    "fps": 35.73,
+    "mixedScriptMs": 0.1,
+    "panFps": 63.05,
+    "panScriptMs": 0.1,
+    "zoomFps": 56.43,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 4,
+    "lod": "full",
+    "domAttached": 5159
+   },
+   "panZoomFit": {
+    "k": 0.05,
+    "handlerMs": {
+     "n": 90,
+     "mean": 0.13,
+     "p50": 0.1,
+     "p95": 0.2,
+     "max": 0.3
+    },
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 20.37,
+     "p50": 17.6,
+     "p95": 35.9,
+     "max": 41.3
+    },
+    "fps": 49.09,
+    "mixedScriptMs": 0.1,
+    "panFps": 51.47,
+    "panScriptMs": 0.1,
+    "zoomFps": 56.79,
+    "zoomScriptMs": 0.1,
+    "visibleFrames": 100,
+    "lod": "no-labels no-links no-nodes",
+    "domAttached": 3027
+   },
+   "lodIntegrity": {
+    "ok": true,
+    "expected": {
+     "frames": 100,
+     "nodes": 10000,
+     "labels": 10000,
+     "links": 28504
+    },
+    "afterRerender": {
+     "frames": 100,
+     "nodes": 10000,
+     "labels": 10000,
+     "links": 28504
+    },
+    "circlesAttachedAtFit": 0,
+    "framesAttachedZoomedIn": 5
+   },
+   "hover": {
+    "overMs": {
+     "n": 5,
+     "mean": 7.3,
+     "p50": 0.6,
+     "p95": 34,
+     "max": 34
+    },
+    "outMs": {
+     "n": 5,
+     "mean": 0.58,
+     "p50": 0.6,
+     "p95": 0.7,
+     "max": 0.7
+    }
+   },
+   "drag": {
+    "handlerMs": {
+     "n": 60,
+     "mean": 0.18,
+     "p50": 0.2,
+     "p95": 0.3,
+     "max": 0.4
+    },
+    "framesToDomUpdate": {
+     "n": 60,
+     "mean": 1,
+     "p50": 1,
+     "p95": 1,
+     "max": 1
+    },
+    "scriptPerFrameMs": {
+     "n": 59,
+     "mean": 2.83,
+     "p50": 2.9,
+     "p95": 4.4,
+     "max": 5.2
+    },
+    "frameIntervalMs": {
+     "n": 118,
+     "mean": 16.46,
+     "p50": 16.7,
+     "p95": 16.7,
+     "max": 16.8
+    }
+   },
+   "searchKeystrokeSyncMs": {
+    "n": 4,
+    "mean": 27.32,
+    "p50": 27.1,
+    "p95": 55.3,
+    "max": 55.3
+   },
+   "panZoomStatic": {
+    "frameIntervalMs": {
+     "n": 88,
+     "mean": 23.88,
+     "p50": 21.9,
+     "p95": 40.9,
+     "max": 54.9
+    },
+    "fps": 41.88
+   },
+   "simBackend": "worker",
+   "posted": 0,
+   "errors": [],
+   "rep": 2
+  }
+ ]
+}

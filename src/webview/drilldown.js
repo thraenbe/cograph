@@ -148,9 +148,9 @@ function createDrilldownBoxDrag() {
 }
 
 /** Per-tick: size each box to the padded bounding rect of its visible members. */
-function tickDrilldownBoxes() {
+function tickDrilldownBoxes(vis) {
   if (!state.svgDrilldownBoxes) { return; }
-  const visible = (typeof getVisibleNodeIds === 'function') ? getVisibleNodeIds() : null;
+  const visible = vis || ((typeof getVisibleNodeIds === 'function') ? getVisibleNodeIds() : null);
   state.svgDrilldownBoxes.each(function(d) {
     const pts = d.members.filter(n =>
       (!visible || visible.has(n.id)) && n.x != null && n.y != null);

@@ -38,7 +38,8 @@
     "onCommand:cograph.openOrReload",
     "onCommand:cograph.saveGraph",
     "onCommand:cograph.saveGraphAs",
-    "onView:cograph.savedGraphs"
+    "onView:cograph.savedGraphs",
+    "onCommand:cograph.annotateGraph"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -84,6 +85,10 @@
       {
         "command": "cograph.dev.loadSynthetic",
         "title": "CoGraph: Load Synthetic Repo (Perf Dev)"
+      },
+      {
+        "command": "cograph.annotateGraph",
+        "title": "CoGraph: Annotate Graph (AI summaries for folders and files)"
       }
     ],
     "keybindings": [
@@ -116,7 +121,7 @@
           "type": "boolean",
           "default": false,
           "scope": "application",
-          "markdownDescription": "Enable AI-powered features (Chat and the AI Workflow Graph). When off, these features are disabled until you turn them on here. AI features run the Claude Code / Codex CLI on your behalf."
+          "markdownDescription": "Enable AI-powered features (Chat, the AI Workflow Graph and Annotate Graph). When off, these features are disabled until you turn them on here. AI features run the Claude Code / Codex CLI on your behalf."
         },
         "cograph.graphIntelligence.provider": {
           "type": "string",
@@ -231,6 +236,53 @@
           ],
           "default": "shelf",
           "description": "Layout engine the graph opens with."
+        },
+        "cograph.layout.workers": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Auto: run the Shelf engine's folder simulations in background workers when the host supports it, otherwise on the UI thread.",
+            "On: like Auto, and log a warning when workers cannot be started.",
+            "Off: simulate on the UI thread (the pre-1.3 behaviour)."
+          ],
+          "default": "auto",
+          "description": "Run layout simulations off the UI thread (Web Workers). Applies the next time the graph panel opens."
+        },
+        "cograph.graphIntelligence.annotate.readSource": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "What Annotate Graph sends to the AI. **Off (default):** file paths, function and class names with their signature lines, import names and the leading comment of each file. No function bodies, and with Claude Code the AI cannot open files. **On:** the AI may additionally open and read your source files (read-only) for better summaries. Note: the Codex CLI can always read files in the workspace, in either mode."
+        },
+        "cograph.graphIntelligence.annotate.model": {
+          "type": "string",
+          "enum": [
+            "default",
+            "opus",
+            "sonnet",
+            "haiku"
+          ],
+          "default": "haiku",
+          "description": "Claude model used for Annotate Graph (when provider is claude-code). Summaries are short, so the cheapest model is the default."
+        },
+        "cograph.graphIntelligence.annotate.codex.model": {
+          "type": "string",
+          "enum": [
+            "gpt-5-codex",
+            "gpt-5",
+            "gpt-5-mini"
+          ],
+          "default": "gpt-5-mini",
+          "description": "Codex model used for Annotate Graph (when provider is codex)."
+        },
+        "cograph.graphIntelligence.annotate.maxRunBudgetUsd": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0.05,
+          "description": "Spend cap (USD) for one whole Annotate Graph run. The run stops before the next batch once this is reached and keeps what is done. Not enforceable with Codex, which reports no cost."
         }
       }
     }
@@ -246,7 +298,15 @@
     "lint": "eslint src --ext ts",
     "build:cpp-grammar": "tree-sitter build --wasm node_modules/tree-sitter-cpp -o scripts/tree-sitter-cpp.wasm",
     "package": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce package",
-    "publish": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce publish"
+    "publish": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce publish",
+    "perf:bench": "npm run compile && node scripts/perf/build-page.cjs && node scripts/perf/run.mjs",
+    "uxtest": "node uxtest/run.mjs",
+    "uxtest:sweep": "node uxtest/run.mjs --project sweep",
+    "uxtest:vscode": "node uxtest/run.mjs --project vscode",
+    "uxtest:report": "node uxtest/run.mjs --project report",
+    "uxtest:unit": "npm run compile && c8 --config uxtest/.c8rc.json playwright test -c uxtest/playwright.config.ts --project=unit",
+    "uxtest:typecheck": "tsc -p uxtest/tsconfig.json --noEmit",
+    "uxtest:install": "playwright install chromium ffmpeg"
   },
   "dependencies": {
     "java-parser": "^2.0.5",
@@ -254,6 +314,7 @@
     "web-tree-sitter": "0.26.9"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/jsdom": "^21.1.7",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.0.0",
@@ -263,6 +324,9 @@
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^2.32.0",
+    "c8": "^12.0.0",
+    "d3": "7.9.0",
+    "d3-force": "3.0.0",
     "esbuild": "^0.28.1",
     "eslint": "^8.0.0",
     "glob": "^13.0.6",

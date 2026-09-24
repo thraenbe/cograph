@@ -18,6 +18,7 @@ const fs   = require('fs');
 // Bare specifier so esbuild can inline it into the packaged bundle (dev runs
 // resolve it from the repo's node_modules via normal module resolution).
 const { parse, BaseJavaCstVisitorWithDefaults } = require('java-parser');
+const { createNarrower, withStats } = require('./narrowCalls.js');
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build']);
 
@@ -30,24 +31,42 @@ const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build'
 // so clearCstCache() only has to drop references — there is no WASM heap to free.
 const cstCache = new Map(); // filepath -> CST | null
 
-// Diagnostic/test counter: number of actual parse() invocations. A run over N
-// files should report N parses, not 2N.
-const _stats = { parses: 0 };
+// The cache is BOUNDED by the amount of source text it represents. A Chevrotain
+// CST weighs tens of times its source, so holding every file of a large repo
+// (guava: ~3 300 files) between the two passes ran V8 out of memory after ~85 s.
+// Files beyond the budget are simply parsed again in the second pass: typical
+// workspaces stay at one parse per file, huge ones trade CPU for a flat heap.
+let cstCacheSourceBudget = Number(process.env.COGRAPH_JAVA_CST_BUDGET) || 6 * 1024 * 1024;
+/** Test hook: shrink the budget to exercise the re-parse path. */
+function _setCstCacheBudget(bytes) { cstCacheSourceBudget = bytes; }
+let cachedSourceBytes = 0;
+
+// Diagnostic/test counters: `parses` = actual parse() invocations (N for a run
+// over N files that fit the budget, up to 2N beyond it); `uncached` = parses
+// whose CST was not retained.
+const _stats = { parses: 0, uncached: 0 };
 
 function getCst(filepath) {
   if (cstCache.has(filepath)) return cstCache.get(filepath);
   let cst = null;
+  let bytes = 0;
   try {
     const source = fs.readFileSync(filepath, 'utf8');
+    bytes = source.length;
     cst = parse(source);
     if (cst) _stats.parses++;
   } catch { cst = null; }
-  cstCache.set(filepath, cst ?? null);
+  if (cachedSourceBytes + bytes <= cstCacheSourceBudget) {
+    cachedSourceBytes += bytes;
+    cstCache.set(filepath, cst ?? null);
+  } else {
+    _stats.uncached++;
+  }
   return cst ?? null;
 }
 
 /** Drop all cached CSTs (Chevrotain CSTs are GC'd once unreferenced). */
-function clearCstCache() { cstCache.clear(); }
+function clearCstCache() { cstCache.clear(); cachedSourceBytes = 0; }
 
 function collectJavaFiles(root) {
   const results = [];
@@ -294,9 +313,10 @@ function collectDefinitions(files) {
 // ── Calls pass ────────────────────────────────────────────────────────────────
 
 class CallCollector extends BaseJavaCstVisitorWithDefaults {
-  constructor(filepath, definitions, nameToIds, importMap) {
+  constructor(filepath, definitions, nameToIds, importMap, narrow) {
     super();
     this.validateVisitor();
+    this.narrow = narrow || ((ids) => ids);   // D6: ambiguous-name narrowing (narrowCalls.js)
     this.filepath = filepath;
     this.definitions = definitions;
     this.nameToIds = nameToIds;
@@ -375,7 +395,7 @@ class CallCollector extends BaseJavaCstVisitorWithDefaults {
 
         // Internal call: bare name OR receiver === 'this'
         if (receiverName === null || receiverName === 'this') {
-          const ids = this.nameToIds[calleeName];
+          const ids = this.narrow(this.nameToIds[calleeName], this.filepath);
           if (ids) {
             for (const calleeId of ids) this._addEdge(calleeId, false);
           }
@@ -403,7 +423,8 @@ class CallCollector extends BaseJavaCstVisitorWithDefaults {
   }
 }
 
-function collectCalls(files, definitions) {
+function collectCalls(files, definitions, root) {
+  const narrower = createNarrower((id) => definitions[id] && definitions[id].file, root);
   const nameToIds = Object.create(null);
   for (const [qid, defn] of Object.entries(definitions)) {
     if (!nameToIds[defn.name]) nameToIds[defn.name] = [];
@@ -417,7 +438,7 @@ function collectCalls(files, definitions) {
     if (!cst) { continue; }
     const importMap = parseImports(cst);
     try {
-      const collector = new CallCollector(filepath, definitions, nameToIds, importMap);
+      const collector = new CallCollector(filepath, definitions, nameToIds, importMap, narrower.narrow);
       collector.visit(cst);
       allEdges.push(...collector.edges);
       for (const [id, node] of collector.libraryNodes) {
@@ -425,7 +446,7 @@ function collectCalls(files, definitions) {
       }
     } catch { /* skip files that crash the visitor */ }
   }
-  return { edges: allEdges, libraryNodes: Array.from(allLibraryNodes.values()) };
+  return { edges: allEdges, libraryNodes: Array.from(allLibraryNodes.values()), stats: narrower.stats };
 }
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
@@ -450,9 +471,9 @@ function main() {
   const files = explicitFileList() ?? collectJavaFiles(root);
   try {
     const definitions = collectDefinitions(files);
-    const { edges, libraryNodes } = collectCalls(files, definitions);
+    const { edges, libraryNodes, stats } = collectCalls(files, definitions, root);
     const nodes = [...Object.values(definitions), ...libraryNodes];
-    process.stdout.write(JSON.stringify({ nodes, edges, files }) + '\n');
+    require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
   } finally {
     clearCstCache(); // drop cached CSTs
   }
@@ -464,5 +485,5 @@ if (require.main === module) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { collectJavaFiles, collectDefinitions, collectCalls, clearCstCache, _stats };
+  module.exports = { collectJavaFiles, collectDefinitions, collectCalls, clearCstCache, _stats, _setCstCacheBudget };
 }

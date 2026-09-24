@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export function getLoadingHtml(message = 'Analyzing project…'): string {
   const esc = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -147,6 +149,26 @@ export function getErrorHtml(message: string): string {
 </html>`;
 }
 
+const D3_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js';
+
+/** URIs of the esbuild-produced webview assets, with dev fallbacks when absent. */
+function bundledWebviewAssets(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+): { d3Src: string; d3IsLocal: boolean; workerUri: string | null } {
+  const dir = vscode.Uri.joinPath(extensionUri, 'dist', 'webview');
+  const has = (name: string): boolean => {
+    try { return !!extensionUri.fsPath && fs.existsSync(path.join(extensionUri.fsPath, 'dist', 'webview', name)); }
+    catch { return false; }
+  };
+  const d3IsLocal = has('d3.min.js');
+  return {
+    d3IsLocal,
+    d3Src: d3IsLocal ? webview.asWebviewUri(vscode.Uri.joinPath(dir, 'd3.min.js')).toString() : D3_CDN,
+    workerUri: has('simWorker.js') ? webview.asWebviewUri(vscode.Uri.joinPath(dir, 'simWorker.js')).toString() : null,
+  };
+}
+
 export function getWebviewHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
@@ -180,16 +202,32 @@ export function getWebviewHtml(
   const globalGuardUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'globalGuard.js'));
   const slotDragUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'slotDrag.js'));
   const perfUri      = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'perf.js'));
+  const simPoolUri   = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'simPool.js'));
+  const localSimWorkerUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'localSimWorker.js'));
+  const simBackendUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'simBackend.js'));
+  const readyHandshakeUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'readyHandshake.js'));
+  const hotCacheUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hotCache.js'));
+  const hoverIndexUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverIndex.js'));
+  const visibilityUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'visibility.js'));
+  const viewCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'viewCull.js'));
+  const frameCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameCull.js'));
+  const hoverCardUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverCard.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
 
   // Boot config injected before state.js — no message-ordering race. Settings
   // that do not exist yet fall back to their defaults.
   const cfg = vscode.workspace.getConfiguration('cograph');
+  // Bundled webview assets (esbuild → dist/webview): vendored d3 and the
+  // simulation worker. A checkout that never ran `npm run bundle` has neither:
+  // d3 then comes from the CDN (dev only) and simulations stay on the main thread.
+  const bundled = bundledWebviewAssets(webview, extensionUri);
   const bootConfig = {
     defaultEngine: cfg.get<string>('layout.defaultEngine', 'shelf') ?? 'shelf',
     defaultMode: cfg.get<string>('layout.defaultMode', 'static') ?? 'static',
     perf: cfg.get<boolean>('debug.perfLog', false) ?? false,
+    workers: cfg.get<string>('layout.workers', 'auto') ?? 'auto',
+    workerUri: bundled.workerUri,
   };
 
   const timelinePanelHtml = timelineMode ? `
@@ -223,14 +261,15 @@ export function getWebviewHtml(
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none';
-             script-src 'nonce-${nonce}' https://cdnjs.cloudflare.com;
+             script-src 'nonce-${nonce}'${bundled.d3IsLocal ? '' : ' https://cdnjs.cloudflare.com'};
              style-src 'unsafe-inline' ${webview.cspSource};
-             img-src ${webview.cspSource} data:;" />
+             img-src ${webview.cspSource} data:;
+             worker-src blob:;
+             connect-src ${webview.cspSource};" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CoGraph</title>
   <link rel="stylesheet" href="${stylesUri}?v=${nonce}" />
-  <script nonce="${nonce}"
-    src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <script nonce="${nonce}" src="${bundled.d3Src}"></script>
 </head>
 <body>
   <div id="graph"></div>
@@ -462,6 +501,11 @@ export function getWebviewHtml(
   <script nonce="${nonce}">window.COGRAPH_CONFIG = ${JSON.stringify(bootConfig)};</script>
   <script nonce="${nonce}" src="${stateUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${perfUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${hotCacheUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${hoverIndexUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${visibilityUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${viewCullUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${frameCullUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${aggregateUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${clusteringUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${workflowUri}?v=${nonce}"></script>
@@ -478,14 +522,19 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${crossLinksUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${localSimUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameSchedulerUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${simPoolUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${localSimWorkerUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${simBackendUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameRenderUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameInteractUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${globalGuardUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${readyHandshakeUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${scriptUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${controlsUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${forcesPanelUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${globalGuardUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${slotDragUri}?v=${nonce}"></script>
   ${timelineScriptTag}
+  <script nonce="${nonce}" src="${hoverCardUri}?v=${nonce}"></script>
 </body>
 </html>`;
 }

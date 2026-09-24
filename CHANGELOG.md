@@ -161,19 +161,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saved node positions and pinned).
 - Local-only performance instrumentation behind `cograph.debug.perfLog`, plus
   `CoGraph: Load Synthetic Repo (Perf Dev)` to reproduce large-repo numbers.
+- **Layout simulations run off the UI thread.** The Shelf engine's per-folder
+  simulations now tick in a pool of background workers (up to 4) and settle as fast as
+  the CPU allows instead of one step per animation frame: four open folders settle in
+  ~0.4 s instead of ~10 s, "expand all" on a 3 000-function repo in ~1.5 s instead of
+  >30 s, and the UI stays at 60 fps meanwhile. Dragging stays instant (the dragged node
+  moves on the UI thread; its neighbours follow from the worker). New setting
+  `cograph.layout.workers` (`auto` | `on` | `off`, default `auto`); `off` is the
+  previous behaviour, and any worker failure falls back to it automatically.
+- **Smooth pan and zoom on large graphs.** Folder frames outside the viewport are taken
+  out of the page, and when zoomed out far enough that they carry no information the
+  labels, then the call lines inside folders, then the function dots themselves are
+  dropped (the coloured file slots and folder glyphs stay; only the 200 strongest
+  cross-folder bundles are drawn). Zooming in brings everything back. 3 000 functions
+  fully expanded: 14 → 50-60 fps; 10 000: 4.5 → 40-59 fps.
+- d3 is now bundled with the extension instead of loaded from a CDN: the graph opens
+  offline and the webview's content-security policy no longer allows any external host.
+- `cograph.debug.perfLog` now covers the Shelf engine too: per-frame main-thread time
+  and settle time of the frame scheduler, plus hover, drag, filter and cross-link
+  timings in the `[perf]` report. Dev-only `npm run perf:bench` measures the real
+  webview page in headless Chrome (`scripts/perf/`).
+- **Annotate Graph (AI)** — every folder and file gets a one-sentence summary of what it
+  is responsible for, shown in a new hover card. Start it from the pinned card in the
+  CoGraph sidebar or with `CoGraph: Annotate Graph`. By default only a locally built
+  digest is sent (paths, function names with their signature lines, import names, leading
+  comments — no function bodies, and with Claude Code the AI cannot open files);
+  `cograph.graphIntelligence.annotate.readSource` lets the AI read source files
+  (read-only) for better summaries. You confirm an estimate before anything is sent, see
+  the running cost, and the run stops at `annotate.maxRunBudgetUsd` (default $2) keeping
+  what is done. A run started while the code analysis is still going waits for it, so
+  every summary is written from the complete graph. Editing a file only marks its summary
+  and its parent folders "outdated";
+  **Update** re-annotates just those. Summaries are stored locally in
+  `.cograph/annotations/`. Measured with Claude haiku: about $0.09 and 70 s for a
+  180-path repository.
+- **Hover card** for folders and files in both layout engines: name, path and static
+  facts (files · functions · languages), plus the AI summary once generated. It works
+  with AI features off.
 
 ### Fixed
+- **Blank graph on first open.** The graph data was sent to the panel on a timer; when the
+  panel's scripts were still loading (cold start) it was silently lost. The panel now tells
+  the extension when it is ready and the data waits for that.
+- Huge Java repos (e.g. guava) no longer crash the analyzer with an out-of-memory or
+  "Invalid string length" error: memory stays flat and an oversized result ends with a
+  readable "graph too large" message.
+- Shelf + Dynamic: after moving the Detail slider (or any re-render) the force sliders and
+  drag reheats did nothing until the engine was toggled — simulations kept writing into
+  discarded node objects.
+- Shelf + Dynamic: after a force-slider change only four folders moved at a time, the
+  rest stood still for seconds (10 s with 10 open folders). All open folders now start
+  moving at once.
+- Hovering a folder glyph with many cross-folder calls no longer flickers: its hover
+  lines were stealing the pointer ~30 times per second.
+- Chat now checks the AI-features setting on the host side as well, not only in the
+  sidebar, so no code path can reach an AI provider while AI features are off.
 - Collapsing a folder whose descendants were still individually expanded could feed
   the renderer edges pointing at nodes that were never drawn (a d3 "node not found"
   crash in the classic layout). The visible-frontier mapping now checks the whole
   ancestor chain.
 
 ### Changed
+- **Call resolution on large repositories changes.** A call by bare name (`get()`,
+  `this.size()`) used to be linked to *every* function with that name in the workspace. When
+  a name has more than 8 definitions, the candidates are now narrowed to the caller's file,
+  then its directory, then its top-level package; if more than 8 remain the call is left
+  unresolved. Repositories where no name has more than 8 definitions produce byte-identical
+  graphs. Large repositories lose their "hairball" edges and analyze and render faster; the
+  CoGraph output channel reports `N ambiguous calls narrowed, M dropped` per language.
+- Saving a file no longer blocks the extension host on three `git` subprocesses, and only
+  functions whose git status actually changed are sent to the graph; the analysis cache is
+  written in the background after the graph is shown; the analysis result is no longer
+  serialised and re-parsed on its way to the panel.
+- **Interaction cost no longer grows with graph size.** Hovering a node highlights only
+  its own links (was three passes over every link: 33 ms → 0.2 ms at 3 000 nodes,
+  100 ms → 0.5 ms at 10 000); dragging a node re-draws only its own folder frame
+  (53 ms → 0.1 ms per mouse move, 60 fps while dragging); typing in the search box
+  touches only the elements whose visibility flipped (78 ms → 10 ms); zooming no longer
+  rewrites every label's opacity. Cross-folder bundles are re-routed only when a frame
+  moves, and theme colours are read once per render instead of once per element.
 - Large graphs (> 500 nodes) on the global engine: dragging pins the dragged node
   instead of re-agitating the whole graph, ticks coalesce to animation frames, the
   per-node glow is dropped, re-renders reuse the existing simulation, and the
   overlay visibility pass runs once per tick instead of three times.
 - The drill-down box code moved from `folder.js` into `drilldown.js` (file-size split).
+- AI provider calls share one process helper (timeout, output cap, cancel). Annotate
+  Graph uses a new narrow call that never runs a write-capable CLI mode and skips the
+  CLI's default context, which cut a small haiku call from about $0.19 to $0.005.
+
+### Development tooling (not shipped in the .vsix)
+- `uxtest/` — UX test suite: drives the real webview HTML in Chromium against a scripted host on any
+  repo (`npm run uxtest`), records a captioned video, a keyframe and layout metrics per step, reports
+  invariant findings (overlaps, nodes outside slots, label clutter, console errors), runs force sweeps
+  with a ranked contact sheet (`uxtest:sweep`), builds a static HTML report with a review rubric
+  (`uxtest:report`) and a real-VS-Code smoke via Playwright Electron (`uxtest:vscode`). `--ext-root`
+  runs the same suite against another checkout.
 
 ## [1.2.0] - 2026-08-28
 

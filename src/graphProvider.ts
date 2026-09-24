@@ -8,7 +8,8 @@ import { GitService } from './gitService';
 import { AnalyzerRunner, type AnalyzerRunMeta } from './analyzerRunner';
 import { scanStructure, type StructureTree } from './structureScanner';
 import { mergeGraph } from './graphMerge';
-import { loadCache, writeCache, type CacheLoadResult } from './cacheStore';
+import { loadCache, scheduleCacheWrite, type CacheLoadResult } from './cacheStore';
+import { WebviewReadyGate } from './webviewReadyGate';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
@@ -16,6 +17,9 @@ import type { SidebarProvider } from './sidebarProvider';
 import { createProvider, getProviderInfo } from './graphIntelligence/provider';
 import type { GraphIntelligenceProvider, GraphIntelligenceResult } from './graphIntelligence/provider';
 import { buildWorkflowPrompt, normalizeWorkflowModel } from './graphIntelligence/workflowPrompt';
+import { AnnotationService } from './graphIntelligence/annotationService';
+import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
+import type { RunResult } from './graphIntelligence/annotationRunner';
 
 /**
  * Per-node annotations produced by the AI Workflow Graph generation. All fields
@@ -83,12 +87,23 @@ export interface GraphData {
  *  frames (parent-inner-local rects); nodePositions stay absolute as in v1. */
 export const SAVED_LAYOUT_VERSION = 2;
 
+function gitStatusKey(n: GraphNode): string {
+  return `${n.gitStatus?.unstaged ?? ''}|${n.gitStatus?.staged ?? ''}`;
+}
+
 export class GraphProvider {
   private panel: vscode.WebviewPanel | undefined;
   private timelinePanel: vscode.WebviewPanel | undefined;
   private readonly context: vscode.ExtensionContext;
   private cachedNodes: GraphNode[] = [];
   private gitRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Holds host → webview messages until the main panel's webview said `ready` (F11). */
+  private readyGate: WebviewReadyGate | undefined;
+  /** node id → last git status sent to the webview (delta git-update payloads). */
+  private sentGitStatus = new Map<string, string>();
+  /** Monotonic stamp: a slow async git refresh must not overwrite a newer one. */
+  private gitRefreshSeq = 0;
+  private sentGitFor: GraphNode[] | undefined;
   private readonly gitService = new GitService();
   private readonly analyzerRunner: AnalyzerRunner;
   private readonly libraryDescriber: LibraryDescriber;
@@ -108,6 +123,32 @@ export class GraphProvider {
   private graphReadyPromise: Promise<void> | undefined;
   private intelController: AbortController | undefined;
   private _providerFactory?: (id: string, ch: vscode.OutputChannel) => GraphIntelligenceProvider;
+  /** True while a background analysis (first full pass or cache reconcile) is still filling the graph. */
+  private backgroundParsing = false;
+  private readonly analysisIdleListeners = new Set<() => void>();
+  /** AI folder/file summaries for the hover card; kept out of GraphData and graph-patch. */
+  private readonly annotations = new AnnotationService({
+    getRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    getStructure: () => this.currentStructure,
+    getGraph: () => this.cachedGraph,
+    post: (msg) => { this.panel?.webview.postMessage(msg); },
+    log: (line) => this.outputChannel.appendLine(line),
+    createProvider: (id) => (this._providerFactory ?? createProvider)(id, this.outputChannel),
+    isAnalyzing: () => this.backgroundParsing,
+    onAnalysisIdle: (listener) => {
+      this.analysisIdleListeners.add(listener);
+      return { dispose: () => this.analysisIdleListeners.delete(listener) };
+    },
+  });
+
+  /** Read-only view of the background-parse state (Annotate Graph waits for it to end). */
+  get isAnalyzing(): boolean { return this.backgroundParsing; }
+
+  private setBackgroundParsing(on: boolean): void {
+    this.backgroundParsing = on;
+    if (on) { return; }
+    for (const listener of [...this.analysisIdleListeners]) { listener(); }
+  }
 
   private get outputChannel() {
     if (!this._outputChannel) {
@@ -130,6 +171,8 @@ export class GraphProvider {
           this.panel.webview.html = getLoadingHtml(`Analyzing project… (retry ${attempt}/${max})`);
         }
       },
+      // Object sink: no stringify → parse round-trip of the whole graph.
+      (graph, workspaceRoot, meta) => this.handleAnalysisResult(graph, workspaceRoot, meta),
     );
     this.libraryDescriber = new LibraryDescriber(
       context.extensionPath,
@@ -159,13 +202,17 @@ export class GraphProvider {
         retainContextWhenHidden: true,
         localResourceRoots: [
           vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview'),
+          vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'),
         ],
       }
     );
 
     const scheduleRefresh = () => {
       if (this.gitRefreshTimer) { clearTimeout(this.gitRefreshTimer); }
-      this.gitRefreshTimer = setTimeout(() => this.refreshGitStatus(workspaceRoot), 300);
+      this.gitRefreshTimer = setTimeout(() => {
+        this.refreshGitStatusAsync(workspaceRoot).catch((err: unknown) =>
+          this.outputChannel.appendLine(`[git] status refresh failed: ${(err as Error).message}`));
+      }, 300);
     };
 
     const saveListener = vscode.workspace.onDidSaveTextDocument(doc => {
@@ -206,6 +253,8 @@ export class GraphProvider {
 
     this.panel.onDidDispose(() => {
       this.panel = undefined;
+      this.readyGate?.dispose();
+      this.readyGate = undefined;
       saveListener.dispose();
       gitIndexWatcher.dispose();
       if (this.gitRefreshTimer) { clearTimeout(this.gitRefreshTimer); }
@@ -213,6 +262,7 @@ export class GraphProvider {
       for (const timer of this.incrementalTimers.values()) { clearTimeout(timer); }
       this.incrementalTimers.clear();
       this.analyzerRunner.killAll();
+      this.setBackgroundParsing(false);
       this.cachedNodes = [];
       this.cachedGraph = undefined;
       this.graphReadyPromise = undefined;
@@ -222,7 +272,9 @@ export class GraphProvider {
     });
 
     this.panel.webview.onDidReceiveMessage(async (message) => {
-      if (message.type === 'navigate') {
+      if (message.type === 'ready') {
+        this.readyGate?.markReady();   // webview listeners attached → deliver what waited
+      } else if (message.type === 'navigate') {
         this.navigateTo(message.file, message.line);
       } else if (message.type === 'open-docs') {
         const { libraryName, language } = message;
@@ -316,6 +368,9 @@ export class GraphProvider {
       } else if (message.type === 'perf-report') {
         // Local-only instrumentation (cograph.debug.perfLog) — see src/webview/perf.js.
         this.outputChannel.appendLine(`[perf] ${JSON.stringify(message.report)}`);
+      } else if (message.type === 'webview-log') {
+        // Structured webview diagnostics (e.g. simulation workers falling back).
+        this.outputChannel.appendLine(`[webview] ${JSON.stringify(message.entry)}`);
       } else if (message.type === 'dirty-state') {
         this.setDirty(!!message.dirty);
       } else if (message.type === 'retry-analysis') {
@@ -333,7 +388,11 @@ export class GraphProvider {
         this.parseSubset(workspaceRoot, filePath ? [filePath] : [], path.dirname(filePath));
       } else if (message.type === 'cancel-analysis') {
         this.analyzerRunner.killAll();
+        this.setBackgroundParsing(false);
         this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false, cancelled: true });
+      } else if (message.type === 'get-annotations') {
+        // The hover card asks once it has loaded, so this can never race `graph`/`structure`.
+        this.annotations.refresh();
       } else if (message.type === 'open-chat') {
         // Focuses the Cograph activity-bar view. The current graph context is
         // already up-to-date — setCurrentGraph is invoked from loadGraph and
@@ -418,11 +477,11 @@ export class GraphProvider {
 
     if (autoEngage) {
       // Paint the skeleton immediately; the analyzer enriches it in the background.
-      this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
-      setTimeout(() => {
-        this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
-        this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
-      }, 150);
+      this.setBackgroundParsing(true);
+      this.loadGraphHtml([
+        { type: 'structure', tree: structure, autoEngage: true },
+        { type: 'analysis-state', backgroundParsing: true },
+      ]);
     } else {
       // Small repo: behave exactly as before — plain graph, no skeleton.
       this.panel.webview.html = getLoadingHtml();
@@ -474,23 +533,27 @@ export class GraphProvider {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview')],
+        localResourceRoots: [
+          vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview'),
+          vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'),
+        ],
       },
     );
-    panel.webview.html = getWebviewHtml(panel.webview, this.context.extensionUri);
+    const gate = new WebviewReadyGate((m) => { void panel.webview.postMessage(m); }, 300);
+    panel.onDidDispose(() => gate.dispose());
     panel.webview.onDidReceiveMessage((message) => {
-      if (message.type === 'perf-report') {
+      if (message.type === 'ready') {
+        gate.markReady();
+      } else if (message.type === 'perf-report') {
         this.outputChannel.appendLine(`[perf synthetic ${pick.label}] ${JSON.stringify(message.report)}`);
         this.outputChannel.show(true);
       }
     });
+    panel.webview.html = getWebviewHtml(panel.webview, this.context.extensionUri);
+    gate.arm();
     // Same delivery order as a real large repo: skeleton first, analysis after.
-    setTimeout(() => {
-      panel.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
-      panel.webview.postMessage({
-        type: 'graph', data: graph, gitAvailable: false, fileGitStatus: {}, isReanalysis: false,
-      });
-    }, 300);
+    gate.post({ type: 'structure', tree: structure, autoEngage: true });
+    gate.post({ type: 'graph', data: graph, gitAvailable: false, fileGitStatus: {}, isReanalysis: false });
   }
 
   reloadLayout(): void {
@@ -564,7 +627,10 @@ export class GraphProvider {
       this.setPanelTitle(this.getCleanTitle());
     }
     this.currentSavedGraphPath = filePath;
-    this.panel?.webview.postMessage({ type: 'graph-loaded', payload: data });
+    // Through the ready gate when one exists: on a slow cold open the 2 s fallback
+    // above can fire while `graph` is still queued — graph-loaded must stay behind it.
+    const loaded = { type: 'graph-loaded', payload: data };
+    if (this.readyGate) { this.readyGate.post(loaded); } else { void this.panel?.webview.postMessage(loaded); }
     if (name && filePath) {
       this._sidebar?.setCurrentGraph({ name, file: filePath });
     }
@@ -597,6 +663,7 @@ export class GraphProvider {
         retainContextWhenHidden: true,
         localResourceRoots: [
           vscode.Uri.joinPath(this.context.extensionUri, 'src', 'webview'),
+          vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'),
         ],
       },
     );
@@ -611,14 +678,18 @@ export class GraphProvider {
 
     panel.webview.html = getLoadingHtml();
 
+    const timelineGate = new WebviewReadyGate((m) => { void panel.webview.postMessage(m); });
     panel.onDidDispose(() => {
+      timelineGate.dispose();
       if (this.timelinePanel === panel) {
         this.timelinePanel = undefined;
       }
     });
 
     panel.webview.onDidReceiveMessage((message) => {
-      if (message.type === 'navigate') {
+      if (message.type === 'ready') {
+        timelineGate.markReady();
+      } else if (message.type === 'navigate') {
         this.navigateTo(message.file, message.line);
       }
     });
@@ -650,13 +721,13 @@ export class GraphProvider {
           this.context.extensionUri,
           { timelineMode: true },
         );
-        setTimeout(() => {
-          panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
-          if (savedPayload) {
-            panel.webview.postMessage({ type: 'graph-loaded', payload: savedPayload });
-          }
-          this.postTimelineData(panel, graph, wsRoot);
-        }, 150);
+        timelineGate.arm();
+        timelineGate.post({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
+        if (savedPayload) {
+          timelineGate.post({ type: 'graph-loaded', payload: savedPayload });
+        }
+        // Computed asynchronously (git blame); queued behind `graph` if the page is still loading.
+        this.postTimelineData(panel, graph, wsRoot, (m) => timelineGate.post(m));
       },
     );
     runner.run(workspaceRoot);
@@ -670,6 +741,7 @@ export class GraphProvider {
     panel: vscode.WebviewPanel,
     graph: GraphData,
     workspaceRoot: string,
+    post: (message: object) => void = (m) => { void panel.webview.postMessage(m); },
   ): void {
     setImmediate(() => {
       if (this.timelinePanel !== panel) { return; }
@@ -677,7 +749,7 @@ export class GraphProvider {
         const intro = this.gitService.getIntroductionTimes(graph.nodes, workspaceRoot);
         const entries: Array<{ id: string; ts: number }> = [];
         for (const [id, ts] of intro) { entries.push({ id, ts }); }
-        panel.webview.postMessage({ type: 'timeline-data', nodes: entries });
+        post({ type: 'timeline-data', nodes: entries });
       } catch (err: unknown) {
         this.outputChannel.appendLine(`Timeline: blame failed — ${(err as Error).message}`);
       }
@@ -692,6 +764,7 @@ export class GraphProvider {
 
   /** Show error in the panel (if alive) and as a VS Code notification. */
   private showError(message: string): void {
+    this.setBackgroundParsing(false); // a failed analysis must not leave waiters hanging
     if (this.panel) {
       this.panel.webview.html = getErrorHtml(message);
     }
@@ -701,6 +774,7 @@ export class GraphProvider {
   private refreshGitStatus(workspaceRoot: string): void {
     if (!this.panel || this.cachedNodes.length === 0) { return; }
     this.gitService.applyGitStatuses(this.cachedNodes, workspaceRoot);
+    this.rememberSentGitStatus(this.cachedNodes);
     this.panel.webview.postMessage({
       type: 'git-update',
       nodes: this.cachedNodes.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
@@ -708,16 +782,57 @@ export class GraphProvider {
     });
   }
 
-  /** Parse stdout, guard empty graphs, and post the graph message. */
-  private handleAnalysisResult(stdout: string, workspaceRoot: string, meta?: AnalyzerRunMeta): void {
+  /**
+   * Hot path (every save and every .git/index change, debounced): git runs
+   * asynchronously and only nodes whose status actually changed are sent —
+   * the webview patches by id, so a delta is sufficient.
+   */
+  private async refreshGitStatusAsync(workspaceRoot: string): Promise<void> {
+    if (!this.panel || this.cachedNodes.length === 0) { return; }
+    const seq = ++this.gitRefreshSeq;
+    const nodes = this.cachedNodes;
+    // A new graph reached the webview with its own statuses → restart the delta baseline.
+    if (this.sentGitFor !== nodes) { this.sentGitStatus.clear(); this.sentGitFor = nodes; }
+    const ok = await this.gitService.applyGitStatusesAsync(nodes, workspaceRoot);
+    if (!ok || !this.panel || seq !== this.gitRefreshSeq || nodes !== this.cachedNodes) { return; }
+    const changed = nodes.filter(n => this.sentGitStatus.get(n.id) !== gitStatusKey(n));
+    this.rememberSentGitStatus(changed);
+    if (changed.length === 0 && !this.gitFileStatusChanged()) { return; }
+    this.panel.webview.postMessage({
+      type: 'git-update',
+      nodes: changed.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
+      fileGitStatus: this.gitService.fileStatuses,
+    });
+  }
+
+  private rememberSentGitStatus(nodes: GraphNode[]): void {
+    for (const n of nodes) { this.sentGitStatus.set(n.id, gitStatusKey(n)); }
+    this.sentFileStatusJson = JSON.stringify(this.gitService.fileStatuses);
+  }
+
+  private sentFileStatusJson = '';
+  private gitFileStatusChanged(): boolean {
+    const json = JSON.stringify(this.gitService.fileStatuses);
+    if (json === this.sentFileStatusJson) { return false; }
+    this.sentFileStatusJson = json;
+    return true;
+  }
+
+  /** Guard empty graphs and post the graph message. Accepts the merged graph
+   *  object (runner's onGraph sink) or, for legacy callers, its JSON text. */
+  private handleAnalysisResult(result: string | GraphData, workspaceRoot: string, meta?: AnalyzerRunMeta): void {
     if (!this.panel) { return; }
 
     let graph: GraphData;
-    try {
-      graph = JSON.parse(stdout);
-    } catch {
-      this.showError('CoGraph: Failed to parse graph data.');
-      return;
+    if (typeof result === 'string') {
+      try {
+        graph = JSON.parse(result);
+      } catch {
+        this.showError('CoGraph: Failed to parse graph data.');
+        return;
+      }
+    } else {
+      graph = result;
     }
 
     // A 0-node result is only a dead-end when NO skeleton is shown. With the
@@ -732,7 +847,8 @@ export class GraphProvider {
     const fileGitStatus = this.gitService.fileStatuses;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
     this.cachedGraph = graph;
-    if (this.currentStructure) { writeCache(workspaceRoot, graph, this.currentStructure); }
+    this.setBackgroundParsing(false); // the full pass delivered: the graph is complete
+    if (this.currentStructure) { scheduleCacheWrite(workspaceRoot, graph, this.currentStructure); }
     if (this.graphReadyResolve) {
       this.graphReadyResolve();
       this.graphReadyResolve = undefined;
@@ -746,11 +862,22 @@ export class GraphProvider {
         this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
       }
     } else {
-      this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
-      setTimeout(() => {
-        this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
-      }, 150);
+      this.loadGraphHtml([{ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false }]);
     }
+  }
+
+  /**
+   * Assign the graph HTML and queue `messages` for it. They are delivered when
+   * the webview announces `ready` (or after the old 150 ms for a webview that
+   * never does) — never into a document that is still loading (F11).
+   */
+  private loadGraphHtml(messages: object[]): void {
+    if (!this.panel) { return; }
+    const panel = this.panel;
+    this.readyGate ??= new WebviewReadyGate((m) => { void this.panel?.webview.postMessage(m); });
+    panel.webview.html = getWebviewHtml(panel.webview, this.context.extensionUri);
+    this.readyGate.arm();
+    for (const m of messages) { this.readyGate.post(m); }
   }
 
   /** Map analyzer run metadata onto the actionable empty-state's display info. */
@@ -784,7 +911,7 @@ export class GraphProvider {
       this.cachedGraph = this.spliceFiles(this.cachedGraph, files, patch);
       this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
       this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
-      if (this.currentStructure) { writeCache(workspaceRoot, this.cachedGraph, this.currentStructure); }
+      if (this.currentStructure) { scheduleCacheWrite(workspaceRoot, this.cachedGraph, this.currentStructure); }
       this.panel?.webview.postMessage({
         type: 'graph-patch',
         patch,
@@ -817,14 +944,11 @@ export class GraphProvider {
     const fileGitStatus = this.gitService.fileStatuses;
     if (this.graphReadyResolve) { this.graphReadyResolve(); this.graphReadyResolve = undefined; }
 
-    this.panel.webview.html = getWebviewHtml(this.panel.webview, this.context.extensionUri);
-    setTimeout(() => {
-      // Only large repos engage the folder skeleton; small repos render the plain graph.
-      if (autoEngage) {
-        this.panel?.webview.postMessage({ type: 'structure', tree: structure, autoEngage: true });
-      }
-      this.panel?.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false });
-    }, 150);
+    // Only large repos engage the folder skeleton; small repos render the plain graph.
+    this.loadGraphHtml([
+      ...(autoEngage ? [{ type: 'structure', tree: structure, autoEngage: true }] : []),
+      { type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false },
+    ]);
   }
 
   /**
@@ -837,19 +961,23 @@ export class GraphProvider {
     this.cachedGraph = this.spliceFiles(this.cachedGraph, files, patch);
     this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
     this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
-    if (structure) { writeCache(workspaceRoot, this.cachedGraph, structure); }
+    if (structure) { scheduleCacheWrite(workspaceRoot, this.cachedGraph, structure); }
     this.panel?.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: files, fileGitStatus: this.gitService.fileStatuses });
+    // Changed files only turn their summaries "outdated"; nothing is re-sent to the AI here.
+    this.annotations.refresh();
   }
 
   /** Re-parse only the files that changed since the cache was written, then patch + rewrite the cache. */
   private async reconcileChangedFiles(workspaceRoot: string, structure: StructureTree, changed: string[]): Promise<void> {
     if (!this.panel || changed.length === 0) { return; }
+    this.setBackgroundParsing(true);
     this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
     try {
       await this.reparseAndPatch(workspaceRoot, changed, structure);
     } catch (err: unknown) {
       this.outputChannel.appendLine(`Cache reconcile failed: ${(err as Error).message}`);
     } finally {
+      this.setBackgroundParsing(false);
       this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
     }
   }
@@ -925,6 +1053,10 @@ export class GraphProvider {
     sessionId: string | null,
     onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
   ): Promise<GraphIntelligenceResult> {
+    // Host-side gate: the sidebar already blocks chat-send, but no caller may reach a provider while AI is off.
+    if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
+      throw new Error('AI features are off — enable them in CoGraph settings to use Chat.');
+    }
     const { result, workspaceRoot } = await this.invokeProvider(prompt, providerId, sessionId, onProgress);
     this.cachedGraph = result.graph;
     this.cachedNodes = result.graph.nodes.filter(n => !n.isLibrary);
@@ -1016,6 +1148,42 @@ export class GraphProvider {
       fileGitStatus: this.gitService.fileStatuses,
       isReanalysis: true,
     });
+  }
+
+  // ── Annotate Graph ────────────────────────────────────────────────────────
+
+  /**
+   * Generate, resume or update the AI summaries. Opens the panel and waits for the
+   * graph first; the user confirms an estimate before anything is sent.
+   */
+  async annotateGraph(providerId: string): Promise<RunResult | null> {
+    if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
+      throw new Error('AI features are off — enable them in CoGraph settings to annotate the graph.');
+    }
+    if (!this.panel) { this.show(); }
+    if (!this.panel) { throw new Error('Failed to open graph panel.'); }
+    await this.waitForGraphReady();
+    return this.annotations.annotate(providerId, async (text) => {
+      const choice = await vscode.window.showInformationMessage(text, { modal: true }, 'Annotate');
+      return choice === 'Annotate';
+    });
+  }
+
+  cancelAnnotate(): void {
+    this.annotations.cancel();
+  }
+
+  annotationStatus(): AnnotationStatus {
+    return this.annotations.status();
+  }
+
+  onAnnotationStatus(listener: (s: AnnotationStatus) => void): { dispose(): void } {
+    return this.annotations.onStatus(listener);
+  }
+
+  /** Re-read annotations and the AI-enabled flag and push both to the webview and sidebar. */
+  refreshAnnotations(): void {
+    this.annotations.refresh();
   }
 
   abortIntelligence(): void {

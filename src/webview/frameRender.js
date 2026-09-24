@@ -20,9 +20,53 @@ const __fr = {
   byId: new Map(),        // node id -> node object (current render)
   cross: [],              // cross-frame link objects (current render)
   members: new Map(),     // frame path -> member records (current render)
+  crossFor: null,         // the __fr.cross array the two caches below were built from
+  crossAgg: null,         // aggregated frame pairs (crossLinks.aggregateCrossPairs)
+  crossByNode: null,      // node id -> cross links (hover lookup)
+  posDirty: new Set(),    // frame paths awaiting a coalesced position write
+  posRaf: 0,
+  hoverDrawn: false,      // cross-hover lines currently in the DOM
 };
 
 function frInnerOrigin(f) { return innerOrigin(f); } // frames.js global
+
+const FR_APPLY_BUDGET_MS = 1;
+
+// ── Simulation transport (sync localSim | worker pool, see simBackend.js) ─────
+function simApi() {
+  if (!__fr.backend) {
+    const cfg = (typeof window !== 'undefined' && window.COGRAPH_CONFIG) || {};
+    const syncApi = {
+      kind: 'sync', createSim, tickSim, pin, release, applySettings,
+      resizeSim, updateSlots, destroySim, alphaOf, unsettle,
+    };
+    if (typeof createSimBackend !== 'function') { __fr.backend = { api: () => syncApi }; return syncApi; }
+    __fr.backend = createSimBackend({
+      mode: cfg.workers, workerUri: cfg.workerUri, syncApi,
+      env: {
+        Worker: (typeof Worker !== 'undefined') ? Worker : undefined,
+        fetch: (typeof fetch === 'function') ? (u) => fetch(u) : undefined,
+        Blob: (typeof Blob !== 'undefined') ? Blob : undefined,
+        createObjectURL: (typeof URL !== 'undefined' && URL.createObjectURL) ? (b) => URL.createObjectURL(b) : undefined,
+        hardwareConcurrency: (typeof navigator !== 'undefined') ? navigator.hardwareConcurrency : undefined,
+      },
+      onPositions: () => { if (__fr.sched) { __fr.sched.wake(); } },
+      onFallback: onSimBackendFallback,
+      log: (entry) => { if (typeof vscode !== 'undefined') { vscode.postMessage({ type: 'webview-log', entry }); } },
+    });
+  }
+  return __fr.backend.api();
+}
+
+/** The worker pool died: rebuild every record on the synchronous transport. */
+function onSimBackendFallback() {
+  for (const [path, rec] of [...__fr.sims]) {
+    rec.gen = -1;                       // proxy records: nothing left to notify
+    __fr.sims.delete(path);
+    if (__fr.sched) { __fr.sched.remove(path); }
+  }
+  if (state.frames && usesFrames()) { syncFrameSims(__fr.members); }
+}
 
 function ensureFrameScheduler() {
   if (__fr.sched) { return __fr.sched; }
@@ -30,18 +74,33 @@ function ensureFrameScheduler() {
     raf: (cb) => requestAnimationFrame(cb),
     caf: (h) => cancelAnimationFrame(h),
     now: () => performance.now(),
-    maxActive: 4,
-    tick: (rec) => tickSim(rec),
+    // Sync: ≤4 simulations tick per animation frame. Workers: every frame that
+    // received fresh positions may be drained.
+    maxActive: () => (simApi().kind === 'worker' ? Infinity : 4),
+    tick: (rec) => simApi().tickSim(rec),
     beforeTick: (rec) => {
       const f = state.frames && state.frames.byPath.get(rec.path);
-      if (f) { syncPins(rec, frInnerOrigin(f), { pin, release }); }
+      if (f) { syncPins(rec, frInnerOrigin(f), simApi()); }
     },
-    onTick: (results) => {
-      // Per-step work touches ONLY the frames that ticked. File slots and
-      // cross-link bundles depend on frame geometry alone, which does not
-      // move during settle — they update on render / frame moves.
-      for (const r of results) { applySimResult(r); }
+    onPauseChange: (paused) => { const a = simApi(); if (a.setPaused) { a.setPaused(paused); } },
+    // Frames on screen get the simulation slots first (W3 culling knows them).
+    prefer: (rec) => __cull.culler.isVisible(rec.path),
+    // Nothing free to move (no members, or every member pinned): settle at once.
+    isInert: (rec) => !rec.nodes.some(n => n.fx == null),
+    // Per-step work touches ONLY the frames that ticked. File slots and
+    // cross-link bundles depend on frame geometry alone, which does not
+    // move during settle — they update on render / frame moves.
+    // onResult (not onTick) so the DOM writes count against the step budget.
+    onResult: (r) => applySimResult(r),
+    // Workers: applying positions is the only main-thread cost left — cap it
+    // per animation frame; unpainted inboxes keep just the newest positions.
+    budgetMs: () => (simApi().kind === 'worker' ? FR_APPLY_BUDGET_MS : Infinity),
+    // perf.js hooks — each is one boolean check while perfLog is off.
+    onWake: () => { if (typeof perfMark === 'function') { perfMark('sim:start'); } },
+    onStep: (ms) => {
+      if (typeof perfTick === 'function') { perfTick(ms); perfFrame(ms); }
     },
+    onIdle: () => { if (typeof perfSettled === 'function') { perfSettled(); } },
   });
   return __fr.sched;
 }
@@ -52,7 +111,9 @@ function applySimResult(r) {
   const f = state.frames && state.frames.byPath.get(r.path);
   if (!f) { return; }
   applySimData(r, f);
-  tickFrame(r.path);
+  // Frame geometry does not move during settle: positions only, no chrome.
+  tickFramePositions(r.path);
+  if (state._frameHoverId != null) { updateCrossHover(); }
 }
 
 function applySimData(r, f) {
@@ -175,7 +236,7 @@ function renderFrameLayout(allLinks, visibleSet) {
     .on('end.fitguard', () => {
       state._frameInteracting = false;
       linkG.classed('bundles-hidden', false);
-      updateCrossLinks();
+      onFrameMoveSettled();
     })
     // Drop: resolve overlaps INCREMENTALLY — a full re-render would re-shelve
     // the whole parent (uxtest measured 756 foreign nodes moving 1.5k px for a
@@ -345,7 +406,7 @@ function resolveDropOverlaps(dropped) {
     });
     translateFrameSubtree(s2, target.x - s2.local.x, target.y - s2.local.y);
   }
-  if (typeof linkG !== 'undefined') { updateCrossLinks(); } // layer absent in unit tests
+  onFrameMoveSettled();
   if (typeof window !== 'undefined') { window.markDirty?.(); }
 }
 
@@ -442,6 +503,7 @@ function onFrameContextMenu(event, f) {
 // ── Simulations ───────────────────────────────────────────────────────────────
 function syncFrameSims(members) {
   const sched = ensureFrameScheduler();
+  const api = simApi();
   const alive = new Set();
   for (const [path, f] of state.frames.byPath) {
     const mems = members.get(path) || [];
@@ -453,17 +515,26 @@ function syncFrameSims(members) {
     const same = existing && existing.gen !== -1
       && existing.byId.size === mems.length && mems.every(m => existing.byId.has(m.id));
     if (same) {
-      if (existing.inner.w !== f.inner.w || existing.inner.h !== f.inner.h) {
-        resizeSim(existing, f.inner);
+      // F13: every render builds NEW node objects (prepareRenderData). A reused
+      // record must write into those — with stale _ref the simulation kept
+      // ticking into the discarded objects and nothing on screen moved (dead
+      // force sliders / drag reheats after any Detail change). Both transports
+      // keep their records' nodes on the main thread, so this covers workers too.
+      for (const m of mems) {
+        const ln = existing.byId.get(m.id);
+        if (ln) { ln._ref = m._ref ?? null; }
       }
-      if (slotSignature(slots) !== slotSignature(existing.slotById)) {
-        updateSlots(existing, slots);       // geometry changed → clamp + reheat
+      if (existing.inner.w !== f.inner.w || existing.inner.h !== f.inner.h) {
+        api.resizeSim(existing, f.inner);
+      }
+      if (!sameSlotGeometry(slots, existing.slotById)) {
+        api.updateSlots(existing, slots);   // geometry changed → clamp + reheat
       } else {
         existing.slotById = slots;          // identical geometry → refresh reference
       }
       continue;
     }
-    if (existing) { destroySim(existing); sched.remove(path); }
+    if (existing) { api.destroySim(existing); sched.remove(path); }
     // Seed local positions from current absolute ones when they already lie
     // inside the frame (continuity); everything else starts on the spiral.
     const io = frInnerOrigin(f);
@@ -477,24 +548,37 @@ function syncFrameSims(members) {
         seed.set(m.id, { x: lx, y: ly });
       }
     }
-    const rec = createSim(f, mems, intraLinks, settings,
-      { d3: (typeof d3 !== 'undefined') ? d3 : null }, seed, slots);
+    const rec = api.createSim(f, mems, intraLinks, settings,
+      { d3: (typeof d3 !== 'undefined') ? d3 : null, paused: sched.isPaused() || state.layoutMode === 'static' },
+      seed, slots);
     __fr.sims.set(path, rec);
     sched.add(rec, { expanded: true });
     applySimData(rec, f); // first paint already inside the frame
   }
   for (const [path, rec] of [...__fr.sims]) {
-    if (!alive.has(path)) { destroySim(rec); __fr.sims.delete(path); sched.remove(path); }
+    if (!alive.has(path)) { api.destroySim(rec); __fr.sims.delete(path); sched.remove(path); }
   }
   state.simulation = createFrameSimFacade({
     sched,
     getSims: () => __fr.sims,
     getNodes: () => state.currentNodes,
     getSettings: () => settings,
-    ls: { applySettings, unsettle },
-    alphaOf,
+    ls: { applySettings: (r, p) => simApi().applySettings(r, p), unsettle: (r, a) => simApi().unsettle(r, a) },
+    alphaOf: (r) => simApi().alphaOf(r),
   });
   state.simulation._kind = 'frames';
+}
+
+/** Slot maps equal by geometry — no sorting or string building per render. */
+function sameSlotGeometry(a, b) {
+  const na = a ? a.size : 0, nb = b ? b.size : 0;
+  if (na !== nb) { return false; }
+  if (!na) { return true; }
+  for (const [k, r] of a) {
+    const q = b.get(k);
+    if (!q || q.x !== r.x || q.y !== r.y || q.w !== r.w || q.h !== r.h) { return false; }
+  }
+  return true;
 }
 
 /** Stamp node refs on link data and resolve string endpoints to node
@@ -521,7 +605,15 @@ function intraLinkIdsFor(path) {
 }
 
 // ── Per-tick DOM writes ───────────────────────────────────────────────────────
+// Chrome (transform, rect, colours, title) changes only on render / frame
+// move / resize / settings; member positions change on every simulation step.
+// tickFrame = both; the scheduler and node drags use tickFramePositions alone.
 function tickFrame(path) {
+  tickFrameChrome(path);
+  tickFramePositions(path);
+}
+
+function tickFrameChrome(path) {
   const f = state.frames && state.frames.byPath.get(path);
   const sub = __fr.frameSel.get(path);
   if (!f || !sub) { return; }
@@ -568,6 +660,15 @@ function tickFrame(path) {
     sub.select('.folder-bubble-titlebar')
       .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', 30);
   }
+}
+
+function tickFramePositions(path) {
+  const f = state.frames && state.frames.byPath.get(path);
+  const sub = __fr.frameSel.get(path);
+  if (!f || !sub) { return; }
+  // Off-screen (culled) frames keep simulating into the node data, but their
+  // DOM is written once when they scroll back into view.
+  if (!__cull.culler.isVisible(path)) { __cull.stale.add(path); return; }
   const ox = f.abs.x, oy = f.abs.y;
   const dom = __fr.frameDom && __fr.frameDom.get(path);
   const circles = dom ? dom.circles : sub.select('g.f-nodes').selectAll('circle.regular-node');
@@ -604,40 +705,217 @@ function tickFrame(path) {
   });
 }
 
+/**
+ * Node-drag fast path (rendering.js ticked(d)): only the dragged node's frame
+ * changes, so re-write that frame's positions — coalesced to one write per
+ * animation frame — instead of re-ticking every frame and all cross links.
+ */
+function tickFrameOfNode(d) {
+  const path = d && d._frame;
+  if (!path || !__fr.frameSel.has(path)) { tickFrames(); return; }
+  __fr.posDirty.add(path);
+  if (__fr.posRaf) { return; }
+  if (typeof requestAnimationFrame !== 'function') { flushFramePositions(); return; }
+  __fr.posRaf = requestAnimationFrame(flushFramePositions);
+}
+
+function flushFramePositions() {
+  __fr.posRaf = 0;
+  const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
+  for (const path of __fr.posDirty) { tickFramePositions(path); }
+  __fr.posDirty.clear();
+  if (state._frameHoverId != null) { updateCrossHover(); }
+  if (__perfT0) { perfEnd('drag:flush', __perfT0); }
+}
+
 function tickFrames() {
   if (!state.frames) { return; }
+  const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
+  applyFrameCulling();            // render / frame move / resize change what is on screen
   for (const path of __fr.frameSel.keys()) { tickFrame(path); }
   updateCrossLinks();
+  if (__perfT0) { perfEnd('tickFrames', __perfT0); }
+}
+
+// ── Viewport culling + level of detail (W3) ──────────────────────────────────
+// Pan/zoom is paint- and layout-bound (20k-65k SVG elements). Frames outside
+// the (padded) viewport and, below a zoom factor, whole layers — labels, then
+// intra-frame links, then the function nodes (a sub-2px node carries no
+// information; the coloured file slots remain) — are DETACHED from the document
+// (frameCull.js: display:none subtrees still cost Blink on every scale change).
+const FR_CULL_PAD_PX = 240;      // keep a margin so a pan does not pop frames in
+const FR_LOD_LINKS_AT = 0.4;
+const FR_LOD_NODES_AT = 0.3;
+// Below the links threshold only the strongest cross-folder bundles are drawn:
+// at fit-to-view 1 300 translucent viewport-spanning lines cost 45 ms per frame
+// (10k fixture: 16 → 50 fps without them) and read as a hairball anyway.
+const FR_LOD_MAX_BUNDLES = 200;
+// Gesture LOD: a viewport full of full-detail content (fmt: 4 300 labels + 13 800
+// lines in four giant frames at k 0.66) repaints at 4 fps. While a pan/zoom
+// gesture runs, labels/links over the element budget are parked; they return
+// FR_GESTURE_IDLE_MS after the last zoom event.
+const FR_GESTURE_IDLE_MS = 180;
+const __cull = {
+  culler: (typeof createFrameCuller === 'function') ? createFrameCuller() : { update: () => ({ shown: [], hidden: [] }), isVisible: () => true, reset() {} },
+  dom: (typeof createDomCuller === 'function') ? createDomCuller() : null,
+  lod: (typeof createLod === 'function') ? createLod() : null,
+  want: { labels: true, links: true, nodes: true, slotLabels: true },
+  stale: new Set(),              // culled frames whose positions changed meanwhile
+  raf: 0,
+  frameSelFor: null,             // the frameSel map the culler state belongs to
+  zoomLinks: true,               // links drawn at this zoom level (drives the bundle cap)
+  gesture: false,                // a pan/zoom gesture is running
+  idleTimer: 0,
+};
+
+/** Called by the zoom handler: at most one culling pass per animation frame. */
+function onFramesZoom() {
+  __cull.gesture = true;
+  if (__cull.idleTimer) { clearTimeout(__cull.idleTimer); }
+  __cull.idleTimer = setTimeout(() => { __cull.idleTimer = 0; __cull.gesture = false; applyFrameCulling(); }, FR_GESTURE_IDLE_MS);
+  if (__cull.raf || typeof requestAnimationFrame !== 'function') { return; }
+  __cull.raf = requestAnimationFrame(() => { __cull.raf = 0; applyFrameCulling(); });
+}
+
+function applyFrameCulling() {
+  if (!state.frames || !usesFrames() || !__cull.dom || typeof viewportRect !== 'function') { return; }
+  if (typeof svg === 'undefined' || typeof d3 === 'undefined') { return; }   // DOM-less unit tests
+  const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
+  if (__cull.frameSelFor !== __fr.frameSel) {       // re-render: fresh, attached, full-detail <g>s
+    __cull.frameSelFor = __fr.frameSel;
+    __cull.culler.reset();
+    __cull.stale.clear();
+    __cull.dom.reset(frameG.node(), [...__fr.frameSel].map(([path, sel]) => [path, sel.node()]));
+  }
+  const svgEl = svg.node();
+  const t = d3.zoomTransform(svgEl);
+  const view = viewportRect(t, svgEl.clientWidth || window.innerWidth, svgEl.clientHeight || window.innerHeight, FR_CULL_PAD_PX);
+  const lod = __cull.lod.update(t.k, { labels: settings.textFadeThreshold ?? 0.5, links: FR_LOD_LINKS_AT, nodes: FR_LOD_NODES_AT });
+  const bundlesChanged = __cull.zoomLinks !== lod.links;   // bundles follow the ZOOM level only
+  __cull.zoomLinks = lod.links;
+  const { shown, hidden } = __cull.culler.update(state.frames.byPath.values(), view);
+  const want = { labels: lod.labels, links: lod.links, nodes: lod.nodes, slotLabels: lod.nodes };
+  if (__cull.gesture && typeof gestureBudget === 'function') {
+    const budget = gestureBudget(visibleDetailCounts());
+    want.labels = want.labels && budget.labels;
+    want.links = want.links && budget.links;
+  }
+  const wantChanged = ['labels', 'links', 'nodes', 'slotLabels'].some(k => want[k] !== __cull.want[k]);
+  __cull.want = want;
+
+  for (const path of hidden) { __cull.dom.hide(path); }
+  for (const path of shown) {
+    __cull.dom.applyLod(path, __cull.want);         // while still detached: no layout work
+    __cull.dom.show(path);
+    __cull.stale.delete(path);
+    tickFrame(path);                                // chrome + positions may both be stale
+  }
+  if (wantChanged || hidden.length || shown.length) {
+    for (const path of __cull.dom.paths()) {
+      if (__cull.culler.isVisible(path)) { __cull.dom.applyLod(path, __cull.want); }
+    }
+  }
+  if (bundlesChanged) { updateCrossBundles(); }
+  if (shown.length && __fr.sched) { __fr.sched.wake(); }
+  if (__perfT0) { perfEnd('cull', __perfT0); }
+}
+
+/**
+ * A frame move settled (title-bar drag released, drop overlaps resolved):
+ * re-route the bundles and re-run culling — a detached sibling pushed into
+ * the viewport by the drop, or a child carried on-screen by its parent, must
+ * be re-attached now, not at the next zoom.
+ */
+function onFrameMoveSettled() {
+  if (typeof linkG !== 'undefined') { updateCrossLinks(); }   // layer absent in unit tests
+  applyFrameCulling();
+}
+
+/** Full-detail elements of the frames currently in the viewport. */
+function visibleDetailCounts() {
+  let nodes = 0, links = 0;
+  for (const path of __fr.frameSel.keys()) {
+    if (!__cull.culler.isVisible(path)) { continue; }
+    nodes += (__fr.members.get(path) || []).length;
+    links += ((__fr.intraByFrame && __fr.intraByFrame.get(path)) || []).length;
+  }
+  return { nodes, links };
+}
+
+/** Before any re-render (rendering.js renderElements): everything back in the document. */
+function restoreFrameDom() {
+  if (__cull.dom) { __cull.dom.restoreAll(); }
+  __cull.culler.reset();
+  __cull.stale.clear();
+}
+
+/** Hovered label while the labels layer is parked: lend it to the frame <g>. */
+function borrowHoverLabel(el, frame, on) {
+  const sub = frame && __fr.frameSel.get(frame);
+  if (!el || !sub) { return; }
+  if (on && !el.isConnected && sub.node().isConnected) {
+    el.__lodHome = el.parentNode;
+    sub.node().appendChild(el);
+  } else if (!on && el.__lodHome) {
+    el.__lodHome.appendChild(el);
+    el.__lodHome = null;
+  }
 }
 
 // ── Cross-frame links (aggregated bundles between title-bar ports) ────────────
+// Bundles depend on frame geometry only (render / frame move / resize); the
+// hovered node's individual links depend on the hover id and node positions.
+// The pair aggregation and the per-node index are cached per render.
 function updateCrossLinks() {
   if (!state.frames || !usesFrames()) {
     linkG.selectAll('line.cross-bundle').remove();
     linkG.selectAll('line.cross-hover').remove();
+    __fr.hoverDrawn = false;
     return;
   }
-  const { bundles, individual } = buildCrossLinks({
-    cross: __fr.cross || [],
-    frameOfId: id => { const n = __fr.byId.get(id); return n ? n._frame : null; },
-    frameAt: p => {
-      const f = state.frames.byPath.get(p);
-      if (!f) { return null; }
-      // Ports sit on the tab (its right shoulder faces the free strip), not
-      // the full-width strip — bundles visually attach to the folder's name.
-      let titleRect;
-      if (f.kind === 'root') {
-        titleRect = { x: f.abs.x, y: f.abs.y, w: f.abs.w, h: 0 };
-      } else {
-        const name = p.split(/[\\/]+/).filter(Boolean).pop() || p;
-        const tw = Math.min(tabWidth(name, f.abs.w) + 12, f.abs.w);
-        titleRect = { x: f.abs.x, y: f.abs.y, w: tw, h: TAB.H };
-      }
-      return { abs: f.abs, titleRect };
-    },
-    absPosOf: id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; },
-    hoverId: state._frameHoverId ?? null,
-  });
+  const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
+  updateCrossBundles();
+  updateCrossHover();
+  if (__perfT0) { perfEnd('updateCrossLinks', __perfT0); }
+}
+
+function crossCaches() {
+  const cross = __fr.cross || [];
+  if (__fr.crossFor !== cross) {
+    __fr.crossFor = cross;
+    __fr.crossAgg = aggregateCrossPairs(cross, crossFrameOfId);
+    __fr.crossByNode = indexCrossByNode(cross);
+  }
+  return __fr;
+}
+
+function crossFrameOfId(id) {
+  const n = __fr.byId.get(id);
+  return n ? n._frame : null;
+}
+
+function crossFrameAt(p) {
+  const f = state.frames.byPath.get(p);
+  if (!f) { return null; }
+  // Ports sit on the tab (its right shoulder faces the free strip), not
+  // the full-width strip — bundles visually attach to the folder's name.
+  let titleRect;
+  if (f.kind === 'root') {
+    titleRect = { x: f.abs.x, y: f.abs.y, w: f.abs.w, h: 0 };
+  } else {
+    const name = p.split(/[\\/]+/).filter(Boolean).pop() || p;
+    const tw = Math.min(tabWidth(name, f.abs.w) + 12, f.abs.w);
+    titleRect = { x: f.abs.x, y: f.abs.y, w: tw, h: TAB.H };
+  }
+  return { abs: f.abs, titleRect };
+}
+
+function updateCrossBundles() {
+  let aggs = crossCaches().crossAgg;
+  if (__cull.zoomLinks === false && aggs.length > FR_LOD_MAX_BUNDLES) {
+    aggs = [...aggs].sort((a, b) => b.count - a.count || (a.key < b.key ? -1 : 1)).slice(0, FR_LOD_MAX_BUNDLES);
+  }
+  const bundles = routeBundles(aggs, crossFrameAt);
   const linkDefault = getCSSVar('--cograph-link-default');
   linkG.selectAll('line.cross-bundle').data(bundles, d => d.key).join('line')
     .attr('class', 'cross-bundle')
@@ -653,8 +931,23 @@ function updateCrossLinks() {
       if (!t) { t = document.createElementNS('http://www.w3.org/2000/svg', 'title'); this.appendChild(t); }
       t.textContent = d.pending ? `${d.count}+ calls (parsing…)` : `${d.count} calls`;
     });
+}
+
+/** The hovered node's individual cross links — O(degree) via the node index. */
+function updateCrossHover() {
+  if (!state.frames || !usesFrames()) { return; }
+  const hoverId = state._frameHoverId ?? null;
+  const touching = hoverId == null ? [] : (crossCaches().crossByNode.get(hoverId) || []);
+  const individual = individualLinksFor(touching, hoverId,
+    id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; });
+  if (!individual.length && !__fr.hoverDrawn) { return; }
+  __fr.hoverDrawn = individual.length > 0;
+  // pointer-events none (F10): these lines start at the hovered glyph, i.e.
+  // under the cursor. As event targets they stole the hover → mouseout →
+  // removed → mouseover → redrawn, ~30 times per second.
   linkG.selectAll('line.cross-hover').data(individual).join('line')
     .attr('class', 'cross-hover')
+    .attr('pointer-events', 'none')
     .attr('stroke', getCSSVar('--cograph-link-hover'))
     .attr('stroke-width', Math.max(1.5, settings.linkThickness))
     .attr('opacity', 0.9)
@@ -665,8 +958,13 @@ function updateCrossLinks() {
 
 // ── Teardown (leaving the frames engine / drill-down) ─────────────────────────
 function teardownFrames() {
+  __fr.posDirty.clear();   // a queued drag flush must not touch the next engine's DOM (F3 class)
+  if (__cull.dom) { __cull.dom.reset(null, []); }   // forget this session's <g>s: never re-insert them later
+  __cull.culler.reset();
+  __cull.stale.clear();
+  __cull.frameSelFor = null;
   if (__fr.sched) { __fr.sched.stop(); }
-  for (const rec of __fr.sims.values()) { destroySim(rec); }
+  for (const rec of __fr.sims.values()) { simApi().destroySim(rec); }
   __fr.sims.clear();
   __fr.frameSel.clear();
   if (__fr.frameDom) { __fr.frameDom.clear(); }
@@ -850,7 +1148,7 @@ function createFrameResizeDrag() {
       pinFrame(state.frames, f.path, null, { w, h });
       const rec = __fr.sims.get(f.path);
       const nf = state.frames.byPath.get(f.path);
-      if (rec && nf) { resizeSim(rec, nf.inner); }
+      if (rec && nf) { simApi().resizeSim(rec, nf.inner); }
       if (__fr.sched) { __fr.sched.wake(); }
       tickFrame(f.path);
       updateCrossLinks();
@@ -991,19 +1289,20 @@ function applyFrameDisplaySettings() {
       const sn = ln._ref;
       if (sn) { ln.r = ((sn._size ?? 8) / 2) * settings.nodeSize; }
     }
-    unsettle(rec, 0.1);
+    simApi().unsettle(rec, 0.1);
   }
   if (__fr.sched) { __fr.sched.wake(); }
 }
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    usesFrames, renderFrameLayout, tickFrames, tickFrame, teardownFrames,
-    resetFrames, updateCrossLinks, syncFrameSims, applySimResult, applySimData,
+    usesFrames, renderFrameLayout, tickFrames, tickFrame, tickFrameChrome,
+    tickFramePositions, tickFrameOfNode, onFramesZoom, applyFrameCulling, restoreFrameDom, borrowHoverLabel, teardownFrames,
+    resetFrames, updateCrossLinks, updateCrossBundles, updateCrossHover, syncFrameSims, applySimResult, applySimData,
     applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit, stampLinkRefs,
-    resolveDropOverlaps, translateFrameSubtree,
+    resolveDropOverlaps, translateFrameSubtree, onFrameMoveSettled,
     applyFrameDisplaySettings, createFrameResizeDrag,
-    slotSignature, slotColor, slotBasename, renderFrameSlots,
-    placeMembersInSlots,
+    slotSignature, slotColor, slotBasename, renderFrameSlots, sameSlotGeometry,
+    __frState: __fr,   // test hook
   };
 }

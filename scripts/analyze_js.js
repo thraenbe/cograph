@@ -13,6 +13,7 @@
 'use strict';
 
 const path = require('path');
+const { createNarrower, withStats } = require('./narrowCalls.js');
 const fs   = require('fs');
 // Bare specifier so esbuild can inline it into the packaged bundle (dev runs
 // resolve it from the repo's node_modules via normal module resolution).
@@ -216,7 +217,10 @@ function collectImportMap(sourceFile) {
   return importMap;
 }
 
-function collectCalls(files, definitions) {
+function collectCalls(files, definitions, root) {
+  // D6: a name with more than 8 definitions is narrowed (file → directory →
+  // top-level package) or dropped instead of linked to all of them (narrowCalls.js).
+  const narrower = createNarrower((id) => definitions[id] && definitions[id].file, root);
   const nameToIds = Object.create(null);
   for (const [qid, defn] of Object.entries(definitions)) {
     if (!nameToIds[defn.name]) nameToIds[defn.name] = [];
@@ -251,7 +255,7 @@ function collectCalls(files, definitions) {
               calleeName = callee.name.text;
             }
             if (calleeName && nameToIds[calleeName]) {
-              for (const calleeId of nameToIds[calleeName]) {
+              for (const calleeId of narrower.narrow(nameToIds[calleeName], filepath)) {
                 const key = `${callerId}|${calleeId}`;
                 if (!seenEdges.has(key) && callerId !== calleeId) {
                   seenEdges.add(key);
@@ -326,7 +330,7 @@ function collectCalls(files, definitions) {
     }
     try { visit(sourceFile); } catch { continue; }
   }
-  return { edges, libraryNodes: Array.from(libraryNodes.values()) };
+  return { edges, libraryNodes: Array.from(libraryNodes.values()), stats: narrower.stats };
 }
 
 // Subset mode: `--files <listpath>` analyzes only the listed files (filtered to
@@ -348,9 +352,9 @@ function main() {
   const root = process.argv[2];
   const files = explicitFileList() ?? collectJsFiles(root);
   const definitions = collectDefinitions(files);
-  const { edges, libraryNodes } = collectCalls(files, definitions);
+  const { edges, libraryNodes, stats } = collectCalls(files, definitions, root);
   const nodes = [...Object.values(definitions), ...libraryNodes];
-  process.stdout.write(JSON.stringify({ nodes, edges, files }) + '\n');
+  require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
 }
 
 main();

@@ -58,6 +58,48 @@ def collect_import_map(tree: ast.AST) -> dict[str, str]:
     return import_map
 
 
+# ── Ambiguous call names (decision D6) — mirrors scripts/narrowCalls.js 1:1 ──────
+# A bare-name call used to be linked to EVERY same-named definition in the
+# workspace. Up to MAX_CANDIDATES definitions nothing changes; above that the
+# candidates are narrowed to the caller's file → directory → top-level package
+# (first path segment under the root; a stage without a match is skipped) and
+# used as soon as ≤ MAX_CANDIDATES remain — otherwise the call is dropped.
+MAX_CANDIDATES = int(os.environ.get('COGRAPH_MAX_CANDIDATES') or 8)  # override: tests only
+NARROW_STATS = {'ambiguousNarrowed': 0, 'ambiguousDropped': 0}
+
+
+def _top_level_of(file: str, root: str) -> str:
+    try:
+        rel = os.path.relpath(file, root)
+    except ValueError:
+        return ''
+    if not rel or rel.startswith('..'):
+        return ''
+    parts = [p for p in rel.replace('\\', '/').split('/') if p]
+    return parts[0] if len(parts) > 1 else ''
+
+
+def _narrow_candidates(ids: list, caller_file: str, definitions: dict, root: str) -> list:
+    if not ids or len(ids) <= MAX_CANDIDATES:
+        return ids
+    stages = (
+        lambda f: f == caller_file,
+        lambda f: os.path.dirname(f) == os.path.dirname(caller_file),
+        lambda f: _top_level_of(f, root) == _top_level_of(caller_file, root),
+    )
+    pool = ids
+    for same in stages:
+        subset = [i for i in pool if definitions.get(i, {}).get('file') and same(definitions[i]['file'])]
+        if not subset:
+            continue
+        pool = subset
+        if len(pool) <= MAX_CANDIDATES:
+            NARROW_STATS['ambiguousNarrowed'] += 1
+            return pool
+    NARROW_STATS['ambiguousDropped'] += 1
+    return []
+
+
 def collect_calls(root: str, definitions: dict) -> tuple[list[dict], list[dict]]:
     """Walk all .py files and collect call edges between known definitions, plus library nodes."""
     name_to_ids: dict[str, list[str]] = {}
@@ -88,7 +130,7 @@ def collect_calls(root: str, definitions: dict) -> tuple[list[dict], list[dict]]
                     continue
                 callee_name = _bare_name(child.func) or _method_name(child.func)
                 if callee_name and callee_name in name_to_ids:
-                    for callee_id in name_to_ids[callee_name]:
+                    for callee_id in _narrow_candidates(name_to_ids[callee_name], filepath, definitions, root):
                         key = (caller_id, callee_id)
                         if key not in seen_edges and caller_id != callee_id:
                             seen_edges.add(key)
@@ -181,9 +223,9 @@ def collect_entry_points(root: str, definitions: dict) -> list[str]:
         for node in tree.body:
             if _is_main_guard(node):
                 for stmt in node.body:
-                    _collect_calls_in_stmt(stmt, name_to_ids, found)
+                    _collect_calls_in_stmt(stmt, name_to_ids, found, filepath, definitions, root)
             elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-                _collect_calls_in_stmt(node, name_to_ids, found)
+                _collect_calls_in_stmt(node, name_to_ids, found, filepath, definitions, root)
 
     return list(found)
 
@@ -203,13 +245,17 @@ def _is_main_guard(node: ast.stmt) -> bool:
     return (_is_name(left) and _is_main(comparator)) or (_is_main(left) and _is_name(comparator))
 
 
-def _collect_calls_in_stmt(stmt: ast.stmt, name_to_ids: dict, found: set) -> None:
+def _collect_calls_in_stmt(stmt: ast.stmt, name_to_ids: dict, found: set,
+                           caller_file: str = '', definitions: dict | None = None, root: str = '') -> None:
     """Walk a statement and add known bare-name call targets to found."""
     for node in ast.walk(stmt):
         if isinstance(node, ast.Call):
             name = _bare_name(node.func)
             if name and name in name_to_ids:
-                for qid in name_to_ids[name]:
+                ids = name_to_ids[name]
+                if definitions is not None:
+                    ids = _narrow_candidates(ids, caller_file, definitions, root)
+                for qid in ids:
                     found.add(qid)
 
 
@@ -243,7 +289,12 @@ def main():
 
     nodes.extend(library_nodes)
     all_files = list(_walk_py_files(root))
-    print(json.dumps({'nodes': nodes, 'edges': edges, 'files': all_files}))
+    graph = {'nodes': nodes, 'edges': edges, 'files': all_files}
+    # Counters only when something was narrowed/dropped: otherwise the output
+    # stays byte-identical to the pre-D6 format.
+    if NARROW_STATS['ambiguousNarrowed'] or NARROW_STATS['ambiguousDropped']:
+        graph['stats'] = dict(NARROW_STATS)
+    print(json.dumps(graph))
 
 
 if __name__ == '__main__':

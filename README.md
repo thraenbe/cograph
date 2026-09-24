@@ -45,12 +45,23 @@ toolbar to toggle overlays.
 - **Library node clustering** — external library calls are grouped into collapsed cluster nodes (e.g. `numpy (7)`) to prevent visual clutter; click a cluster to expand it.
 - **Detail / Complexity slider** — progressively cluster low-connectivity nodes to keep large projects navigable.
 - **Save Layout** — persist node positions to `.cograph/<name>.json`; reopen the same graph and pick up where you left off.
-- **Open Chat** — focus the Cograph activity-bar view with the active graph already selected (foundation for the upcoming Graph Intelligence layer).
+- **Open Chat** — focus the Cograph activity-bar view with the active graph already selected.
+- **Hover card** — rest the pointer on a folder or file to see its path, size and languages, plus its AI summary once generated.
 - **Settings panel** — tune layout forces (center, repel, link strength, link distance), display options (node size, text size, link thickness, arrows), and visibility toggles (orphan nodes, library nodes).
 
-## Coming soon — Graph Intelligence (Premium)
+## Graph Intelligence (AI features)
 
-A planned AI-powered layer on top of the graph: natural-language questions about your architecture, anomaly highlighting, dead-code detection, and integrated refactoring suggestions. Configurable to run against either Claude Code or OpenAI Codex CLI, with per-request budget and turn caps. Scaffolding is already in the extension; the feature is gated until launch.
+AI features are **off by default**. Nothing is sent to an AI provider until you turn on `cograph.graphIntelligence.enabled`. They run the **Claude Code** or **OpenAI Codex** CLI that is already installed and signed in on your machine, so requests go through your own account; CoGraph has no server of its own.
+
+- **Chat** — ask questions about the open graph in the CoGraph sidebar.
+- **AI Workflow Graph** — a left-to-right view of how the system runs, from entry points to frontend output, with 10 detail levels.
+- **Annotate Graph** — a one-sentence summary of what every folder and file is responsible for, shown when you hover it.
+  - By default CoGraph sends only a locally built digest: file paths, function and class names with their signature lines, import names and the leading comment of each file. No function bodies are sent, and with Claude Code the AI cannot open files. Turn on `cograph.graphIntelligence.annotate.readSource` to let it read source files (read-only) for better summaries. The Codex CLI can always read files in the workspace.
+  - You confirm an estimate before anything is sent, see the running cost, and the run stops at `cograph.graphIntelligence.annotate.maxRunBudgetUsd` (default $2) and keeps what is done. As a guide, a 180-path repository cost about $0.09 with Claude haiku.
+  - Editing a file only marks its summary "outdated". Nothing is re-sent until you click **Update**, which re-annotates just the outdated and missing paths.
+  - Summaries are stored locally in `.cograph/annotations/` and are not committed.
+
+Chat and the Workflow Graph have per-request caps for turns, spend and time (`cograph.graphIntelligence.maxTurns`, `maxBudgetUsd`, `timeoutMs`).
 
 ## Requirements
 
@@ -87,13 +98,17 @@ A planned AI-powered layer on top of the graph: natural-language questions about
   in **Static** motion by default — click **Dynamic** to let it settle live). If needed,
   use the **Detail** slider or the search filter — or switch the engine toggle to
   **Global** for the classic layout (`cograph.layout.defaultEngine` /
-  `cograph.layout.defaultMode` set the startup combination).
+  `cograph.layout.defaultMode` set the startup combination). The Shelf engine's
+  simulations run in background workers (`cograph.layout.workers`: `auto` | `on` | `off`,
+  default `auto`; `off` simulates on the UI thread), and when zoomed far out labels, call
+  lines and function dots are dropped until you zoom back in.
 - **Some calls are missing.** Dynamic dispatch, `eval`, and computed/runtime-generated
   calls are not statically resolvable — see *Limitations*.
 
 ## Limitations
 
 - Dynamic dispatch and runtime-generated functions are not tracked.
+- Calls are resolved by name. When a called name has more than 8 definitions in the workspace, only those in the caller's file, then directory, then top-level package are linked; if more than 8 still remain the call is left unresolved (the CoGraph output channel reports how many).
 - Cross-package call edges (into installed libraries) are intentionally excluded — external calls are surfaced through library cluster nodes instead.
 - TypeScript / JavaScript analysis covers static call sites; dynamic patterns (e.g. `eval`, computed property calls) are not tracked.
 - Java and C++ analysis covers statically resolvable calls; macro-heavy or template-heavy C++ code may produce a partial graph.

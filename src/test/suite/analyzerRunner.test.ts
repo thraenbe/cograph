@@ -297,4 +297,25 @@ suite('AnalyzerRunner', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  test('onGraph sink receives the merged object; onResult (and its JSON round-trip) is skipped', async function () {
+    this.timeout(5000);
+    stubPythonResolution(sandbox);
+    stubSpawnAuto(sandbox, realSetTimeout, (idx, proc) => { idx % 5 === 0 ? emitNode(proc) : emitEmpty(proc); });
+    const onResult = sandbox.stub();
+    const context = { extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as unknown as vscode.ExtensionContext;
+    const stringify = sandbox.spy(JSON, 'stringify');
+    const got = new Promise<{ graph: any; root: string; meta: AnalyzerRunMeta }>(resolve => {
+      const runner = new AnalyzerRunner(context, sandbox.stub() as any, onResult as any, sandbox.stub() as any,
+        sandbox.stub() as any, (graph, root, meta) => resolve({ graph, root, meta }));
+      runner.run('/ws');
+    });
+    const r = await got;
+    assert.strictEqual(r.graph.nodes.length, 1);
+    assert.strictEqual(r.root, '/ws');
+    assert.strictEqual(r.meta.statuses.length, 5);
+    assert.ok(onResult.notCalled);
+    assert.ok(stringify.getCalls().every(c => c.args[0] !== r.graph),
+      'the merged graph object is handed over as-is, never re-serialised');
+  });
 });

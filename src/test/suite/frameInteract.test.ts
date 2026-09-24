@@ -52,6 +52,19 @@ suite('frameInteract — facade', () => {
     assert.ok(!calls.some(c => c[0] === 'unsettleAll'), 'no global reheat on drag');
   });
 
+  test('global path forwards the settings OPAQUELY (keys this facade does not know reach the sims)', () => {
+    const { calls, deps } = makeDeps();
+    const base = deps.getSettings();
+    deps.getSettings = () => ({ ...base, linkDistance: 55, velocityDecay: 0.45, collidePad: 3, slotPad: 2,
+      someFutureKey: 0.7, arrows: true, nested: { no: 1 }, fn: () => 1 });
+    fi.createFrameSimFacade(deps).alpha(0.3).restart();
+    const patch = calls.filter(c => c[0] === 'applySettings')[0][2];
+    assert.deepStrictEqual([patch.linkDistance, patch.velocityDecay, patch.collidePad, patch.slotPad, patch.someFutureKey],
+      [55, 0.45, 3, 2, 0.7]);
+    assert.strictEqual(patch.arrows, true);
+    assert.ok(!('nested' in patch) && !('fn' in patch), 'only structured-cloneable plain values (worker transport)');
+  });
+
   test('global path: alpha(v).restart() re-applies settings + unsettles all with floor v', () => {
     const { calls, deps } = makeDeps();
     const sim = fi.createFrameSimFacade(deps);

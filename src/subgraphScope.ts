@@ -181,6 +181,25 @@ export function filterGraph(graph: GraphData, spec: ScopeSpec, root: string): Gr
   };
 }
 
+/**
+ * The slice of a graph that belongs to `files` (absolute paths): their nodes, the
+ * library nodes they reference, and the edges among all of those. Used to bring a
+ * folder into a scoped view from the cache without re-parsing it.
+ */
+export function graphForFiles(graph: GraphData, files: Iterable<string>): GraphData {
+  const want = new Set(files);
+  const keep = new Set<string>();
+  const libs = new Set<string>();
+  for (const n of graph.nodes) {
+    if (n.isLibrary) { libs.add(n.id); } else if (n.file && want.has(n.file)) { keep.add(n.id); }
+  }
+  for (const e of graph.edges) { if (keep.has(e.source) && libs.has(e.target)) { keep.add(e.target); } }
+  return {
+    nodes: graph.nodes.filter(n => keep.has(n.id)),
+    edges: graph.edges.filter(e => keep.has(e.source) && keep.has(e.target)),
+  };
+}
+
 /** Git statuses are keyed by absolute POSIX file path; keep only in-scope files. */
 export function filterFileStatuses<T>(statuses: Record<string, T>, spec: ScopeSpec, root: string): Record<string, T> {
   if (spec.include.length === 0) { return statuses; }

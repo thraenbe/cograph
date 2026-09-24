@@ -6,7 +6,7 @@ import { scanStructure } from '../../structureScanner';
 import {
   NO_SCOPE, hasScope, toRel, toAbs, cleanRel, isIncluded, fileInScope, normalize, specForFolder,
   withFolderIncluded, withFolderExcluded, excludedTops, filesInScope, filterGraph, filterFileStatuses,
-  filterFiles, buildSubgraphMessage, readSubgraphField,
+  filterFiles, graphForFiles, buildSubgraphMessage, readSubgraphField,
 } from '../../subgraphScope';
 import type { GraphData } from '../../graphProvider';
 
@@ -144,6 +144,21 @@ suite('subgraphScope — tree and graph filtering', () => {
     assert.deepStrictEqual(out.edges.map(e => `${e.source}>${e.target}`), ['api>q', 'api>lib-used']);
     assert.deepStrictEqual(out.files!.map(f => toRel(root, f)), ['src/server/api.ts', 'src/server/db/q.ts']);
     assert.strictEqual(filterGraph(graph, { include: [], exclude: [] }, root), graph, 'no scope returns the same object');
+  });
+
+  test('graphForFiles slices a cached graph by file, keeping referenced libraries', () => {
+    const graph: GraphData = {
+      nodes: [
+        { id: 'a', name: 'a', file: abs('src/main.ts'), line: 1 },
+        { id: 'b', name: 'b', file: abs('src/ui/view.ts'), line: 1 },
+        { id: 'lib', name: 'l', file: null, line: 0, isLibrary: true },
+      ],
+      edges: [{ source: 'a', target: 'b' }, { source: 'b', target: 'lib', isLibraryEdge: true }],
+    };
+    const out = graphForFiles(graph, [abs('src/ui/view.ts')]);
+    assert.deepStrictEqual(out.nodes.map(n => n.id), ['b', 'lib']);
+    assert.deepStrictEqual(out.edges.map(e => `${e.source}>${e.target}`), ['b>lib']);
+    assert.deepStrictEqual(graphForFiles(graph, []), { nodes: [], edges: [] });
   });
 
   test('filterFileStatuses keeps in-scope files only', () => {

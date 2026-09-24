@@ -64,9 +64,10 @@ suite('ready handshake — GraphProvider (F11)', () => {
     assert.deepStrictEqual(t.posted, [], 'nothing goes into the loading document');
     clock.tick(80);
     t.provider.readyGate.markReady();
-    assert.deepStrictEqual(t.posted.map((m: any) => m.type), ['structure', 'graph']);
+    // `subgraph` (round 3 scope) is always queued first, before what the caller passed.
+    assert.deepStrictEqual(t.posted.map((m: any) => m.type), ['subgraph', 'structure', 'graph']);
     clock.tick(1000);
-    assert.strictEqual(t.posted.length, 2, 'the fallback must not deliver them a second time');
+    assert.strictEqual(t.posted.length, 3, 'the fallback must not deliver them a second time');
     assert.ok(t.posted.every((m: any) => typeof m.__seq === 'number'));
   });
 
@@ -76,7 +77,7 @@ suite('ready handshake — GraphProvider (F11)', () => {
     clock.tick(149);
     assert.strictEqual(t.posted.length, 0);
     clock.tick(1);
-    assert.deepStrictEqual(t.posted.map((m: any) => m.type), ['graph']);
+    assert.deepStrictEqual(t.posted.map((m: any) => m.type), ['subgraph', 'graph']);
   });
 
   test('a second load re-arms: messages for the replaced document are dropped', () => {
@@ -84,7 +85,7 @@ suite('ready handshake — GraphProvider (F11)', () => {
     t.provider.loadGraphHtml([{ type: 'structure', v: 1 }]);
     t.provider.loadGraphHtml([{ type: 'structure', v: 2 }]);
     t.provider.readyGate.markReady();
-    assert.deepStrictEqual(t.posted.map((m: any) => m.v), [2]);
+    assert.deepStrictEqual(t.posted.filter((m: any) => m.type !== 'subgraph').map((m: any) => m.v), [2]);
   });
 
   test('no panel → no throw, nothing queued', () => {
@@ -100,6 +101,6 @@ suite('ready handshake — GraphProvider (F11)', () => {
     await t.provider.loadGraph({ name: 'saved', nodes: {} }, '/ws/.cograph/saved.json'); // panel exists → no graph-ready wait
     assert.deepStrictEqual(t.posted, [], 'neither message enters the loading document');
     t.provider.readyGate.markReady();
-    assert.deepStrictEqual(t.posted.map((m: any) => m.type), ['graph', 'graph-loaded']);
+    assert.deepStrictEqual(t.posted.map((m: any) => m.type), ['subgraph', 'graph', 'graph-loaded']);
   });
 });

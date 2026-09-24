@@ -20,6 +20,11 @@ import { buildWorkflowPrompt, normalizeWorkflowModel } from './graphIntelligence
 import { AnnotationService } from './graphIntelligence/annotationService';
 import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
 import type { RunResult } from './graphIntelligence/annotationRunner';
+import {
+  NO_SCOPE, hasScope, toAbs, withFolderIncluded, withFolderExcluded, filesInScope,
+  filterGraph, filterFileStatuses, filterFiles, graphForFiles, buildSubgraphMessage, readSubgraphField,
+} from './subgraphScope';
+import type { Scope, ScopeSpec, ScopeSource } from './subgraphScope';
 
 /**
  * Per-node annotations produced by the AI Workflow Graph generation. All fields
@@ -123,6 +128,11 @@ export class GraphProvider {
   private graphReadyPromise: Promise<void> | undefined;
   private intelController: AbortController | undefined;
   private _providerFactory?: (id: string, ch: vscode.OutputChannel) => GraphIntelligenceProvider;
+  /**
+   * Subgraph / "Only visualize folder" scope. The cached graph stays the FULL graph
+   * (the cache file is unscoped); only what is posted to the webview is filtered.
+   */
+  private scope: Scope = NO_SCOPE;
   /** True while a background analysis (first full pass or cache reconcile) is still filling the graph. */
   private backgroundParsing = false;
   private readonly analysisIdleListeners = new Set<() => void>();
@@ -269,6 +279,7 @@ export class GraphProvider {
       this.graphReadyResolve = undefined;
       this.intelController?.abort();
       this.currentSavedGraphPath = undefined;
+      this.scope = NO_SCOPE;
     });
 
     this.panel.webview.onDidReceiveMessage(async (message) => {
@@ -382,10 +393,14 @@ export class GraphProvider {
         this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
       } else if (message.type === 'expand-folder') {
         // Lazy per-folder parse: analyze just this folder's files on demand.
-        this.parseSubset(workspaceRoot, message.files ?? [], message.folderPath);
+        this.parseSubset(workspaceRoot, this.inScope(message.files ?? []), message.folderPath);
       } else if (message.type === 'parse-file') {
         const filePath: string = message.filePath ?? '';
-        this.parseSubset(workspaceRoot, filePath ? [filePath] : [], path.dirname(filePath));
+        this.parseSubset(workspaceRoot, this.inScope(filePath ? [filePath] : []), path.dirname(filePath));
+      } else if (message.type === 'subgraph-include' || message.type === 'subgraph-exclude') {
+        this.editScope(message.type === 'subgraph-include', String(message.path ?? ''));
+      } else if (message.type === 'subgraph-exit') {
+        this.exitScope();
       } else if (message.type === 'cancel-analysis') {
         this.analyzerRunner.killAll();
         this.setBackgroundParsing(false);
@@ -405,9 +420,9 @@ export class GraphProvider {
 
         if (isSaveAs) {
           const currentClean = this.getCleanTitle();
-          const defaultName = currentClean && currentClean !== 'CoGraph'
-            ? currentClean
-            : 'My Layout';
+          const defaultName = this.scope.source === 'folder'
+            ? path.basename(this.scope.spec.include[0] ?? '') || 'Subgraph'
+            : currentClean && currentClean !== 'CoGraph' ? currentClean : 'My Layout';
           const input = await vscode.window.showInputBox({
             prompt: 'Name this graph layout',
             value: defaultName,
@@ -435,6 +450,8 @@ export class GraphProvider {
           description: '',
           savedAt: new Date().toISOString(),
           ...message.payload,
+          // The host's scope is authoritative; a webview-provided copy is overwritten, never merged.
+          ...(hasScope(this.scope) ? { subgraph: this.scope.spec } : {}),
         };
         try {
           fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), 'utf8');
@@ -445,6 +462,11 @@ export class GraphProvider {
         this.currentSavedGraphPath = targetPath;
         this.isDirty = false;
         this.setPanelTitle(name);
+        if (hasScope(this.scope)) {
+          // A saved scope is a subgraph now; re-send so the panel's section header shows the name.
+          this.scope = { ...this.scope, source: 'subgraph', name };
+          this.postSubgraph();
+        }
         this.panel?.webview.postMessage({ type: 'clear-dirty' });
         this._sidebar?.refresh();
         this._sidebar?.setCurrentGraph({ name, file: targetPath });
@@ -600,7 +622,12 @@ export class GraphProvider {
 
   /** Load a previously saved graph layout into the open (or freshly opened) panel. */
   async loadGraph(data: unknown, filePath?: string): Promise<void> {
+    const spec = readSubgraphField(data);
+    const loadedName = (data as { name?: string })?.name ?? null;
+    const scope: Scope = spec ? { spec, source: 'subgraph', name: loadedName } : NO_SCOPE;
     if (!this.panel) {
+      // Set before show(): the first messages (subgraph, structure, graph) are then already scoped.
+      this.scope = scope;
       this.show();
       // Wait for the panel to finish loading the graph before applying positions
       await new Promise<void>(resolve => {
@@ -615,6 +642,7 @@ export class GraphProvider {
       });
     } else {
       this.panel.reveal();
+      this.setScope(scope); // a plain layout after a subgraph shows the whole project again
     }
     // Loading a saved graph resets the dirty state
     this.isDirty = false;
@@ -775,11 +803,7 @@ export class GraphProvider {
     if (!this.panel || this.cachedNodes.length === 0) { return; }
     this.gitService.applyGitStatuses(this.cachedNodes, workspaceRoot);
     this.rememberSentGitStatus(this.cachedNodes);
-    this.panel.webview.postMessage({
-      type: 'git-update',
-      nodes: this.cachedNodes.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
-      fileGitStatus: this.gitService.fileStatuses,
-    });
+    this.panel.webview.postMessage(this.scopedGitUpdate(this.cachedNodes));
   }
 
   /**
@@ -798,11 +822,7 @@ export class GraphProvider {
     const changed = nodes.filter(n => this.sentGitStatus.get(n.id) !== gitStatusKey(n));
     this.rememberSentGitStatus(changed);
     if (changed.length === 0 && !this.gitFileStatusChanged()) { return; }
-    this.panel.webview.postMessage({
-      type: 'git-update',
-      nodes: changed.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
-      fileGitStatus: this.gitService.fileStatuses,
-    });
+    this.panel.webview.postMessage(this.scopedGitUpdate(changed));
   }
 
   private rememberSentGitStatus(nodes: GraphNode[]): void {
@@ -856,7 +876,7 @@ export class GraphProvider {
 
     if (isReanalysis || this.skeletonActive) {
       // Webview already up (reanalysis) or showing the skeleton — deliver data without resetting the view.
-      this.panel.webview.postMessage({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: true });
+      this.panel.webview.postMessage(this.scoped({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: true }));
       if (this.skeletonActive) {
         // Background full pass finished — hide the Stop button / progress indicator.
         this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
@@ -877,7 +897,9 @@ export class GraphProvider {
     this.readyGate ??= new WebviewReadyGate((m) => { void this.panel?.webview.postMessage(m); });
     panel.webview.html = getWebviewHtml(panel.webview, this.context.extensionUri);
     this.readyGate.arm();
-    for (const m of messages) { this.readyGate.post(m); }
+    // `subgraph` goes first so the webview's first frame build is already scoped (no flash of the whole project).
+    this.readyGate.post(this.subgraphMessage(this.workspaceRoot()));
+    for (const m of messages) { this.readyGate.post(this.scoped(m)); }
   }
 
   /** Map analyzer run metadata onto the actionable empty-state's display info. */
@@ -912,13 +934,13 @@ export class GraphProvider {
       this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
       this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
       if (this.currentStructure) { scheduleCacheWrite(workspaceRoot, this.cachedGraph, this.currentStructure); }
-      this.panel?.webview.postMessage({
+      this.panel?.webview.postMessage(this.scoped({
         type: 'graph-patch',
         patch,
         parsedFolder: folderTag,
         replacedFiles: files,
         fileGitStatus: this.gitService.fileStatuses,
-      });
+      }));
     } catch (err: unknown) {
       this.outputChannel.appendLine(`Subset parse failed for ${folderTag}: ${(err as Error).message}`);
       this.panel?.webview.postMessage({ type: 'analysis-state', parsingFolder: folderTag, error: (err as Error).message });
@@ -962,7 +984,9 @@ export class GraphProvider {
     this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
     this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
     if (structure) { scheduleCacheWrite(workspaceRoot, this.cachedGraph, structure); }
-    this.panel?.webview.postMessage({ type: 'graph-patch', patch, replacedFiles: files, fileGitStatus: this.gitService.fileStatuses });
+    // Files outside the scope are still parsed so the (unscoped) cache stays right; the post is scoped.
+    const msg = this.scoped({ type: 'graph-patch', patch, replacedFiles: files, fileGitStatus: this.gitService.fileStatuses });
+    if (msg.patch.nodes.length || msg.replacedFiles.length) { this.panel?.webview.postMessage(msg); }
     // Changed files only turn their summaries "outdated"; nothing is re-sent to the AI here.
     this.annotations.refresh();
   }
@@ -1184,6 +1208,136 @@ export class GraphProvider {
   /** Re-read annotations and the AI-enabled flag and push both to the webview and sidebar. */
   refreshAnnotations(): void {
     this.annotations.refresh();
+  }
+
+  // ── Subgraph scope ────────────────────────────────────────────────────────
+
+  getScope(): Scope { return this.scope; }
+
+  /** Open (or re-scope) the panel to `spec`: the command's "Only visualize folder" path. */
+  showScoped(spec: ScopeSpec, source: ScopeSource = 'folder', name: string | null = null): void {
+    const scope: Scope = { spec, source, name };
+    if (!this.panel) {
+      this.scope = scope;
+      this.show();
+    } else {
+      this.panel.reveal();
+      this.setScope(scope);
+    }
+    this.currentSavedGraphPath = undefined;
+    this.isDirty = false;
+    this.setPanelTitle(this.scopeTitle());
+  }
+
+  /**
+   * Change the scope of the open panel without reloading it: post `subgraph`, then
+   * the delta as graph-patches (prune what left; cached nodes for what entered;
+   * a lazy parse for files the cache does not have yet).
+   */
+  setScope(next: Scope, parseTag?: string): void {
+    const prev = this.scope;
+    this.scope = next;
+    const root = this.workspaceRoot();
+    if (!this.panel || !root) { return; }
+    this.postSubgraph();
+    const tree = this.currentStructure;
+    const graph = this.cachedGraph;
+    if (!tree || !graph) { return; }
+    const before = new Set(filesInScope(prev.spec, tree, root));
+    const after = new Set(filesInScope(next.spec, tree, root));
+    const removed = [...before].filter(f => !after.has(f));
+    const added = [...after].filter(f => !before.has(f));
+    if (removed.length) {
+      // Not through scoped(): the files to prune are, by definition, outside the new scope.
+      this.panel.webview.postMessage({
+        type: 'graph-patch', patch: { nodes: [], edges: [] }, replacedFiles: removed,
+        fileGitStatus: filterFileStatuses(this.gitService.fileStatuses, next.spec, root),
+      });
+    }
+    if (!added.length) { return; }
+    const known = new Set([...(graph.files ?? []), ...graph.nodes.map(n => n.file).filter((f): f is string => !!f)]);
+    const cached = added.filter(f => known.has(f));
+    const missing = added.filter(f => !known.has(f));
+    if (cached.length) {
+      this.panel.webview.postMessage(this.scoped({
+        type: 'graph-patch', patch: graphForFiles(graph, cached), replacedFiles: cached, fileGitStatus: this.gitService.fileStatuses,
+      }));
+    }
+    if (missing.length) {
+      // The tag is the absolute folder the webview keys its pending-spinner row by.
+      void this.parseSubset(root, missing, parseTag ?? path.dirname(missing[0]));
+    }
+  }
+
+  /** `subgraph-include` / `subgraph-exclude` from the webview: edit the scope in memory, mark dirty. */
+  private editScope(include: boolean, relFolder: string): void {
+    if (!relFolder || !hasScope(this.scope)) { return; }
+    const spec = include ? withFolderIncluded(this.scope.spec, relFolder) : withFolderExcluded(this.scope.spec, relFolder);
+    if (spec.include.length === 0) { this.exitScope(); return; } // nothing left in the view
+    this.setScope({ ...this.scope, spec }, toAbs(this.workspaceRoot(), relFolder));
+    this.setDirty(true);
+  }
+
+  /** `subgraph-exit`: back to the whole project; like New Graph, without a reload. */
+  private exitScope(): void {
+    if (!hasScope(this.scope)) { return; }
+    this.setScope(NO_SCOPE);
+    this.currentSavedGraphPath = undefined;
+    this.isDirty = false;
+    this.setPanelTitle('CoGraph');
+    this._sidebar?.setCurrentGraph(null);
+  }
+
+  private scopeTitle(): string {
+    if (this.scope.name) { return this.scope.name; }
+    if (this.scope.source === 'folder') { return `${path.basename(this.scope.spec.include[0] ?? '') || 'root'} · scoped`; }
+    return 'CoGraph';
+  }
+
+  private workspaceRoot(): string {
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+  }
+
+  private subgraphMessage(root: string) {
+    return buildSubgraphMessage(this.scope, root);
+  }
+
+  private postSubgraph(): void {
+    this.panel?.webview.postMessage(this.subgraphMessage(this.workspaceRoot()));
+  }
+
+  /** Absolute file paths the current scope keeps. */
+  private inScope(files: string[]): string[] {
+    return filterFiles(files, this.scope.spec, this.workspaceRoot());
+  }
+
+  /** Reduce a `graph` / `graph-patch` message to the scope; identity when there is none. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private scoped<T extends Record<string, any>>(m: T): T {
+    if (!hasScope(this.scope)) { return m; }
+    const root = this.workspaceRoot();
+    const spec = this.scope.spec;
+    const out: Record<string, unknown> = { ...m };
+    if (m.type === 'graph' && m.data) { out.data = filterGraph(m.data, spec, root); }
+    if (m.type === 'graph-patch') {
+      if (m.patch) { out.patch = filterGraph(m.patch, spec, root); }
+      if (Array.isArray(m.replacedFiles)) { out.replacedFiles = filterFiles(m.replacedFiles, spec, root); }
+    }
+    if (m.fileGitStatus) { out.fileGitStatus = filterFileStatuses(m.fileGitStatus, spec, root); }
+    return out as T;
+  }
+
+  private scopedGitUpdate(nodes: GraphNode[]) {
+    const root = this.workspaceRoot();
+    const spec = this.scope.spec;
+    const kept = hasScope(this.scope)
+      ? nodes.filter(n => !n.file || filterFiles([n.file], spec, root).length > 0)
+      : nodes;
+    return {
+      type: 'git-update',
+      nodes: kept.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
+      fileGitStatus: filterFileStatuses(this.gitService.fileStatuses, spec, root),
+    };
   }
 
   abortIntelligence(): void {

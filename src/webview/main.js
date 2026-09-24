@@ -170,10 +170,29 @@ function setLayoutEngine(engine, opts = {}) {
 updateLayoutButtons(); // boot config may differ from the HTML's active buttons
 
 // ── Filters ───────────────────────────────────────────────────────────────────
+// Memoised when visibility.js is loaded (perf's branch): tick paths call this
+// 1-2× per simulation tick, so the O(N) scan only re-runs when an input
+// actually changed. EVERY filter must appear in the memo inputs — a missing
+// one makes the memo serve a stale set after that filter changes (this bit
+// the R2a file filters on the integrated branch).
+const __visMemo = (typeof createVisibleMemo === 'function') ? createVisibleMemo() : null;
+let __searchEl;
 function getVisibleNodeIds() {
-  if (typeof perfCount === 'function') { perfCount('getVisibleNodeIds'); }
-  const query = document.getElementById('search')?.value.toLowerCase() ?? '';
+  if (__searchEl === undefined) { __searchEl = document.getElementById('search'); }
+  const query = __searchEl?.value.toLowerCase() ?? '';
   const tlPredicate = state.timeline?.filterPredicate;
+  if (!__visMemo) { return computeVisibleNodeIds(query, tlPredicate); }
+  return __visMemo.get({
+    query, volatile: !!tlPredicate,
+    showLibraries: settings.showLibraries, existingFilesOnly: settings.existingFilesOnly,
+    showOrphans: settings.showOrphans, nodes: state.currentNodes, connected: state.connectedNodeIds,
+    onlyShowFolder: state.onlyShowFolder, hiddenFolders: state.hiddenFolders,
+    onlyShowFile: state.onlyShowFile, hiddenFiles: state.hiddenFiles, // R2a
+  }, () => computeVisibleNodeIds(query, tlPredicate));
+}
+
+function computeVisibleNodeIds(query, tlPredicate) {
+  if (typeof perfCount === 'function') { perfCount('getVisibleNodeIds'); }
   const visible = new Set();
   state.currentNodes.forEach(n => {
     if (n.isLibrary) {

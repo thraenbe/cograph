@@ -627,6 +627,10 @@ window.addEventListener('message', (event) => {
     if (typeof renderStructureSkeleton === 'function') {
       renderStructureSkeleton(message.tree, message.autoEngage);
     }
+    // A scoped boot delivers `subgraph` BEFORE `structure` (ready-gate
+    // order), so the Subgraph rows could not be derived then — refresh the
+    // Filters section now that the tree exists.
+    if (state.scope && typeof updateFolderPanel === 'function') { updateFolderPanel(); }
     return;
   }
   if (message.type === 'graph-patch') {

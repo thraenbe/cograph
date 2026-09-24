@@ -236,7 +236,7 @@ function renderFrameLayout(allLinks, visibleSet) {
     .on('end.fitguard', () => {
       state._frameInteracting = false;
       linkG.classed('bundles-hidden', false);
-      updateCrossLinks();
+      onFrameMoveSettled();
     })
     // Drop: resolve overlaps INCREMENTALLY — a full re-render would re-shelve
     // the whole parent (uxtest measured 756 foreign nodes moving 1.5k px for a
@@ -406,7 +406,7 @@ function resolveDropOverlaps(dropped) {
     });
     translateFrameSubtree(s2, target.x - s2.local.x, target.y - s2.local.y);
   }
-  if (typeof linkG !== 'undefined') { updateCrossLinks(); } // layer absent in unit tests
+  onFrameMoveSettled();
   if (typeof window !== 'undefined') { window.markDirty?.(); }
 }
 
@@ -772,6 +772,7 @@ function onFramesZoom() {
 
 function applyFrameCulling() {
   if (!state.frames || !usesFrames() || !__cull.dom || typeof viewportRect !== 'function') { return; }
+  if (typeof svg === 'undefined' || typeof d3 === 'undefined') { return; }   // DOM-less unit tests
   const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
   if (__cull.frameSelFor !== __fr.frameSel) {       // re-render: fresh, attached, full-detail <g>s
     __cull.frameSelFor = __fr.frameSel;
@@ -810,6 +811,17 @@ function applyFrameCulling() {
   if (bundlesChanged) { updateCrossBundles(); }
   if (shown.length && __fr.sched) { __fr.sched.wake(); }
   if (__perfT0) { perfEnd('cull', __perfT0); }
+}
+
+/**
+ * A frame move settled (title-bar drag released, drop overlaps resolved):
+ * re-route the bundles and re-run culling — a detached sibling pushed into
+ * the viewport by the drop, or a child carried on-screen by its parent, must
+ * be re-attached now, not at the next zoom.
+ */
+function onFrameMoveSettled() {
+  if (typeof linkG !== 'undefined') { updateCrossLinks(); }   // layer absent in unit tests
+  applyFrameCulling();
 }
 
 /** Full-detail elements of the frames currently in the viewport. */
@@ -1275,7 +1287,7 @@ if (typeof module !== 'undefined') {
     tickFramePositions, tickFrameOfNode, onFramesZoom, applyFrameCulling, restoreFrameDom, borrowHoverLabel, teardownFrames,
     resetFrames, updateCrossLinks, updateCrossBundles, updateCrossHover, syncFrameSims, applySimResult, applySimData,
     applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit, stampLinkRefs,
-    resolveDropOverlaps, translateFrameSubtree,
+    resolveDropOverlaps, translateFrameSubtree, onFrameMoveSettled,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots, sameSlotGeometry,
     __frState: __fr,   // test hook

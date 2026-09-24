@@ -884,7 +884,19 @@ function renderGlobalLayout(allLinks, visibleSet) {
   const libNodeData = state.currentNodes.filter(n => n.isLibrary);
   state.svgLibNodes = renderLibraryNodes(libNodeData, visibleSet);
   state.svgLibLabels = renderLibraryLabels(libNodeData, visibleSet);
-  startSimulation(allLinks);
+  // Structural scope (round 3): the link force must not tug visible nodes
+  // toward hidden endpoints. Display filtering (visibleSet) is separate —
+  // search/timeline never reshape the simulation.
+  let simLinks = allLinks;
+  if (typeof buildScope === 'function') {
+    const sc = buildScope(state);
+    if (scopeActive(sc)) {
+      const byId = new Map(state.currentNodes.map(n => [n.id, n]));
+      const ok = (x) => { const n = (x && typeof x === 'object') ? x : byId.get(x); return !n || memberInScope(n, sc); };
+      simLinks = allLinks.filter(l => ok(l.source) && ok(l.target));
+    }
+  }
+  startSimulation(simLinks);
   if (typeof isDrilldown === 'function' && isDrilldown()) {
     // File (drill-down) mode: boxes around each opened folder's contents.
     // Boxes/circles/forces are the drill-down's structure, not an overlay —

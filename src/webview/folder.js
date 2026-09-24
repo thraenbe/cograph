@@ -36,14 +36,20 @@ const EMPTY_FILE_EXTS = new Set([
 
 function groupByFile(nodes) {
   const map = new Map();
+  // Structural scope (round 3): a hidden file gets no circle at all.
+  const sc = (typeof buildScope === 'function' && typeof state !== 'undefined')
+    ? buildScope(state) : null;
+  const scoped = sc && scopeActive(sc);
   nodes.forEach(n => {
     if (n.isLibrary || !n.file) return;
     if (n.isCluster || n.isSynthetic) return;  // B2
+    if (scoped && !memberInScope(n, sc)) return;
     if (!map.has(n.file)) map.set(n.file, []);
     map.get(n.file).push(n);
   });
   if (settings.showEmptyFiles && state.allScannedFiles?.length) {
     state.allScannedFiles.forEach(fp => {
+      if (scoped && !memberInScope({ file: fp }, sc)) return;
       const dot = fp.lastIndexOf('.');
       const ext = dot >= 0 ? fp.slice(dot) : '';
       if (!map.has(fp) && EMPTY_FILE_EXTS.has(ext)) map.set(fp, []);

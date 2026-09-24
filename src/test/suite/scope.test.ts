@@ -135,6 +135,61 @@ suite('scope — frames integration (hide removes the frame/slot)', () => {
   });
 });
 
+suite('scope — Global engine (W1b)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const dd = require('../../../src/webview/drilldown.js');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const folder = require('../../../src/webview/folder.js');
+
+  const g = global as any;
+  let saved: Record<string, any>;
+  const GLOBALS = ['state', 'settings', 'buildScope', 'scopeActive', 'frameFolderVisible', 'memberInScope'];
+  setup(() => {
+    saved = {};
+    for (const k of GLOBALS) { saved[k] = g[k]; }
+    g.buildScope = sc.buildScope; g.scopeActive = sc.scopeActive;
+    g.frameFolderVisible = sc.frameFolderVisible; g.memberInScope = sc.memberInScope;
+    g.settings = { showEmptyFiles: false };
+    g.state = {
+      structureTree: { root: '/p', folders: {
+        '/p': { depth: 0, parent: null },
+        '/p/a': { depth: 1, parent: '/p' },
+        '/p/c': { depth: 1, parent: '/p' },
+      } },
+      expandedFolders: new Set(['/p/a', '/p/c']),
+      currentNodes: [
+        { id: '1', file: '/p/a/y.ts' }, { id: '2', file: '/p/a/y2.ts' },
+        { id: '3', file: '/p/c/w.ts' },
+      ],
+      hiddenFolders: new Set(), onlyShowFolder: null,
+      hiddenFiles: new Set(), onlyShowFile: null, scope: null,
+    };
+  });
+  teardown(() => { for (const k of GLOBALS) { g[k] = saved[k]; } });
+
+  test('a hidden folder gets no drill-down box; members are scope-filtered', () => {
+    g.state.hiddenFolders.add('/p/c');
+    g.state.hiddenFiles.add('/p/a/y2.ts');
+    const boxes = dd.buildDrilldownBoxData();
+    assert.deepStrictEqual(boxes.map((b: any) => b.folderPath), ['/p/a']);
+    assert.deepStrictEqual(boxes[0].members.map((m: any) => m.id), ['1'],
+      'the hidden file is not part of the box extent');
+  });
+
+  test('a hidden file gets no file circle', () => {
+    g.state.hiddenFiles.add('/p/a/y2.ts');
+    const map = folder.groupByFile(g.state.currentNodes);
+    assert.ok(!map.has('/p/a/y2.ts'));
+    assert.ok(map.has('/p/a/y.ts') && map.has('/p/c/w.ts'));
+  });
+
+  test('hiding a folder removes its files’ circles too', () => {
+    g.state.hiddenFolders.add('/p/a');
+    const map = folder.groupByFile(g.state.currentNodes);
+    assert.deepStrictEqual([...map.keys()], ['/p/c/w.ts']);
+  });
+});
+
 suite('scope — wiring contracts', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const fsMod = require('fs');

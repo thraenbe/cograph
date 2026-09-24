@@ -44,13 +44,18 @@ function buildDrilldownBoxData() {
   const tree = state.structureTree;
   if (!tree || !tree.folders) { return []; }
   const boxes = [];
+  // Structural scope (round 3): out-of-scope folders get no box, and a box
+  // sizes only around its in-scope members — same predicate as the frames.
+  const sc = (typeof buildScope === 'function') ? buildScope(state) : null;
+  const scoped = sc && scopeActive(sc);
   for (const folderPath of state.expandedFolders) {
     if (folderPath === tree.root) { continue; } // no box around the whole project root
     const info = tree.folders[folderPath];
     if (!info) { continue; } // an expanded file path, not a folder
+    if (scoped && !frameFolderVisible(folderPath, sc)) { continue; }
     const members = state.currentNodes.filter(n => {
       const p = ddNodePath(n);
-      return p && pathUnder(p, folderPath);
+      return p && pathUnder(p, folderPath) && (!scoped || memberInScope(n, sc));
     });
     if (!members.length) { continue; }
     boxes.push({

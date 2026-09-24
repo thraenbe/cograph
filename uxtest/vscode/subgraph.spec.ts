@@ -112,6 +112,26 @@ for (const repo of repos) {
         if (missing.length) { throw new StepFinding({ rule: 'scope-rows-incomplete', severity: 'medium', ref: 'round3 W4', message: `excluded folders without a row: ${missing.join(', ')}` }); }
       }, { metrics: false, settle: false });
 
+      await ux.step('Visualize on an excluded folder → its frames come in, panel marked dirty', async () => {
+        const f = await graphFrame();
+        if (!f) { throw new Error('no webview'); }
+        const others = tops.slice(1).map(t => t.name);
+        if (!others.length) { throw new SkipStep('nothing excluded'); }
+        const btn = f.locator(SEL.subgraphVisualize.css).first();
+        if (await within(btn.count(), 3000, 0) === 0) { throw new SkipStep(`no ${SEL.subgraphVisualize.css}`); }
+        const rowText = (await within(btn.locator('xpath=ancestor::*[contains(@class,"subgraph-row")]').first().innerText(), 2000, '')).replace(/\s+/g, ' ').trim();
+        await btn.click();
+        await page.waitForTimeout(4000); // patch lands (cached) or a lazy parse for uncached files
+        const bg = await frameBackground(f);
+        if (bg) { await page.mouse.move(bg.x, bg.y, { steps: 8 }); await page.mouse.dblclick(bg.x, bg.y); await page.waitForTimeout(800); }
+        const rendered = await renderedTops(f, workspace);
+        const entered = others.find(o => rowText.includes(o)) ?? null;
+        const t = await activeTitle();
+        ux.steps[ux.steps.length - 1].note = `clicked Visualize on "${rowText}" (folder ${entered ?? '?'}); rendered now: ${rendered.join(', ')}; title "${t}"`;
+        if (entered && !rendered.includes(entered)) { throw new StepFinding({ rule: 'scope-include-not-rendered', severity: 'high', ref: 'round3 W4', message: `after Visualize ${entered} its frame is not rendered` }); }
+        if (!t.startsWith('●')) { throw new StepFinding({ rule: 'scope-include-not-dirty', severity: 'low', ref: 'round3 host', message: `include did not mark the panel dirty (title "${t}")` }); }
+      });
+
       await ux.step('Exit subgraph → title back to "CoGraph", other folders rendered', async () => {
         const f = await graphFrame();
         if (!f) { throw new Error('no webview'); }

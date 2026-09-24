@@ -81,20 +81,23 @@ suite('forcesPanel — updateForcesPanel()', () => {
     assert.ok(shown('row-link-force'));
     assert.ok(shown('row-file-cluster'));
     assert.ok(!shown('row-center-force'), 'no Center in the shelf');
-    assert.ok(!shown('row-folder-repel'));
-    assert.ok(!shown('row-file-repel'));
-    assert.ok(shown('row-slot-pad'), 'slot padding is a shelf force');
     assert.ok(!shown('row-repel-range'), 'Repel range is Global-only');
+    // D2/D3: retired sliders are out of every engine's row set.
+    for (const id of ['row-folder-repel', 'row-file-repel', 'row-link-distance', 'row-slot-pad']) {
+      assert.ok(!fp.FP_BASIC.shelf.includes(id) && !fp.FP_BASIC.global.includes(id)
+        && !fp.FP_ADVANCED.shelf.includes(id) && !fp.FP_ADVANCED.global.includes(id),
+      `${id} retired from the Forces box`);
+    }
     assert.strictEqual(
       dom.window.document.getElementById('label-file-cluster')!.textContent,
       'Keep near file',
     );
   });
 
-  test('global+dynamic: all six basic sliders, no slot padding', () => {
+  test('global+dynamic: the four basic sliders, no retired rows', () => {
     fp.updateForcesPanel('global', 'dynamic');
     for (const id of fp.FP_BASIC.global) { assert.ok(shown(id), `${id} shown`); }
-    assert.ok(!shown('row-slot-pad'), 'slot padding is shelf-only');
+    assert.strictEqual(fp.FP_BASIC.global.length, 4, 'center/repel/link/file-cluster only (D2)');
     assert.ok(shown('row-repel-range'), 'Repel range shows for Global');
     assert.ok(shown('btn-show-more-forces'));
     assert.strictEqual(
@@ -124,6 +127,5 @@ suite('forcesPanel — updateForcesPanel()', () => {
   test('unknown engine falls back to the global row set', () => {
     fp.updateForcesPanel('martian', 'dynamic');
     assert.ok(shown('row-center-force'));
-    assert.ok(!shown('row-slot-pad'));
   });
 });

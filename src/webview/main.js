@@ -38,14 +38,14 @@ const settings = {
   nodeSize: 2.5,
   textSize: 1.5,
   linkThickness: 4,
-  centerForce: 0.025,
-  repelForce: 250,
+  centerForce: 0.08,
+  repelForce: 450,
   linkForce: 1,
-  fileClusterForce: 0.2,
+  fileClusterForce: 0.36,
   folderRepelForce: 0.25,
   fileRepelForce: 0.25,
   linkDistance: 40,   // shelf sims run this at 0.75x (localSim.lsLinkDistance)
-  repelRange: Infinity, // Global charge distanceMax; Infinity = unlimited (classic; shelf uses its fixed 140)
+  repelRange: 850, // Global charge distanceMax in px; slider max = unlimited (shelf uses its fixed 140)
   velocityDecay: 0.3,
   collidePad: 1.5,
   slotPad: 0,

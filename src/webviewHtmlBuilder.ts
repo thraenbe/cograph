@@ -350,35 +350,23 @@ export function getWebviewHtml(
       <div class="tl-section-label">Forces</div>
       <p id="forces-hint" class="forces-hint" style="display:none">Static layout &#8212; forces are off. Switch Motion to Dynamic.</p>
       <div class="slider-row" id="row-center-force">
-        <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">0.025</span></div>
-        <input type="range" id="slider-center-force" min="0" max="1" step="0.005" value="0.025" />
+        <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">0.08</span></div>
+        <input type="range" id="slider-center-force" min="0" max="1" step="0.005" value="0.08" />
       </div>
       <div class="slider-row" id="row-repel-force">
-        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">250</span></div>
-        <input type="range" id="slider-repel-force" min="0" max="1000" step="1" value="250" />
+        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">450</span></div>
+        <input type="range" id="slider-repel-force" min="0" max="1000" step="1" value="450" />
       </div>
       <div class="slider-row" id="row-link-force">
         <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">1</span></div>
         <input type="range" id="slider-link-force" min="0" max="10" step="0.1" value="1" />
       </div>
       <div class="slider-row" id="row-file-cluster">
-        <div class="slider-header"><label for="slider-file-cluster" id="label-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.2</span></div>
-        <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.2" />
-      </div>
-      <div class="slider-row" id="row-folder-repel">
-        <div class="slider-header"><label for="slider-folder-repel">Folder Repel Force</label><span id="val-folder-repel">0.25</span></div>
-        <input type="range" id="slider-folder-repel" min="0" max="10" step="0.01" value="0.25" />
-      </div>
-      <div class="slider-row" id="row-file-repel">
-        <div class="slider-header"><label for="slider-file-repel">File Repel Force</label><span id="val-file-repel">0.25</span></div>
-        <input type="range" id="slider-file-repel" min="0" max="10" step="0.01" value="0.25" />
+        <div class="slider-header"><label for="slider-file-cluster" id="label-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.36</span></div>
+        <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.36" />
       </div>
       <button id="btn-show-more-forces" class="tl-link-btn" title="Show advanced force controls">show more forces &#9662;</button>
       <div id="forces-advanced">
-        <div class="slider-row" id="row-link-distance">
-          <div class="slider-header"><label for="slider-link-distance">Link Distance</label><span id="val-link-distance">40</span></div>
-          <input type="range" id="slider-link-distance" min="10" max="120" step="1" value="40" />
-        </div>
         <div class="slider-row" id="row-velocity-decay">
           <div class="slider-header"><label for="slider-velocity-decay">Damping</label><span id="val-velocity-decay">0.3</span></div>
           <input type="range" id="slider-velocity-decay" min="0.05" max="0.9" step="0.01" value="0.3" />
@@ -388,12 +376,8 @@ export function getWebviewHtml(
           <input type="range" id="slider-collide-pad" min="0" max="10" step="0.5" value="1.5" />
         </div>
         <div class="slider-row" id="row-repel-range">
-          <div class="slider-header"><label for="slider-repel-range">Repel Range</label><span id="val-repel-range">&#8734;</span></div>
-          <input type="range" id="slider-repel-range" min="100" max="2000" step="25" value="2000" />
-        </div>
-        <div class="slider-row" id="row-slot-pad">
-          <div class="slider-header"><label for="slider-slot-pad">Slot Padding</label><span id="val-slot-pad">0</span></div>
-          <input type="range" id="slider-slot-pad" min="0" max="20" step="1" value="0" />
+          <div class="slider-header"><label for="slider-repel-range">Repel Range</label><span id="val-repel-range">850</span></div>
+          <input type="range" id="slider-repel-range" min="100" max="2000" step="25" value="850" />
         </div>
       </div>
     </div>

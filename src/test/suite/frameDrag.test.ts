@@ -76,7 +76,8 @@ suite('frame drag wiring (R1, source contracts)', () => {
     assert.ok(body.includes("classed('bundles-hidden')"),
       'onMoved must skip updateCrossLinks during a frame drag');
     const end = frameRenderSrc.slice(frameRenderSrc.indexOf("on('end.fitguard'"), frameRenderSrc.indexOf("on('end.repack'"));
-    assert.ok(end.includes('updateCrossLinks()'), 'release re-routes bundles once');
+    // develop: release goes through onFrameMoveSettled() (= updateCrossLinks + applyFrameCulling)
+    assert.ok(end.includes('updateCrossLinks()') || end.includes('onFrameMoveSettled()'), 'release re-routes bundles once');
   });
 
   test('drop re-packs siblings; bundles hidden while dragging', () => {

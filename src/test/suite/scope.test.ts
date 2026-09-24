@@ -366,3 +366,70 @@ suite('scope — links leave the render data with their hidden endpoint (F21)', 
       'the simulation gets the same scoped list');
   });
 });
+
+suite('scope — counts and refit follow the scope (round 3 polish)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fc = require('../../../src/webview/fileClusters.js');
+  const g = global as any;
+  const KEYS = ['state', 'buildScope', 'scopeActive', 'memberInScope'];
+  let saved: Record<string, any>;
+  setup(() => {
+    saved = {};
+    for (const k of KEYS) { saved[k] = g[k]; }
+    g.buildScope = sc.buildScope; g.scopeActive = sc.scopeActive; g.memberInScope = sc.memberInScope;
+    g.state = { hiddenFolders: new Set(), onlyShowFolder: null,
+      hiddenFiles: new Set(), onlyShowFile: null,
+      scope: { name: 's', root: '/r', include: new Set(['/r/src']), exclude: new Set() } };
+  });
+  teardown(() => { for (const k of KEYS) { g[k] = saved[k]; } });
+
+  const tree = {
+    root: '/r',
+    folders: {
+      '/r': { path: '/r', parent: null, childFolders: ['/r/docs', '/r/src'], files: [], fileCount: 5 },
+      '/r/src': { path: '/r/src', parent: '/r', childFolders: [], files: ['/r/src/a.ts', '/r/src/b.ts', '/r/src/c.ts'], fileCount: 3 },
+      '/r/docs': { path: '/r/docs', parent: '/r', childFolders: [], files: ['/r/docs/x.md', '/r/docs/y.md'], fileCount: 2 },
+    },
+    files: [
+      { path: '/r/src/a.ts', language: 'typescript' }, { path: '/r/src/b.ts', language: 'typescript' },
+      { path: '/r/src/c.ts', language: 'typescript' },
+      { path: '/r/docs/x.md' }, { path: '/r/docs/y.md' },
+    ],
+  };
+
+  test('the root glyph shows the SCOPED file count, not the whole project', () => {
+    const els = fc.buildSkeletonElements(tree, new Set(), new Set(), { nodes: [] }, new Set());
+    const root = els.map((e: any) => e.data).find((d: any) => d.id === 'folder::/r');
+    assert.ok(root, 'root glyph emitted');
+    assert.strictEqual(root._sub, '3 files', 'include [src] → only src files count');
+    assert.strictEqual(root.memberCount, 3);
+  });
+
+  test('without a scope the precomputed tree count is kept', () => {
+    g.state.scope = null;
+    const els = fc.buildSkeletonElements(tree, new Set(), new Set(), { nodes: [] }, new Set());
+    const root = els.map((e: any) => e.data).find((d: any) => d.id === 'folder::/r');
+    assert.strictEqual(root._sub, '5 files');
+  });
+
+  test('hidden files reduce the collapsed count too', () => {
+    g.state.scope = null;
+    g.state.hiddenFiles = new Set(['/r/src/a.ts']);
+    const els = fc.buildSkeletonElements(tree, new Set(), new Set(), { nodes: [] }, new Set());
+    const root = els.map((e: any) => e.data).find((d: any) => d.id === 'folder::/r');
+    assert.strictEqual(root._sub, '4 files');
+  });
+
+  test('a scope change re-fits once after the glide unless the user owns the view', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/frameRender.js'), 'utf8');
+    const block = src.slice(src.indexOf('__fr.scopeSig = scopeSig;'), src.indexOf('const members = collectMembers'));
+    assert.ok(block.includes('reshelve && !state.userZoomed && !state._frameInteracting'),
+      'refit only on a scope change with an automatic viewport');
+    assert.ok(block.includes('fitToView()'), 'one fit after the re-pack glide');
+    assert.ok(/setTimeout\([\s\S]*?23\d\)/.test(block), 'after the 200ms glide, not during');
+  });
+});

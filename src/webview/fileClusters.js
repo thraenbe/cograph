@@ -190,8 +190,10 @@ function folderLanguages(tree) {
 }
 
 // ── Element builders ──────────────────────────────────────────────────────────
-function folderElement(folderPath, info, isRoot, languageBreakdown) {
-  const count = info.fileCount;
+function folderElement(folderPath, info, isRoot, languageBreakdown, countOverride) {
+  // A scoped view (hide/only/subgraph) shows SCOPED totals on the glyph —
+  // the root glyph of a 1-folder subgraph must not claim the whole project.
+  const count = countOverride ?? info.fileCount;
   return {
     data: {
       id: 'folder::' + folderPath,
@@ -291,12 +293,28 @@ function buildSkeletonElements(tree, expandedFolders, parsedFolders, graphData, 
     }
   }
   const langByFolder = folderLanguages(tree);
+  // Scoped file count per collapsed glyph (round 3): count the tree's files
+  // under the folder that the layout scope keeps. Only paid when a scope is
+  // active; the unscoped path keeps the tree's precomputed fileCount.
+  const __sc = (typeof buildScope === 'function' && typeof state !== 'undefined')
+    ? buildScope(state) : null;
+  const __scoped = __sc && scopeActive(__sc);
+  const scopedCountOf = (folderPath) => {
+    let n = 0;
+    for (const f of (tree.files || [])) {
+      const p = f.path || f;
+      if ((p.startsWith(folderPath + '/') || p.startsWith(folderPath + '\\'))
+        && memberInScope({ file: p }, __sc)) { n++; }
+    }
+    return n;
+  };
 
   function visitFolder(folderPath) {
     const info = tree.folders[folderPath];
     if (!info) { return; }
     if (!expandedFolders.has(folderPath)) {
-      elements.push(folderElement(folderPath, info, folderPath === tree.root, langByFolder.get(folderPath)));
+      elements.push(folderElement(folderPath, info, folderPath === tree.root,
+        langByFolder.get(folderPath), __scoped ? scopedCountOf(folderPath) : null));
       return;
     }
     for (const child of info.childFolders) { visitFolder(child); }

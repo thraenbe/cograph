@@ -135,6 +135,21 @@ suite('SidebarProvider', () => {
   // ── _listCographFiles() ──────────────────────────────────────────────────
 
   suite('_listCographFiles()', () => {
+    test('a file with a subgraph field is marked isSubgraph with its folder count; a plain layout is not', () => {
+      const cographDir = path.join(tmpDir, '.cograph');
+      fs.mkdirSync(cographDir);
+      writeJsonFile(cographDir, 'backend.json', { name: 'backend', subgraph: { include: ['src/server', 'src/db'] } });
+      writeJsonFile(cographDir, 'plain.json', { name: 'plain', nodePositions: {} });
+      writeJsonFile(cographDir, 'broken.json', { name: 'broken', subgraph: { include: [] } });
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
+      const result = (provider as any)._listCographFiles() as SavedGraphMeta[];
+      const byName = Object.fromEntries(result.map(r => [r.name, r]));
+      assert.deepStrictEqual([byName.backend.isSubgraph, byName.backend.folderCount], [true, 2]);
+      assert.strictEqual(byName.plain.isSubgraph, undefined);
+      assert.strictEqual(byName.broken.isSubgraph, undefined, 'an empty include is not a subgraph');
+    });
+
     test('no workspace folder → returns []', () => {
       sandbox.stub(vscode.workspace, 'workspaceFolders').value(undefined);
       const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
@@ -624,6 +639,13 @@ suite('SidebarProvider', () => {
       provider.resolveWebviewView(fake.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
       return { provider, ...fake };
     }
+
+    test('HTML renders subgraph cards with the ⊂ glyph and a folder count', () => {
+      const { webview } = setup2();
+      assert.ok(webview.html.includes('card-glyph'), 'glyph markup present');
+      assert.ok(webview.html.includes("'Subgraph · ' + folders"), 'subgraph description present');
+      assert.ok(webview.html.includes('.card-glyph {'), 'glyph style present');
+    });
 
     test('HTML contains the consent overlay and Enable button (gated by default)', () => {
       const { webview } = setup2();

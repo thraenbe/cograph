@@ -7,6 +7,7 @@ import type { GraphData } from './graphProvider';
 import { PROVIDER_CATALOG, getProviderInfo, findProviderForModel } from './graphIntelligence/provider';
 import { ChatStore, type ChatMessage, DEFAULT_CHAT_KEY } from './graphIntelligence/chatStore';
 import { ANNOTATION_CARD_CSS, ANNOTATION_CARD_SCRIPT } from './graphIntelligence/annotationCard';
+import { readSubgraphField } from './subgraphScope';
 import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
 
 export interface SavedGraphMeta {
@@ -18,6 +19,10 @@ export interface SavedGraphMeta {
   isWorkflow?: boolean;
   /** Workflow card lifecycle state; undefined for ordinary saved graphs. */
   status?: 'before' | 'generating' | 'ready';
+  /** True when the file carries a `subgraph` field (round 3): a scoped saved graph. */
+  isSubgraph?: boolean;
+  /** Number of included folders of a subgraph. */
+  folderCount?: number;
 }
 
 // Forward reference — the actual GraphProvider is passed in at construction time
@@ -630,11 +635,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       .map(f => {
         try {
           const data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+          const spec = readSubgraphField(data);
           return {
             name: data.name || f.replace('.json', ''),
             description: data.description || '',
             savedAt: data.savedAt || '',
             file: path.join(dir, f),
+            ...(spec ? { isSubgraph: true, folderCount: spec.include.length } : {}),
           };
         } catch {
           return null;
@@ -889,6 +896,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
     @keyframes wf-slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
 ${ANNOTATION_CARD_CSS}
+    .card-glyph {
+      display: inline-block; margin-right: 5px; font-weight: 700;
+      color: var(--vscode-focusBorder, #007fd4);
+    }
     .card-name {
       font-size: 12px;
       font-weight: 600;
@@ -1767,12 +1778,14 @@ ${ANNOTATION_CARD_SCRIPT}
         else if (!rest.length) { html += '<div class="empty-state">No saved graphs yet.</div>'; }
       } else {
         html += filtered.map(g => {
-          const desc = g.description || formatDate(g.savedAt) || '—';
+          const folders = g.isSubgraph ? (g.folderCount === 1 ? '1 folder' : (g.folderCount || 0) + ' folders') : '';
+          const desc = g.description || (g.isSubgraph ? 'Subgraph · ' + folders : '') || formatDate(g.savedAt) || '—';
           const safeFile = g.file.replace(/"/g, '&quot;');
           const safeName = g.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const safeDesc = desc.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          return \`<div class="graph-card" data-file="\${safeFile}" data-name="\${safeName}">
-            <div class="card-name">\${safeName}</div>
+          const glyph = g.isSubgraph ? '<span class="card-glyph" title="Subgraph: a scoped view of the project">⊂</span>' : '';
+          return \`<div class="graph-card\${g.isSubgraph ? ' subgraph' : ''}" data-file="\${safeFile}" data-name="\${safeName}">
+            <div class="card-name">\${glyph}\${safeName}</div>
             <div class="card-bottom">
               <span class="card-desc">\${safeDesc}</span>
               <button class="btn-timeline" data-file="\${safeFile}" data-name="\${safeName}" title="Open timeline view for this graph">Timeline</button>

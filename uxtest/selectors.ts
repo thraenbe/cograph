@@ -26,6 +26,7 @@ export const SEL = {
   motionDynamic: { css: '#btn-layout-dynamic' },
   motionStatic: { css: '#btn-layout-static' },
   layoutHint: { css: '#layout-hint' },
+  globalGuardHint: { css: '#global-guard-hint', optional: true, note: 'ux ee36bf5: first Engine:Global click above 4 000 nodes shows this hint; a second click within 6 s switches' },
 
   // detail + group-by
   detailSlider: { css: '#slider-complexity' },

@@ -213,11 +213,29 @@ function renderFileCircles(fileG, nodesByFile) {
     .on('contextmenu', (event, d) => {
       event.preventDefault();
       event.stopPropagation();
-      showContextMenu(event, [
-        { label: 'Rename',       action: () => {} },
-        { label: 'New function', action: () => {} },
+      const items = [
+        { label: pathBasename(d.filePath), isHeader: true },
         { label: 'Go to File',   action: () => vscode.postMessage({ type: 'navigate', file: d.filePath, line: 1 }) },
-      ]);
+        { label: 'Hide file', action: () => {
+          state.hiddenFiles.add(d.filePath);
+          applyFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          window.markDirty?.();
+        } },
+        { label: 'Show only this file', action: () => {
+          state.onlyShowFile = d.filePath;
+          applyFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          window.markDirty?.();
+        } },
+      ];
+      if (state.hiddenFiles.size || state.onlyShowFile || state.hiddenFolders.size || state.onlyShowFolder) {
+        items.push({ label: 'Show all', action: () => {
+          state.hiddenFiles.clear(); state.onlyShowFile = null;
+          state.hiddenFolders.clear(); state.onlyShowFolder = null;
+          applyFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          window.markDirty?.();
+        } });
+      }
+      showContextMenu(event, items);
     });
 }
 
@@ -458,8 +476,8 @@ function tickFolderOverlay() {
     d3.select(el).select('.frame-tab-glyph')
       .attr('transform', `translate(${padded.minX + 9},${padded.minY + 6}) scale(0.85)`);
     d3.select(el).select('.frame-tab-counts')
-      .attr('x', padded.maxX - 4).attr('y', padded.minY + TAB.H - 6)
-      .text(d.counts ? countsText(d.counts.files, d.counts.fns, bw - tw - TAB.CNT_PAD) : '');
+      .attr('x', padded.maxX - 6).attr('y', padded.minY + TAB.H + 10)
+      .text(d.counts ? countsText(d.counts.files, d.counts.fns, bw - 20 - d.shortName.length * TAB.CHAR_W) : '');
 
     d3.select(el).select('.folder-bubble-titlebar')
       .attr('x', padded.minX).attr('y', padded.minY)
@@ -467,9 +485,9 @@ function tickFolderOverlay() {
       .attr('height', FOLDER_TITLEBAR_HEIGHT);
 
     d3.select(el).select('.folder-bubble-label')
-      .attr('x', padded.minX + TAB.TEXT_X)
-      .attr('y', padded.minY + TAB.TEXT_Y)
-      .text(cutLabel(d.shortName, tabChars(tw)));
+      .attr('x', padded.minX + 10)
+      .attr('y', padded.minY + TAB.H + 10)
+      .text(cutLabel(d.shortName, Math.max(4, Math.floor((bw * 0.6) / TAB.CHAR_W))));
   });
 }
 

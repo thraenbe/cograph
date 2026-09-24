@@ -4,7 +4,7 @@ import { scenario } from '../lib/scenario';
 import { fitToView, setSlider } from '../lib/actions';
 import { SEL } from '../selectors';
 
-scenario('detail', { perMotion: false, largeOk: true }, async ({ page, ux }) => {
+scenario('detail', { perMotion: false, largeOk: true, expandFirst: false }, async ({ page, ux }) => {
   const counts: number[] = [];
   for (const v of [0, 0.25, 0.5, 0.75, 1]) {
     const rec = await ux.step(`Detail ${v.toFixed(2)}`, async () => { await setSlider(page, 'detailSlider', v); await fitToView(page); });

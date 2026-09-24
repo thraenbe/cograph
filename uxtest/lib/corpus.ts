@@ -2,7 +2,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { REPO_ROOT } from '../harness/vscodeStub';
+import { EXT_ROOT, REPO_ROOT } from '../harness/vscodeStub';
 import { analyzeRepo, type AnalyzedRepo } from './analyze';
 
 export interface UxConfig {
@@ -41,7 +41,7 @@ export function sizeClass(functions: number): SizeClass {
 
 function syntheticRepo(name: string, opts: Record<string, number>): AnalyzedRepo {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { makeSyntheticRepo } = require(path.join(REPO_ROOT, 'out', 'test', 'fixtures', 'syntheticGraph.js'));
+  const { makeSyntheticRepo } = require(path.join(EXT_ROOT, 'out', 'test', 'fixtures', 'syntheticGraph.js'));
   const { structure, graph } = makeSyntheticRepo({ ...opts, root: `/${name}` });
   return { name, root: `/${name}`, structure, graph, analyzers: {}, analysisMs: 0,
     functions: graph.nodes.filter((n: { isLibrary?: boolean }) => !n.isLibrary).length };

@@ -1343,3 +1343,10 @@ body.vscode-light {
   color: var(--vscode-badge-foreground, #ffffff);
 }
 .hc-hint { font-style: italic; }
+
+/* R1: frame drag affordance + calm canvas while dragging */
+g.frame.drag-hover .frame-tab-shape { filter: brightness(1.35); }
+g.frame.drag-hover > .folder-bubble-shape { stroke-opacity: 0.9; }
+.bundles-hidden line.cross-bundle,
+.bundles-hidden line.cross-hover { display: none; }
+

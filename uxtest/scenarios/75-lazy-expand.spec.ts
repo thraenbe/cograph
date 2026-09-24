@@ -7,7 +7,7 @@ import { scenario } from '../lib/scenario';
 import { clickNode, fitToView, setSlider } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 
-scenario('lazy-expand', { perMotion: false, hostMode: 'lazy', largeOk: true }, async ({ page, ux, host, post }) => {
+scenario('lazy-expand', { perMotion: false, hostMode: 'lazy', largeOk: true, expandFirst: false }, async ({ page, ux, host, post }) => {
   await ux.step('Skeleton only (no functions parsed yet)', async () => {
     await setSlider(page, 'detailSlider', 0);
     await fitToView(page);

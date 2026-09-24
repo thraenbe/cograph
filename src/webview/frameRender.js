@@ -222,9 +222,35 @@ function renderFrameLayout(allLinks, visibleSet) {
     .attr('font-size', `${12 * settings.textSize}px`)
     .attr('fill', (typeof isLightTheme === 'function' && isLightTheme()) ? '#333333' : '#cccccc');
   const titleDrag = createFrameTitleDrag(frameDragDeps())
-    .on('start.fitguard', () => { state._frameInteracting = true; })
-    .on('end.fitguard', () => { state._frameInteracting = false; });
+    // The pointer must be measured against the STABLE zoomed layer, never the
+    // dragged frame's own <g> (d3-drag's default container is this.parentNode,
+    // which moves with the drag → feedback loop, the frame leaps around).
+    // Same fix P1 shipped for node drags.
+    .container(function () { return g.node(); })
+    .on('start.fitguard', () => {
+      state._frameInteracting = true;
+      // Cross bundles + hover lines re-anchor on every frame move — hide them
+      // for the duration instead of dragging arrowheads across the canvas.
+      linkG.classed('bundles-hidden', true);
+    })
+    .on('end.fitguard', () => {
+      state._frameInteracting = false;
+      linkG.classed('bundles-hidden', false);
+      updateCrossLinks();
+    })
+    // Drop: resolve overlaps INCREMENTALLY — a full re-render would re-shelve
+    // the whole parent (uxtest measured 756 foreign nodes moving 1.5k px for a
+    // 70px drag). Only siblings intersecting the dropped rect shift, minimally
+    // and capped to the parent; everything else stays put.
+    .on('end.repack', function (event, f) {
+      if (usesFrames()) { resolveDropOverlaps(f); }
+    });
   sel.select('.folder-bubble-titlebar').call(titleDrag);
+  // Drag-handle discoverability: hovering the strip marks the frame group so
+  // CSS can brighten the flap (cursor is already 'grab').
+  sel.select('.folder-bubble-titlebar')
+    .on('mouseenter.afford', function () { d3.select(this.parentNode).classed('drag-hover', true); })
+    .on('mouseleave.afford', function () { d3.select(this.parentNode).classed('drag-hover', false); });
   sel.select('.folder-bubble-shape').call(createFrameResizeDrag());
   sel.on('contextmenu', onFrameContextMenu);
 
@@ -322,12 +348,126 @@ function shouldRefit(bounds, k, viewW, viewH, userZoomed, interacting) {
   return bounds.w * k > viewW * 1.3 || bounds.h * k > viewH * 1.3;
 }
 
+/** Translate a frame (and its whole subtree: nodes, pins, sub-frames) by a
+ *  parent-local delta WITHOUT pinning it. The moved frames glide (200ms). */
+function translateFrameSubtree(f, dx, dy) {
+  if (!dx && !dy) { return; }
+  f.local.x = Math.round((f.local.x ?? 0) + dx);
+  f.local.y = Math.round((f.local.y ?? 0) + dy);
+  resolveAbs(state.frames);
+  const under = (p) => p === f.path || p.startsWith(f.path + '/') || p.startsWith(f.path + '\\');
+  if (!__fr.animateMoves) { __fr.animateMoves = new Set(); }
+  for (const path of state.frames.byPath.keys()) {
+    if (!under(path)) { continue; }
+    for (const m of (__fr.members.get(path) || [])) {
+      const n = m._ref;
+      if (!n) { continue; }
+      n.x += dx; n.y += dy;
+      if (n.fx != null) { n.fx += dx; n.fy += dy; }
+    }
+    __fr.animateMoves.add(path);
+    tickFrame(path);
+  }
+}
+
+/** Drop resolution (R1c): the dropped frame is sacred — it stays EXACTLY
+ *  where the user released it. Only siblings whose rect intersects the
+ *  dropped rect shift, each by the minimum translation (shelf axis
+ *  preferred), gap-padded and clamped inside the parent. NO cascade: a
+ *  displaced sibling overlapping a third frame is accepted — uxtest measured
+ *  a full re-shelve moving 756 foreign nodes 1.5k px for a 70px drag, and a
+ *  frame sliding away from the pointer is worse than an overlap. */
+function resolveDropOverlaps(dropped) {
+  const fs = state.frames;
+  const f = fs && fs.byPath.get(dropped && dropped.path);
+  if (!f) { return; }
+  const parent = fs.byPath.get(f.parent);
+  if (!parent) { return; }
+  const pad = FRAME.GAP;
+  const touchesDrop = (b) =>
+    f.local.x < b.local.x + b.local.w + pad && b.local.x < f.local.x + f.local.w + pad
+    && f.local.y < b.local.y + b.local.h + pad && b.local.y < f.local.y + f.local.h + pad;
+  for (const sibPath of parent.children) {
+    if (sibPath === f.path) { continue; }
+    const s2 = fs.byPath.get(sibPath);
+    if (!s2 || s2.pinned || !touchesDrop(s2)) { continue; }
+    // Candidate pushes: right / left / down / up. Smallest wins, with a bias
+    // toward the shelf axis (x) so rows stay rows.
+    const cands = [
+      { dx: (f.local.x + f.local.w + pad) - s2.local.x, dy: 0 },
+      { dx: (f.local.x - pad) - (s2.local.x + s2.local.w), dy: 0 },
+      { dx: 0, dy: (f.local.y + f.local.h + pad) - s2.local.y },
+      { dx: 0, dy: (f.local.y - pad) - (s2.local.y + s2.local.h) },
+    ].sort((a, b) =>
+      (Math.abs(a.dx) + Math.abs(a.dy) * 1.6) - (Math.abs(b.dx) + Math.abs(b.dy) * 1.6));
+    const want = cands[0];
+    const target = clampFrameLocal(fs, sibPath, {
+      x: s2.local.x + want.dx, y: s2.local.y + want.dy,
+    });
+    translateFrameSubtree(s2, target.x - s2.local.x, target.y - s2.local.y);
+  }
+  if (typeof linkG !== 'undefined') { updateCrossLinks(); } // layer absent in unit tests
+  if (typeof window !== 'undefined') { window.markDirty?.(); }
+}
+
+/** Deps for slot drags (R2b). Slot data is frame-local; pins are stored
+ *  content-local. */
+function slotDragDeps(framePath) {
+  return {
+    container: function () { return g.node(); },
+    frame: () => state.frames && state.frames.byPath.get(framePath),
+    bounds: (fr) => {
+      const off = fr.kind === 'root'
+        ? { x: 0, y: 0 }
+        : { x: FRAME.PAD, y: FRAME.PAD + FRAME.TITLE + FRAME.NAME_H };
+      return { x0: off.x, y0: off.y, x1: off.x + fr.inner.w, y1: off.y + fr.inner.h };
+    },
+    move: (handleEl, d, dx, dy) => {
+      const fr = state.frames.byPath.get(framePath);
+      const grp = d3.select(handleEl.parentNode);
+      grp.select('.file-slot-shape').attr('x', d.x).attr('y', d.y);
+      grp.select('.file-slot-handle').attr('x', d.x).attr('y', d.y);
+      grp.select('.file-slot-label').attr('x', d.x + 6).attr('y', d.y + 11);
+      // live slot rect (sims clamp/pull against it) + member nodes ride along
+      const live = fr && fr.slots && fr.slots.get(d.key);
+      if (live) { live.x += dx; live.y += dy; }
+      for (const m of (__fr.members.get(framePath) || [])) {
+        if (!m._ref || (fr.slotOf && fr.slotOf.get(m.id)) !== d.key) { continue; }
+        m._ref.x += dx; m._ref.y += dy;
+        if (m._ref.fx != null) { m._ref.fx += dx; m._ref.fy += dy; }
+      }
+      tickFrame(framePath);
+    },
+    commit: (fr, d) => {
+      const off = fr.kind === 'root'
+        ? { x: 0, y: 0 }
+        : { x: FRAME.PAD, y: FRAME.PAD + FRAME.TITLE + FRAME.NAME_H };
+      if (!fr.slotPins) { fr.slotPins = new Map(); }
+      fr.slotPins.set(d.key, {
+        x: d.x - off.x - fr.contentPos.x,
+        y: d.y - off.y - fr.contentPos.y,
+      });
+      // One re-render: the pinned slot becomes a fixed obstacle, free slots
+      // re-pack around it, sims re-target, the static grid re-places.
+      if (typeof applyFileClusters === 'function') { applyFileClusters(); }
+      if (typeof window !== 'undefined') { window.markDirty?.(); }
+    },
+  };
+}
+
 function frameDragDeps() {
   return {
     frames: () => state.frames,
     framePaths: () => [...state.frames.byPath.keys()],
     nodesOf: (path) => (__fr.members.get(path) || []).map(m => m._ref).filter(Boolean),
-    pin: (fs, path, pos) => pinFrame(fs, path, pos),
+    pin: (fs, path, pos) => {
+      // Contain the drag inside the parent on all four sides, then keep the
+      // ancestor chain's DOM truthful — pinFrame can grow ancestors, and a
+      // drag only re-ticks the moved subtree otherwise (R1).
+      pinFrame(fs, path, clampFrameLocal(fs, path, pos));
+      let p = fs.byPath.get(path)?.parent;
+      while (p) { tickFrame(p); p = fs.byPath.get(p)?.parent; }
+    },
     origin: frInnerOrigin,
     onMoved: (path) => { tickFrame(path); updateCrossLinks(); },
   };
@@ -348,7 +488,7 @@ function onFrameContextMenu(event, f) {
     { label: 'Go to folder', action: () => vscode.postMessage({ type: 'navigate', file: fp, line: 1 }) },
   ];
   if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-    items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); updateFolderPanel(); } });
+    items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles.clear(); state.onlyShowFile = null; applyFilters(); updateFolderPanel(); } });
   }
   showContextMenu(event, items);
 }
@@ -500,14 +640,16 @@ function tickFrameChrome(path) {
     sub.select('.frame-tab-glyph')
       .attr('transform', 'translate(9,6) scale(0.85)')
       .attr('fill', mutedFill);
+    // R4: the flap is empty (glyph only) — the name lives in the body, on the
+    // reserved line just below the flap; ellipsis at the frame width.
     sub.select('.folder-bubble-label')
-      .attr('x', TAB.TEXT_X).attr('y', TAB.TEXT_Y)
-      .text(cutLabel(name, tabChars(tw)));
+      .attr('x', 10).attr('y', TAB.H + 10)
+      .text(cutLabel(name, Math.max(4, Math.floor((f.abs.w * 0.6) / TAB.CHAR_W))));
     const cnt = __fr.counts && __fr.counts.get(path);
     sub.select('.frame-tab-counts')
-      .attr('x', f.abs.w - 4).attr('y', TAB.H - 6)
+      .attr('x', f.abs.w - 6).attr('y', TAB.H + 10)
       .attr('fill', mutedFill)
-      .text(cnt ? countsText(cnt.files, cnt.fns, f.abs.w - tw - TAB.CNT_PAD) : '');
+      .text(cnt ? countsText(cnt.files, cnt.fns, f.abs.w - 20 - name.length * TAB.CHAR_W) : '');
     sub.select('.folder-bubble-titlebar')
       .attr('x', 0).attr('y', 0).attr('width', f.abs.w).attr('height', 30);
   }
@@ -762,7 +904,7 @@ function updateCrossBundles() {
     .attr('stroke-width', d => settings.linkThickness * edgeWeightScale(d.count))
     .attr('stroke-dasharray', d => d.pending ? '4,3' : null)
     .attr('opacity', 0.55)
-    .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
+    .attr('marker-end', settings.arrows ? 'url(#arrow-bundle)' : null)
     .attr('x1', d => d.x1).attr('y1', d => d.y1)
     .attr('x2', d => d.x2).attr('y2', d => d.y2)
     .each(function (d) {
@@ -790,7 +932,7 @@ function updateCrossHover() {
     .attr('stroke', getCSSVar('--cograph-link-hover'))
     .attr('stroke-width', Math.max(1.5, settings.linkThickness))
     .attr('opacity', 0.9)
-    .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
+    .attr('marker-end', settings.arrows ? 'url(#arrow-bundle)' : null)
     .attr('x1', d => d.x1).attr('y1', d => d.y1)
     .attr('x2', d => d.x2).attr('y2', d => d.y2);
 }
@@ -983,7 +1125,7 @@ function createFrameResizeDrag() {
     })
     .on('drag', function (event, f) {
       const w = Math.max(FRAME.MIN_INNER_W + 2 * FRAME.PAD, event.x - f.abs.x);
-      const h = Math.max(FRAME.MIN_INNER_H + 2 * FRAME.PAD + FRAME.TITLE, event.y - f.abs.y);
+      const h = Math.max(FRAME.MIN_INNER_H + 2 * FRAME.PAD + FRAME.TITLE + FRAME.NAME_H, event.y - f.abs.y);
       pinFrame(state.frames, f.path, null, { w, h });
       const rec = __fr.sims.get(f.path);
       const nf = state.frames.byPath.get(f.path);
@@ -1044,6 +1186,8 @@ function renderFrameSlots(f, sub) {
           .attr('rx', 6).attr('stroke-width', 1.2).attr('pointer-events', 'all');
         grp.append('text').attr('class', 'file-slot-label')
           .attr('pointer-events', 'none').attr('font-weight', '600');
+        grp.append('rect').attr('class', 'file-slot-handle')
+          .attr('fill', 'transparent').attr('pointer-events', 'all').attr('cursor', 'grab');
         return grp;
       },
       update => update,
@@ -1065,12 +1209,17 @@ function renderFrameSlots(f, sub) {
       .attr('stroke', color).attr('stroke-opacity', changed ? 0.95 : 0.5)
       .attr('stroke-width', changed ? 2 : 1.2)
       .attr('stroke-dasharray', d.count ? null : '4 3');
+    grp.select('.file-slot-handle')
+      .attr('x', d.x).attr('y', d.y).attr('width', d.w).attr('height', SLOT.LABEL_H);
     grp.select('.file-slot-label')
       .attr('x', d.x + 6).attr('y', d.y + 11)
       .attr('font-size', `${9 * settings.textSize}px`)
       .attr('fill', color).attr('fill-opacity', 0.9)
       .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize));
   });
+  if (typeof createSlotDrag === 'function' && f.kind !== 'root') {
+    sel.select('rect.file-slot-handle').call(createSlotDrag(slotDragDeps(f.path)));
+  }
   sel.on('dblclick', (event, d) => {
     event.stopPropagation();
     vscode.postMessage({ type: 'navigate', file: d.file, line: 1 });
@@ -1079,10 +1228,29 @@ function renderFrameSlots(f, sub) {
     if (typeof showContextMenu !== 'function') { return; }
     event.preventDefault();
     event.stopPropagation();
-    showContextMenu(event, [
+    const items = [
       { label: slotBasename(d.file), isHeader: true },
       { label: 'Go to File', action: () => vscode.postMessage({ type: 'navigate', file: d.file, line: 1 }) },
-    ]);
+      { label: 'Hide file', action: () => {
+        state.hiddenFiles.add(d.file);
+        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        window.markDirty?.();
+      } },
+      { label: 'Show only this file', action: () => {
+        state.onlyShowFile = d.file;
+        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        window.markDirty?.();
+      } },
+    ];
+    if (state.hiddenFiles.size || state.onlyShowFile || state.hiddenFolders.size || state.onlyShowFolder) {
+      items.push({ label: 'Show all', action: () => {
+        state.hiddenFiles.clear(); state.onlyShowFile = null;
+        state.hiddenFolders.clear(); state.onlyShowFolder = null;
+        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        window.markDirty?.();
+      } });
+    }
+    showContextMenu(event, items);
   });
   return sel;
 }
@@ -1107,6 +1275,7 @@ if (typeof module !== 'undefined') {
     tickFramePositions, tickFrameOfNode, onFramesZoom, applyFrameCulling, restoreFrameDom, borrowHoverLabel, teardownFrames,
     resetFrames, updateCrossLinks, updateCrossBundles, updateCrossHover, syncFrameSims, applySimResult, applySimData,
     applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit, stampLinkRefs,
+    resolveDropOverlaps, translateFrameSubtree,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots, sameSlotGeometry,
     __frState: __fr,   // test hook

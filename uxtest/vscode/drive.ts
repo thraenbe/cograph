@@ -5,6 +5,16 @@ import { setCaption } from '../lib/overlay';
 
 const QUICK = '.quick-input-widget';
 
+/** Try several titles of one command (it was renamed between branches); the first one in the palette wins. */
+export async function runCommandAny(page: Page, titles: string[]): Promise<string> {
+  let last: unknown = null;
+  for (const t of titles) {
+    try { await runCommand(page, t); return t; }
+    catch (err) { if (!(err instanceof SkipStep)) { throw err; } last = err; }
+  }
+  throw last;
+}
+
 /** F1 → type the command title → Enter. */
 export async function runCommand(page: Page, title: string): Promise<void> {
   await page.keyboard.press('F1');

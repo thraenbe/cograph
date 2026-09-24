@@ -2,7 +2,7 @@
 // message, and switching engines while the other one is still settling.
 import { expect } from '@playwright/test';
 import { scenario } from '../lib/scenario';
-import { clickSel, fitToView } from '../lib/actions';
+import { clickSel, fitToView, switchEngine } from '../lib/actions';
 import { SEL } from '../selectors';
 
 scenario('engine-motion', { perEngine: false, perMotion: false }, async ({ page, ux, post }) => {
@@ -12,11 +12,11 @@ scenario('engine-motion', { perEngine: false, perMotion: false }, async ({ page,
 
   await ux.step('Motion → Dynamic (Shelf)', async () => { await clickSel(page, 'motionDynamic'); });
   hints['shelf/dynamic'] = await hint();
-  await ux.step('Engine → Global while Dynamic', async () => { await clickSel(page, 'engineGlobal'); }, { stillTimeoutMs: 6000 });
+  await ux.step('Engine → Global while Dynamic', async () => { await switchEngine(page, 'global'); }, { stillTimeoutMs: 6000 });
   hints['global/dynamic'] = await hint();
   await ux.step('Engine → Shelf while Global is still settling', async () => { await clickSel(page, 'engineShelf'); });
   await ux.step('Motion → Static', async () => { await clickSel(page, 'motionStatic'); });
-  await ux.step('Engine → Global (Static)', async () => { await clickSel(page, 'engineGlobal'); });
+  await ux.step('Engine → Global (Static)', async () => { await switchEngine(page, 'global'); });
   hints['global/static'] = await hint();
   await ux.step('Fit Global + Static', async () => { await fitToView(page); });
 

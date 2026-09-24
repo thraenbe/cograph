@@ -272,11 +272,35 @@ document.getElementById('btn-folder-mode')?.addEventListener('click', () => {
   window.markDirty?.();
 });
 
+/** Pure file-filter predicate (R2a) — mirrors the folder rules. */
+function fileFilterAllows(filePath, onlyShowFile, hiddenFiles) {
+  if (onlyShowFile && filePath !== onlyShowFile) { return false; }
+  if (hiddenFiles && hiddenFiles.has(filePath)) { return false; }
+  return true;
+}
+
+/** Restore saved file filters (additive payload fields; old saves = none). */
+function applySavedFileFilters(payload) {
+  if (!payload) { return false; }
+  let changed = false;
+  if (Array.isArray(payload.hiddenFiles)) {
+    state.hiddenFiles = new Set(payload.hiddenFiles);
+    changed = true;
+  }
+  if (payload.onlyShowFile !== undefined) {
+    state.onlyShowFile = payload.onlyShowFile ?? null;
+    changed = true;
+  }
+  if (changed) { updateFolderPanel(); }
+  return changed;
+}
+
 function updateFolderPanel() {
   const body = document.getElementById('folder-filters-body');
   if (!body) return;
 
-  const hasFilters = state.onlyShowFolder || state.hiddenFolders.size > 0;
+  const hasFilters = state.onlyShowFolder || state.hiddenFolders.size > 0
+    || state.onlyShowFile || (state.hiddenFiles && state.hiddenFiles.size > 0);
 
   if (hasFilters) {
     body.style.display = '';
@@ -305,17 +329,36 @@ function updateFolderPanel() {
         <button class="folder-filter-clear" data-action="unhide" data-path="${fp}">✕</button>
       </div>`);
   });
+  if (state.onlyShowFile) {
+    rows.push(`
+      <div class="folder-filter-row chip-file">
+        <span class="folder-filter-icon">◎</span>
+        <span class="folder-filter-label" title="${state.onlyShowFile}">${pathBasename(state.onlyShowFile)}</span>
+        <button class="folder-filter-clear" data-action="clear-only-file">✕</button>
+      </div>`);
+  }
+  (state.hiddenFiles ?? new Set()).forEach(fp => {
+    rows.push(`
+      <div class="folder-filter-row chip-file">
+        <span class="folder-filter-icon folder-filter-icon--hidden">⊘</span>
+        <span class="folder-filter-label" title="${fp}">${pathBasename(fp)}</span>
+        <button class="folder-filter-clear" data-action="unhide-file" data-path="${fp}">✕</button>
+      </div>`);
+  });
   rows.push(`<button class="folder-filter-show-all" id="btn-folder-show-all">Show All</button>`);
   body.innerHTML = rows.join('');
 
   body.querySelector('#btn-folder-show-all')?.addEventListener('click', () => {
     state.hiddenFolders.clear(); state.onlyShowFolder = null;
+    state.hiddenFiles?.clear(); state.onlyShowFile = null;
     applyFilters(); ticked(); updateFolderPanel();
   });
   body.querySelectorAll('.folder-filter-clear').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.dataset.action === 'clear-only') { state.onlyShowFolder = null; }
       else if (btn.dataset.action === 'unhide') { state.hiddenFolders.delete(btn.dataset.path); }
+      else if (btn.dataset.action === 'clear-only-file') { state.onlyShowFile = null; }
+      else if (btn.dataset.action === 'unhide-file') { state.hiddenFiles?.delete(btn.dataset.path); }
       applyFilters(); ticked(); updateFolderPanel();
     });
   });
@@ -359,6 +402,11 @@ function buildSavePayload() {
   if (state.expandedFolders && state.expandedFolders.size) {
     payload.expandedFolders = [...state.expandedFolders].sort();
   }
+  // File filters (R2a, additive — old builds ignore them)
+  if (state.hiddenFiles && state.hiddenFiles.size) {
+    payload.hiddenFiles = [...state.hiddenFiles].sort();
+  }
+  if (state.onlyShowFile) { payload.onlyShowFile = state.onlyShowFile; }
   if (state.frames && typeof serializeFrames === 'function') {
     payload.frames = serializeFrames(state.frames);
   }
@@ -501,7 +549,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 if (typeof module !== 'undefined') {
-  module.exports = { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, buildSavePayload, clearSearch, updateSearchCount };
+  module.exports = { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, applySavedFileFilters, fileFilterAllows, buildSavePayload, clearSearch, updateSearchCount, updateFolderPanel };
 }
 
 // ── Resize math helper ────────────────────────────────────────────────────────

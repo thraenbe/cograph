@@ -165,6 +165,17 @@ function renderFrameLayout(allLinks, visibleSet) {
   ]);
   const reshelve = __fr.scopeSig !== undefined && __fr.scopeSig !== scopeSig;
   __fr.scopeSig = scopeSig;
+  if (reshelve && !state.userZoomed && !state._frameInteracting
+    && typeof setTimeout === 'function') {
+    // A scope change that SHRINKS the layout leaves the view hanging over
+    // empty space (growth is already covered by shouldRefit). Re-fit once
+    // after the re-pack glide — never when the user owns the viewport (F2).
+    if (__fr.scopeRefit) { clearTimeout(__fr.scopeRefit); }
+    __fr.scopeRefit = setTimeout(() => {
+      __fr.scopeRefit = null;
+      if (!state.userZoomed && !state._frameInteracting) { fitToView(); }
+    }, 230);
+  }
   const members = collectMembers(state.currentNodes, tree, settings.nodeSize, allow);
   const prevAbs = new Map();
   if (state.frames && state.frames.byPath) {

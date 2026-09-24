@@ -118,21 +118,23 @@ test.describe('fake host', () => {
     expect((open[2].data as GraphLite).nodes.map(n => n.id).sort()).toEqual(['a', 'b']);
     // Visualize test/ → subgraph (now including test) + spinner + patch with c and its library
     const inc = await h.onMessage({ type: 'subgraph-include', path: 'test' });
-    expect(inc.map(r => r.message.type)).toEqual(['subgraph', 'analysis-state', 'graph-patch']);
+    expect(inc.map(r => r.message.type)).toEqual(['subgraph', 'graph-patch']);
     expect(inc[0].message).toMatchObject({ include: ['src', 'test'], exclude: [] });
-    expect((inc[2].message.patch as GraphLite).nodes.map(n => n.id).sort()).toEqual(['c', 'lib']);
-    expect(inc[2].message.replacedFiles).toEqual(['/r/test/c.ts']);
+    expect((inc[1].message.patch as GraphLite).nodes.map(n => n.id).sort()).toEqual(['c', 'lib']);
+    expect(inc[1].message.replacedFiles).toEqual(['/r/test/c.ts']);
     // exclude src → prune patch listing its files
     const exc = await h.onMessage({ type: 'subgraph-exclude', path: 'src' });
     expect(exc.map(r => r.message.type)).toEqual(['subgraph', 'graph-patch']);
     expect(exc[0].message).toMatchObject({ include: ['test'], exclude: ['src'] });
     expect((exc[1].message.replacedFiles as string[]).sort()).toEqual(['/r/src/a.ts', '/r/src/deep/b.ts']);
     expect((exc[1].message.patch as GraphLite).nodes).toEqual([]);
-    // exit → scope null + the whole graph
+    // exit → scope null + a patch bringing back the files that were out of scope (session-178: not a full graph)
     const exit = await h.onMessage({ type: 'subgraph-exit' });
-    expect(exit.map(r => r.message.type)).toEqual(['subgraph', 'graph']);
-    expect(exit[0].message).toMatchObject({ name: null, include: [] });
-    expect((exit[1].message.data as GraphLite).nodes).toHaveLength(4);
+    expect(exit.map(r => r.message.type)).toEqual(['subgraph', 'graph-patch']);
+    expect(exit[0].message).toMatchObject({ name: null, include: [], exclude: [] });
+    expect((exit[1].message.replacedFiles as string[]).sort()).toEqual(['/r/src/a.ts', '/r/src/deep/b.ts']);
+    expect((exit[1].message.patch as GraphLite).nodes.map(n => n.id).sort()).toEqual(['a', 'b']);
+    expect(await h.onMessage({ type: 'subgraph-exit' })).toEqual([]);
     expect(h.scope).toBeNull();
     expect(await h.onMessage({ type: 'subgraph-include', path: 'src' })).toEqual([]); // no scope: nothing to change
     expect(host().openingMessages().map(r => r.message.type)).toEqual(['structure', 'graph']); // unscoped hosts are unchanged

@@ -53,6 +53,15 @@ export const SEL = {
   subgraphRow: { css: '#folder-filters-body .subgraph-row', optional: true, note: 'round3 W4: one row per excluded top-level folder (name + fileCount)' },
   subgraphVisualize: { css: '#folder-filters-body .subgraph-visualize', optional: true, note: 'round3 W4: posts subgraph-include {path}' },
   subgraphExit: { css: '#folder-filters-body .subgraph-exit', optional: true, note: 'round3 W4: posts subgraph-exit' },
+  // session-178 sidebar (confirmed 2026-09-24): "Create new Subgraph" picker in the saved-graph list
+  sidebarNewSubgraph: { css: '#btn-new-subgraph', optional: true, note: 'round3: opens #subgraph-picker; #body-graphs gets .picking' },
+  subgraphPicker: { css: '#subgraph-picker', optional: true },
+  subgraphPickerName: { css: '#sp-name', optional: true },
+  subgraphPickerRow: { css: '#sp-tree .sp-row', optional: true, note: 'data-rel=<rel>; .locked = included via an ancestor' },
+  subgraphPickerCheck: { css: 'input.sp-check', optional: true },
+  subgraphPickerCreate: { css: '#sp-create', optional: true },
+  subgraphPickerCancel: { css: '#sp-cancel', optional: true },
+  subgraphCard: { css: '.graph-card.subgraph', optional: true, note: '.card-desc "Subgraph · N folders"' },
   classMode: { css: '#btn-class-mode' },
 
   // forces (ux: one engine-specific Forces box in the left toolbar)

@@ -132,7 +132,13 @@ export class FakeHost {
         return [{ message: { type: 'annotations', ...(this.opts.annotations ?? { root: '', aiEnabled: false, files: {}, folders: {}, stale: [] }) } }];
       case 'subgraph-include': return this.changeScope(String(msg.path ?? ''), true);
       case 'subgraph-exclude': return this.changeScope(String(msg.path ?? ''), false);
-      case 'subgraph-exit': { this.scope = null; return [this.subgraphMessage(), { message: { type: 'graph', data: this.opts.graph, gitAvailable: this.opts.gitAvailable ?? false, fileGitStatus: this.opts.fileGitStatus ?? {}, isReanalysis: false } }]; }
+      case 'subgraph-exit': { // session-178: NOT a fresh `graph` - the cached nodes of the files that were out of scope come back as a patch
+        if (!this.scope) { return []; }
+        const inScope = new Set(this.scopedGraph().files ?? []);
+        const back = this.allFiles().filter(f => !inScope.has(f));
+        this.scope = null;
+        return [this.subgraphMessage(), { message: { type: 'graph-patch', patch: cutPatch(this.opts.graph, back), replacedFiles: back, fileGitStatus: this.opts.fileGitStatus ?? {} } }];
+      }
       case 'cancel-analysis':
         return [{ message: { type: 'analysis-state', backgroundParsing: false, cancelled: true } }];
       default:
@@ -140,14 +146,18 @@ export class FakeHost {
     }
   }
 
-  /** Folder enters: subgraph → analysis-state → graph-patch (like expand-folder); leaves: prune patch. */
+  private allFiles(): string[] {
+    return this.opts.graph.files ?? [...new Set(this.opts.graph.nodes.map(n => n.file).filter((f): f is string => !!f))];
+  }
+
+  /** Folder enters: subgraph → graph-patch with the cached nodes (the real host adds analysis-state + a parsed
+   *  patch only for files its cache lacks - the FakeHost has everything cached); leaves: subgraph → prune patch. */
   private changeScope(rel: string, include: boolean): HostReply[] {
     if (!this.scope || !rel) { return []; }
-    const files = (this.opts.graph.files ?? [...new Set(this.opts.graph.nodes.map(n => n.file).filter((f): f is string => !!f))]).filter(f => under(f, this.scope!.root, rel));
+    const files = this.allFiles().filter(f => under(f, this.scope!.root, rel));
     if (include) {
       this.scope = { ...this.scope, include: [...new Set([...this.scope.include, rel])], exclude: (this.scope.exclude ?? []).filter(e => e !== rel) };
-      return [this.subgraphMessage(), { message: { type: 'analysis-state', parsingFolder: rel } },
-        { message: { type: 'graph-patch', patch: cutPatch(this.opts.graph, files), parsedFolder: rel, replacedFiles: files, fileGitStatus: this.opts.fileGitStatus ?? {} }, delayMs: this.opts.parseDelayMs ?? 150 }];
+      return [this.subgraphMessage(), { message: { type: 'graph-patch', patch: cutPatch(this.opts.graph, files), replacedFiles: files, fileGitStatus: this.opts.fileGitStatus ?? {} } }];
     }
     this.scope = { ...this.scope, include: this.scope.include.filter(i => i !== rel), exclude: [...new Set([...(this.scope.exclude ?? []), rel])] };
     return [this.subgraphMessage(), { message: { type: 'graph-patch', patch: { nodes: [], edges: [] }, replacedFiles: files, fileGitStatus: this.opts.fileGitStatus ?? {} } }];

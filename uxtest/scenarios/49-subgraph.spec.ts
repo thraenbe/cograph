@@ -11,7 +11,7 @@ import { SEL } from '../selectors';
 
 scenario('subgraph', { perMotion: false, scope: scopeFixture }, async ({ page, ux, host, repo }) => {
   const sc = scopeFixture(repo);
-  const gate = async (): Promise<void> => { if (!await page.evaluate('typeof folderInScope === "function"')) { throw new SkipStep('round-3 scope.js not on this branch'); } };
+  const gate = async (): Promise<void> => { if (!await page.evaluate('typeof frameFolderVisible === "function"')) { throw new SkipStep('round-3 scope.js not on this branch'); } };
   const renderedTops = (): Promise<string[]> => page.evaluate((root) => [...new Set([...document.querySelectorAll('#graph g.frame, #graph g.folder-bubble')]
     .map(g => String((g as unknown as { __data__?: { path?: string; folderPath?: string } }).__data__?.path ?? (g as unknown as { __data__?: { folderPath?: string } }).__data__?.folderPath ?? ''))
     .filter(p => p && p !== root && p.startsWith(root + '/')).map(p => p.slice(root.length + 1).split('/')[0]))], sc.root);

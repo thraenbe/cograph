@@ -205,3 +205,39 @@ suite('R3/R4 render contracts', () => {
     }
   });
 });
+
+suite('W3: name inside the collapsed glyph', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fc2 = require('../../../src/webview/frameChrome.js');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs3 = require('fs');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path3 = require('path');
+  const read3 = (f: string) =>
+    fs3.readFileSync(path3.resolve(__dirname, '../../../src/webview/' + f), 'utf8');
+
+  test('closedFolderLabelPos sits inside the glyph body for any radius', () => {
+    for (const r of [10, 16, 24, 40, 80]) {
+      const d = fc2.closedFolderDims(r);
+      const p = fc2.closedFolderLabelPos(r);
+      assert.strictEqual(p.x, 0, 'centred');
+      assert.ok(p.y > -d.h / 2 + d.step, `r=${r}: below the flap step`);
+      assert.ok(p.y < d.h / 2, `r=${r}: above the bottom edge`);
+      assert.ok(p.maxW < d.w, `r=${r}: text narrower than the glyph`);
+    }
+    assert.strictEqual(fc2.closedFolderLabelPos(12).fits2, false, 'small glyph: name only');
+    assert.strictEqual(fc2.closedFolderLabelPos(60).fits2, true, 'big glyph: count line fits');
+  });
+
+  test('both engines position folder-cluster labels inside the glyph', () => {
+    for (const f of ['rendering.js', 'frameRender.js']) {
+      const src = read3(f);
+      assert.ok(src.includes('closedFolderLabelPos(nodeRadius(d))'), `${f} uses the shared helper`);
+    }
+    const r = read3('rendering.js');
+    assert.ok(/dominant-baseline', d => d\.isFolderCluster \? 'middle'/.test(r),
+      'folder names centre on the in-glyph point (file clusters keep hanging-below)');
+    assert.ok(r.includes('cutLabel(d.label,'), 'the name ellipsizes to the body width');
+    assert.ok(r.includes("(!inGlyph || inGlyph.fits2)"), 'the count line drops when it does not fit');
+  });
+});

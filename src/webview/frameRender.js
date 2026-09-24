@@ -699,8 +699,11 @@ function tickFramePositions(path) {
     this.setAttribute('transform', `translate(${d.x - ox},${d.y - oy})`);
   });
   labels.each(function (d) {
-    const below = d.isFolderCluster || d.isFileCluster;
-    const y = (below ? d.y + nodeRadius(d) + 6
+    // W3: collapsed folder names live inside the glyph body.
+    const inGlyph = d.isFolderCluster && typeof closedFolderLabelPos === 'function'
+      ? closedFolderLabelPos(nodeRadius(d)) : null;
+    const y = (inGlyph ? d.y + inGlyph.y
+      : (d.isFolderCluster || d.isFileCluster) ? d.y + nodeRadius(d) + 6
       : (d.isCluster || d.isSynthetic) ? d.y
         : d.y + nodeRadius(d) + 10) - oy;
     const x = d.x - ox;

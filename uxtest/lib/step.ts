@@ -39,7 +39,7 @@ export interface StepOpts { settle?: boolean; metrics?: boolean; stillTimeoutMs?
 /** How the layout of `cur` was born, given the previous snapshot and its birth (see LayoutBirth). */
 export function layoutBirth(prev: Snapshot | null, prevBirth: LayoutBirth, cur: Snapshot, userMoved: boolean): LayoutBirth {
   if (userMoved) { return 'user-moved'; }
-  if (!prev) { return 'grid'; }
+  if (!prev) { return prevBirth; } // first snapshot: keep what the scenario declared (a restored picture may carry a user drag)
   const repacked = prev.engine !== cur.engine || prev.viewMode !== cur.viewMode || prev.nodes.length !== cur.nodes.length
     || Math.abs(median(prev.nodes.map(n => n.r)) - median(cur.nodes.map(n => n.r))) > 0.01;
   if (repacked) { return 'grid'; }                                   // engine switch, Detail change, Node Size re-pack

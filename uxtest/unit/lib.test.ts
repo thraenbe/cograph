@@ -68,6 +68,7 @@ test('layoutBirth: grid-born vs frozen vs user-moved', () => {
   const stat = snapshot({ motion: 'static', nodes: [node('a', 0, 0), node('b', 9, 9)] });
   const dyn = { ...stat, motion: 'dynamic' };
   expect(layoutBirth(null, 'grid', stat, false)).toBe('grid');                       // first load
+  expect(layoutBirth(null, 'user-moved', stat, false)).toBe('user-moved');           // restored picture with a user drag
   expect(layoutBirth(dyn, 'grid', stat, false)).toBe('frozen');                      // Dynamic → Static
   expect(layoutBirth(stat, 'frozen', stat, false)).toBe('frozen');                   // stays frozen
   expect(layoutBirth(stat, 'frozen', { ...stat, nodes: [node('a', 0, 0)] }, false)).toBe('grid');            // Detail change re-packs

@@ -1194,6 +1194,37 @@ suite('Subgraph block (W4)', () => {
     assert.deepStrictEqual(posted, [{ type: 'subgraph-exit' }]);
   });
 
+  test('scoped boot order: no rows before the tree, rows appear when structure lands', () => {
+    // Real protocol order: `subgraph` arrives BEFORE `structure` — the rows
+    // cannot be derived yet, and the structure handler must refresh the panel.
+    st().structureTree = null;
+    updateFolderPanel();
+    let body = doc.getElementById('folder-filters-body')!;
+    assert.ok(body.querySelector('.subgraph-head'), 'section header renders without a tree');
+    assert.strictEqual(body.querySelectorAll('.subgraph-row').length, 0);
+    st().structureTree = {
+      root: '/r',
+      folders: {
+        '/r': { parent: null, fileCount: 9 },
+        '/r/src': { parent: '/r', fileCount: 6 },
+        '/r/docs': { parent: '/r', fileCount: 3 },
+      },
+    };
+    updateFolderPanel(); // what the structure handler triggers when scoped
+    body = doc.getElementById('folder-filters-body')!;
+    assert.strictEqual(body.querySelectorAll('.subgraph-row').length, 1, 'rows derived late');
+    assert.ok(body.querySelector('.subgraph-visualize'), 'Visualize offered');
+    // and the handler actually triggers it:
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/main.js'), 'utf8');
+    const h = src.slice(src.indexOf("message.type === 'structure'"), src.indexOf("message.type === 'graph-patch'"));
+    assert.ok(/state\.scope && typeof updateFolderPanel === 'function'/.test(h),
+      'the structure handler refreshes the scoped Filters section');
+  });
+
   test('an unsaved scope is labelled and a cleared scope removes the section', () => {
     st().scope.name = null;
     updateFolderPanel();

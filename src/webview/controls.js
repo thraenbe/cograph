@@ -361,7 +361,7 @@ function updateFolderPanel() {
         <button class="folder-filter-clear" data-action="unhide-file" data-path="${escHtml(fp)}">✕</button>
       </div>`);
   });
-  rows.push(`<button class="folder-filter-show-all" id="btn-folder-show-all">Show All</button>`);
+  rows.push(`<button class="folder-filter-show-all" id="btn-folder-show-all">Show all</button>`);
 
   // Subgraph section (W4): the scope's name, one row per maximal EXCLUDED
   // subtree with a Visualize action, and an exit row. 'Show All' above only

@@ -2,7 +2,7 @@
 // frame, expand/collapse folder + file, the three context menus. Drags are
 // checked for collateral movement (H4 / T3: nothing outside the folder may move).
 import { scenario } from '../lib/scenario';
-import { backgroundPoint, clickNode, need, ctxMenuClick, ctxMenuLabels, dragBy, dragFrame, fitToView, judgeFrameDrag, locateFrame, locateNode, restAndWatchChurn, rightClick, setSlider, wheelZoom, type Point } from '../lib/actions';
+import { backgroundPoint, clickNode, clickSel, need, ctxMenuClick, ctxMenuLabels, dragBy, dragFrame, fitToView, judgeFrameDrag, locateFrame, locateNode, restAndWatchChurn, rightClick, setSlider, wheelZoom, type Point } from '../lib/actions';
 import { SkipStep, StepFinding, type StepRecord } from '../lib/step';
 import { SEL } from '../selectors';
 import * as path from 'path';
@@ -156,6 +156,32 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
     }
     return null;
   });
+  /** perf's LOD parks function circles below zoom 0.3: a DOM count is only meaningful above that. Zoom into
+   *  the given point until k >= 0.5 (no re-render happens: zoom is a transform). */
+  const ensureLod = async (at: { x: number; y: number }): Promise<number> => {
+    for (let i = 0; i < 6; i++) {
+      const k = await page.evaluate('d3.zoomTransform(document.querySelector("#graph svg")).k') as number;
+      if (k >= 0.5) { return k; }
+      await wheelZoom(page, at, -240, 2);
+      await page.waitForTimeout(250);
+    }
+    return await page.evaluate('d3.zoomTransform(document.querySelector("#graph svg")).k') as number;
+  };
+  const fnCountInState = (file: string): Promise<number> =>
+    page.evaluate(`state.currentNodes.filter(n => n.file === ${JSON.stringify(file)} && !n.isCluster && !n.isLibrary && !n.isSynthetic).length`) as Promise<number>;
+  // Earlier steps may leave a folder filter active (file filters AND with folder filters) - clear through the panel.
+  await ux.step('Clear folder filters via the Filters panel', async () => {
+    const active = (): Promise<boolean> => page.evaluate('!!(state.onlyShowFolder || (state.hiddenFolders && state.hiddenFolders.size) || state.onlyShowFile || (state.hiddenFiles && state.hiddenFiles.size))') as Promise<boolean>;
+    if (!await active()) { return; }
+    if (await page.locator(`${SEL.folderFiltersBody.css}`).isHidden()) { await clickSel(page, 'folderFiltersToggle'); }
+    for (let i = 0; i < 12 && await active(); i++) {
+      const clear = page.locator(`${SEL.folderFiltersBody.css} .folder-filter-clear, ${SEL.folderFiltersBody.css} .chip-file`).first();
+      if (await clear.count() === 0) { break; }
+      await clear.click();
+      await page.waitForTimeout(250);
+    }
+    if (await active()) { throw new StepFinding({ rule: 'filter-panel-cannot-clear', severity: 'medium', message: 'a folder/file filter stayed active although the Filters panel offered no clear button for it' }); }
+  }, { metrics: false });
   let hiddenFile = '';
   await ux.step('File context menu → Hide file (R2a)', async () => {
     if (combo.engine !== 'shelf') { throw new SkipStep('file slots exist only in the shelf engine'); }
@@ -177,11 +203,16 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
     // that are attached and displayed. (State alone can lie: a memoised visibility set may ignore the filter.)
     const drawnOf = (file: string): Promise<number> => page.evaluate((f) => [...document.querySelectorAll('#graph circle.regular-node')]
       .filter(el => (el as unknown as { __data__?: { file?: string } }).__data__?.file === f && getComputedStyle(el).display !== 'none' && el.isConnected).length, file);
+    // A single-function file is drawn as a file circle, not as a function circle: the DOM count needs >= 2 functions.
+    if (await fnCountInState(hiddenFile) < 2) { hiddenFile = ''; await page.keyboard.press('Escape'); throw new SkipStep(`${l.file.split('/').pop()} has < 2 function nodes - DOM count not meaningful`); }
+    await ensureLod(l);
     const drawnBefore = await drawnOf(hiddenFile);
     await ctxMenuClick(page, /hide file/i);
     await page.waitForTimeout(500);
+    const kAfter = await ensureLod(l);
     const drawnAfter = await drawnOf(hiddenFile);
     const after = await visibleNow();
+    ux.steps[ux.steps.length - 1].note = `${hiddenFile.split('/').pop()}: drawn ${drawnBefore} → ${drawnAfter} (k ${kAfter.toFixed(2)}); visible set ${before} → ${after}`;
     if (drawnAfter > 0 || (before && after >= before)) {
       throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a', message: `Hide file on ${hiddenFile}: ${drawnBefore} → ${drawnAfter} of its nodes still drawn in the DOM; visible set ${before} → ${after}` });
     }
@@ -189,40 +220,74 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
   await ux.step('Hidden file appears as a chip; click unhides (R2a)', async () => {
     if (!hiddenFile) { throw new SkipStep('nothing hidden'); }
     await need(page, 'fileFilterChip');
+    if (await page.locator(SEL.folderFiltersBody.css).isHidden()) { await clickSel(page, 'folderFiltersToggle'); }
     const chip = page.locator(SEL.fileFilterChip.css).first();
     if (await chip.count() === 0) { throw new StepFinding({ rule: 'file-filter-chip-missing', severity: 'medium', ref: 'R2a', message: `no .chip-file for the hidden file ${hiddenFile}` }); }
-    await chip.click();
+    const hiddenBefore = await page.evaluate('state.hiddenFiles ? state.hiddenFiles.size : -1') as number;
+    // The chip is a row; its ✕ button (.folder-filter-clear) does the unhiding, like the folder chips.
+    const clear = chip.locator('.folder-filter-clear');
+    await (await clear.count() > 0 ? clear.first() : chip).click();
+    await page.waitForTimeout(400);
+    const hiddenAfter = await page.evaluate('state.hiddenFiles ? state.hiddenFiles.size : -1') as number;
+    ux.steps[ux.steps.length - 1].note = `chip click: hiddenFiles ${hiddenBefore} → ${hiddenAfter}`;
+    if (hiddenAfter >= hiddenBefore) { throw new StepFinding({ rule: 'file-chip-noop', severity: 'high', ref: 'R2a', message: `clicking the hidden-file chip did not unhide ${hiddenFile.split('/').pop()} (hiddenFiles ${hiddenBefore} → ${hiddenAfter})` }); }
   });
   await ux.step('File context menu → Show only this file → Show all (R2a)', async () => {
+    // Independent of the chip step: a leftover hidden file would AND with "show only" and empty the graph.
+    if (await page.evaluate('!!(state.hiddenFiles && state.hiddenFiles.size)')) {
+      const l0 = await slotLabel();
+      if (l0) { await rightClick(page, l0); if ((await ctxMenuLabels(page)).some(x => /^show all$/i.test(x))) { await ctxMenuClick(page, /^show all$/i); } else { await page.keyboard.press('Escape'); } await page.waitForTimeout(300); }
+    }
     const l = await slotLabel();
     if (!l) { throw new SkipStep('no file slot label on screen'); }
+    // DOM counts: drawn (attached + displayed) function circles of the file / of any other file.
+    const drawn = (): Promise<{ mine: number; others: number; attached: number; frames: number; k: number; only: string | null; hidden: number }> => page.evaluate(`(() => { const f = ${JSON.stringify(l.file)};
+      let mine = 0, others = 0, attached = 0;
+      for (const el of document.querySelectorAll('#graph circle.regular-node')) { attached++; if (!el.isConnected || getComputedStyle(el).display === 'none') continue; if (el.__data__ && el.__data__.file === f) mine++; else others++; }
+      return { mine, others, attached, frames: document.querySelectorAll('#graph g.frame').length, k: +d3.zoomTransform(document.querySelector('#graph svg')).k.toFixed(2), only: state.onlyShowFile || null, hidden: state.hiddenFiles ? state.hiddenFiles.size : -1 };
+    })()`) as Promise<{ mine: number; others: number; attached: number; frames: number; k: number; only: string | null; hidden: number }>;
+    const visibleNow = (): Promise<number> => page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as Promise<number>;
+    if (await fnCountInState(l.file) < 2) { throw new SkipStep(`${l.file.split('/').pop()} has < 2 function nodes - DOM count not meaningful`); }
+    await ensureLod(l);
+    const start = await drawn(), all0 = await visibleNow();
     await rightClick(page, l);
     if (!(await ctxMenuLabels(page)).some(x => /show only this file/i.test(x))) { await page.keyboard.press('Escape'); throw new SkipStep('no "Show only this file" item'); }
     await ctxMenuClick(page, /show only this file/i);
     await page.waitForTimeout(500);
-    const only = await page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as number;
+    await ensureLod(l);
+    const only = await drawn(), onlyVisible = await visibleNow();
     const l2 = await slotLabel();
     if (l2) { await rightClick(page, l2); await ctxMenuClick(page, /^show all$/i); }
     await page.waitForTimeout(500);
-    const all = await page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as number;
-    if (!(only < all)) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a', message: `Show only this file left ${only} visible, Show all ${all}` }); }
+    if (l2) { await ensureLod(l2); }
+    const back = await drawn(), all = await visibleNow();
+    const fmt = (d: typeof start): string => `${d.mine}/${d.others} (attached ${d.attached}, frames ${d.frames}, k ${d.k}, only ${d.only ? d.only.split('/').pop() : '-'}, hidden ${d.hidden})`;
+    const rec = ux.steps[ux.steps.length - 1];
+    rec.note = `${l.file.split('/').pop()}: drawn mine/others ${fmt(start)} → show only ${fmt(only)} → show all ${fmt(back)}; visible set ${all0} → ${onlyVisible} → ${all}`;
+    if (only.others > 0 || only.mine === 0) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a/F17', message: `Show only this file: ${rec.note}` }); }
+    if (back.others < start.others || back.mine < start.mine) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a/F17', message: `Show all did not restore: drawn ${back.mine}/${back.others} vs ${start.mine}/${start.others} before` }); }
   });
   await ux.step('Drag a file slot by its label band (R2b)', async () => {
     if (combo.engine !== 'shelf') { throw new SkipStep('file slots exist only in the shelf engine'); }
     await need(page, 'fileSlotHandle');
+    // Prefer a slot inside a MULTI-slot frame: a lone slot fills its frame and the clamp correctly cannot move it.
     const h = await page.evaluate(() => {
+      let fallback: { x: number; y: number; file: string; sx: number; sy: number; siblings: number } | null = null;
       for (const el of document.querySelectorAll('#graph g.file-slot rect.file-slot-handle')) {
         const b = el.getBoundingClientRect();
-        if (b.width > 30 && b.left > 230 && b.right < window.innerWidth - 20 && b.top > 10 && b.bottom < window.innerHeight - 60
-          && document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el) {
-          const g = el.closest('g.file-slot') as unknown as { __data__?: { file?: string } };
-          const shape = el.parentElement?.querySelector('.file-slot-shape')?.getBoundingClientRect();
-          return { x: b.left + b.width / 2, y: b.top + b.height / 2, file: g?.__data__?.file ?? '', sx: shape?.left ?? 0, sy: shape?.top ?? 0 };
-        }
+        if (!(b.width > 30 && b.left > 230 && b.right < window.innerWidth - 20 && b.top > 10 && b.bottom < window.innerHeight - 60
+          && document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el)) { continue; }
+        const g = el.closest('g.file-slot') as unknown as { __data__?: { file?: string } };
+        const shape = el.parentElement?.querySelector('.file-slot-shape')?.getBoundingClientRect();
+        const siblings = el.closest('g.f-slots')?.querySelectorAll('g.file-slot').length ?? 1;
+        const hit = { x: b.left + b.width / 2, y: b.top + b.height / 2, file: g?.__data__?.file ?? '', sx: shape?.left ?? 0, sy: shape?.top ?? 0, siblings };
+        if (siblings >= 2) { return hit; }
+        if (!fallback) { fallback = hit; }
       }
-      return null;
+      return fallback;
     });
     if (!h) { throw new SkipStep('no hittable slot handle on screen'); }
+    if (h.siblings < 2) { throw new SkipStep(`only lone-slot frames on screen (${h.file.split('/').pop()}); a lone slot fills its frame`); }
     const memberBefore = ux.lastSnapshot?.nodes.filter(n => n.file === h.file).map(n => ({ id: n.id, x: n.x, y: n.y })) ?? [];
     await dragBy(page, h, 45, 30);
     await page.waitForTimeout(400);

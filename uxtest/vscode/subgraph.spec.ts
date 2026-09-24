@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Frame } from '@playwright/test';
 import { launchVsCode, within } from './launch';
-import { answerQuickInput, frameBackground, runCommand, waitForGraph } from './drive';
+import { answerQuickInput, frameBackground, frameSetSlider, runCommand, waitForGraph } from './drive';
 import { SkipStep, StepFinding } from '../lib/step';
 import { SEL } from '../selectors';
 
@@ -40,9 +40,16 @@ async function renderedTops(f: Frame, root: string): Promise<string[]> {
     .filter(p => p.startsWith(root + '/')).map(p => p.slice(root.length + 1).split('/')[0]))], root), 8000, [] as string[]);
 }
 
+/** Reveal the CoGraph view (activity bar) and find the webview frame that holds `css`. */
 async function sidebarFrame(page: import('@playwright/test').Page, css: string): Promise<Frame | null> {
-  for (const f of page.frames()) {
-    if (await within(f.locator(css).first().count(), 2000, 0) > 0) { return f; }
+  const icon = page.locator('.activitybar .action-item a[aria-label*="Cograph" i]').first();
+  if (await icon.count() > 0) { await icon.click(); }
+  for (let attempt = 0; attempt < 16; attempt++) {
+    await page.waitForTimeout(500);
+    for (const f of page.frames()) {
+      if (!f.url().startsWith('vscode-webview://')) { continue; }
+      if (await within(f.locator(css).first().count(), 1500, 0) > 0) { return f; }
+    }
   }
   return null;
 }
@@ -76,9 +83,11 @@ for (const repo of repos) {
       }, { metrics: false, settle: false });
       void title;
 
-      await ux.step('Only the picked folder\'s frames are rendered', async () => {
+      await ux.step('Only the picked folder\'s frames are rendered (Detail 1)', async () => {
         const f = await graphFrame();
         if (!f) { throw new Error('no webview'); }
+        await frameSetSlider(f, SEL.detailSlider.css, 1); // the panel opens collapsed (one root glyph): frames exist only at full detail
+        await page.waitForTimeout(2500);
         const bg = await frameBackground(f);
         if (bg) { await page.mouse.move(bg.x, bg.y, { steps: 8 }); await page.mouse.dblclick(bg.x, bg.y); await page.waitForTimeout(800); }
         const rendered = await renderedTops(f, workspace);

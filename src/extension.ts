@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 import { GraphProvider } from './graphProvider';
 import { SidebarProvider } from './sidebarProvider';
 import { ChatStore } from './graphIntelligence/chatStore';
+import { scanStructure } from './structureScanner';
+import { pickFolder } from './folderPicker';
+import { specForFolder } from './subgraphScope';
 import { flushCacheWrites } from './cacheStore';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -49,6 +52,18 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  // Round 3: pick one folder and open the panel scoped to it (unsaved until Save).
+  const visualizeFolderCommand = vscode.commands.registerCommand('cograph.visualizeFolder', async () => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) { vscode.window.showErrorMessage('CoGraph: No workspace folder open.'); return; }
+    try {
+      const rel = await pickFolder(scanStructure(root), root);
+      if (rel !== null) { provider.showScoped(specForFolder(rel), 'folder'); }
+    } catch (err) {
+      vscode.window.showErrorMessage(`CoGraph: Only visualize folder failed — ${(err as Error).message}`);
+    }
+  });
+
   // Re-push the AI-enabled state to the sidebar whenever the user toggles it,
   // so the gray-out clears/reapplies without reopening the view.
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
@@ -66,7 +81,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener, annotateCommand);
+  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener, annotateCommand, visualizeFolderCommand);
 }
 
 // VS Code awaits a returned promise on shutdown: persist a still-debounced graph cache.

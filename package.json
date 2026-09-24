@@ -39,7 +39,8 @@
     "onCommand:cograph.saveGraph",
     "onCommand:cograph.saveGraphAs",
     "onView:cograph.savedGraphs",
-    "onCommand:cograph.annotateGraph"
+    "onCommand:cograph.annotateGraph",
+    "onCommand:cograph.visualizeFolder"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -89,6 +90,10 @@
       {
         "command": "cograph.annotateGraph",
         "title": "CoGraph: Annotate Graph (AI summaries for folders and files)"
+      },
+      {
+        "command": "cograph.visualizeFolder",
+        "title": "CoGraph: Only visualize folder…"
       }
     ],
     "keybindings": [

@@ -241,6 +241,7 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
     if (!before || !before.length) { throw new SkipStep('no slot dragged'); }
     const after = new Map((ux.lastSnapshot?.nodes ?? []).map(n => [n.id, n]));
     const stayed = before.filter(b => { const a = after.get(b.id); return a && Math.hypot(a.x - b.x, a.y - b.y) < 5; }).length;
-    if (stayed > before.length / 2) { throw new StepFinding({ rule: 'slot-members-left-behind', severity: 'high', ref: 'R2b', message: `${stayed} of ${before.length} members of the dragged slot did not move with it` }); }
+    // F19: every member translates with its slot, in BOTH motions (this scenario runs static and dynamic).
+    if (stayed > 0) { throw new StepFinding({ rule: 'slot-members-left-behind', severity: 'high', ref: 'R2b/F19', message: `${stayed} of ${before.length} members of the dragged slot did not move with it (${combo.motion})` }); }
   }, { settle: false, metrics: false });
 });

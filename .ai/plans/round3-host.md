@@ -58,8 +58,7 @@ interface Scope { spec: ScopeSpec; source: 'none' | 'folder' | 'subgraph'; name:
   Saved form is always normalized.
 
 All paths cross the host boundary as workspace-relative POSIX (same rule as annotations); the
-webview works with absolute paths, so the `scope` message carries both `root` and absolute
-`include`/`excluded` so session-111 needs no path code.
+message carries `root` so the webview can map them to its absolute tree paths at the border.
 
 ### 2. File format — additive
 
@@ -79,7 +78,7 @@ webview works with absolute paths, so the `scope` message carries both `root` an
 
 Thin additions in `graphProvider.ts`, logic in `subgraphScope.ts`:
 
-- `setScope(scope)`: store; post `scope`; then send the graph delta so the panel does not reload:
+- `setScope(scope)`: store; post `subgraph`; then send the graph delta so the panel does not reload:
   - newly excluded folders → `graph-patch { patch: {nodes:[],edges:[]}, replacedFiles: <their files> }`
     (the existing prune path removes their nodes);
   - newly included folders → `graph-patch` with the cached nodes for their files; files not in
@@ -92,10 +91,11 @@ Thin additions in `graphProvider.ts`, logic in `subgraphScope.ts`:
 - `structure` stays the full tree. Reason: it is paths only, the Filters list needs the excluded
   folders with counts, and `expand-folder` keeps working unchanged when a folder is brought in.
   Pruning the frame tree to the scope is the webview's call (see protocol).
-- Ordering on open: `structure` → `scope` → `graph` (all through the ready gate). `graph-loaded`
+- Ordering on open: `subgraph` → `structure` → `graph` (all through the ready gate). `graph-loaded`
   after those, as today.
-- Webview → host: `scope-include { path }` / `scope-exclude { path }` (absolute folder) → update
-  spec (normalize), `setScope`, `markDirty`.
+- Webview → host: `subgraph-include { path }` / `subgraph-exclude { path }` (relative folder) →
+  update spec (normalize), `setScope`, `markDirty`; `subgraph-exit` → `setScope(none)`, title reset,
+  `currentSavedGraphPath` cleared (like New Graph, without a reload).
 - Save: host merges `subgraph: scope.spec` into the payload when `scope.source !== 'none'`.
 - `loadGraph(data)`: if `data.subgraph` → `setScope({ spec, source: 'subgraph', name })` before
   `graph-loaded`; a plain layout → `setScope(none)` first, so opening a layout after a subgraph
@@ -130,46 +130,53 @@ messages), else `setScope`. Also offered from the sidebar card context menu late
   layouts, no clobber without confirm), writes the file, refreshes the list, then opens it via
   `loadGraph` (→ `setScope`).
 
-### 6. Protocol proposal (host ↔ graph webview) — for session-111's review
+### 6. Protocol (agreed shape with session-111, 2026-09-24)
+
+Session-111's review asked for: full structure tree (yes), scoped graph data (yes), message
+name `subgraph`, relative POSIX paths only, `subgraph` before `structure`, and a `subgraph-exit`.
+All taken. Two things I keep: `root` (the webview cannot turn relative paths into tree paths
+without the workspace root — the tree root is the common root of the files, not the workspace)
+and an optional `exclude` list (needed only if Q5 = yes; empty otherwise).
 
 host → webview
 
 ```jsonc
-{ "type": "scope",
-  "source": "subgraph" | "folder" | "none",
-  "name": "backend" | null,
-  "root": "/abs/workspace",
-  "include": ["/abs/src/server", "/abs/src/db"],        // absolute; folder + descendants
-  "exclude": ["/abs/src/server/tests"],                  // absolute; carve-outs inside include
-  "excluded": [{ "path": "/abs/src/ui", "fileCount": 41 }, …]  // maximal excluded subtrees, for the Filters list
-}
+{ "type": "subgraph",
+  "name": "backend" | null,        // null = unsaved scope ("Only visualize folder")
+  "root": "/abs/workspace",        // relative paths below are relative to this
+  "include": ["src/server", "src/db"],   // workspace-relative POSIX; folder + descendants; [] = no scope
+  "exclude": ["src/server/tests"] }      // optional carve-outs inside include (Q5); usually []
 ```
-- Sent after `structure`, before `graph`; re-sent whenever the scope changes. `source: "none"`
-  (empty `include`) means whole project — the webview clears any scope state.
-- `graph`, `graph-patch`, `git-update` arrive already filtered to the scope. A folder leaving the
-  scope arrives as `graph-patch { patch: {nodes:[],edges:[]}, replacedFiles: [...] }`, a folder
-  entering as a normal `graph-patch` (plus `analysis-state parsingFolder` while it parses).
-- `structure` is unchanged (full tree). The webview removes frames/slots/glyphs of excluded
-  folders the same way "hide entirely" does, and lists `excluded` in the Folder panel's existing
-  FILTERS section with a "Visualize" action. Root: when exactly one top-level folder is included, promoting it to
-  the frame root is the webview's decision (I have no opinion, the host does not care).
+- Sent BEFORE `structure` and `graph` on open (all three through the ready gate, so the first
+  frame build is already scoped, no flash of the full project) and again on every change.
+  `include: []` means whole project: the webview clears its scope state.
+- `structure` unchanged (full tree). The webview derives the excluded list (top-level excluded
+  folders + fileCount) from tree + include/exclude with the same nearest-listed-ancestor rule
+  as the host (`isIncluded`); it lists them in the Folder panel's FILTERS section with "Visualize".
+- `graph`, `graph-patch`, `git-update` arrive already scoped. A folder leaving the scope:
+  `graph-patch { patch: {nodes:[],edges:[]}, replacedFiles: [its files] }`. A folder entering:
+  `subgraph` (updated) → `analysis-state { parsingFolder }` if a parse is needed → `graph-patch`
+  (`parsedFolder` set) — the same sequence as `expand-folder`, so the pending spinner row works.
 
 webview → host
 
 ```jsonc
-{ "type": "scope-include", "path": "/abs/src/ui" }
-{ "type": "scope-exclude", "path": "/abs/src/db" }      // e.g. Filters › "Exclude from subgraph"
+{ "type": "subgraph-include", "path": "src/ui" }     // workspace-relative POSIX folder
+{ "type": "subgraph-exclude", "path": "src/db" }
+{ "type": "subgraph-exit" }                          // back to the whole project (host: setScope(none))
 ```
-- `save-graph` unchanged; the host adds `subgraph`. `expand-folder` unchanged.
-- The webview must not persist scope itself (no `hiddenFolders` reuse for it): scope is host
-  state, hidden is view state; both may coexist.
+- `save-graph` unchanged. The host writes `subgraph` from its own state (authoritative); if the
+  webview also puts `subgraph {name, include}` into the payload it is overwritten, not merged.
+- `expand-folder` unchanged; the host drops files outside the scope before parsing.
+- The webview never persists scope and never reuses `hiddenFolders` for it: scope is host
+  state, hidden is view state; both may coexist (session-111 has one structural predicate for both).
 
 ### 7. Files
 
 New: `src/subgraphScope.ts`, `src/subgraphPicker.ts`, `src/test/suite/subgraphScope.test.ts`,
 `subgraphPicker.test.ts` (jsdom, like annotationCard.test.ts), `graphProviderScope.test.ts`.
 Edited: `graphProvider.ts` (scope field, `setScope`, `showScoped`, filters at the post sites,
-`scope-include/exclude`, save/load — target < 120 added lines), `sidebarProvider.ts` (button
+`subgraph-include/exclude/exit`, save/load — target < 120 added lines), `sidebarProvider.ts` (button
 line, 3 message cases, `isSubgraph` in the list, card glyph), `extension.ts` (command),
 `package.json` (command + activation event, appended), `CHANGELOG.md`, `README.md`.
 Not edited: any webview graph module (session-111), analyzers, structureScanner.
@@ -191,7 +198,7 @@ Not edited: any webview graph module (session-111), analyzers, structureScanner.
 | Risk | Mitigation |
 |---|---|
 | Webview and host disagree on what "in scope" means | One pure function (`isIncluded`) on the host; the webview only consumes `include`/`exclude`/`excluded` lists it is given and never re-derives |
-| A scoped patch reaches the webview before `scope` | `setScope` posts `scope` first; on open all three go through the ready gate in order |
+| A scoped patch reaches the webview before `subgraph` | `setScope` posts `subgraph` first; on open all three go through the ready gate in order |
 | Save from a scoped view silently drops the scope | Host adds `subgraph` at save time from its own state, not from the payload |
 | Two `scope` sources fight (command view open, then a subgraph card clicked) | `loadGraph` always calls `setScope` (none or the file's), so the last open wins, like today for layouts |
 | Picker on a 5 000-folder repo | Rows rendered lazily per expanded level; search caps visible rows; counts precomputed by `scanStructure` |
@@ -201,7 +208,7 @@ Not edited: any webview graph module (session-111), analyzers, structureScanner.
 
 Pure: scope verdicts (nested include/exclude, root), `excludedTops`, `filterGraph` (library
 nodes, cross-scope edges), `normalize` idempotence. Host: fake panel captures posts — open with a
-scope posts `structure, scope, graph(filtered)`; `scope-exclude` posts prune patch; `scope-include`
+scope posts `subgraph, structure, graph(filtered)`; `subgraph-exclude` posts prune patch; `subgraph-include`
 of cached files posts nodes without spawning; of uncached files spawns `runSubset` with only
 those files; on-save re-parse of an out-of-scope file posts nothing; Save carries `subgraph`;
 loading a plain layout clears scope. Sidebar: button present, `subgraph-create` writes a valid

@@ -173,10 +173,18 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
     const visibleNow = (): Promise<number> => page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as Promise<number>;
     const before = await visibleNow();
     hiddenFile = l.file;
+    // Assert on the RENDERED DOM right after the click, with nothing in between: function circles of that file
+    // that are attached and displayed. (State alone can lie: a memoised visibility set may ignore the filter.)
+    const drawnOf = (file: string): Promise<number> => page.evaluate((f) => [...document.querySelectorAll('#graph circle.regular-node')]
+      .filter(el => (el as unknown as { __data__?: { file?: string } }).__data__?.file === f && getComputedStyle(el).display !== 'none' && el.isConnected).length, file);
+    const drawnBefore = await drawnOf(hiddenFile);
     await ctxMenuClick(page, /hide file/i);
     await page.waitForTimeout(500);
+    const drawnAfter = await drawnOf(hiddenFile);
     const after = await visibleNow();
-    if (before && after >= before) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a', message: `Hide file on ${hiddenFile}: visible nodes ${before} → ${after}` }); }
+    if (drawnAfter > 0 || (before && after >= before)) {
+      throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a', message: `Hide file on ${hiddenFile}: ${drawnBefore} → ${drawnAfter} of its nodes still drawn in the DOM; visible set ${before} → ${after}` });
+    }
   });
   await ux.step('Hidden file appears as a chip; click unhides (R2a)', async () => {
     if (!hiddenFile) { throw new SkipStep('nothing hidden'); }

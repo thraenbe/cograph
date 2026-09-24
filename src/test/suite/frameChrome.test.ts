@@ -178,6 +178,17 @@ suite('R3/R4 render contracts', () => {
       'the stroke-scaled #arrow stays off bundles');
   });
 
+  test('plain edges use a fixed-size user-space #arrow too (F20)', () => {
+    const rendering = read('rendering.js');
+    const marker = rendering.slice(rendering.indexOf("'arrow'"),
+      rendering.indexOf("'arrow-bundle'"));
+    assert.ok(marker.includes("'markerUnits', 'userSpaceOnUse'"),
+      'aggregated Global edges (stroke × edgeWeightScale) grew the default '
+      + 'strokeWidth-unit head to 30-160px on screen');
+    assert.ok(!marker.includes("'markerWidth', 4"),
+      'the head is ~9 graph units like the bundle marker');
+  });
+
   test('the packer reserves the name line above the content (R4)', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fr = require('../../../src/webview/frames.js');

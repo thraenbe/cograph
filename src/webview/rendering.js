@@ -6,14 +6,18 @@ const svg = d3.select('#graph')
 
 const defs = svg.append('defs');
 
-// Arrow marker
+// Arrow marker for plain function edges. Fixed at ~9 graph units
+// (userSpaceOnUse): with the default strokeWidth units an aggregated Global
+// edge (stroke = linkThickness × edgeWeightScale) grew the head to 30-160px
+// on screen (F20). Like #arrow-bundle it scales with the zoom, not the stroke.
 defs.append('marker')
   .attr('id', 'arrow')
   .attr('viewBox', '0 -5 10 10')
   .attr('refX', 10)
   .attr('refY', 0)
-  .attr('markerWidth', 4)
-  .attr('markerHeight', 4)
+  .attr('markerWidth', 9)
+  .attr('markerHeight', 9)
+  .attr('markerUnits', 'userSpaceOnUse')
   .attr('orient', 'auto')
   .append('path')
   .attr('d', 'M0,-5L10,0L0,5')

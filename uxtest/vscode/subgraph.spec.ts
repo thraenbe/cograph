@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Frame } from '@playwright/test';
 import { launchVsCode, within } from './launch';
-import { answerQuickInput, frameBackground, frameSetSlider, runCommand, waitForGraph } from './drive';
+import { answerQuickInput, frameBackground, frameElementCenter, frameSetSlider, runCommand, waitForGraph } from './drive';
 import { SkipStep, StepFinding } from '../lib/step';
 import { SEL } from '../selectors';
 
@@ -102,6 +102,10 @@ for (const repo of repos) {
         if (!f) { throw new Error('no webview'); }
         const others = tops.slice(1).map(t => t.name);
         if (!others.length) { throw new SkipStep('single top-level source folder: nothing excluded'); }
+        if (await within(f.locator(SEL.folderFiltersBody.css).first().isHidden(), 2000, true)) {
+          const tg = await frameElementCenter(f, SEL.folderFiltersToggle.css);
+          if (tg) { await page.mouse.click(tg.x, tg.y); await page.waitForTimeout(400); }
+        }
         const rows = f.locator(SEL.subgraphRow.css);
         const n = await within(rows.count(), 5000, 0);
         if (n === 0) { throw new StepFinding({ rule: 'scope-rows-missing', severity: 'high', ref: 'round3 W4', message: `no ${SEL.subgraphRow.css} rows for ${others.length} excluded folder(s)` }); }

@@ -4,7 +4,7 @@
 // answers like the real host (scope re-sent, graph-patch for the entering folder). Gated on scope.js.
 import { expect } from '@playwright/test';
 import { scenario } from '../lib/scenario';
-import { clickSel, fitToView, setSlider } from '../lib/actions';
+import { clickSel, ctxMenuClick, ctxMenuLabels, fitToView, locateFrame, rightClick, setSlider } from '../lib/actions';
 import { SkipStep, StepFinding } from '../lib/step';
 import { scopeFixture } from '../lib/fixtures';
 import { SEL } from '../selectors';
@@ -15,6 +15,23 @@ scenario('subgraph', { perMotion: false, scope: scopeFixture }, async ({ page, u
   const renderedTops = (): Promise<string[]> => page.evaluate((root) => [...new Set([...document.querySelectorAll('#graph g.frame, #graph g.folder-bubble')]
     .map(g => String((g as unknown as { __data__?: { path?: string; folderPath?: string } }).__data__?.path ?? (g as unknown as { __data__?: { folderPath?: string } }).__data__?.folderPath ?? ''))
     .filter(p => p && p !== root && p.startsWith(root + '/')).map(p => p.slice(root.length + 1).split('/')[0]))], sc.root);
+
+  await ux.step('Detail 0: the root glyph counts only in-scope files (e22c370)', async () => {
+    await gate();
+    await setSlider(page, 'detailSlider', 0);
+    await page.waitForTimeout(1200);
+    const counts = await page.evaluate(() => [...document.querySelectorAll('#graph text')].map(t => (t.textContent || '').trim()).map(t => /^(\d[\d,.]*)\s+files?$/.exec(t)).filter((m): m is RegExpExecArray => !!m).map(m => Number(m[1].replace(/[,.]/g, ''))));
+    const folders = (repo.structure.folders ?? {}) as Record<string, { path?: string; fileCount?: number; totalFiles?: number }>;
+    const inc = folders[`${sc.root}/${sc.include[0]}`] ?? Object.values(folders).find(f => f.path === `${sc.root}/${sc.include[0]}`);
+    const structureCount = inc?.totalFiles ?? inc?.fileCount ?? null;
+    const graphCount = new Set(repo.graph.nodes.map(n => n.file).filter((f): f is string => !!f && f.startsWith(`${sc.root}/${sc.include[0]}/`))).size;
+    const total = repo.structure.totalFiles;
+    ux.steps[ux.steps.length - 1].note = `glyph count(s): ${counts.join(', ') || '(none)'}; in-scope files: structure ${structureCount ?? '?'}, graph ${graphCount}; whole project ${total}`;
+    if (!counts.length) { throw new SkipStep('no "N files" glyph label at Detail 0'); }
+    const root = Math.max(...counts);
+    if (root === total && total !== structureCount && total !== graphCount) { throw new StepFinding({ rule: 'scoped-glyph-counts-whole-project', severity: 'medium', ref: 'round3 e22c370', message: `root glyph says ${root} files (whole project) while scoped to ${sc.include[0]} (${structureCount ?? graphCount} files)` }); }
+    if (root !== structureCount && root !== graphCount) { throw new StepFinding({ rule: 'scoped-glyph-count-mismatch', severity: 'low', ref: 'round3 e22c370', message: `root glyph says ${root} files; in-scope structure ${structureCount ?? '?'} / graph ${graphCount}` }); }
+  }, { settle: false });
 
   await ux.step(`Opened inside scope "${sc.include[0]}" → only that folder's frames exist`, async () => {
     await gate();
@@ -72,6 +89,13 @@ scenario('subgraph', { perMotion: false, scope: scopeFixture }, async ({ page, u
 
   await ux.step('Show all does NOT touch the scope (product Q3)', async () => {
     await gate();
+    // Show all is rendered only while something is filtered: hide a folder first (the scope is exited by now
+    // only if Exit existed; either way Show all must not post subgraph-exit).
+    const f = await locateFrame(page, 'smallest');
+    await rightClick(page, f.title);
+    if (!(await ctxMenuLabels(page)).some(x => /hide folder/i.test(x))) { await page.keyboard.press('Escape'); throw new SkipStep('no "Hide folder" item'); }
+    await ctxMenuClick(page, /hide folder/i);
+    await page.waitForTimeout(800);
     const showAll = page.locator(SEL.folderShowAll.css);
     if (await showAll.count() === 0) { throw new SkipStep('no Show all button'); }
     const before = host.posted('subgraph-exit').length;

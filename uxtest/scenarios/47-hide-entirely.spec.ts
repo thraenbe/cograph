@@ -3,7 +3,7 @@
 // "Show all" clears everything and brings the frames back. Gated on the round-3 predicate module (scope.js)
 // being present: on older branches every step skips.
 import { scenario } from '../lib/scenario';
-import { clickSel, ctxMenuClick, ctxMenuLabels, fitToView, locateFrame, rightClick, setSlider, wheelZoom } from '../lib/actions';
+import { clickSel, ctxMenuClick, ctxMenuLabels, fitDirect, fitToView, locateFrame, rightClick, setSlider, wheelZoom } from '../lib/actions';
 import { SkipStep, StepFinding } from '../lib/step';
 import { SEL } from '../selectors';
 
@@ -51,6 +51,30 @@ scenario('hide-entirely', { largeOk: false }, async ({ page, ux }, combo) => {
     await page.waitForTimeout(1200);
     const back = (await frames()).some(g => g.path === hidden);
     if (!back) { throw new StepFinding({ rule: 'unhide-did-not-restore-frame', severity: 'high', ref: 'round3 W2', message: `after the chip's ✕ the frame of ${hidden.split('/').pop()} is not back in the DOM` }); }
+  });
+
+  const refit = await ux.step('Hide a folder with an untouched viewport → layout re-fitted (e22c370)', async () => {
+    await gate();
+    if (combo.engine !== 'shelf') { throw new SkipStep('the automatic re-fit is Shelf only'); }
+    await fitDirect(page); // programmatic fit: userZoomed stays false
+    await page.waitForTimeout(400);
+    const f = await locateFrame(page, 'largest'); // large: locateFrame does not zoom in for it
+    await rightClick(page, f.title);
+    if (!(await ctxMenuLabels(page)).some(x => /hide folder/i.test(x))) { await page.keyboard.press('Escape'); throw new SkipStep('no "Hide folder" item'); }
+    await ctxMenuClick(page, /hide folder/i);
+    await page.waitForTimeout(1800); // glide + the ~230 ms re-fit
+    const uz = await page.evaluate('typeof userZoomed === "undefined" ? null : userZoomed');
+    ux.steps[ux.steps.length - 1].note = `hid ${f.path.split('/').pop()}; userZoomed ${uz}`;
+  });
+  if (refit.status === 'ok' && refit.metrics && refit.metrics.offscreenNodeRatio > 0) {
+    refit.findings.push({ rule: 'no-refit-after-hide', severity: 'medium', ref: 'round3 e22c370', message: `${Math.round(refit.metrics.offscreenNodeRatio * 100)}% of the nodes off-screen after hiding a folder with an untouched viewport` });
+  }
+  await ux.step('Chip ✕ restores that folder too', async () => {
+    await gate();
+    const clear = page.locator(`${SEL.folderFiltersBody.css} .folder-filter-row .folder-filter-clear`).first();
+    if (await clear.count() === 0) { throw new SkipStep('no chip'); }
+    await clear.click();
+    await page.waitForTimeout(1200);
   });
 
   await ux.step('Hide a file → its slot is gone; Show all brings everything back', async () => {

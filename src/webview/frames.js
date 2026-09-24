@@ -58,11 +58,14 @@ function ownerFolderOf(el, tree) {
 }
 
 /** Group visible node elements into per-folder member lists {id, r, file, isFn}. */
-function collectMembers(elements, tree, nodeSize) {
+function collectMembers(elements, tree, nodeSize, allow) {
   const members = new Map();
   for (const e of elements) {
     const d = e.data ? e.data : e;
     if (d.source !== undefined) { continue; } // edge
+    // Structural scope (round 3): out-of-scope members get no slot/space —
+    // a hidden file's slot disappears and the frame shrinks on re-pack.
+    if (allow && !allow(d)) { continue; }
     const owner = ownerFolderOf(d, tree);
     if (owner == null) { continue; }
     const r = d.isFileAnchor ? FRAME.ANCHOR_R : ((d._size ?? 8) / 2) * (nodeSize ?? 2.5);
@@ -259,10 +262,13 @@ function newFrame(path, kind, parent) {
 }
 
 /** Folders that are open AND whose whole ancestor chain is open (visible-open). */
-function visiblyOpenFolders(tree, expanded) {
+function visiblyOpenFolders(tree, expanded, folderOk) {
   const out = [];
   for (const p in tree.folders) {
     if (!expanded.has(p)) { continue; }
+    // Structural scope (round 3): a folder out of scope loses its frame
+    // entirely — the caller passes the predicate, this module stays pure.
+    if (folderOk && !folderOk(p)) { continue; }
     let cur = tree.folders[p].parent, ok = true;
     while (cur) {
       if (!expanded.has(cur)) { ok = false; break; }
@@ -340,11 +346,11 @@ function postOrder(fs, path, fn) {
 
 /** Build a FrameSet from scratch. `members` from collectMembers (mutated by
  *  the per-file partition). */
-function buildFrames(tree, expanded, members) {
+function buildFrames(tree, expanded, members, folderOk) {
   const fs = { root: tree.root, byPath: new Map(), gen: 0 };
   if (!tree.root) { return fs; }
   fs.byPath.set(tree.root, newFrame(tree.root, 'root', null));
-  for (const p of visiblyOpenFolders(tree, expanded)) {
+  for (const p of visiblyOpenFolders(tree, expanded, folderOk)) {
     if (p === tree.root) { continue; }
     fs.byPath.set(p, newFrame(p, 'folder', tree.folders[p].parent));
   }
@@ -410,13 +416,13 @@ function placeChildren(fs, f, repacked) {
  */
 function updateFrames(prev, tree, expanded, members, opts = {}) {
   if (!prev || !prev.byPath || prev.byPath.size === 0 || prev.root !== tree.root) {
-    const frames = buildFrames(tree, expanded, members);
+    const frames = buildFrames(tree, expanded, members, opts.folderOk);
     frames.gen = (prev && prev.gen != null ? prev.gen : -1) + 1;
     return { frames, changed: new Set(frames.byPath.keys()), repacked: new Set() };
   }
   const fs = { root: tree.root, byPath: new Map(), gen: prev.gen + 1 };
   fs.byPath.set(tree.root, carryFrame(prev, tree.root) || newFrame(tree.root, 'root', null));
-  for (const p of visiblyOpenFolders(tree, expanded)) {
+  for (const p of visiblyOpenFolders(tree, expanded, opts.folderOk)) {
     if (p === tree.root) { continue; }
     fs.byPath.set(p, carryFrame(prev, p) || newFrame(p, 'folder', tree.folders[p].parent));
   }

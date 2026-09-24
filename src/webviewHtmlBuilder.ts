@@ -188,6 +188,7 @@ export function getWebviewHtml(
   const classUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'class.js'));
   const colorsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'colors.js'));
   const popupsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'popups.js'));
+  const scopeUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'scope.js'));
   const framesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frames.js'));
   const crossLinksUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'crossLinks.js'));
   const localSimUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'localSim.js'));
@@ -518,6 +519,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${colorsUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${popupsUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameChromeUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${scopeUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${framesUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${crossLinksUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${localSimUri}?v=${nonce}"></script>

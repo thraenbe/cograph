@@ -148,15 +148,22 @@ function renderFrameLayout(allLinks, visibleSet) {
   if (state.simulation && !state.simulation.isFrameFacade) { state.simulation.stop(); }
   state.pendingReheat = false;
 
-  // 1) Frames from the current visible members.
-  const members = collectMembers(state.currentNodes, tree, settings.nodeSize);
+  // 1) Frames from the current visible members. The structural scope (round
+  // 3: Hide entirely / Only show / subgraph) is applied HERE: out-of-scope
+  // folders get no frame, out-of-scope members no slot — the pack then
+  // closes the gaps like any expand/collapse.
+  const sc = (typeof buildScope === 'function') ? buildScope(state) : null;
+  const active = sc && scopeActive(sc);
+  const allow = active ? ((d) => memberInScope(d, sc)) : null;
+  const folderOk = active ? ((p) => frameFolderVisible(p, sc)) : null;
+  const members = collectMembers(state.currentNodes, tree, settings.nodeSize, allow);
   const prevAbs = new Map();
   if (state.frames && state.frames.byPath) {
     for (const [p2, f2] of state.frames.byPath) {
       if (f2.abs) { prevAbs.set(p2, { x: f2.abs.x, y: f2.abs.y }); }
     }
   }
-  const upd = updateFrames(state.frames, tree, state.expandedFolders, members);
+  const upd = updateFrames(state.frames, tree, state.expandedFolders, members, { folderOk });
   state.frames = upd.frames;
   // Re-pack animation: frames that already existed and were MOVED by this
   // layout pass glide to their new spot (drags/sim ticks stay instant).
@@ -490,12 +497,12 @@ function onFrameContextMenu(event, f) {
     { label: `${shortName} (Folder)`, isHeader: true },
     { label: 'Elapse folder', action: () => { if (typeof elapseFolder === 'function') { elapseFolder(fp); } } },
     { label: 'Collapse folder', action: () => { if (typeof collapseFolder === 'function') { collapseFolder(fp); } } },
-    { label: 'Only show this folder', action: () => { state.onlyShowFolder = fp; applyFilters(); updateFolderPanel(); } },
-    { label: 'Hide folder', action: () => { state.hiddenFolders.add(fp); applyFilters(); updateFolderPanel(); } },
+    { label: 'Only show this folder', action: () => { state.onlyShowFolder = fp; applyStructuralFilters(); updateFolderPanel(); } },
+    { label: 'Hide folder', action: () => { state.hiddenFolders.add(fp); applyStructuralFilters(); updateFolderPanel(); } },
     { label: 'Go to folder', action: () => vscode.postMessage({ type: 'navigate', file: fp, line: 1 }) },
   ];
   if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-    items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles.clear(); state.onlyShowFile = null; applyFilters(); updateFolderPanel(); } });
+    items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles.clear(); state.onlyShowFile = null; applyStructuralFilters(); updateFolderPanel(); } });
   }
   showContextMenu(event, items);
 }
@@ -1258,12 +1265,12 @@ function renderFrameSlots(f, sub) {
       { label: 'Go to File', action: () => vscode.postMessage({ type: 'navigate', file: d.file, line: 1 }) },
       { label: 'Hide file', action: () => {
         state.hiddenFiles.add(d.file);
-        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        applyStructuralFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
         window.markDirty?.();
       } },
       { label: 'Show only this file', action: () => {
         state.onlyShowFile = d.file;
-        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        applyStructuralFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
         window.markDirty?.();
       } },
     ];
@@ -1271,7 +1278,7 @@ function renderFrameSlots(f, sub) {
       items.push({ label: 'Show all', action: () => {
         state.hiddenFiles.clear(); state.onlyShowFile = null;
         state.hiddenFolders.clear(); state.onlyShowFolder = null;
-        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        applyStructuralFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
         window.markDirty?.();
       } });
     }

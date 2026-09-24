@@ -351,7 +351,7 @@ function updateFolderPanel() {
   body.querySelector('#btn-folder-show-all')?.addEventListener('click', () => {
     state.hiddenFolders.clear(); state.onlyShowFolder = null;
     state.hiddenFiles?.clear(); state.onlyShowFile = null;
-    applyFilters(); ticked(); updateFolderPanel();
+    applyStructuralFilters(); ticked(); updateFolderPanel();
   });
   body.querySelectorAll('.folder-filter-clear').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -359,7 +359,7 @@ function updateFolderPanel() {
       else if (btn.dataset.action === 'unhide') { state.hiddenFolders.delete(btn.dataset.path); }
       else if (btn.dataset.action === 'clear-only-file') { state.onlyShowFile = null; }
       else if (btn.dataset.action === 'unhide-file') { state.hiddenFiles?.delete(btn.dataset.path); }
-      applyFilters(); ticked(); updateFolderPanel();
+      applyStructuralFilters(); ticked(); updateFolderPanel();
     });
   });
 }

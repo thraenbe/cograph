@@ -247,6 +247,18 @@ function applyFilters() {
   if (__filterGate) { __filterGate.run(applyFiltersNow); } else { applyFiltersNow(); }
 }
 
+// Hide folder/file, Only show and Show all reshape the LAYOUT since round 3
+// (frames/slots/boxes are scope-filtered at build time — scope.js), so every
+// filter MUTATION re-renders the drill-down; plain applyFilters stays the
+// cheap display pass for search/timeline/settings.
+function applyStructuralFilters() {
+  if (typeof isDrilldown === 'function' && isDrilldown()
+    && typeof applyFileClusters === 'function') {
+    applyFileClusters();
+  }
+  applyFilters();
+}
+
 function applyFiltersNow() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
   const __t0 = (typeof perfBegin === 'function') ? perfBegin() : 0;

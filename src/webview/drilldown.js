@@ -92,12 +92,12 @@ function renderDrilldownBoxes(boxes) {
         { label: `${d.shortName} (Folder)`, isHeader: true },
         { label: 'Elapse folder',         action: () => { if (typeof elapseFolder === 'function') { elapseFolder(d.folderPath); } } },
         { label: 'Collapse folder',       action: () => { if (typeof collapseFolder === 'function') { collapseFolder(d.folderPath); } } },
-        { label: 'Only show this folder', action: () => { state.onlyShowFolder = d.folderPath; applyFilters(); ticked(); updateFolderPanel(); } },
-        { label: 'Hide folder',           action: () => { state.hiddenFolders.add(d.folderPath); applyFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Only show this folder', action: () => { state.onlyShowFolder = d.folderPath; applyStructuralFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Hide folder',           action: () => { state.hiddenFolders.add(d.folderPath); applyStructuralFilters(); ticked(); updateFolderPanel(); } },
         { label: 'Go to folder',          action: () => vscode.postMessage({ type: 'navigate', file: d.folderPath, line: 1 }) },
       ];
       if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles.clear(); state.onlyShowFile = null; applyFilters(); ticked(); updateFolderPanel(); } });
+        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles.clear(); state.onlyShowFile = null; applyStructuralFilters(); ticked(); updateFolderPanel(); } });
       }
       showContextMenu(event, items);
     });

@@ -628,12 +628,12 @@ function renderCloudNodes(visibleSet, nodes = state.currentNodes, parent = nodeG
       const items = [
         { label: `${d.label} (Folder)`, isHeader: true },
         { label: 'Elapse folder',         action: () => { if (typeof elapseFolder === 'function') { elapseFolder(fp); } } },
-        { label: 'Only show this folder', action: () => { state.onlyShowFolder = fp; applyFilters(); ticked(); updateFolderPanel(); } },
-        { label: 'Hide folder',           action: () => { state.hiddenFolders.add(fp); applyFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Only show this folder', action: () => { state.onlyShowFolder = fp; applyStructuralFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Hide folder',           action: () => { state.hiddenFolders.add(fp); applyStructuralFilters(); ticked(); updateFolderPanel(); } },
         { label: 'Go to folder',          action: () => vscode.postMessage({ type: 'navigate', file: fp, line: 1 }) },
       ];
       if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); ticked(); updateFolderPanel(); } });
+        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyStructuralFilters(); ticked(); updateFolderPanel(); } });
       }
       showContextMenu(event, items);
     })

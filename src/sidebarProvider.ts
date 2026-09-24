@@ -7,7 +7,10 @@ import type { GraphData } from './graphProvider';
 import { PROVIDER_CATALOG, getProviderInfo, findProviderForModel } from './graphIntelligence/provider';
 import { ChatStore, type ChatMessage, DEFAULT_CHAT_KEY } from './graphIntelligence/chatStore';
 import { ANNOTATION_CARD_CSS, ANNOTATION_CARD_SCRIPT } from './graphIntelligence/annotationCard';
-import { readSubgraphField } from './subgraphScope';
+import { readSubgraphField, normalize as normalizeScope } from './subgraphScope';
+import { scanStructure } from './structureScanner';
+import { buildPickerFolders, SUBGRAPH_PICKER_CSS, SUBGRAPH_PICKER_MARKUP, SUBGRAPH_PICKER_SCRIPT } from './subgraphPicker';
+import { SAVED_LAYOUT_VERSION } from './graphProvider';
 import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
 
 export interface SavedGraphMeta {
@@ -319,6 +322,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           }
           break;
         }
+        case 'subgraph-picker-open':
+          this._openSubgraphPicker();
+          break;
+        case 'subgraph-create':
+          await this._createSubgraph(String(msg.name ?? ''), Array.isArray(msg.include) ? msg.include.map(String) : []);
+          break;
         case 'new-graph':
           if (this._graphController.isOpen()) {
             this._graphController.reloadLayout();
@@ -624,6 +633,54 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this._view?.webview.postMessage({ type: 'workflow-status', status, detail });
   }
 
+  /** Scan the workspace and hand the picker its folder rows plus a free default name. */
+  private _openSubgraphPicker(): void {
+    const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!ws) { vscode.window.showErrorMessage('CoGraph: No workspace folder open.'); return; }
+    try {
+      const folders = buildPickerFolders(scanStructure(ws), ws);
+      if (folders.length === 0) {
+        vscode.window.showInformationMessage('CoGraph: No source folders found in this workspace.');
+        return;
+      }
+      const taken = new Set(this._listCographFiles().map(g => g.name));
+      let n = 1;
+      while (taken.has(`Subgraph ${n}`)) { n++; }
+      this._view?.webview.postMessage({ type: 'subgraph-picker', root: ws, folders, defaultName: `Subgraph ${n}` });
+    } catch (err) {
+      vscode.window.showErrorMessage(`CoGraph: Could not read the folder tree — ${(err as Error).message}`);
+    }
+  }
+
+  /** Write `.cograph/<name>.json` with the subgraph field (no layout yet) and open it. */
+  private async _createSubgraph(rawName: string, include: string[]): Promise<void> {
+    const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!ws) { vscode.window.showErrorMessage('CoGraph: No workspace folder open.'); return; }
+    const name = rawName.trim();
+    const spec = normalizeScope({ include, exclude: [] });
+    if (!name) { vscode.window.showErrorMessage('CoGraph: The subgraph needs a name.'); return; }
+    if (spec.include.length === 0) { vscode.window.showErrorMessage('CoGraph: Pick at least one folder for the subgraph.'); return; }
+    if (spec.include.length === 1 && spec.include[0] === '.') {
+      vscode.window.showErrorMessage('CoGraph: That is the whole project — use "+ New Graph" for that.');
+      return;
+    }
+    const dir = path.join(ws, '.cograph');
+    const file = path.join(dir, name.replace(/[^a-zA-Z0-9_\- ]/g, '_') + '.json');
+    try {
+      if (fs.existsSync(file)) {
+        const choice = await vscode.window.showWarningMessage(`"${name}" already exists. Replace it?`, { modal: true }, 'Replace');
+        if (choice !== 'Replace') { return; }
+      }
+      if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+      const data = { version: SAVED_LAYOUT_VERSION, name, description: '', savedAt: new Date().toISOString(), subgraph: spec };
+      fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+      this._sendGraphList();
+      await this._graphController.loadGraph(data, file);
+    } catch (err) {
+      vscode.window.showErrorMessage(`CoGraph: Failed to create the subgraph — ${(err as Error).message}`);
+    }
+  }
+
   private _listCographFiles(): SavedGraphMeta[] {
     const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!ws) { return []; }
@@ -895,7 +952,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       animation: wf-slide 1.1s ease-in-out infinite;
     }
     @keyframes wf-slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
-${ANNOTATION_CARD_CSS}
+${ANNOTATION_CARD_CSS}${SUBGRAPH_PICKER_CSS}
     .card-glyph {
       display: inline-block; margin-right: 5px; font-weight: 700;
       color: var(--vscode-focusBorder, #007fd4);
@@ -1600,7 +1657,7 @@ ${ANNOTATION_CARD_CSS}
       <span>Saved Graphs</span>
     </div>
     <div class="section-body" id="body-graphs">
-      <button id="btn-new-graph">+ New Graph</button>
+      <button id="btn-new-graph">+ New Graph</button>${SUBGRAPH_PICKER_MARKUP}
       <input id="search" type="text" placeholder="Search graphs…" />
       <div id="graph-list">
         <div class="empty-state">No saved graphs yet.</div>
@@ -1764,6 +1821,9 @@ ${ANNOTATION_CARD_CSS}
     }
 
 ${ANNOTATION_CARD_SCRIPT}
+${SUBGRAPH_PICKER_SCRIPT}
+    wireSubgraphPicker();
+
     function renderCards(graphs, query) {
       const list = document.getElementById('graph-list');
       const workflow = graphs.find(g => g.isWorkflow);
@@ -1867,6 +1927,8 @@ ${ANNOTATION_CARD_SCRIPT}
         allGraphs = msg.files;
         const query = document.getElementById('search').value.toLowerCase();
         renderCards(allGraphs, query);
+      } else if (msg.type === 'subgraph-picker') {
+        spOpen(msg);
       } else if (msg.type === 'graph-context-set') {
         const dot  = document.getElementById('graph-dot');
         const name = document.getElementById('graph-name');

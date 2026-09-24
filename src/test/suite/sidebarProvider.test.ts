@@ -631,6 +631,83 @@ suite('SidebarProvider', () => {
     });
   });
 
+  // ── Subgraph picker (round 3) ────────────────────────────────────────────
+  suite('subgraph picker', () => {
+    function openWith(controller = makeFakeController()) {
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), controller);
+      const fake = makeFakeWebviewView();
+      provider.resolveWebviewView(fake.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+      return { provider, controller, ...fake };
+    }
+    function seedTree() {
+      for (const rel of ['src/a.ts', 'src/server/b.ts', 'tools/c.ts']) {
+        fs.mkdirSync(path.dirname(path.join(tmpDir, rel)), { recursive: true });
+        fs.writeFileSync(path.join(tmpDir, rel), 'export const x = 1;\n');
+      }
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    }
+
+    test('HTML has the button, the picker markup and its wiring', () => {
+      const { webview } = openWith();
+      assert.ok(webview.html.includes('id="btn-new-subgraph"'));
+      assert.ok(webview.html.includes('id="subgraph-picker"'));
+      assert.ok(webview.html.includes("type: 'subgraph-picker-open'"));
+      assert.ok(webview.html.includes("msg.type === 'subgraph-picker'"));
+      assert.ok(webview.html.includes('wireSubgraphPicker();'));
+    });
+
+    test('subgraph-picker-open posts the folder rows and a free default name', async () => {
+      seedTree();
+      fs.mkdirSync(path.join(tmpDir, '.cograph'));
+      writeJsonFile(path.join(tmpDir, '.cograph'), 'Subgraph 1.json', { name: 'Subgraph 1', subgraph: { include: ['src'] } });
+      const { received, webview } = openWith();
+      await received[0]({ type: 'subgraph-picker-open' });
+      const msg = webview.postMessage.getCalls().map((c: sinon.SinonSpyCall) => c.args[0]).find((m: { type: string }) => m.type === 'subgraph-picker');
+      assert.strictEqual(msg.root, tmpDir);
+      assert.strictEqual(msg.defaultName, 'Subgraph 2');
+      assert.deepStrictEqual(msg.folders.map((f: { rel: string }) => f.rel), ['.', 'src', 'src/server', 'tools']);
+      assert.deepStrictEqual(msg.folders[1], { rel: 'src', name: 'src', depth: 1, parent: '.', fileCount: 2, hasChildren: true });
+    });
+
+    test('subgraph-create writes the file with a normalized include, refreshes the list and opens it', async () => {
+      seedTree();
+      const { received, webview, controller } = openWith();
+      await received[0]({ type: 'subgraph-create', name: ' backend ', include: ['src/server/', 'src', './tools'] });
+      const file = path.join(tmpDir, '.cograph', 'backend.json');
+      const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+      assert.deepStrictEqual(written.subgraph, { include: ['src', 'tools'], exclude: [] });
+      assert.strictEqual(written.name, 'backend');
+      assert.strictEqual(written.version, 2);
+      assert.ok((controller.loadGraph as sinon.SinonStub).calledOnceWith(sinon.match({ name: 'backend' }), file));
+      const lists = webview.postMessage.getCalls().map((c: sinon.SinonSpyCall) => c.args[0]).filter((m: { type: string }) => m.type === 'graph-list');
+      assert.ok(lists[lists.length - 1].files.some((f: SavedGraphMeta) => f.name === 'backend' && f.isSubgraph));
+    });
+
+    test('subgraph-create refuses an empty name, no folders, and the whole project', async () => {
+      seedTree();
+      const err = sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
+      const { received, controller } = openWith();
+      await received[0]({ type: 'subgraph-create', name: '  ', include: ['src'] });
+      await received[0]({ type: 'subgraph-create', name: 'x', include: [] });
+      await received[0]({ type: 'subgraph-create', name: 'x', include: ['.'] });
+      assert.strictEqual(err.callCount, 3);
+      assert.match(err.thirdCall.args[0], /whole project/);
+      assert.ok((controller.loadGraph as sinon.SinonStub).notCalled);
+      assert.ok(!fs.existsSync(path.join(tmpDir, '.cograph', 'x.json')));
+    });
+
+    test('subgraph-create asks before replacing an existing file', async () => {
+      seedTree();
+      fs.mkdirSync(path.join(tmpDir, '.cograph'));
+      writeJsonFile(path.join(tmpDir, '.cograph'), 'backend.json', { name: 'backend', nodePositions: {} });
+      const warn = sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
+      const { received, controller } = openWith();
+      await received[0]({ type: 'subgraph-create', name: 'backend', include: ['src'] });
+      assert.ok(warn.calledOnce && (controller.loadGraph as sinon.SinonStub).notCalled, 'declined → untouched');
+      assert.strictEqual(JSON.parse(fs.readFileSync(path.join(tmpDir, '.cograph', 'backend.json'), 'utf8')).subgraph, undefined);
+    });
+  });
+
   // ── AI-features enablement gate ──────────────────────────────────────────
   suite('AI features gate', () => {
     function setup2() {

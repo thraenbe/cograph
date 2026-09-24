@@ -209,3 +209,72 @@ suite('drop position is sacred (R1c)', () => {
       `only the intersecting siblings move, got ${movedCount}`);
   });
 });
+
+suite('node snap-back to its slot (W5)', () => {
+  const g = global as any;
+  const KEYS = ['state', 'isDrilldown', 'slotInteriorFor', 'innerOrigin', 'FRAME', 'resolveAbs', 'clampFrameLocal', 'updateCrossLinks'];
+  let saved: Record<string, any>;
+  let simCalls: string[];
+
+  function world(layoutMode: string, fx: number, fy: number) {
+    // Frame at abs (0,0), non-root: inner origin = PAD/PAD+TITLE+NAME_H; one
+    // slot for a.ts whose interior is at content (0,0), 100x84 below the label.
+    const f: any = {
+      path: '/p/a', kind: 'folder', parent: '/p', abs: { x: 0, y: 0, w: 300, h: 260 },
+      contentPos: { x: 0, y: 0 },
+      slots: new Map([['file:a.ts', { x: 0, y: 0, w: 104, h: 100, file: 'a.ts', count: 2 }]]),
+      slotOf: new Map([['n1', 'file:a.ts']]),
+    };
+    g.state = {
+      layoutMode, layoutEngine: 'shelf',
+      frames: { root: '/p', byPath: new Map([['/p/a', f]]) },
+      simulation: {
+        alphaTarget: (v: number) => { simCalls.push(`alphaTarget(${v})`); return g.state.simulation; },
+        restart: () => { simCalls.push('restart'); return g.state.simulation; },
+      },
+    };
+    g.isDrilldown = () => true; // frameRender's own usesFrames() needs it
+    g.slotInteriorFor = frames.slotInteriorFor;
+    g.innerOrigin = frames.innerOrigin;
+    return { id: 'n1', _frame: '/p/a', fx, fy, x: fx, y: fy };
+  }
+
+  setup(() => { saved = {}; for (const k of KEYS) { saved[k] = g[k]; } simCalls = []; });
+  teardown(() => { for (const k of KEYS) { g[k] = saved[k]; } });
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const frr = require('../../../src/webview/frameRender.js');
+  const io = { x: frames.FRAME.PAD, y: frames.FRAME.PAD + frames.FRAME.TITLE + frames.FRAME.NAME_H };
+
+  test('a drop outside the slot interior reheats first, releases a microtask later', async () => {
+    const d = world('dynamic', io.x + 500, io.y + 500);
+    assert.strictEqual(frr.snapBackToSlot(d), true);
+    assert.deepStrictEqual(simCalls, ['alphaTarget(0.3)', 'restart'],
+      'the facade reheat happens WHILE the pin is set (its scan bumps this frame)');
+    assert.ok(d.fx != null, 'still pinned synchronously');
+    await Promise.resolve();
+    assert.strictEqual(d.fx, null, 'released after the facade scan');
+    assert.strictEqual(d.fy, null);
+    assert.ok(simCalls.includes('alphaTarget(0)'), 'cooled after the release');
+  });
+
+  test('a drop inside the slot interior keeps the normal release path', () => {
+    const d = world('dynamic', io.x + 10, io.y + frames.SLOT.LABEL_H + 10);
+    assert.strictEqual(frr.snapBackToSlot(d), false);
+    assert.deepStrictEqual(simCalls, [], 'no reheat when nothing snaps');
+  });
+
+  test('Static never snaps back (drops stay pinned where released)', () => {
+    const d = world('static', io.x + 500, io.y + 500);
+    assert.strictEqual(frr.snapBackToSlot(d), false);
+  });
+
+  test('the drag end handler consults the snap-back before the classic release', () => {
+    const renderingSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../../src/webview/rendering.js'), 'utf8');
+    const end = renderingSrc.slice(renderingSrc.indexOf(".on('end', (event, d) => {"),
+      renderingSrc.indexOf('// ── Tick'));
+    assert.ok(end.indexOf('snapBackToSlot(d)') < end.indexOf('coolAfterDrag(event)'),
+      'snap-back takes the release over before coolAfterDrag');
+  });
+});

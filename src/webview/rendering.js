@@ -304,6 +304,12 @@ const drag = d3.drag()
     __pe('drag:move', __t0);
   })
   .on('end', (event, d) => {
+    // W5: dropped outside its file slot in Shelf+Dynamic → snap back via the
+    // facade (reheat while pinned, release a microtask later).
+    if (typeof snapBackToSlot === 'function' && snapBackToSlot(d)) {
+      window.markDirty?.();
+      return;
+    }
     if (coolAfterDrag(event)) {
       d.fx = null;
       d.fy = null; // release — node rejoins simulation

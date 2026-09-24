@@ -471,6 +471,31 @@ function slotDragDeps(framePath) {
   };
 }
 
+/** W5: a member dropped OUTSIDE its slot interior in Shelf+Dynamic snaps
+ *  back into the slot. The reheat goes through the FACADE while the node is
+ *  still pinned (restart's pin scan bumps exactly this frame), the pin is
+ *  released one microtask later (queued after that scan), and the slot
+ *  clamp + pull glide the node home. Static keeps drops pinned — Bela's
+ *  rule; Global has no slots. Returns true when it took the release over. */
+function snapBackToSlot(d) {
+  if (typeof usesFrames !== 'function' || !usesFrames()) { return false; }
+  if (state.layoutMode !== 'dynamic') { return false; }
+  if (!d || d.fx == null || !d._frame || !state.frames) { return false; }
+  const f = state.frames.byPath.get(d._frame);
+  if (!f) { return false; }
+  const interior = slotInteriorFor(f, d.id);
+  if (!interior) { return false; }
+  const io = frInnerOrigin(f);
+  if (d.fx >= io.x + interior.x && d.fx <= io.x + interior.x + interior.w
+    && d.fy >= io.y + interior.y && d.fy <= io.y + interior.y + interior.h) { return false; }
+  if (state.simulation) { state.simulation.alphaTarget(0.3).restart(); }
+  Promise.resolve().then(() => {
+    d.fx = null; d.fy = null;
+    if (state.simulation) { state.simulation.alphaTarget(0); }
+  });
+  return true;
+}
+
 function frameDragDeps() {
   return {
     frames: () => state.frames,
@@ -1319,6 +1344,7 @@ if (typeof module !== 'undefined') {
     tickFramePositions, tickFrameOfNode, onFramesZoom, applyFrameCulling, restoreFrameDom, borrowHoverLabel, teardownFrames,
     resetFrames, updateCrossLinks, updateCrossBundles, updateCrossHover, syncFrameSims, applySimResult, applySimData,
     applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit, stampLinkRefs,
+    snapBackToSlot,
     resolveDropOverlaps, translateFrameSubtree, onFrameMoveSettled,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots, sameSlotGeometry,

@@ -70,6 +70,15 @@ suite('frame drag wiring (R1, source contracts)', () => {
     assert.ok(/while \(p\) \{ tickFrame\(p\);/.test(deps), 'ancestors re-ticked during drags');
   });
 
+  test('cross links are not rebuilt per move while bundles are hidden', () => {
+    const i = frameRenderSrc.indexOf('onMoved: (path) =>');
+    const body = frameRenderSrc.slice(i, i + 400);
+    assert.ok(body.includes("classed('bundles-hidden')"),
+      'onMoved must skip updateCrossLinks during a frame drag');
+    const end = frameRenderSrc.slice(frameRenderSrc.indexOf("on('end.fitguard'"), frameRenderSrc.indexOf("on('end.repack'"));
+    assert.ok(end.includes('updateCrossLinks()'), 'release re-routes bundles once');
+  });
+
   test('drop re-packs siblings; bundles hidden while dragging', () => {
     const i = frameRenderSrc.indexOf('createFrameTitleDrag(frameDragDeps())');
     const chain = frameRenderSrc.slice(i, frameRenderSrc.indexOf('.call(titleDrag)', i));

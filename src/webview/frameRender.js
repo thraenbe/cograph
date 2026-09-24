@@ -408,7 +408,14 @@ function frameDragDeps() {
       while (p) { tickFrame(p); p = fs.byPath.get(p)?.parent; }
     },
     origin: frInnerOrigin,
-    onMoved: (path) => { tickFrame(path); updateCrossLinks(); },
+    onMoved: (path) => {
+      tickFrame(path);
+      // Bundles are hidden for the whole drag — rebuilding them per move is
+      // wasted work; end.fitguard re-routes them once on release.
+      if (typeof linkG === 'undefined' || !linkG.classed('bundles-hidden')) {
+        updateCrossLinks();
+      }
+    },
   };
 }
 

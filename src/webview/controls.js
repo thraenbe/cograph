@@ -99,21 +99,21 @@ document.getElementById('btn-reset-layout')?.addEventListener('click', () => {
     nodeSize: 2.5,
     textSize: 1.5,
     linkThickness: 4,
-    centerForce: 0.025,
-    repelForce: 250,
+    centerForce: 0.08,
+    repelForce: 450,
     linkForce: 1,
-    fileClusterForce: 0.2,
+    fileClusterForce: 0.36,
     folderRepelForce: 0.25,
     fileRepelForce: 0.25,
     linkDistance: 40,
     velocityDecay: 0.3,
     collidePad: 1.5,
     slotPad: 0,
-    repelRange: Infinity,
+    repelRange: 850,
   };
 
   Object.assign(settings, defaults);
-  setRepelRangeUI(Infinity);
+  setRepelRangeUI(850);
 
   for (const [key, val] of Object.entries({
     'slider-text-fade': { valId: 'val-text-fade', value: defaults.textFadeThreshold },
@@ -124,12 +124,8 @@ document.getElementById('btn-reset-layout')?.addEventListener('click', () => {
     'slider-repel-force': { valId: 'val-repel-force', value: defaults.repelForce },
     'slider-link-force': { valId: 'val-link-force', value: defaults.linkForce },
     'slider-file-cluster': { valId: 'val-file-cluster', value: defaults.fileClusterForce },
-    'slider-folder-repel': { valId: 'val-folder-repel', value: defaults.folderRepelForce },
-    'slider-file-repel': { valId: 'val-file-repel', value: defaults.fileRepelForce },
-    'slider-link-distance': { valId: 'val-link-distance', value: defaults.linkDistance },
     'slider-velocity-decay': { valId: 'val-velocity-decay', value: defaults.velocityDecay },
-    'slider-collide-pad': { valId: 'val-collide-pad', value: defaults.collidePad },
-    'slider-slot-pad': { valId: 'val-slot-pad', value: defaults.slotPad }
+    'slider-collide-pad': { valId: 'val-collide-pad', value: defaults.collidePad }
   })) {
     const slider = document.getElementById(key);
     const valEl = document.getElementById(val.valId);

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.3.0] - Unreleased
 
 ### Changed (UX)
+- **Global engine defaults retuned** (center, repel, file cluster, repel
+  range 850 px); folder/file repel and link distance sliders removed.
 - **Manila-folder silhouette**: the flap sits top-left as before, but the
   body's top edge right of it is only a shallow step below the flap top; the
   folder NAME moved out of the flap into the body (top-left, counts on the

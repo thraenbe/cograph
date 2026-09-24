@@ -111,7 +111,7 @@ const dom = makeDOM();
   centerForce: 1, repelForce: 50, linkForce: 1,
   folderRepelForce: 0.25, fileRepelForce: 0.25, fileClusterForce: 0.2,
   linkDistance: 40, velocityDecay: 0.3, collidePad: 1.5, slotPad: 0,
-  repelRange: Infinity,
+  repelRange: 850,
 };
 (global as any).vscode = { postMessage: () => {} };
 
@@ -483,20 +483,23 @@ suite('Advanced forces (show more forces)', () => {
     assert.strictEqual((global as any).settings.repelRange, 800, 'old saves without the key change nothing');
   });
 
-  test('reset restores every force to its canonical default (centerForce 0.025)', () => {
+  test('reset restores every force to its canonical default (D1: centerForce 0.08)', () => {
     Object.assign((global as any).settings, {
       centerForce: 0.9, fileClusterForce: 0.9, folderRepelForce: 9, fileRepelForce: 9,
       linkDistance: 99, velocityDecay: 0.9, collidePad: 9, slotPad: 9, repelRange: 300,
     });
     doc.getElementById('btn-reset-layout')?.click();
     const st = (global as any).settings;
-    assert.strictEqual(st.repelRange, Infinity, 'reset returns Repel range to unlimited');
-    assert.strictEqual(doc.getElementById('val-repel-range')!.textContent, '\u221E');
-    assert.strictEqual(st.centerForce, 0.025);
-    assert.strictEqual(st.fileClusterForce, 0.2);
+    assert.strictEqual(st.repelRange, 850, 'D1: Repel range defaults to 850 px');
+    assert.strictEqual(doc.getElementById('val-repel-range')!.textContent, '850');
+    assert.strictEqual(st.centerForce, 0.08);
+    assert.strictEqual(st.repelForce, 450);
+    assert.strictEqual(st.fileClusterForce, 0.36);
+    // Sliders for these are gone (D2/D3) but the KEYS still reset — old
+    // saves that restore them must not leak into the next session.
     assert.strictEqual(st.folderRepelForce, 0.25);
     assert.strictEqual(st.fileRepelForce, 0.25);
-    assert.strictEqual(st.linkDistance, 40);
+    assert.strictEqual(st.linkDistance, 40, 'shelf keeps its 0.75x = 30 constant');
     assert.strictEqual(st.velocityDecay, 0.3);
     assert.strictEqual(st.collidePad, 1.5);
     assert.strictEqual(st.slotPad, 0);
@@ -557,7 +560,7 @@ suite('Save Graph Layout button', () => {
       classMode: false,
       detailDepth: undefined, // not set in this stub state (v2 adds it)
       layoutEngine: undefined, // not set in this stub state (two-axis adds it)
-      repelRange: Infinity,
+      repelRange: 850,
     });
     assert.deepStrictEqual(msg.payload.nodePositions, {
       'a::fn::1': { x: 10, y: 20 },
@@ -1101,6 +1104,26 @@ suite('Filters section (W2)', () => {
     const label = body.querySelector('.chip-file .folder-filter-label') as any;
     assert.ok(label.textContent.includes('<img src=x onerror=boom>'), 'name shown verbatim');
     assert.strictEqual(label.getAttribute('title'), hostile, 'title survives quotes');
+  });
+
+  test('every Show all action clears the FILE filters too', () => {
+    // A glyph menu's Show all cleared only the folder sets, stranding an
+    // onlyShowFile the user could not see a slot menu for (uxtest,
+    // synthetic-1k: only=f0.ts survived Show all).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    for (const f of ['folder.js', 'frameRender.js', 'rendering.js', 'drilldown.js']) {
+      const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/' + f), 'utf8');
+      for (const m of src.matchAll(/label: 'Show all', action: \(\) => \{[\s\S]*?\}(?: \}\);|,)/g)) {
+        assert.ok(m[0].includes('state.onlyShowFile = null'),
+          `${f}: a Show all action must clear onlyShowFile: ${m[0].slice(0, 90)}`);
+        assert.ok(/hiddenFiles[^\n]*clear\(\)/.test(m[0]),
+          `${f}: a Show all action must clear hiddenFiles`);
+      }
+      assert.ok([...src.matchAll(/label: 'Show all'/g)].length > 0 || f === 'drilldown.js', `${f} has a Show all`);
+    }
   });
 
   test('context-menu filter labels are sentence case in every engine', () => {

@@ -3,15 +3,17 @@
 // under Static motion, and gates the "show more forces" expander. Pure DOM
 // visibility — the slider wiring itself lives in controls.js.
 
+// D2/D3 (1.3.0): the Folder Repel, File Repel, Link Distance and Slot
+// Padding sliders were removed — the settings KEYS stay readable so old
+// saves restore, but webviewHtmlBuilder no longer emits their rows.
 const FP_BASIC = {
   shelf: ['row-repel-force', 'row-link-force', 'row-file-cluster'],
-  global: ['row-center-force', 'row-repel-force', 'row-link-force',
-    'row-file-cluster', 'row-folder-repel', 'row-file-repel'],
+  global: ['row-center-force', 'row-repel-force', 'row-link-force', 'row-file-cluster'],
 };
 
 const FP_ADVANCED = {
-  shelf: ['row-link-distance', 'row-velocity-decay', 'row-collide-pad', 'row-slot-pad'],
-  global: ['row-link-distance', 'row-velocity-decay', 'row-collide-pad', 'row-repel-range'],
+  shelf: ['row-velocity-decay', 'row-collide-pad'],
+  global: ['row-velocity-decay', 'row-collide-pad', 'row-repel-range'],
 };
 
 // The slot-pull slider is the same setting in both engines; only its story differs.

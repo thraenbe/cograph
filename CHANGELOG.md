@@ -5,194 +5,48 @@ All notable changes to CoGraph are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.0] - Unreleased
+## [1.3.0] - 2026-09-24
 
-### Changed (UX)
-- **Global engine defaults retuned** (center, repel, file cluster, repel
-  range 850 px); folder/file repel and link distance sliders removed.
-- **Manila-folder silhouette**: the flap sits top-left as before, but the
-  body's top edge right of it is only a shallow step below the flap top; the
-  folder NAME moved out of the flap into the body (top-left, counts on the
-  same line), and open and collapsed folders share one silhouette. The
-  content area reserves the name line, so slots never collide with it.
-- **Cross-folder bundle arrowheads are a fixed ~9 units** and sit at the
-  flap's port, instead of scaling with the bundle stroke into ~100px
-  triangles.
-- The editor-title command is named **"CoGraph: Open or Reset Layout"** (was
-  "Open or Reload Layout" — it opens a fresh layout rather than loading a
-  saved graph). The command id is unchanged, existing keybindings keep working.
-- The language-colours toggle is labelled **Language** (was "Lang").
-- **One Forces box** in the left toolbar replaces the sliders split between the
-  folder panel and the gear settings panel. It shows only what the current
-  engine consumes (Shelf: Repel, Link, "Keep near file"; Global: those plus
-  Center, Folder Repel, File Repel), an inline **"show more forces"** expander
-  reveals advanced controls (Link Distance, Damping, Collision Padding and, in
-  Shelf, Slot Padding), and under Static motion the box shows a hint instead of
-  dead sliders. Reset now restores every force; the Center Force default is
-  0.025 everywhere (the gear panel used to show 0.05).
-- **Folder chrome redesign (Draft A "index tab")**, applied to both engines:
-  every open folder shows its name in a tab at the top-left (folder glyph,
-  ellipsis past 62 % of the frame width) with file/function counts in the free
-  strip right of the tab (compact "N · M" when narrow); collapsed folders draw
-  as a small closed-folder silhouette instead of a cloud; cross-folder bundles
-  attach at the tab's shoulder; folder colours gain ~14 points of saturation.
-  The whole top strip stays the drag hit-area.
+The Shelf engine release: nested, non-overlapping folder frames with per-file slots,
+simulations off the UI thread, subgraphs, AI summaries on hover, and a UX test suite.
+Measured on a 3 000-function repository in VS Code: four open folders settle in 0.4 s
+(was 10.7 s), pan/zoom fully expanded runs at ~57 fps (was 14), hovering costs 0.5 ms
+(was 33 ms).
 
 ### Added
-- **Subgraphs and "Only visualize folder"** — partial visualisation as a first-class
-  flow. `CoGraph: Only visualize folder…` picks one folder (QuickPick) and opens the
-  panel scoped to it; `⊂ Create new Subgraph` in the sidebar opens an explorer-like
-  picker (expand/collapse, tri-state checkboxes, filter, file counts) and saves the
-  chosen folders as a subgraph, an ordinary saved graph with an additive `subgraph`
-  field (listed with a ⊂ glyph). The host keeps the full cached graph and only sends
-  the scoped part; excluded folders can be brought in from the Folder panel's FILTERS
-  section ("Visualize"), which marks the graph dirty, and Save writes the scope with
-  the layout. Protocol: `subgraph {name, root, include, exclude}` before `structure`
-  and `graph`; `subgraph-include` / `subgraph-exclude` / `subgraph-exit`.
-- **File slots are draggable**: grab a slot by its label band and place it
-  anywhere inside its frame — it pins there (saved with the layout), its
-  functions ride along, and the other slots re-pack around it. Node drags,
-  double-click-to-open and the context menu on the slot body keep working.
-- **File-level filters**: right-click a file slot (Shelf) or a file circle
-  (Global) to **Hide file** or **Show only this file** — with "Show all" once
-  anything is hidden, mirroring the folder menu. Hidden files appear as chips
-  in the Folder panel's filter list and are saved with the layout (older
-  saves load unchanged). Empty folders no longer show a "0 files · 0 fns"
-  count.
-- **Global guard**: switching to the Global engine with more than 4,000
-  simulated nodes no longer freezes the page by surprise — the first click
-  shows a hint ("Global is slow above 4,000 nodes — lower Detail first, or
-  click Global again to switch anyway"); a second click within 6 s switches.
-  A Global boot config over a huge first graph starts in Shelf with the same
-  hint, and raising Detail past the threshold while already in Global hints
-  without blocking. Saved Global views and setting changes always apply.
-- **Repel range** (Global engine, under "show more forces"): caps how far the
-  charge force reaches (d3 `distanceMax`). The slider's max position means
-  unlimited (∞) — the classic behaviour and the default, so existing Global
-  layouts are unchanged. Saved with the view (older saves load as unlimited).
-
-### Fixed
-- Dropping a dragged frame keeps it EXACTLY where it was released: only
-  siblings whose rect intersects the drop shift (minimally, along the shelf
-  row), everything else stays put — no more whole-shelf re-flow on drop.
-- Frame drags are contained and truthful: a child frame stays inside its
-  parent on all four sides while dragging, the parent chain's outline updates
-  live, siblings re-pack around the drop position (with the glide), hovering
-  the title strip brightens the flap so the drag handle is discoverable, and
-  cross-folder bundles hide while a frame is dragged instead of riding along.
-- **Dragging a folder frame by its title strip no longer makes it leap around
-  the window**: the drag measured the pointer against the dragged frame's own
-  moving coordinate system; it is now measured against the stable canvas
-  (the same fix node drags received in 1.2's performance pass).
-- The Global layout could run away on deeply nested repos and freeze the page
-  for minutes (zod at extreme force sliders): folder cluster pulls are nested,
-  so deep nodes received a summed pull far past the integrator's stability
-  limit and coordinates exploded. The per-node sum is now capped at 1.5 —
-  measurably invisible on shallow repos, and deep repos keep their look
-  (~11% looser file clumps on zod).
-- **Saved views now come back under the Global engine** (pre-existing since
-  v1 saves): the restore consumes the saved detail depth and expanded folders
-  and re-renders BEFORE applying node positions — they used to land on the
-  fresh panel's default expansion — and afterwards the view repaints and
-  re-fits instead of re-running the simulation over the restored layout.
-- Shelf layouts restore deterministically from the saved payload alone: the
-  content block's offset inside each frame (which depends on how the layout
-  grew — detail changes, parse patches) is now saved with the frame rects, so
-  a reload after a detail-slider history reproduces the exact slot geometry
-  and node placement. Older saves without the field load as before.
-- Changing **Node Size** under Shelf+Static re-packs the grid: slots resize
-  for the new radii and members re-place, instead of thousands of nodes
-  overlapping at their old spots.
-- Collapsed-folder glyphs no longer overlap file slots or poke out of their
-  frame: the closed-folder silhouette now stays inside the node's collision
-  radius, which is exactly what the packer, the collide force and the slot
-  clamp budget for.
-- "Show Libraries" is disabled with a hint under the Shelf engine ("Libraries
-  are shown in the Global engine") instead of being a silent no-op — the
-  shelf does not render library nodes yet.
-- Switching **Global → Shelf while the Global simulation is still settling**
-  no longer floods the console with thousands of NaN line-attribute errors
-  (and the dropped frames they cost): the engine switch detaches the old
-  simulation's handlers before re-rendering, frame link data carries resolved
-  node objects, and a repair pass is queued behind any straggling coalesced
-  tick.
-- Booting with **Global + Static** as the configured default no longer shows
-  an unusable un-fitted first screen: the static boot now fits the view after
-  the synchronous settle has produced real positions (a static simulation
-  never ticks again, so the old async auto-fit either ran too early or not at
-  all).
-- Fit-to-view no longer blows a single collapsed-folder glyph up to fill the
-  viewport (Detail 0 on a repo with one root folder): the fit scale is capped
-  so the largest node stays under ~35% of the shorter viewport side.
-- Light themes now reach JS-painted colours: theme variables are read from
-  `<body>` (where VS Code sets `vscode-light`), so nodes, links and labels no
-  longer keep the dark palette in a light theme.
-- **Shelf+Static first load rendered big file slots as overlapping blobs**
-  (the true B1/B2 mechanism, found by the UX test harness on click's
-  tests/test_options.py): the slot placer treated a node's random seed
-  position as deliberate whenever it happened to fall inside the slot.
-  Placement is now an explicit per-id stamp (grid, settled simulation, drag or
-  saved layout); unstamped nodes always grid, and in Static motion a slot
-  whose rect moved, resized or gained members re-grids as a whole.
-- **The first load fitted the viewport to the folder skeleton, not the final
-  graph**: ingesting the functions grew the frames far past the fitted view,
-  leaving much of the graph off-screen until a manual double-click. The view
-  now re-fits automatically when the layout outgrows the last fit by >30% -
-  but only while the viewport is still automatic: never after the user zooms
-  or pans (Reset Layout and an engine switch re-arm it), and never during a
-  frame drag or resize.
-- Re-packs animate: when expanding a folder forces siblings to move, the moved
-  frames glide (~200 ms) to their new spot instead of jumping. Drags and
-  simulation motion stay instant.
-- Static-mode label clutter in dense file slots: slot labels ellipsize to their
-  slot's width (the function count is always kept), and function labels inside
-  slots holding more than 12 functions stay hidden until you zoom in past 1.5x.
-
-### Removed
-- The **Class** and **Connect** group-by lenses. Group-by-File (the folder
-  drill-down) is the only lens; saved views that carry `class`, `connect` or the
-  older `connectivity`/`auto` values load silently as File. The separate OOP
-  **Class overlay** button is unchanged.
-
-### Added
-- **Two independent layout toggles** — engine and motion. **Shelf | Global** picks
-  the engine: Shelf packs every open folder into a nested, non-overlapping frame with
-  per-file slots and its own small force simulation (intra-folder calls only, at most
-  4 simulating at a time; dragging a node reheats only its folder; frames drag by the
-  title bar and resize from the border; selecting Shelf outside the File lens switches
-  to the File lens) — Global is the classic single simulation, unchanged.
-  **Dynamic | Static** picks the motion on either engine: continuously settling, or
-  frozen with nodes pinned where placed. Defaults: **Shelf + Static** — a
-  deterministic, motionless map out of the box; switch to Dynamic to let it breathe.
-  `cograph.layout.defaultEngine` (`shelf` | `global`) and `cograph.layout.defaultMode`
-  (`dynamic` | `static`) set the startup combination; saved layouts remember both.
-- Cross-folder calls render as one aggregated bundle per folder pair (weight on the
-  stroke, ports on the title bars); hovering a node shows its individual cross links.
-- Saved layouts v2: layouts now persist the drill-down expansion, detail depth and
-  the packed frame rectangles. v1 layouts still open (frames are derived from the
-  saved node positions and pinned).
-- Local-only performance instrumentation behind `cograph.debug.perfLog`, plus
-  `CoGraph: Load Synthetic Repo (Perf Dev)` to reproduce large-repo numbers.
-- **Layout simulations run off the UI thread.** The Shelf engine's per-folder
-  simulations now tick in a pool of background workers (up to 4) and settle as fast as
-  the CPU allows instead of one step per animation frame: four open folders settle in
-  ~0.4 s instead of ~10 s, "expand all" on a 3 000-function repo in ~1.5 s instead of
-  >30 s, and the UI stays at 60 fps meanwhile. Dragging stays instant (the dragged node
-  moves on the UI thread; its neighbours follow from the worker). New setting
-  `cograph.layout.workers` (`auto` | `on` | `off`, default `auto`); `off` is the
-  previous behaviour, and any worker failure falls back to it automatically.
-- **Smooth pan and zoom on large graphs.** Folder frames outside the viewport are taken
-  out of the page, and when zoomed out far enough that they carry no information the
-  labels, then the call lines inside folders, then the function dots themselves are
-  dropped (the coloured file slots and folder glyphs stay; only the 200 strongest
-  cross-folder bundles are drawn). Zooming in brings everything back. 3 000 functions
-  fully expanded: 14 → 50-60 fps; 10 000: 4.5 → 40-59 fps.
-- d3 is now bundled with the extension instead of loaded from a CDN: the graph opens
-  offline and the webview's content-security policy no longer allows any external host.
-- `cograph.debug.perfLog` now covers the Shelf engine too: per-frame main-thread time
-  and settle time of the frame scheduler, plus hover, drag, filter and cross-link
-  timings in the `[perf]` report. Dev-only `npm run perf:bench` measures the real
-  webview page in headless Chrome (`scripts/perf/`).
+- **Two independent layout toggles — engine and motion.** **Shelf | Global** picks the
+  engine: Shelf packs every open folder into a nested, non-overlapping frame with per-file
+  slots and its own small force simulation (intra-folder calls only); Global is the classic
+  single simulation. **Dynamic | Static** picks the motion on either engine: continuously
+  settling, or frozen with nodes pinned where placed. Default: **Shelf + Static** — a
+  deterministic, motionless map out of the box. `cograph.layout.defaultEngine`
+  (`shelf` | `global`) and `cograph.layout.defaultMode` (`dynamic` | `static`) set the
+  startup combination; saved layouts remember both.
+- **Layout simulations run off the UI thread.** The Shelf engine's per-folder simulations
+  tick in a pool of up to 4 background workers and settle as fast as the CPU allows: four
+  open folders settle in ~0.4 s instead of ~10 s, "expand all" on a 3 000-function repo in
+  ~1 s instead of >30 s, and the UI stays at 60 fps meanwhile. Dragging stays instant.
+  New setting `cograph.layout.workers` (`auto` | `on` | `off`, default `auto`); `off` is
+  the previous behaviour, and any worker failure falls back to it automatically.
+- **Smooth pan and zoom on large graphs.** Folder frames outside the viewport are taken out
+  of the page, and when zoomed out far enough that they carry no information the labels,
+  then the call lines inside folders, then the function dots are dropped (coloured file
+  slots and folder glyphs stay; only the 200 strongest cross-folder bundles are drawn).
+  Zooming in brings everything back. During a pan or zoom over a very dense view, labels
+  and intra-folder lines pause and return 180 ms after the gesture ends.
+- **Subgraphs and "Only visualize folder"** — partial visualisation as a first-class flow.
+  `CoGraph: Only visualize folder…` (command palette) picks one folder and opens the panel
+  scoped to it; **⊂ Create new Subgraph** in the sidebar opens an explorer-like picker
+  (expand/collapse, tri-state checkboxes, filter, file counts) and saves the chosen
+  folders as a subgraph — an ordinary saved graph listed with a ⊂ glyph. Folders left out
+  stay listed under FILTERS in the Folder panel, where **Visualize** brings one in; **Show
+  whole project** exits; Save keeps the scope with the layout.
+- **Hide folder / Hide file hide the folder or file entirely** — its frame or slot leaves
+  the layout and the shelf closes the gap (the Global engine drops its box or circle).
+  Right-click a file slot (Shelf) or a file circle (Global) for **Hide file** / **Show only
+  this file**, mirroring the folder menu. Every hide appears as a chip in the Folder
+  panel's FILTERS section and is reversible one by one or with **Show all**; hidden
+  folders and files are saved with the layout.
 - **Annotate Graph (AI)** — every folder and file gets a one-sentence summary of what it
   is responsible for, shown in a new hover card. Start it from the pinned card in the
   CoGraph sidebar or with `CoGraph: Annotate Graph`. By default only a locally built
@@ -201,73 +55,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cograph.graphIntelligence.annotate.readSource` lets the AI read source files
   (read-only) for better summaries. You confirm an estimate before anything is sent, see
   the running cost, and the run stops at `annotate.maxRunBudgetUsd` (default $2) keeping
-  what is done. A run started while the code analysis is still going waits for it, so
-  every summary is written from the complete graph. Editing a file only marks its summary
-  and its parent folders "outdated";
-  **Update** re-annotates just those. Summaries are stored locally in
-  `.cograph/annotations/`. Measured with Claude haiku: about $0.09 and 70 s for a
-  180-path repository.
-- **Hover card** for folders and files in both layout engines: name, path and static
-  facts (files · functions · languages), plus the AI summary once generated. It works
-  with AI features off.
-
-### Fixed
-- **Blank graph on first open.** The graph data was sent to the panel on a timer; when the
-  panel's scripts were still loading (cold start) it was silently lost. The panel now tells
-  the extension when it is ready and the data waits for that.
-- Huge Java repos (e.g. guava) no longer crash the analyzer with an out-of-memory or
-  "Invalid string length" error: memory stays flat and an oversized result ends with a
-  readable "graph too large" message.
-- Shelf + Dynamic: after moving the Detail slider (or any re-render) the force sliders and
-  drag reheats did nothing until the engine was toggled — simulations kept writing into
-  discarded node objects.
-- Shelf + Dynamic: after a force-slider change only four folders moved at a time, the
-  rest stood still for seconds (10 s with 10 open folders). All open folders now start
-  moving at once.
-- Hovering a folder glyph with many cross-folder calls no longer flickers: its hover
-  lines were stealing the pointer ~30 times per second.
-- Chat now checks the AI-features setting on the host side as well, not only in the
-  sidebar, so no code path can reach an AI provider while AI features are off.
-- Collapsing a folder whose descendants were still individually expanded could feed
-  the renderer edges pointing at nodes that were never drawn (a d3 "node not found"
-  crash in the classic layout). The visible-frontier mapping now checks the whole
-  ancestor chain.
+  what is done. Editing a file only marks its summary "outdated"; **Update** re-annotates
+  just those. Summaries are stored locally in `.cograph/annotations/`. Measured with
+  Claude haiku: about $0.09 and 70 s for a 180-path repository.
+- **Hover card** for folders and files in both engines: name, path and static facts
+  (files · functions · languages), plus the AI summary once generated. Works with AI
+  features off.
+- **Folder chrome**: open folders draw as manila folders — an empty flap top-left, a
+  shallow step, the name inside the body with file/function counts on the same line;
+  collapsed folders draw as a closed-folder silhouette with the name on it. Cross-folder
+  calls render as one aggregated bundle per folder pair (weight on the stroke, fixed-size
+  arrowheads at the flap); hovering a node shows its individual cross links.
+- **File slots are draggable**: grab a slot by its label band and place it anywhere inside
+  its frame — it pins there (saved with the layout), its functions ride along, and the
+  other slots re-pack around it.
+- **One Forces box** in the left toolbar replaces the sliders split between two panels. It
+  shows only what the current engine uses (Shelf: Repel, Link, "Keep near file"; Global:
+  Center, Repel, Link, File Cluster) and an inline **"show more forces"** expander reveals
+  the advanced controls (Global: Repel range, Damping, Collision Padding; Shelf: Damping,
+  Collision Padding). Under Static motion the box shows a hint instead of dead sliders.
+  Reset restores every force.
+- **Global guard**: switching to the Global engine with more than 4 000 simulated nodes
+  shows a hint first ("lower Detail first, or click Global again to switch anyway"); a
+  second click within 6 s switches. Saved Global views always open directly.
+- Saved layouts v2: layouts persist the drill-down expansion, detail depth, packed frame
+  rectangles, hidden folders/files and the subgraph scope. v1 layouts still open.
+- d3 is bundled with the extension instead of loaded from a CDN: the graph opens offline
+  and the webview's content-security policy allows no external host.
+- Local-only performance instrumentation behind `cograph.debug.perfLog`, plus
+  `CoGraph: Load Synthetic Repo (Perf Dev)` to reproduce large-repo numbers.
 
 ### Changed
+- **Global engine defaults retuned** from a force sweep over three repositories: Center
+  0.08 (was 0.025), Repel 450 (was 250), File Cluster 0.36 (was 0.2) and a new **Repel
+  range** of 850 px (was unlimited), so a whole repository fits the viewport with readable
+  file clusters instead of specks. Saved layouts keep their positions and their own
+  values; the Folder Repel, File Repel and Link distance sliders are gone from the Global
+  box and Slot padding and Link distance from the Shelf box (they had no measurable effect).
 - **Call resolution on large repositories changes.** A call by bare name (`get()`,
-  `this.size()`) used to be linked to *every* function with that name in the workspace. When
-  a name has more than 8 definitions, the candidates are now narrowed to the caller's file,
-  then its directory, then its top-level package; if more than 8 remain the call is left
-  unresolved. Repositories where no name has more than 8 definitions produce byte-identical
-  graphs. Large repositories lose their "hairball" edges and analyze and render faster; the
-  CoGraph output channel reports `N ambiguous calls narrowed, M dropped` per language.
-- Saving a file no longer blocks the extension host on three `git` subprocesses, and only
-  functions whose git status actually changed are sent to the graph; the analysis cache is
-  written in the background after the graph is shown; the analysis result is no longer
-  serialised and re-parsed on its way to the panel.
-- **Interaction cost no longer grows with graph size.** Hovering a node highlights only
-  its own links (was three passes over every link: 33 ms → 0.2 ms at 3 000 nodes,
-  100 ms → 0.5 ms at 10 000); dragging a node re-draws only its own folder frame
-  (53 ms → 0.1 ms per mouse move, 60 fps while dragging); typing in the search box
-  touches only the elements whose visibility flipped (78 ms → 10 ms); zooming no longer
-  rewrites every label's opacity. Cross-folder bundles are re-routed only when a frame
-  moves, and theme colours are read once per render instead of once per element.
-- Large graphs (> 500 nodes) on the global engine: dragging pins the dragged node
-  instead of re-agitating the whole graph, ticks coalesce to animation frames, the
-  per-node glow is dropped, re-renders reuse the existing simulation, and the
-  overlay visibility pass runs once per tick instead of three times.
-- The drill-down box code moved from `folder.js` into `drilldown.js` (file-size split).
-- AI provider calls share one process helper (timeout, output cap, cancel). Annotate
-  Graph uses a new narrow call that never runs a write-capable CLI mode and skips the
-  CLI's default context, which cut a small haiku call from about $0.19 to $0.005.
+  `this.size()`) used to be linked to *every* function with that name in the workspace.
+  When a name has more than 8 definitions, the candidates are now narrowed to the caller's
+  file, then its directory, then its top-level package; if more than 8 remain the call is
+  left unresolved. Repositories where no name has more than 8 definitions produce
+  byte-identical graphs; large ones lose their "hairball" edges (guava now analyses at all:
+  146 602 edges instead of a 2.65 M-edge crash; junit5 250 564 → 29 784). The output
+  channel reports `N ambiguous calls narrowed, M dropped` per language.
+- **Interaction cost no longer grows with graph size.** Hovering highlights only the node's
+  own links (33 ms → 0.5 ms at 3 000 nodes), dragging re-draws only its folder frame
+  (53 ms → 0.2 ms per mouse move), typing in the search box touches only the elements
+  whose visibility flipped (78 ms → 10 ms), and zooming no longer rewrites every label.
+- Saving a file no longer blocks the extension host on git subprocesses; only functions
+  whose git status changed are sent to the graph; the analysis cache is written in the
+  background; the analysis result is no longer serialised and re-parsed on its way to the
+  panel.
+- The editor-title command is named **"CoGraph: Open or Reset Layout"** (it opens a fresh
+  layout rather than loading a saved graph; the command id is unchanged).
+- The language-colours toggle is labelled **Language**; folder colours gain ~14 points of
+  saturation; re-packs animate (~200 ms glide) instead of jumping.
+- AI provider calls share one process helper (timeout, output cap, cancel); Annotate Graph
+  uses a narrow call that never runs a write-capable CLI mode and skips the CLI's default
+  context (a small haiku call: about $0.19 → $0.005).
+
+### Fixed
+- **Blank graph on first open.** The graph data was sent to the panel on a timer and was
+  silently lost when the panel's scripts were still loading. The panel now tells the
+  extension when it is ready and the data waits for that (0 of 40 cold opens blank, was
+  1 of 13).
+- **Saved views now come back under the Global engine** (since v1 saves, the restore
+  landed on the fresh panel's default expansion). Shelf layouts restore deterministically
+  from the saved payload alone.
+- **Dragging a folder frame no longer makes it leap around**: the drag is measured against
+  the stable canvas; frames stay inside their parent on all four sides, the drop stays
+  exactly where released, only siblings that intersect it shift, and cross-folder bundles
+  hide while dragging.
+- **Shelf + Static first load rendered big file slots as overlapping blobs** (the true
+  mechanism behind the earlier "nodes outside their slot" reports): placement is now an
+  explicit per-node stamp; unstamped nodes always grid.
+- The first load fitted the viewport to the folder skeleton, not the final graph; the view
+  now re-fits when the layout outgrows or shrinks below the automatic fit — never after the
+  user has zoomed. A single collapsed glyph no longer fills the viewport at Detail 0.
+- The Global layout could run away on deeply nested repositories and freeze the page for
+  minutes at extreme force values: the nested folder cluster pull is now capped at a stable
+  bound (invisible on shallow repositories).
+- Shelf + Dynamic: force sliders and drag reheats did nothing after a Detail change; only
+  four folders moved at a time after a slider change; a function node dropped outside its
+  file slot now snaps back.
+- Hovering a folder glyph with many cross-folder calls no longer flickers; hovering a file
+  slot label opens its card; Node Size changes re-pack the static grid; collapsed glyphs
+  stay inside their frame; switching Global → Shelf mid-settle no longer floods the console
+  with NaN errors, and neither does hiding a folder in the Global engine.
+- Booting with Global + Static no longer shows an un-fitted first screen; "Show Libraries"
+  is disabled with a hint under Shelf instead of silently doing nothing; light themes reach
+  JS-painted colours; static-mode label clutter in dense slots is tamed.
+- Huge Java repositories no longer crash the analyzer out of memory; an oversized result
+  ends with a readable "graph too large" message.
+- Chat checks the AI-features setting on the host side as well as in the sidebar.
+- Collapsing a folder whose descendants were still expanded could crash the classic layout
+  ("node not found"); the visible-frontier mapping now checks the whole ancestor chain.
+
+### Removed
+- The **Class** and **Connect** group-by lenses. Group-by-File is the only lens; saved
+  views carrying the old values load silently as File. The separate OOP **Class overlay**
+  button is unchanged.
 
 ### Development tooling (not shipped in the .vsix)
-- `uxtest/` — UX test suite: drives the real webview HTML in Chromium against a scripted host on any
-  repo (`npm run uxtest`), records a captioned video, a keyframe and layout metrics per step, reports
-  invariant findings (overlaps, nodes outside slots, label clutter, console errors), runs force sweeps
-  with a ranked contact sheet (`uxtest:sweep`), builds a static HTML report with a review rubric
-  (`uxtest:report`) and a real-VS-Code smoke via Playwright Electron (`uxtest:vscode`). `--ext-root`
-  runs the same suite against another checkout.
+- `uxtest/` — UX test suite: drives the real webview HTML in Chromium against a scripted
+  host on any repository (`npm run uxtest`), records a captioned video, a keyframe and
+  layout metrics per step, reports invariant findings, runs force sweeps with a ranked
+  contact sheet (`uxtest:sweep`), builds an HTML report with a review rubric
+  (`uxtest:report`) and drives real VS Code via Playwright Electron (`uxtest:vscode`).
+  `--ext-root` runs the suite against another checkout. It found 25 defects during this
+  release, all fixed above.
+- `scripts/perf/` — headless-Chrome and in-editor benches (`npm run perf:bench`).
 
 ## [1.2.0] - 2026-08-28
 

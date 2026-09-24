@@ -184,7 +184,7 @@ Not edited: any webview graph module (session-111), analyzers, structureScanner.
 ## Steps (one commit each)
 
 1. `subgraphScope.ts` + tests (pure).
-2. `GraphProvider.setScope` + filtered posting + `scope-include/exclude` + tests (fake panel,
+2. `GraphProvider.setScope` + filtered posting + `subgraph-include/exclude/exit` + tests (fake panel,
    assert what is posted and that `runSubset` never sees out-of-scope files).
 3. Save/load with `subgraph`; sidebar list glyph + `isSubgraph`; tests.
 4. Command `cograph.visualizeFolder` + `showScoped` + tests.

@@ -108,7 +108,7 @@ export class StepRecorder {
       await action();
     } catch (err) {
       if (err instanceof SkipStep) { rec.status = 'skipped'; rec.note = err.message; }
-      else if (err instanceof StepFinding) { reported = err.finding; rec.note = err.message; }
+      else if (err instanceof StepFinding) { reported = err.finding; rec.note = rec.note ? `${rec.note} | ${err.message}` : err.message; } // keep what the body noted before it judged
       else { rec.status = 'failed'; rec.note = String((err as Error).message ?? err); failure = err; }
     }
     try { await this.measure(rec, base, opts, armed); }

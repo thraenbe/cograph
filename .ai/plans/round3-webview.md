@@ -148,9 +148,12 @@ Set }` — mapped once at the message border from root+relative to absolute
 tree paths (transient, never saved). Predicate: in scope ⇔ under some
 include AND NOT under some exclude; include [] / no message ⇒ everything.
 The Filters section derives the top-level excluded folders + fileCounts from
-tree + include/exclude (nearest-listed-ancestor rule; StructureFolder
-carries fileCount — sum descendants for subtree counts). Optimistic pending
-mark on Visualize until the re-sent `subgraph` lands.
+tree + include/exclude (nearest-listed-ancestor rule; per 178:
+StructureFolder.fileCount is already the RECURSIVE count, `files.length` is
+the direct one — use fileCount as-is). `exclude` is always present ([] when
+unused) and the host re-sends `subgraph` after Save / Save-As / rename
+(both confirmed by 178). Optimistic pending mark on Visualize until the
+re-sent `subgraph` lands.
 
 Tests: scope.js include/exclude nesting + border mapping (root vs tree.root,
 Windows separators); excluded-derivation from a fixture tree; Visualize/Exit

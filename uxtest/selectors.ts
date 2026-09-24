@@ -66,18 +66,18 @@ export const SEL = {
 
   // forces (ux: one engine-specific Forces box in the left toolbar)
   forceFileCluster: { css: '#slider-file-cluster' },
-  forceFolderRepel: { css: '#slider-folder-repel' },
-  forceFileRepel: { css: '#slider-file-repel' },
+  forceFolderRepel: { css: '#slider-folder-repel', optional: true, note: 'D1-D3 (round 3): removed from the Global box' },
+  forceFileRepel: { css: '#slider-file-repel', optional: true, note: 'D1-D3 (round 3): removed from the Global box' },
   forceCenter: { css: '#slider-center-force' },
   forceRepel: { css: '#slider-repel-force' },
   forceLink: { css: '#slider-link-force' },
   moreForcesOld: { css: '#btn-more-forces', optional: true, note: 'ux: replaced by #btn-show-more-forces' },
   showMoreForces: { css: '#btn-show-more-forces', optional: true, note: 'ux: inline expander' },
   forcesHint: { css: '#forces-hint', optional: true, note: 'ux: shown in Static' },
-  forceLinkDistance: { css: '#slider-link-distance', optional: true, note: 'ux: new' },
+  forceLinkDistance: { css: '#slider-link-distance', optional: true, note: 'ux: new; D1-D3 (round 3): removed from both boxes' },
   forceVelocityDecay: { css: '#slider-velocity-decay', optional: true, note: 'ux: new' },
   forceCollidePad: { css: '#slider-collide-pad', optional: true, note: 'ux: new' },
-  forceSlotPad: { css: '#slider-slot-pad', optional: true, note: 'ux: new' },
+  forceSlotPad: { css: '#slider-slot-pad', optional: true, note: 'ux: new; D1-D3 (round 3): removed from the Shelf box' },
   forceRepelRange: { css: '#slider-repel-range', optional: true, note: 'ux 7b539b5: Global only, 100-2000 px, slider max = unlimited (shown as ∞, default)' },
 
   // actions

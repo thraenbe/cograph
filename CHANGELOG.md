@@ -37,6 +37,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The whole top strip stays the drag hit-area.
 
 ### Added
+- **Subgraphs and "Only visualize folder"** — partial visualisation as a first-class
+  flow. `CoGraph: Only visualize folder…` picks one folder (QuickPick) and opens the
+  panel scoped to it; `⊂ Create new Subgraph` in the sidebar opens an explorer-like
+  picker (expand/collapse, tri-state checkboxes, filter, file counts) and saves the
+  chosen folders as a subgraph, an ordinary saved graph with an additive `subgraph`
+  field (listed with a ⊂ glyph). The host keeps the full cached graph and only sends
+  the scoped part; excluded folders can be brought in from the Folder panel's FILTERS
+  section ("Visualize"), which marks the graph dirty, and Save writes the scope with
+  the layout. Protocol: `subgraph {name, root, include, exclude}` before `structure`
+  and `graph`; `subgraph-include` / `subgraph-exclude` / `subgraph-exit`.
 - **File slots are draggable**: grab a slot by its label band and place it
   anywhere inside its frame — it pins there (saved with the layout), its
   functions ride along, and the other slots re-pack around it. Node drags,

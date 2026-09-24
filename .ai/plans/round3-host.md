@@ -1,7 +1,8 @@
 # Task: Round 3 — subgraphs and "Only visualize folder" (host + sidebar side)
 
 Planner: session-178, 2026-09-24. Base: `develop` @ 7d91c5d merged into `termi/s178`.
-Status: **plan only, no code. Waiting for approval.** Webview side: session-111 (`round3-webview`).
+Status: **approved 2026-09-24 (all defaults; Q5 = include-only v1), implemented.** See "Outcome" at the end.
+Webview side: session-111 (`round3-webview`).
 
 ## Problem
 
@@ -225,3 +226,41 @@ Command: QuickPick stub returns a folder → `showScoped` called with the relati
 Everything in the graph webview (session-111), hide-entirely, the FILTERS section UI, glyph names,
 scoping the AI features (annotations already work per path; chat/workflow keep the full graph —
 noted as a follow-up), multi-root workspaces.
+
+---
+
+## Outcome (executor + reviewer, 2026-09-24)
+
+Commits on `termi/s178`: 1e16991 scope model · af33d2b host scoping + setScope deltas ·
+aab3773 subgraph cards · 9648931 command · 36b659c sidebar picker · (docs + review) this one.
+
+Deviations, all deliberate:
+
+- **Cache reconcile and on-save re-parse still parse out-of-scope files.** Skipping them would
+  let the cache manifest mark them fresh next to a stale graph. Only `expand-folder` /
+  `parse-file` are filtered; every post is scoped. The plan text said "never reach runSubset".
+- **Include-only tri-state in the picker.** A folder under a checked ancestor is checked and
+  locked ("Included via …"); to leave it out, uncheck the ancestor. A parent with some checked
+  children is indeterminate. This is the faithful rendering of Q5 = include-only.
+- **Spinner tag is the absolute folder** (`analysis-state { parsingFolder }`), because that is
+  what the webview keys its pending row by; the plan said "the folder".
+- **`subgraph-exit` restores cached nodes with graph-patches**, not a fresh full `graph`, so the
+  view is not reset (told uxtest and session-110).
+- `readyHandshake.test.ts` (F11) had four exact-list assertions on gated messages; `subgraph`
+  now precedes them by design, so those expectations gained the leading entry.
+
+Selectors and ids for uxtest (also sent to session-181):
+
+| What | Id / selector |
+|---|---|
+| Command | `cograph.visualizeFolder`, title `CoGraph: Only visualize folder…`, QuickPick title `CoGraph: Only visualize folder`, items `$(folder) rel/path` + `N files`, root `$(root-folder) .` |
+| Scoped view title | `<basename> · scoped` (unsaved), the subgraph name once saved |
+| Sidebar button | `#btn-new-subgraph` (`⊂ Create new Subgraph`), under `#btn-new-graph` in `#body-graphs`; `#body-graphs.picking` while the picker is open |
+| Picker | `#subgraph-picker`, `#sp-name`, `#sp-search`, `#sp-tree` (role=tree), `.sp-row[data-rel]` (role=treeitem; `.focused`, `.locked`), `.sp-twisty`, `input.sp-check` (`indeterminate`, `disabled` when locked), `.sp-name`, `.sp-count`, `#sp-hint` (`.error`), `#sp-create`, `#sp-cancel` |
+| Picker keys | ArrowUp/Down, ArrowRight/Left, Space, Enter, Escape on `#sp-tree` |
+| Card | `.graph-card.subgraph` with `.card-glyph` (`⊂`) in `.card-name`; `.card-desc` = `Subgraph · N folders` |
+| Messages | `subgraph` (first on every load, `__seq` 1), `subgraph-include` / `subgraph-exclude` / `subgraph-exit`, `subgraph-picker-open` / `subgraph-picker` / `subgraph-create` (sidebar) |
+
+Left open: the webview side (session-111) is what makes a scoped view visible; until it
+lands, a scoped open still shows the full structure tree with only the in-scope nodes.
+End-to-end scenario: proposed session-181 (uxtest) owns it, pending session-111's reply.

@@ -45,6 +45,7 @@ toolbar to toggle overlays.
 - **Library node clustering** — external library calls are grouped into collapsed cluster nodes (e.g. `numpy (7)`) to prevent visual clutter; click a cluster to expand it.
 - **Detail / Complexity slider** — progressively cluster low-connectivity nodes to keep large projects navigable.
 - **Save Layout** — persist node positions to `.cograph/<name>.json`; reopen the same graph and pick up where you left off.
+- **Subgraphs** — visualize part of the project. **CoGraph: Only visualize folder…** (command palette) opens one folder and its subfolders; **⊂ Create new Subgraph** in the sidebar opens an explorer-like picker to choose several folders and saves them as a subgraph next to your layouts. Folders left out stay listed under FILTERS in the Folder panel, where one click brings them in; Save keeps the scope with the layout.
 - **Open Chat** — focus the Cograph activity-bar view with the active graph already selected.
 - **Hover card** — rest the pointer on a folder or file to see its path, size and languages, plus its AI summary once generated.
 - **Settings panel** — tune layout forces (center, repel, link strength, link distance), display options (node size, text size, link thickness, arrows), and visibility toggles (orphan nodes, library nodes).

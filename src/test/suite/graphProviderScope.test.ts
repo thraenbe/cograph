@@ -165,6 +165,8 @@ suite('GraphProvider — subgraph scope', () => {
     const sidebar = { setCurrentGraph: sinon.stub(), refresh: sinon.stub(), appendSystem: sinon.stub(), setChatOpen: sinon.stub() } as any;
     provider.setSidebarProvider(sidebar);
     await open(() => provider.showScoped(specForFolder('src/server')));
+    assert.ok(sidebar.setCurrentGraph.calledWith(null), 'an unsaved scoped view clears the sidebar context');
+    sidebar.setCurrentGraph.resetHistory();
     const n0 = posted().length;
     await onMessage()({ type: 'subgraph-exit' });
     const after = posted().slice(n0);

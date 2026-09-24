@@ -1227,6 +1227,8 @@ export class GraphProvider {
     this.currentSavedGraphPath = undefined;
     this.isDirty = false;
     this.setPanelTitle(this.scopeTitle());
+    // An unsaved scoped view is not a saved graph: the sidebar's chat context must not stay on the last one.
+    if (!name) { this._sidebar?.setCurrentGraph(null); }
   }
 
   /**

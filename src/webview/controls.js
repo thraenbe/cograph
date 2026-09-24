@@ -283,6 +283,15 @@ function fileFilterAllows(filePath, onlyShowFile, hiddenFiles) {
 function applySavedFileFilters(payload) {
   if (!payload) { return false; }
   let changed = false;
+  // W2: folder filters restore here too (the name predates round 3).
+  if (Array.isArray(payload.hiddenFolders)) {
+    state.hiddenFolders = new Set(payload.hiddenFolders);
+    changed = true;
+  }
+  if (payload.onlyShowFolder !== undefined) {
+    state.onlyShowFolder = payload.onlyShowFolder ?? null;
+    changed = true;
+  }
   if (Array.isArray(payload.hiddenFiles)) {
     state.hiddenFiles = new Set(payload.hiddenFiles);
     changed = true;
@@ -293,6 +302,12 @@ function applySavedFileFilters(payload) {
   }
   if (changed) { updateFolderPanel(); }
   return changed;
+}
+
+/** Repo text (paths, names) rendered through innerHTML must be escaped. */
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function updateFolderPanel() {
@@ -317,7 +332,7 @@ function updateFolderPanel() {
     rows.push(`
       <div class="folder-filter-row">
         <span class="folder-filter-icon">◎</span>
-        <span class="folder-filter-label" title="${state.onlyShowFolder}">${pathBasename(state.onlyShowFolder)}</span>
+        <span class="folder-filter-label" title="${escHtml(state.onlyShowFolder)}">${escHtml(pathBasename(state.onlyShowFolder))}</span>
         <button class="folder-filter-clear" data-action="clear-only">✕</button>
       </div>`);
   }
@@ -325,15 +340,15 @@ function updateFolderPanel() {
     rows.push(`
       <div class="folder-filter-row">
         <span class="folder-filter-icon folder-filter-icon--hidden">⊘</span>
-        <span class="folder-filter-label" title="${fp}">${pathBasename(fp)}</span>
-        <button class="folder-filter-clear" data-action="unhide" data-path="${fp}">✕</button>
+        <span class="folder-filter-label" title="${escHtml(fp)}">${escHtml(pathBasename(fp))}</span>
+        <button class="folder-filter-clear" data-action="unhide" data-path="${escHtml(fp)}">✕</button>
       </div>`);
   });
   if (state.onlyShowFile) {
     rows.push(`
       <div class="folder-filter-row chip-file">
         <span class="folder-filter-icon">◎</span>
-        <span class="folder-filter-label" title="${state.onlyShowFile}">${pathBasename(state.onlyShowFile)}</span>
+        <span class="folder-filter-label" title="${escHtml(state.onlyShowFile)}">${escHtml(pathBasename(state.onlyShowFile))}</span>
         <button class="folder-filter-clear" data-action="clear-only-file">✕</button>
       </div>`);
   }
@@ -341,8 +356,8 @@ function updateFolderPanel() {
     rows.push(`
       <div class="folder-filter-row chip-file">
         <span class="folder-filter-icon folder-filter-icon--hidden">⊘</span>
-        <span class="folder-filter-label" title="${fp}">${pathBasename(fp)}</span>
-        <button class="folder-filter-clear" data-action="unhide-file" data-path="${fp}">✕</button>
+        <span class="folder-filter-label" title="${escHtml(fp)}">${escHtml(pathBasename(fp))}</span>
+        <button class="folder-filter-clear" data-action="unhide-file" data-path="${escHtml(fp)}">✕</button>
       </div>`);
   });
   rows.push(`<button class="folder-filter-show-all" id="btn-folder-show-all">Show All</button>`);
@@ -403,6 +418,10 @@ function buildSavePayload() {
     payload.expandedFolders = [...state.expandedFolders].sort();
   }
   // File filters (R2a, additive — old builds ignore them)
+  if (state.hiddenFolders && state.hiddenFolders.size) {
+    payload.hiddenFolders = [...state.hiddenFolders].sort();
+  }
+  if (state.onlyShowFolder) { payload.onlyShowFolder = state.onlyShowFolder; }
   if (state.hiddenFiles && state.hiddenFiles.size) {
     payload.hiddenFiles = [...state.hiddenFiles].sort();
   }

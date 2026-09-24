@@ -160,6 +160,15 @@ Windows separators); excluded-derivation from a fixture tree; Visualize/Exit
 → postMessage contract; pending-row rendering; scope in the memo inputs +
 `visibleKey`; include [] clears.
 
+Real host sample (178, from buildSubgraphMessage() on the click corpus —
+pin the border tests to this): `{"type":"subgraph","name":"click core",
+"root":"/home/bela/cograph/test-projects/click","include":["src/click",
+"tests/typing"],"exclude":[]}`; no-scope form has `name:null, include:[]`.
+The wire adds the ready gate's `__seq` — ignore unknown keys. `root` =
+workspace folder fsPath (native separators on Windows, no trailing slash);
+include stays POSIX; map with join(root, ...rel.split('/')); `'.'` = root.
+Host normalize() already drops nested includes and trailing slashes.
+
 ## Order & commits (one per item, tests + suite green each)
 
 1. **W1a** scope.js + frames/members filtering (Shelf) — biggest user pain.

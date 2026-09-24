@@ -1037,3 +1037,81 @@ suite('Layout toggles (engine × motion)', () => {
     assert.deepStrictEqual(engineCalls, [], 'motion buttons never touch the engine axis');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Suite: Filters section completeness (round 3, W2)
+// ---------------------------------------------------------------------------
+
+suite('Filters section (W2)', () => {
+  const st = () => (global as any).state;
+  const doc = dom.window.document;
+
+  let savedBasename: any;
+  setup(() => {
+    st().hiddenFiles = new Set();
+    st().onlyShowFile = null;
+    st().hiddenFolders = new Set();
+    st().onlyShowFolder = null;
+    savedBasename = (global as any).pathBasename;
+    (global as any).pathBasename = (fp: string) => fp.split('/').pop();
+  });
+  teardown(() => { (global as any).pathBasename = savedBasename; });
+
+  test('folder filters save and restore (they never did before W2)', () => {
+    st().currentNodes = [];
+    st().hiddenFolders = new Set(['/p/b', '/p/a']);
+    st().onlyShowFolder = '/p/z';
+    const p = buildSavePayload();
+    assert.deepStrictEqual(p.hiddenFolders, ['/p/a', '/p/b'], 'sorted, additive');
+    assert.strictEqual(p.onlyShowFolder, '/p/z');
+    st().hiddenFolders = new Set(); st().onlyShowFolder = null;
+    applySavedFileFilters(JSON.parse(JSON.stringify(p)));
+    assert.deepStrictEqual([...st().hiddenFolders].sort(), ['/p/a', '/p/b']);
+    assert.strictEqual(st().onlyShowFolder, '/p/z');
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    assert.strictEqual(body.querySelectorAll('[data-action="unhide"]').length, 2,
+      'restored folder filters render as chips');
+  });
+
+  test('old saves without folder fields change nothing', () => {
+    st().hiddenFolders = new Set(['/keep']);
+    st().onlyShowFolder = '/keep2';
+    applySavedFileFilters({ hiddenFiles: ['/p/x.ts'] });
+    assert.deepStrictEqual([...st().hiddenFolders], ['/keep']);
+    assert.strictEqual(st().onlyShowFolder, '/keep2');
+  });
+
+  test('un-hiding one kind leaves the other intact', () => {
+    st().hiddenFolders = new Set(['/p/dir']);
+    st().hiddenFiles = new Set(['/p/f.ts']);
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    (body.querySelector('[data-action="unhide"]') as any).click();
+    assert.strictEqual(st().hiddenFolders.size, 0);
+    assert.deepStrictEqual([...st().hiddenFiles], ['/p/f.ts'], 'file filter untouched');
+  });
+
+  test('repo-controlled names are escaped in the chips', () => {
+    const hostile = '/p/<img src=x onerror=boom>"\'.ts';
+    st().hiddenFiles = new Set([hostile]);
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    assert.strictEqual(body.querySelector('img'), null, 'no element injection');
+    const label = body.querySelector('.chip-file .folder-filter-label') as any;
+    assert.ok(label.textContent.includes('<img src=x onerror=boom>'), 'name shown verbatim');
+    assert.strictEqual(label.getAttribute('title'), hostile, 'title survives quotes');
+  });
+
+  test('context-menu filter labels are sentence case in every engine', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    for (const f of ['folder.js', 'frameRender.js', 'rendering.js', 'drilldown.js']) {
+      const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/' + f), 'utf8');
+      assert.ok(!src.includes("'Hide Folder'") && !src.includes("'Only Show Folder'")
+        && !src.includes("'Show All Folders'"), `${f}: normalized labels`);
+    }
+  });
+});

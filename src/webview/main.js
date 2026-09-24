@@ -170,10 +170,11 @@ function setLayoutEngine(engine, opts = {}) {
 updateLayoutButtons(); // boot config may differ from the HTML's active buttons
 
 // ── Filters ───────────────────────────────────────────────────────────────────
-// Memoised (visibility.js): tick paths call this 1-2× per simulation tick, so
-// the O(N) scan only re-runs when the query, a filter setting, the folder
-// filters or the node list actually changed. A timeline predicate carries
-// hidden state → bypasses the memo.
+// Memoised when visibility.js is loaded (perf's branch): tick paths call this
+// 1-2× per simulation tick, so the O(N) scan only re-runs when an input
+// actually changed. EVERY filter must appear in the memo inputs — a missing
+// one makes the memo serve a stale set after that filter changes (this bit
+// the R2a file filters on the integrated branch).
 const __visMemo = (typeof createVisibleMemo === 'function') ? createVisibleMemo() : null;
 let __searchEl;
 function getVisibleNodeIds() {
@@ -186,6 +187,7 @@ function getVisibleNodeIds() {
     showLibraries: settings.showLibraries, existingFilesOnly: settings.existingFilesOnly,
     showOrphans: settings.showOrphans, nodes: state.currentNodes, connected: state.connectedNodeIds,
     onlyShowFolder: state.onlyShowFolder, hiddenFolders: state.hiddenFolders,
+    onlyShowFile: state.onlyShowFile, hiddenFiles: state.hiddenFiles, // R2a
   }, () => computeVisibleNodeIds(query, tlPredicate));
 }
 

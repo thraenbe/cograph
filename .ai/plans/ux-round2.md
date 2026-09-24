@@ -179,3 +179,58 @@ CHANGED: cross-bundle `marker-end` value.
 2. R3 bundle marker + R4 manila silhouette (one visual commit, keyframe after)
 3. R2a file filters + menus + save
 4. R2b slot dragging + persistence
+
+## Pending: forces commit (D1–D3, waiting for Bela — prepped 2026-09-23)
+
+One commit, ~30 min once the numbers land. Every site a default/box change
+touches (all verified in code, current values in brackets):
+
+**Default values — three synchronized sites per force:**
+1. `main.js` `settings` object (the authority): centerForce [0.025],
+   repelForce [250], linkForce [1], fileClusterForce [0.2],
+   folderRepelForce [0.25], fileRepelForce [0.25], linkDistance [40],
+   velocityDecay [0.3], collidePad [1.5], slotPad [0], repelRange [Infinity].
+2. `webviewHtmlBuilder.ts` slider defaults — `value=` attr AND the `val-*`
+   span text for each: lines ~314 (center 0.025), ~318 (repel 250), ~322
+   (link 1), ~326 (file-cluster 0.2), ~330 (folder-repel 0.25), ~334
+   (file-repel 0.25), ~340 (link-distance 40), ~344 (velocity-decay 0.3),
+   ~348 (collide-pad 1.5), ~352 (repel-range 2000=∞), ~356 (slot-pad 0).
+   Ranges (min/max/step) live here too if D-decisions change them.
+3. `controls.js` Reset handler — the `defaults` object AND the slider-update
+   map (same values again), plus `setRepelRangeUI(Infinity)` if repelRange's
+   default changes.
+
+**Consumption sites (only if semantics, not just numbers, change):**
+- Global: `rendering.js` `startSimulation` (`linkDistance ?? 40`,
+  `collidePad ?? 1.5`, `velocityDecay ?? 0.3`,
+  `distanceMax(repelRange ?? Infinity)`) and its mirror in `main.js`
+  `rerunLayout`.
+- Shelf: `localSim.js` (PERF-OWNED — isolated-commit precedent from 7d69558):
+  `lsLinkDistance` = linkDistance × 0.75 [30 @ default], collide r +
+  collidePad, hardClamp slotPad inset, charge −repelForce × 0.15
+  distanceMax 140 (the fixed shelf 140 is NOT the repelRange slider).
+- `drilldown.js` `DD_CLUSTER_STABILITY` [1.5]: if fileClusterForce's default
+  rises, re-check the measured headroom (sum ≤ 1.5 clamps regardless — safe,
+  but the zod +11% spread figure was measured at default 0.2).
+
+**Global box cleanup (D2, forcesPanel.js):** `FP_BASIC.global`
+[center, repel, link, file-cluster, folder-repel, file-repel] and
+`FP_ADVANCED.global` [link-distance, velocity-decay, collide-pad,
+repel-range] — moving/removing rows = edit these arrays + the corresponding
+`#row-*` blocks in webviewHtmlBuilder + `FP_ALL` derives automatically;
+`label-file-cluster` text pair lives in `FP_CLUSTER_LABEL`.
+
+**No site in:** `package.json` (no force settings contributed), saved
+layouts (force values are not persisted except `repelRange`, which
+round-trips as null=∞ — a default change does not touch old saves).
+
+**Tests that pin current numbers (update in the same commit):**
+- `webviewControls.test.ts`: Reset expectations (0.025/0.2/0.25/40/0.3/1.5/0
+  + repelRange ∞), advanced-slider write cases, repel-range ∞ sentinel.
+- `forcesPanel.test.ts`: row sets per engine if D2 moves rows.
+- `localSim.test.ts`: `['distance', 45]` (60×0.75) and collide `r+4` cases
+  encode the ×0.75/`+pad` formulas, not defaults — only touch if semantics
+  change.
+- `staticBoot.test.ts` repel-range source contract (regex on the
+  `?? Infinity` fallback — only if the fallback changes).
+- `globalGuard` N=4000 is measured from tick cost, independent of defaults.

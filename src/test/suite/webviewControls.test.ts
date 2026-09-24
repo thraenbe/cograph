@@ -1037,3 +1037,169 @@ suite('Layout toggles (engine × motion)', () => {
     assert.deepStrictEqual(engineCalls, [], 'motion buttons never touch the engine axis');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Suite: Filters section completeness (round 3, W2)
+// ---------------------------------------------------------------------------
+
+suite('Filters section (W2)', () => {
+  const st = () => (global as any).state;
+  const doc = dom.window.document;
+
+  let savedBasename: any;
+  setup(() => {
+    st().hiddenFiles = new Set();
+    st().onlyShowFile = null;
+    st().hiddenFolders = new Set();
+    st().onlyShowFolder = null;
+    savedBasename = (global as any).pathBasename;
+    (global as any).pathBasename = (fp: string) => fp.split('/').pop();
+  });
+  teardown(() => { (global as any).pathBasename = savedBasename; });
+
+  test('folder filters save and restore (they never did before W2)', () => {
+    st().currentNodes = [];
+    st().hiddenFolders = new Set(['/p/b', '/p/a']);
+    st().onlyShowFolder = '/p/z';
+    const p = buildSavePayload();
+    assert.deepStrictEqual(p.hiddenFolders, ['/p/a', '/p/b'], 'sorted, additive');
+    assert.strictEqual(p.onlyShowFolder, '/p/z');
+    st().hiddenFolders = new Set(); st().onlyShowFolder = null;
+    applySavedFileFilters(JSON.parse(JSON.stringify(p)));
+    assert.deepStrictEqual([...st().hiddenFolders].sort(), ['/p/a', '/p/b']);
+    assert.strictEqual(st().onlyShowFolder, '/p/z');
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    assert.strictEqual(body.querySelectorAll('[data-action="unhide"]').length, 2,
+      'restored folder filters render as chips');
+  });
+
+  test('old saves without folder fields change nothing', () => {
+    st().hiddenFolders = new Set(['/keep']);
+    st().onlyShowFolder = '/keep2';
+    applySavedFileFilters({ hiddenFiles: ['/p/x.ts'] });
+    assert.deepStrictEqual([...st().hiddenFolders], ['/keep']);
+    assert.strictEqual(st().onlyShowFolder, '/keep2');
+  });
+
+  test('un-hiding one kind leaves the other intact', () => {
+    st().hiddenFolders = new Set(['/p/dir']);
+    st().hiddenFiles = new Set(['/p/f.ts']);
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    (body.querySelector('[data-action="unhide"]') as any).click();
+    assert.strictEqual(st().hiddenFolders.size, 0);
+    assert.deepStrictEqual([...st().hiddenFiles], ['/p/f.ts'], 'file filter untouched');
+  });
+
+  test('repo-controlled names are escaped in the chips', () => {
+    const hostile = '/p/<img src=x onerror=boom>"\'.ts';
+    st().hiddenFiles = new Set([hostile]);
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    assert.strictEqual(body.querySelector('img'), null, 'no element injection');
+    const label = body.querySelector('.chip-file .folder-filter-label') as any;
+    assert.ok(label.textContent.includes('<img src=x onerror=boom>'), 'name shown verbatim');
+    assert.strictEqual(label.getAttribute('title'), hostile, 'title survives quotes');
+  });
+
+  test('context-menu filter labels are sentence case in every engine', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    for (const f of ['folder.js', 'frameRender.js', 'rendering.js', 'drilldown.js']) {
+      const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/' + f), 'utf8');
+      assert.ok(!src.includes("'Hide Folder'") && !src.includes("'Only Show Folder'")
+        && !src.includes("'Show All Folders'"), `${f}: normalized labels`);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: Subgraph block in the Filters section (round 3 W4)
+// ---------------------------------------------------------------------------
+
+suite('Subgraph block (W4)', () => {
+  const st = () => (global as any).state;
+  const doc = dom.window.document;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const scMod = require('../../../src/webview/scope.js');
+
+  const originalVscode = (global as any).vscode;
+  let posted: any[];
+  let savedBasename: any;
+  let savedExcluded: any;
+  let savedASF: any;
+  setup(() => {
+    posted = [];
+    (global as any).vscode = { postMessage: (m: any) => posted.push(m) };
+    savedBasename = (global as any).pathBasename;
+    (global as any).pathBasename = (fp: string) => fp.split('/').pop();
+    savedExcluded = (global as any).excludedTopFolders;
+    (global as any).excludedTopFolders = scMod.excludedTopFolders;
+    savedASF = (global as any).applyStructuralFilters;
+    (global as any).applyStructuralFilters = () => {};
+    st().hiddenFiles = new Set(); st().onlyShowFile = null;
+    st().hiddenFolders = new Set(); st().onlyShowFolder = null;
+    st().scopePending = new Set();
+    st().structureTree = {
+      root: '/r',
+      folders: {
+        '/r': { parent: null, fileCount: 9 },
+        '/r/src': { parent: '/r', fileCount: 6 },
+        '/r/docs': { parent: '/r', fileCount: 3 },
+      },
+    };
+    st().scope = { name: 'click core', root: '/r',
+      include: new Set(['/r/src']), exclude: new Set() };
+  });
+  teardown(() => {
+    (global as any).vscode = originalVscode;
+    (global as any).pathBasename = savedBasename;
+    (global as any).excludedTopFolders = savedExcluded;
+    (global as any).applyStructuralFilters = savedASF;
+    st().scope = null; st().scopePending = new Set(); st().structureTree = null;
+  });
+
+  test('the section renders the name, the excluded rows and the exit action', () => {
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    assert.ok(body.querySelector('.subgraph-head')!.textContent!.includes('click core'));
+    const rows = body.querySelectorAll('.subgraph-row');
+    assert.strictEqual(rows.length, 1, 'one maximal excluded subtree (docs)');
+    assert.ok(rows[0].textContent!.includes('docs · 3'), 'name and recursive file count');
+    assert.ok(body.querySelector('.subgraph-exit'), 'exit action present');
+  });
+
+  test('Visualize posts subgraph-include with the RELATIVE path and goes pending', () => {
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    (body.querySelector('.subgraph-visualize') as any).click();
+    assert.deepStrictEqual(posted, [{ type: 'subgraph-include', path: 'docs' }]);
+    assert.ok(st().scopePending.has('docs'));
+    const body2 = doc.getElementById('folder-filters-body')!;
+    assert.ok(body2.querySelector('.subgraph-pending'), 'row shows the pending mark');
+    assert.strictEqual(body2.querySelector('.subgraph-visualize'), null);
+  });
+
+  test('exit posts subgraph-exit; Show All never does and keeps the scope', () => {
+    st().hiddenFolders = new Set(['/r/src/x']);
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    (body.querySelector('#btn-folder-show-all') as any).click();
+    assert.deepStrictEqual(posted, [], 'Show All does NOT touch the host scope (Q3)');
+    assert.ok(st().scope, 'scope survives Show All');
+    (doc.querySelector('#folder-filters-body .subgraph-exit') as any).click();
+    assert.deepStrictEqual(posted, [{ type: 'subgraph-exit' }]);
+  });
+
+  test('an unsaved scope is labelled and a cleared scope removes the section', () => {
+    st().scope.name = null;
+    updateFolderPanel();
+    assert.ok(doc.querySelector('#folder-filters-body .subgraph-head')!.textContent!.includes('unsaved'));
+    st().scope = null;
+    updateFolderPanel();
+    assert.strictEqual(doc.querySelector('#folder-filters-body .subgraph-head'), null);
+  });
+});

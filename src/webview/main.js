@@ -188,6 +188,7 @@ function getVisibleNodeIds() {
     showOrphans: settings.showOrphans, nodes: state.currentNodes, connected: state.connectedNodeIds,
     onlyShowFolder: state.onlyShowFolder, hiddenFolders: state.hiddenFolders,
     onlyShowFile: state.onlyShowFile, hiddenFiles: state.hiddenFiles, // R2a
+    scope: state.scope, // W4 subgraph — every filter must be a memo input (F17)
   }, () => computeVisibleNodeIds(query, tlPredicate));
 }
 
@@ -228,10 +229,26 @@ function computeVisibleNodeIds(query, tlPredicate) {
       if (ff != null && typeof fileFilterAllows === 'function'
           && !fileFilterAllows(ff, state.onlyShowFile, state.hiddenFiles)) return;
     }
+    // Subgraph scope (W4): the graph arrives scoped from the host, but
+    // transition windows (a folder just excluded, patch in flight) must not
+    // flash out-of-scope nodes.
+    if (state.scope && typeof memberInScope === 'function'
+        && !memberInScope(n, __scanScope())) return;
     if (tlPredicate && !tlPredicate(n)) return;
     visible.add(n.id);
   });
+  __scanScopeCache = null;
   return visible;
+}
+
+// Scope object for the scan above, built once per pass (not per node).
+let __scanScopeCache = null;
+function __scanScope() {
+  if (!__scanScopeCache) {
+    __scanScopeCache = { hiddenFolders: new Set(), onlyShowFolder: null,
+      hiddenFiles: new Set(), onlyShowFile: null, subgraph: state.scope };
+  }
+  return __scanScopeCache;
 }
 
 // Bursts (key repeat, timeline frames) collapse to one pass per animation
@@ -245,6 +262,18 @@ const __filterApplier = (typeof createFilterApplier === 'function') ? createFilt
 function applyFilters() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
   if (__filterGate) { __filterGate.run(applyFiltersNow); } else { applyFiltersNow(); }
+}
+
+// Hide folder/file, Only show and Show all reshape the LAYOUT since round 3
+// (frames/slots/boxes are scope-filtered at build time — scope.js), so every
+// filter MUTATION re-renders the drill-down; plain applyFilters stays the
+// cheap display pass for search/timeline/settings.
+function applyStructuralFilters() {
+  if (typeof isDrilldown === 'function' && isDrilldown()
+    && typeof applyFileClusters === 'function') {
+    applyFileClusters();
+  }
+  applyFilters();
 }
 
 function applyFiltersNow() {
@@ -551,6 +580,15 @@ window.addEventListener('message', (event) => {
     }
     updateFuncHighlight(inst);
     updateSaveBtn(inst);
+    return;
+  }
+  if (message.type === 'subgraph') {
+    // Host scope (round 3 W4). Arrives BEFORE structure/graph on open (ready
+    // gate) and on every change; include [] clears. Never persisted here.
+    state.scope = (typeof mapSubgraphMessage === 'function') ? mapSubgraphMessage(message) : null;
+    state.scopePending = new Set();
+    if (typeof applyStructuralFilters === 'function') { applyStructuralFilters(); }
+    if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
     return;
   }
   if (message.type === 'graph') {

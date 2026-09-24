@@ -304,6 +304,12 @@ const drag = d3.drag()
     __pe('drag:move', __t0);
   })
   .on('end', (event, d) => {
+    // W5: dropped outside its file slot in Shelf+Dynamic → snap back via the
+    // facade (reheat while pinned, release a microtask later).
+    if (typeof snapBackToSlot === 'function' && snapBackToSlot(d)) {
+      window.markDirty?.();
+      return;
+    }
     if (coolAfterDrag(event)) {
       d.fx = null;
       d.fy = null; // release — node rejoins simulation
@@ -351,8 +357,11 @@ function tickedNow() {
     this.setAttribute('transform', `translate(${d.x},${d.y})`);
   });
   state.svgLabels?.each(function (d) {
-    const below = d.isFolderCluster || d.isFileCluster;
-    const y = below ? d.y + nodeRadius(d) + 6
+    // W3: collapsed folder names live inside the glyph body.
+    const inGlyph = d.isFolderCluster && typeof closedFolderLabelPos === 'function'
+      ? closedFolderLabelPos(nodeRadius(d)) : null;
+    const y = inGlyph ? d.y + inGlyph.y
+      : (d.isFolderCluster || d.isFileCluster) ? d.y + nodeRadius(d) + 6
       : (d.isCluster || d.isSynthetic) ? d.y
       : d.y + nodeRadius(d) + 10;
     this.setAttribute('x', d.x);
@@ -628,12 +637,12 @@ function renderCloudNodes(visibleSet, nodes = state.currentNodes, parent = nodeG
       const items = [
         { label: `${d.label} (Folder)`, isHeader: true },
         { label: 'Elapse folder',         action: () => { if (typeof elapseFolder === 'function') { elapseFolder(fp); } } },
-        { label: 'Only show this folder', action: () => { state.onlyShowFolder = fp; applyFilters(); ticked(); updateFolderPanel(); } },
-        { label: 'Hide folder',           action: () => { state.hiddenFolders.add(fp); applyFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Only show this folder', action: () => { state.onlyShowFolder = fp; applyStructuralFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Hide folder',           action: () => { state.hiddenFolders.add(fp); applyStructuralFilters(); ticked(); updateFolderPanel(); } },
         { label: 'Go to folder',          action: () => vscode.postMessage({ type: 'navigate', file: fp, line: 1 }) },
       ];
       if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); ticked(); updateFolderPanel(); } });
+        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyStructuralFilters(); ticked(); updateFolderPanel(); } });
       }
       showContextMenu(event, items);
     })
@@ -648,20 +657,28 @@ function renderLabels(visibleSet, nodes = state.currentNodes, parent = labelG) {
     .each(function (d) {
       // Folder/file glyphs carry a dim second line with the count (e.g. "23 files").
       // Rebuilt only when the text changed — not on every re-render.
-      const sig = `${d.label}\n${d._sub || ''}`;
+      // W3: a collapsed FOLDER's name sits INSIDE the glyph body (ellipsized
+      // to its width; the count line only when the body fits two lines).
+      const inGlyph = d.isFolderCluster && typeof closedFolderLabelPos === 'function'
+        ? closedFolderLabelPos(nodeRadius(d)) : null;
+      const name = inGlyph
+        ? cutLabel(d.label, Math.max(4, Math.floor(inGlyph.maxW / (5 * settings.textSize))))
+        : d.label;
+      const sub = d._sub && (!inGlyph || inGlyph.fits2) ? d._sub : '';
+      const sig = `${name}\n${sub}`;
       if (this.__labelSig === sig) { return; }
       this.__labelSig = sig;
       const t = d3.select(this);
       t.selectAll('tspan').remove();
-      t.append('tspan').text(d.label);
-      if (d._sub) {
-        t.append('tspan').attr('dy', '1.15em').attr('font-size', '0.78em').attr('opacity', 0.6).text(d._sub);
+      t.append('tspan').attr('dy', sub && inGlyph ? '-0.55em' : null).text(name);
+      if (sub) {
+        t.append('tspan').attr('dy', '1.15em').attr('font-size', '0.78em').attr('opacity', 0.6).text(sub);
       }
     })
     .attr('font-size', d => `${(d.isSynthetic ? 12 : 9) * settings.textSize}px`)
     .attr('fill', d => (d.isCluster || d.isSynthetic) ? getCSSVar('--cograph-label-cluster') : getCSSVar('--cograph-label-default'))
     .attr('text-anchor', 'middle')
-    .attr('dominant-baseline', d => (d.isFolderCluster || d.isFileCluster) ? 'hanging' : (d.isCluster || d.isSynthetic) ? 'middle' : 'auto')
+    .attr('dominant-baseline', d => d.isFolderCluster ? 'middle' : d.isFileCluster ? 'hanging' : (d.isCluster || d.isSynthetic) ? 'middle' : 'auto')
     .attr('pointer-events', 'none')
     .style('display', d => visibleSet.has(d.id) ? null : 'none')
     .style('opacity', state.currentZoom >= settings.textFadeThreshold ? 1 : 0)
@@ -877,14 +894,27 @@ function renderElements(elements, positionHints = new Map()) {
 
 // The pre-frames render path, verbatim (single global simulation + overlays).
 function renderGlobalLayout(allLinks, visibleSet) {
-  state.svgLinks = renderLinks(allLinks, visibleSet);
+  // Structural scope (round 3): links with an out-of-scope endpoint leave
+  // the DOM and the simulation alike. Dropping them only from the link force
+  // left <line> elements with UNRESOLVED string endpoints — NaN writes on
+  // every tick (F21). Display filtering (visibleSet) stays separate.
+  let drawLinks = allLinks;
+  if (typeof buildScope === 'function' && typeof linksInScope === 'function') {
+    const sc = buildScope(state);
+    if (scopeActive(sc)) {
+      drawLinks = linksInScope(allLinks, new Map(state.currentNodes.map(n => [n.id, n])), sc);
+    }
+  }
+  state.svgLinks = renderLinks(drawLinks, visibleSet);
   state.svgNodes = renderNodes(visibleSet);
   state.svgCloudNodes = renderCloudNodes(visibleSet);
   state.svgLabels = renderLabels(visibleSet);
   const libNodeData = state.currentNodes.filter(n => n.isLibrary);
   state.svgLibNodes = renderLibraryNodes(libNodeData, visibleSet);
   state.svgLibLabels = renderLibraryLabels(libNodeData, visibleSet);
-  startSimulation(allLinks);
+  // The simulation gets the same scoped list (link force must not tug
+  // visible nodes toward hidden endpoints either).
+  startSimulation(drawLinks);
   if (typeof isDrilldown === 'function' && isDrilldown()) {
     // File (drill-down) mode: boxes around each opened folder's contents.
     // Boxes/circles/forces are the drill-down's structure, not an overlay —

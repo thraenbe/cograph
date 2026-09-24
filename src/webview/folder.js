@@ -36,14 +36,20 @@ const EMPTY_FILE_EXTS = new Set([
 
 function groupByFile(nodes) {
   const map = new Map();
+  // Structural scope (round 3): a hidden file gets no circle at all.
+  const sc = (typeof buildScope === 'function' && typeof state !== 'undefined')
+    ? buildScope(state) : null;
+  const scoped = sc && scopeActive(sc);
   nodes.forEach(n => {
     if (n.isLibrary || !n.file) return;
     if (n.isCluster || n.isSynthetic) return;  // B2
+    if (scoped && !memberInScope(n, sc)) return;
     if (!map.has(n.file)) map.set(n.file, []);
     map.get(n.file).push(n);
   });
   if (settings.showEmptyFiles && state.allScannedFiles?.length) {
     state.allScannedFiles.forEach(fp => {
+      if (scoped && !memberInScope({ file: fp }, sc)) return;
       const dot = fp.lastIndexOf('.');
       const ext = dot >= 0 ? fp.slice(dot) : '';
       if (!map.has(fp) && EMPTY_FILE_EXTS.has(ext)) map.set(fp, []);
@@ -218,12 +224,12 @@ function renderFileCircles(fileG, nodesByFile) {
         { label: 'Go to File',   action: () => vscode.postMessage({ type: 'navigate', file: d.filePath, line: 1 }) },
         { label: 'Hide file', action: () => {
           state.hiddenFiles.add(d.filePath);
-          applyFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          applyStructuralFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
           window.markDirty?.();
         } },
         { label: 'Show only this file', action: () => {
           state.onlyShowFile = d.filePath;
-          applyFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          applyStructuralFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
           window.markDirty?.();
         } },
       ];
@@ -231,7 +237,7 @@ function renderFileCircles(fileG, nodesByFile) {
         items.push({ label: 'Show all', action: () => {
           state.hiddenFiles.clear(); state.onlyShowFile = null;
           state.hiddenFolders.clear(); state.onlyShowFolder = null;
-          applyFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          applyStructuralFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
           window.markDirty?.();
         } });
       }
@@ -293,11 +299,11 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
         { label: `${d.shortName} (Folder)`, isHeader: true },
         { label: 'Rename',           action: () => vscode.postMessage({ type: 'request-rename-folder', folderPath: d.folderPath }) },
         { label: 'New File',         action: () => vscode.postMessage({ type: 'request-new-file',      folderPath: d.folderPath }) },
-        { label: 'Hide Folder',      action: () => { state.hiddenFolders.add(d.folderPath); applyFilters(); ticked(); updateFolderPanel(); } },
-        { label: 'Only Show Folder', action: () => { state.onlyShowFolder = d.folderPath; applyFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Hide folder',      action: () => { state.hiddenFolders.add(d.folderPath); applyStructuralFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Only show this folder', action: () => { state.onlyShowFolder = d.folderPath; applyStructuralFilters(); ticked(); updateFolderPanel(); } },
       ];
       if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-        items.push({ label: 'Show All Folders', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); ticked(); updateFolderPanel(); } });
+        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyStructuralFilters(); ticked(); updateFolderPanel(); } });
       }
       showContextMenu(event, items);
     });

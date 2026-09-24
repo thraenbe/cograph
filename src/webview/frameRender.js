@@ -148,15 +148,31 @@ function renderFrameLayout(allLinks, visibleSet) {
   if (state.simulation && !state.simulation.isFrameFacade) { state.simulation.stop(); }
   state.pendingReheat = false;
 
-  // 1) Frames from the current visible members.
-  const members = collectMembers(state.currentNodes, tree, settings.nodeSize);
+  // 1) Frames from the current visible members. The structural scope (round
+  // 3: Hide entirely / Only show / subgraph) is applied HERE: out-of-scope
+  // folders get no frame, out-of-scope members no slot — the pack then
+  // closes the gaps like any expand/collapse.
+  const sc = (typeof buildScope === 'function') ? buildScope(state) : null;
+  const active = sc && scopeActive(sc);
+  const allow = active ? ((d) => memberInScope(d, sc)) : null;
+  const folderOk = active ? ((p) => frameFolderVisible(p, sc)) : null;
+  // A CHANGED scope re-shelves the affected parents (W2b) — a merely ACTIVE
+  // one (e.g. a restored save) keeps the laid-out rects.
+  const scopeSig = !active ? '' : JSON.stringify([
+    [...sc.hiddenFolders].sort(), sc.onlyShowFolder,
+    [...sc.hiddenFiles].sort(), sc.onlyShowFile,
+    sc.subgraph ? [[...sc.subgraph.include].sort(), [...(sc.subgraph.exclude || [])].sort()] : null,
+  ]);
+  const reshelve = __fr.scopeSig !== undefined && __fr.scopeSig !== scopeSig;
+  __fr.scopeSig = scopeSig;
+  const members = collectMembers(state.currentNodes, tree, settings.nodeSize, allow);
   const prevAbs = new Map();
   if (state.frames && state.frames.byPath) {
     for (const [p2, f2] of state.frames.byPath) {
       if (f2.abs) { prevAbs.set(p2, { x: f2.abs.x, y: f2.abs.y }); }
     }
   }
-  const upd = updateFrames(state.frames, tree, state.expandedFolders, members);
+  const upd = updateFrames(state.frames, tree, state.expandedFolders, members, { folderOk, reshelve });
   state.frames = upd.frames;
   // Re-pack animation: frames that already existed and were MOVED by this
   // layout pass glide to their new spot (drags/sim ticks stay instant).
@@ -455,6 +471,31 @@ function slotDragDeps(framePath) {
   };
 }
 
+/** W5: a member dropped OUTSIDE its slot interior in Shelf+Dynamic snaps
+ *  back into the slot. The reheat goes through the FACADE while the node is
+ *  still pinned (restart's pin scan bumps exactly this frame), the pin is
+ *  released one microtask later (queued after that scan), and the slot
+ *  clamp + pull glide the node home. Static keeps drops pinned — Bela's
+ *  rule; Global has no slots. Returns true when it took the release over. */
+function snapBackToSlot(d) {
+  if (typeof usesFrames !== 'function' || !usesFrames()) { return false; }
+  if (state.layoutMode !== 'dynamic') { return false; }
+  if (!d || d.fx == null || !d._frame || !state.frames) { return false; }
+  const f = state.frames.byPath.get(d._frame);
+  if (!f) { return false; }
+  const interior = slotInteriorFor(f, d.id);
+  if (!interior) { return false; }
+  const io = frInnerOrigin(f);
+  if (d.fx >= io.x + interior.x && d.fx <= io.x + interior.x + interior.w
+    && d.fy >= io.y + interior.y && d.fy <= io.y + interior.y + interior.h) { return false; }
+  if (state.simulation) { state.simulation.alphaTarget(0.3).restart(); }
+  Promise.resolve().then(() => {
+    d.fx = null; d.fy = null;
+    if (state.simulation) { state.simulation.alphaTarget(0); }
+  });
+  return true;
+}
+
 function frameDragDeps() {
   return {
     frames: () => state.frames,
@@ -490,12 +531,12 @@ function onFrameContextMenu(event, f) {
     { label: `${shortName} (Folder)`, isHeader: true },
     { label: 'Elapse folder', action: () => { if (typeof elapseFolder === 'function') { elapseFolder(fp); } } },
     { label: 'Collapse folder', action: () => { if (typeof collapseFolder === 'function') { collapseFolder(fp); } } },
-    { label: 'Only show this folder', action: () => { state.onlyShowFolder = fp; applyFilters(); updateFolderPanel(); } },
-    { label: 'Hide folder', action: () => { state.hiddenFolders.add(fp); applyFilters(); updateFolderPanel(); } },
+    { label: 'Only show this folder', action: () => { state.onlyShowFolder = fp; applyStructuralFilters(); updateFolderPanel(); } },
+    { label: 'Hide folder', action: () => { state.hiddenFolders.add(fp); applyStructuralFilters(); updateFolderPanel(); } },
     { label: 'Go to folder', action: () => vscode.postMessage({ type: 'navigate', file: fp, line: 1 }) },
   ];
   if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-    items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles.clear(); state.onlyShowFile = null; applyFilters(); updateFolderPanel(); } });
+    items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles.clear(); state.onlyShowFile = null; applyStructuralFilters(); updateFolderPanel(); } });
   }
   showContextMenu(event, items);
 }
@@ -683,8 +724,11 @@ function tickFramePositions(path) {
     this.setAttribute('transform', `translate(${d.x - ox},${d.y - oy})`);
   });
   labels.each(function (d) {
-    const below = d.isFolderCluster || d.isFileCluster;
-    const y = (below ? d.y + nodeRadius(d) + 6
+    // W3: collapsed folder names live inside the glyph body.
+    const inGlyph = d.isFolderCluster && typeof closedFolderLabelPos === 'function'
+      ? closedFolderLabelPos(nodeRadius(d)) : null;
+    const y = (inGlyph ? d.y + inGlyph.y
+      : (d.isFolderCluster || d.isFileCluster) ? d.y + nodeRadius(d) + 6
       : (d.isCluster || d.isSynthetic) ? d.y
         : d.y + nodeRadius(d) + 10) - oy;
     const x = d.x - ox;
@@ -1258,12 +1302,12 @@ function renderFrameSlots(f, sub) {
       { label: 'Go to File', action: () => vscode.postMessage({ type: 'navigate', file: d.file, line: 1 }) },
       { label: 'Hide file', action: () => {
         state.hiddenFiles.add(d.file);
-        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        applyStructuralFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
         window.markDirty?.();
       } },
       { label: 'Show only this file', action: () => {
         state.onlyShowFile = d.file;
-        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        applyStructuralFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
         window.markDirty?.();
       } },
     ];
@@ -1271,7 +1315,7 @@ function renderFrameSlots(f, sub) {
       items.push({ label: 'Show all', action: () => {
         state.hiddenFiles.clear(); state.onlyShowFile = null;
         state.hiddenFolders.clear(); state.onlyShowFolder = null;
-        applyFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+        applyStructuralFilters(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
         window.markDirty?.();
       } });
     }
@@ -1300,6 +1344,7 @@ if (typeof module !== 'undefined') {
     tickFramePositions, tickFrameOfNode, onFramesZoom, applyFrameCulling, restoreFrameDom, borrowHoverLabel, teardownFrames,
     resetFrames, updateCrossLinks, updateCrossBundles, updateCrossHover, syncFrameSims, applySimResult, applySimData,
     applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit, stampLinkRefs,
+    snapBackToSlot,
     resolveDropOverlaps, translateFrameSubtree, onFrameMoveSettled,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots, sameSlotGeometry,

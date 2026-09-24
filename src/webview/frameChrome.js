@@ -125,9 +125,26 @@ function closedFolderPath(r) {
   return tabBodyPath(-d.w / 2, -d.h / 2, d.w, d.h, d.tw, d.th, d.step);
 }
 
+/** Where the NAME sits INSIDE a collapsed folder glyph (round 3 W3):
+ *  centred in the body below the flap step, relative to the glyph centre —
+ *  the same geometry closedFolderPath(r) draws. `fits2` says whether a dim
+ *  second line (the counts) still fits under the name. */
+function closedFolderLabelPos(r) {
+  const d = closedFolderDims(r);
+  const bodyTop = -d.h / 2 + d.step;
+  const bodyH = d.h - d.step;
+  return {
+    x: 0,
+    y: bodyTop + bodyH / 2,   // optical middle of the body
+    maxW: d.w * 0.86,         // side margins inside the outline
+    fits2: bodyH >= 26,       // two 9px lines + breathing room
+  };
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     TAB, DENSE, FOLDER_GLYPH, tabWidth, tabChars, cutLabel, slotLabelText, fitScale,
     tabBodyPath, tabOnlyPath, rectPath, countsText, memberCounts, closedFolderPath, closedFolderDims,
+    closedFolderLabelPos,
   };
 }

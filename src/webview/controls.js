@@ -283,6 +283,15 @@ function fileFilterAllows(filePath, onlyShowFile, hiddenFiles) {
 function applySavedFileFilters(payload) {
   if (!payload) { return false; }
   let changed = false;
+  // W2: folder filters restore here too (the name predates round 3).
+  if (Array.isArray(payload.hiddenFolders)) {
+    state.hiddenFolders = new Set(payload.hiddenFolders);
+    changed = true;
+  }
+  if (payload.onlyShowFolder !== undefined) {
+    state.onlyShowFolder = payload.onlyShowFolder ?? null;
+    changed = true;
+  }
   if (Array.isArray(payload.hiddenFiles)) {
     state.hiddenFiles = new Set(payload.hiddenFiles);
     changed = true;
@@ -295,12 +304,19 @@ function applySavedFileFilters(payload) {
   return changed;
 }
 
+/** Repo text (paths, names) rendered through innerHTML must be escaped. */
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 function updateFolderPanel() {
   const body = document.getElementById('folder-filters-body');
   if (!body) return;
 
   const hasFilters = state.onlyShowFolder || state.hiddenFolders.size > 0
-    || state.onlyShowFile || (state.hiddenFiles && state.hiddenFiles.size > 0);
+    || state.onlyShowFile || (state.hiddenFiles && state.hiddenFiles.size > 0)
+    || !!state.scope; // W4: an active subgraph always shows its section
 
   if (hasFilters) {
     body.style.display = '';
@@ -317,7 +333,7 @@ function updateFolderPanel() {
     rows.push(`
       <div class="folder-filter-row">
         <span class="folder-filter-icon">◎</span>
-        <span class="folder-filter-label" title="${state.onlyShowFolder}">${pathBasename(state.onlyShowFolder)}</span>
+        <span class="folder-filter-label" title="${escHtml(state.onlyShowFolder)}">${escHtml(pathBasename(state.onlyShowFolder))}</span>
         <button class="folder-filter-clear" data-action="clear-only">✕</button>
       </div>`);
   }
@@ -325,15 +341,15 @@ function updateFolderPanel() {
     rows.push(`
       <div class="folder-filter-row">
         <span class="folder-filter-icon folder-filter-icon--hidden">⊘</span>
-        <span class="folder-filter-label" title="${fp}">${pathBasename(fp)}</span>
-        <button class="folder-filter-clear" data-action="unhide" data-path="${fp}">✕</button>
+        <span class="folder-filter-label" title="${escHtml(fp)}">${escHtml(pathBasename(fp))}</span>
+        <button class="folder-filter-clear" data-action="unhide" data-path="${escHtml(fp)}">✕</button>
       </div>`);
   });
   if (state.onlyShowFile) {
     rows.push(`
       <div class="folder-filter-row chip-file">
         <span class="folder-filter-icon">◎</span>
-        <span class="folder-filter-label" title="${state.onlyShowFile}">${pathBasename(state.onlyShowFile)}</span>
+        <span class="folder-filter-label" title="${escHtml(state.onlyShowFile)}">${escHtml(pathBasename(state.onlyShowFile))}</span>
         <button class="folder-filter-clear" data-action="clear-only-file">✕</button>
       </div>`);
   }
@@ -341,17 +357,52 @@ function updateFolderPanel() {
     rows.push(`
       <div class="folder-filter-row chip-file">
         <span class="folder-filter-icon folder-filter-icon--hidden">⊘</span>
-        <span class="folder-filter-label" title="${fp}">${pathBasename(fp)}</span>
-        <button class="folder-filter-clear" data-action="unhide-file" data-path="${fp}">✕</button>
+        <span class="folder-filter-label" title="${escHtml(fp)}">${escHtml(pathBasename(fp))}</span>
+        <button class="folder-filter-clear" data-action="unhide-file" data-path="${escHtml(fp)}">✕</button>
       </div>`);
   });
   rows.push(`<button class="folder-filter-show-all" id="btn-folder-show-all">Show All</button>`);
+
+  // Subgraph section (W4): the scope's name, one row per maximal EXCLUDED
+  // subtree with a Visualize action, and an exit row. 'Show All' above only
+  // clears the view filters — it never touches the host scope (Q3).
+  if (state.scope && typeof excludedTopFolders === 'function') {
+    const relOf = (abs) => abs === state.scope.root ? '.'
+      : abs.slice(state.scope.root.length + 1).replace(/\\/g, '/');
+    rows.push(`<div class="folder-filter-subhead subgraph-head">Subgraph: ${escHtml(state.scope.name ?? 'unsaved')}</div>`);
+    for (const ex of excludedTopFolders(state.structureTree, state.scope)) {
+      const rel = relOf(ex.path);
+      const pending = state.scopePending && state.scopePending.has(rel);
+      rows.push(`
+      <div class="folder-filter-row subgraph-row">
+        <span class="folder-filter-icon folder-filter-icon--hidden">⊘</span>
+        <span class="folder-filter-label" title="${escHtml(ex.path)}">${escHtml(pathBasename(ex.path))} · ${ex.fileCount}</span>
+        ${pending
+    ? '<span class="subgraph-pending">…</span>'
+    : `<button class="subgraph-visualize" data-rel="${escHtml(rel)}">Visualize</button>`}
+      </div>`);
+    }
+    rows.push(`<button class="folder-filter-show-all subgraph-exit">Show whole project</button>`);
+  }
   body.innerHTML = rows.join('');
+
+  body.querySelectorAll('.subgraph-visualize').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const rel = btn.dataset.rel;
+      state.scopePending = state.scopePending || new Set();
+      state.scopePending.add(rel);
+      vscode.postMessage({ type: 'subgraph-include', path: rel });
+      updateFolderPanel(); // pending spinner until the re-sent `subgraph` lands
+    });
+  });
+  body.querySelector('.subgraph-exit')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'subgraph-exit' });
+  });
 
   body.querySelector('#btn-folder-show-all')?.addEventListener('click', () => {
     state.hiddenFolders.clear(); state.onlyShowFolder = null;
     state.hiddenFiles?.clear(); state.onlyShowFile = null;
-    applyFilters(); ticked(); updateFolderPanel();
+    applyStructuralFilters(); ticked(); updateFolderPanel();
   });
   body.querySelectorAll('.folder-filter-clear').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -359,7 +410,7 @@ function updateFolderPanel() {
       else if (btn.dataset.action === 'unhide') { state.hiddenFolders.delete(btn.dataset.path); }
       else if (btn.dataset.action === 'clear-only-file') { state.onlyShowFile = null; }
       else if (btn.dataset.action === 'unhide-file') { state.hiddenFiles?.delete(btn.dataset.path); }
-      applyFilters(); ticked(); updateFolderPanel();
+      applyStructuralFilters(); ticked(); updateFolderPanel();
     });
   });
 }
@@ -403,6 +454,10 @@ function buildSavePayload() {
     payload.expandedFolders = [...state.expandedFolders].sort();
   }
   // File filters (R2a, additive — old builds ignore them)
+  if (state.hiddenFolders && state.hiddenFolders.size) {
+    payload.hiddenFolders = [...state.hiddenFolders].sort();
+  }
+  if (state.onlyShowFolder) { payload.onlyShowFolder = state.onlyShowFolder; }
   if (state.hiddenFiles && state.hiddenFiles.size) {
     payload.hiddenFiles = [...state.hiddenFiles].sort();
   }

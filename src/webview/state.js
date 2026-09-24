@@ -61,6 +61,11 @@ const state = {
   onlyShowFolder: null,
   hiddenFiles: new Set(),        // file-level filters (R2a), mirroring the folder ones
   onlyShowFile: null,
+  // Host subgraph scope (round 3 W4): {name, root, include:Set, exclude:Set}
+  // mapped from the last `subgraph` message, or null. NEVER persisted here —
+  // scope is host state; hidden*/onlyShow* above are view state.
+  scope: null,
+  scopePending: new Set(),       // rel paths whose Visualize is in flight
   // ── File-cluster (folder drill-down — the 'file' lens) ────────────────────
   // Active when clusterGroupBy === 'file' && viewMode !== 'workflow' &&
   // structureTree is set (isDrilldown()).

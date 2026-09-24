@@ -94,7 +94,7 @@ Chat and the Workflow Graph have per-request caps for turns, spend and time (`co
 - **Python projects show nothing on Linux.** If VS Code is installed as a **snap**, its
   bundled runtime can interfere with analyzers — a deb/tarball install of VS Code avoids
   this. (CoGraph's bundled analyzers are pure-JS/WASM specifically to minimize this.)
-- **A large repo feels heavy.** Since 1.2.0 the **Shelf** engine packs each folder
+- **A large repo feels heavy.** Since 1.3.0 the **Shelf** engine packs each folder
   into its own frame and only simulates open folders, so size hurts far less (it opens
   in **Static** motion by default — click **Dynamic** to let it settle live). If needed,
   use the **Detail** slider or the search filter — or switch the engine toggle to

@@ -72,7 +72,8 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
       const dy = n.y + down < snap.viewport.h - 60 ? down : (n.y - up > 40 ? -up : 0);
       if (dy === 0) { throw new SkipStep('slot taller than the viewport at this zoom'); }
       await dragBy(page, n, 0, dy);
-      ux.steps[ux.steps.length - 1].note = `dragged ${n.label} ${Math.round(dy)} px ${dy > 0 ? 'below' : 'above'} its slot (k ${k.toFixed(2)})`;
+      const w5 = await page.evaluate('typeof snapBackToSlot === "function"'); // session-111 W5 landed on this branch?
+      ux.steps[ux.steps.length - 1].note = `dragged ${n.label} ${Math.round(dy)} px ${dy > 0 ? 'below' : 'above'} its slot (k ${k.toFixed(2)}); W5 snapBackToSlot present: ${w5}`;
     }, { userMoved: true, expectMotionMs: combo.motion === 'dynamic' ? 4000 : undefined });
     if (snapStep.status === 'ok' && dragged && slotRect && ux.lastSnapshot) {
       const d = dragged as { id: string; label: string };

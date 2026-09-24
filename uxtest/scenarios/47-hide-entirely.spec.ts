@@ -37,8 +37,15 @@ scenario('hide-entirely', { largeOk: false }, async ({ page, ux }, combo) => {
     const siblingsAfter = after.filter(g => siblingsBefore.some(s => s.path === g.path));
     const parentShrank = parentBefore && parentAfter && (parentAfter.w < parentBefore.w - 1 || parentAfter.h < parentBefore.h - 1);
     const siblingMoved = siblingsAfter.some(g => { const b = siblingsBefore.find(s => s.path === g.path); return b && (Math.abs(g.x - b.x) > 1 || Math.abs(g.y - b.y) > 1); });
-    ux.steps[ux.steps.length - 1].note = `hid ${hidden.split('/').pop()}: frames ${before.length} → ${after.length}, parent ${parentBefore ? `${Math.round(parentBefore.w)}×${Math.round(parentBefore.h)}` : '-'} → ${parentAfter ? `${Math.round(parentAfter.w)}×${Math.round(parentAfter.h)}` : '-'}, ${siblingsBefore.length} sibling(s), moved ${siblingMoved}`;
-    if (siblingsBefore.length && !parentShrank && !siblingMoved) { throw new StepFinding({ rule: 'no-repack-after-hide', severity: 'high', ref: 'round3 W1', message: `hiding ${hidden.split('/').pop()} left the gap: parent did not shrink and no sibling moved` }); }
+    // What a re-pack can visibly change: siblings AFTER the hidden frame in reading order shelf up; if it was the
+    // last one, only the parent can shrink - and only if no row-mate keeps the row occupied.
+    const hb = before.find(g => g.path === hidden);
+    const rowOf = (g: FrameGeom): boolean => !!hb && Math.abs(g.y - hb.y) <= 2;
+    const laterSiblings = hb ? siblingsBefore.filter(g => g.y > hb.y + 2 || (rowOf(g) && g.x > hb.x)) : siblingsBefore;
+    const rowMates = hb ? siblingsBefore.filter(g => rowOf(g) && g.path !== hidden) : [];
+    const expectRepack = laterSiblings.length > 0 || rowMates.length === 0;
+    ux.steps[ux.steps.length - 1].note = `hid ${hidden.split('/').pop()}: frames ${before.length} → ${after.length}, parent ${parentBefore ? `${Math.round(parentBefore.w)}×${Math.round(parentBefore.h)}` : '-'} → ${parentAfter ? `${Math.round(parentAfter.w)}×${Math.round(parentAfter.h)}` : '-'}, ${siblingsBefore.length} sibling(s) (${laterSiblings.length} after it, ${rowMates.length} row-mate(s)), moved ${siblingMoved}${expectRepack ? '' : ' - last in its row: nothing to re-pack'}`;
+    if (siblingsBefore.length && expectRepack && !parentShrank && !siblingMoved) { throw new StepFinding({ rule: 'no-repack-after-hide', severity: 'high', ref: 'round3 W1', message: `hiding ${hidden.split('/').pop()} left the gap: parent did not shrink and none of the ${laterSiblings.length} later sibling(s) moved` }); }
   });
 
   await ux.step('The hidden folder is a chip; its ✕ brings the frame back', async () => {

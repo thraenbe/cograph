@@ -53,6 +53,39 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
     collateral(dragNode, before, ux.lastSnapshot, (frame, id) => id !== draggedId && (combo.engine === 'shelf' ? frame !== draggedFrame : combo.motion === 'static'));
   }
 
+  // W5 (product decision 2026-09-24): a function node dragged clearly OUT of its slot snaps back on release in
+  // Shelf+Dynamic; in Shelf+Static it stays where dropped. The step's own check names the dragged node; the
+  // generic node-outside-slot rule (score.ts) covers the rest of the picture.
+  if (combo.engine === 'shelf') {
+    let dragged: { id: string; label: string } | null = null;
+    let slotRect: { x: number; y: number; w: number; h: number } | null = null;
+    const snapStep = await ux.step(`Drag a function node out of its slot (${combo.motion === 'dynamic' ? 'must snap back' : 'stays where dropped'})`, async () => {
+      const snap = ux.lastSnapshot;
+      const n = await locateNode(page, { kind: 'fn' });
+      const sn = snap?.nodes.find(x => x.id === n.id);
+      const slot = sn?.slot ? snap?.slots.find(sl => sl.frame === sn.frame && sl.key === sn.slot) : null;
+      if (!snap || !sn || !slot) { throw new SkipStep(`node ${n.label} has no slot in the snapshot`); }
+      dragged = n; slotRect = slot.rect;
+      const k = snap.zoom.k;
+      const down = (slot.rect.y + slot.rect.h - sn.y) * k + 40; // screen px to the slot's bottom edge + margin
+      const up = (sn.y - slot.rect.y) * k + 40;
+      const dy = n.y + down < snap.viewport.h - 60 ? down : (n.y - up > 40 ? -up : 0);
+      if (dy === 0) { throw new SkipStep('slot taller than the viewport at this zoom'); }
+      await dragBy(page, n, 0, dy);
+      ux.steps[ux.steps.length - 1].note = `dragged ${n.label} ${Math.round(dy)} px ${dy > 0 ? 'below' : 'above'} its slot (k ${k.toFixed(2)})`;
+    }, { userMoved: true, expectMotionMs: combo.motion === 'dynamic' ? 4000 : undefined });
+    if (snapStep.status === 'ok' && dragged && slotRect && ux.lastSnapshot) {
+      const d = dragged as { id: string; label: string };
+      const after = ux.lastSnapshot.nodes.find(x => x.id === d.id);
+      const slotNow = after?.slot ? ux.lastSnapshot.slots.find(sl => sl.frame === after.frame && sl.key === after.slot) : null;
+      const r = slotNow?.rect ?? slotRect;
+      const inside = !!after && after.x >= r.x && after.x <= r.x + r.w && after.y >= r.y && after.y <= r.y + r.h;
+      snapStep.note += ` | after release: ${inside ? 'inside' : 'OUTSIDE'} its slot`;
+      if (combo.motion === 'dynamic' && !inside) { snapStep.findings.push({ rule: 'no-snap-back', severity: 'high', ref: 'W5', message: `${d.label} dragged out of its slot stayed outside after release (Shelf+Dynamic must snap it back)` }); }
+      if (combo.motion === 'static' && inside) { snapStep.note += ' (moved back although Static should keep the drop)'; }
+    }
+  }
+
   await ux.step('Fit before folder work', async () => { await fitToView(page); });
   before = ux.lastSnapshot;
   let movedPath = '';

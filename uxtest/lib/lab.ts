@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { startServer, type LabServer } from '../harness/server';
-import { FakeHost, type AnnotationsFixture, type HostMode, type LoggedMessage } from '../harness/fakeHost';
+import { FakeHost, type AnnotationsFixture, type FakeHostOpts, type HostMode, type LoggedMessage } from '../harness/fakeHost';
 import { attachHost, postToWebview } from '../harness/hostBridge';
 import { REPO_ROOT, workersModeFromEnv, type WorkersMode } from '../harness/vscodeStub';
 import { loadConfig, loadRepo, sizeClass, type UxConfig } from './corpus';
@@ -30,6 +30,8 @@ export interface LabOpts {
   timeline?: boolean;
   gitFixture?: { gitAvailable: boolean; fileGitStatus: Record<string, unknown> };
   annotations?: AnnotationsFixture | ((repo: AnalyzedRepo) => AnnotationsFixture);
+  /** round3 W4: open inside a subgraph scope (see FakeHostOpts.scope); function form derives it from the repo. */
+  scope?: NonNullable<FakeHostOpts['scope']> | ((repo: AnalyzedRepo) => NonNullable<FakeHostOpts['scope']>);
   outDir?: string;                      // default uxtest/artifacts/<runId>/<repo>/<scenario>-<engine>-<motion>
   keepSnapshots?: boolean;              // default true
   workers?: WorkersMode;                // cograph.layout.workers; default UXTEST_WORKERS_MODE or 'auto'
@@ -115,7 +117,8 @@ export async function openLab(o: LabOpts): Promise<Lab> {
   page.on('console', m => { if (m.type() === 'error') { errors.push(`console.error: ${m.text()}`); } });
 
   const host = new FakeHost({ graph: repo.graph, structure: repo.structure, mode: o.hostMode ?? 'eager', ...(o.gitFixture ?? {}),
-    annotations: typeof o.annotations === 'function' ? o.annotations(repo) : o.annotations });
+    annotations: typeof o.annotations === 'function' ? o.annotations(repo) : o.annotations,
+    scope: typeof o.scope === 'function' ? o.scope(repo) : o.scope });
   await wireNetwork(page, server.origin, blocked);
   await attachTheme(page, o.theme ?? 'dark');
   await attachOverlay(page);

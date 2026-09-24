@@ -21,6 +21,12 @@ test('invariant rules fire with the right references', () => {
   expect(findingsFor({ ...clean, nodesOutsideSlot: 1 }, ctx())[0]).toMatchObject({ severity: 'high', ref: 'B1' });
 });
 
+test('node-outside-slot after a user drag: Static keeps the drop (low), Dynamic must snap back (high, W5)', () => {
+  expect(findingsFor({ ...clean, nodesOutsideSlot: 1 }, ctx({ birth: 'user-moved', motion: 'static' }))).toEqual([expect.objectContaining({ rule: 'user-node-outside-slot', severity: 'low', ref: 'W5' })]);
+  expect(findingsFor({ ...clean, nodesOutsideSlot: 1 }, ctx({ birth: 'user-moved', motion: 'dynamic' }))).toEqual([expect.objectContaining({ rule: 'node-outside-slot', severity: 'high', ref: 'B1/W5' })]);
+  expect(rules({ nodesOutsideSlot: 1 }, { birth: 'grid', motion: 'dynamic' })).toEqual(['node-outside-slot']);
+});
+
 test('containment rules are shelf-only', () => {
   expect(rules({ nodesOutsideSlot: 5, nodesOutsideFrame: 5, nodesPinnedToWall: 50 }, { engine: 'global' })).toEqual([]);
 });

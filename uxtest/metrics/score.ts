@@ -37,7 +37,11 @@ const RULES: Rule[] = [
     ? { rule: 'user-frame-overlap', severity: 'low', message: `${m.frameOverlapPairs} sibling frame pair(s) overlap after a user drag (the product allows dropping a folder onto another)` }
     : { rule: 'frame-overlap', severity: 'high', ref: 'R2/H1', message: `${m.frameOverlapPairs} sibling folder frame pair(s) overlap` }) : null,
   (m) => m.slotOverlapPairs > 0 ? { rule: 'slot-overlap', severity: 'high', ref: 'R2/H1', message: `${m.slotOverlapPairs} file slot pair(s) overlap inside a frame` } : null,
-  (m, c) => shelf(c) && m.nodesOutsideSlot > 0 ? { rule: 'node-outside-slot', severity: 'high', ref: 'B1', message: `${m.nodesOutsideSlot} node(s) centred outside their file slot` } : null,
+  // W5 (decided 2026-09-24): Shelf+Dynamic snaps a dragged node back into its slot on release, so after a user
+  // drag the rule stays a real finding there; Shelf+Static keeps a dropped node where it was dropped (by design).
+  (m, c) => shelf(c) && m.nodesOutsideSlot > 0 ? (c.birth === 'user-moved' && c.motion === 'static'
+    ? { rule: 'user-node-outside-slot', severity: 'low', ref: 'W5', message: `${m.nodesOutsideSlot} node(s) centred outside their file slot after a user drag (Static keeps a dropped node where dropped)` }
+    : { rule: 'node-outside-slot', severity: 'high', ref: c.birth === 'user-moved' ? 'B1/W5' : 'B1', message: `${m.nodesOutsideSlot} node(s) centred outside their file slot${c.birth === 'user-moved' ? ' after a user drag (Dynamic must snap it back on release)' : ''}` }) : null,
   (m, c) => shelf(c) && m.nodesOutsideFrame > 0 ? { rule: 'node-outside-frame', severity: 'high', ref: 'B1', message: `${m.nodesOutsideFrame} node(s) centred outside their folder frame` } : null,
   (m, c) => shelf(c) && m.nodesPinnedToWall > Math.max(3, 0.02 * m.nodes)
     ? { rule: 'nodes-pinned-to-wall', severity: 'medium', ref: 'B2', message: `${m.nodesPinnedToWall} node(s) resting on a slot wall` } : null,

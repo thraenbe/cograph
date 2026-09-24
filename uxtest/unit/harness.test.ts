@@ -106,6 +106,38 @@ test.describe('fake host', () => {
     expect(await h.onMessage({ type: 'parse-file' })).toEqual([]);
   });
 
+  test('subgraph scope: scope goes out first, the graph arrives cut, include/exclude/exit reply like the host', async () => {
+    const g: GraphLite = { nodes: [
+      { id: 'a', file: '/r/src/a.ts', line: 1 }, { id: 'b', file: '/r/src/deep/b.ts', line: 1 }, { id: 'c', file: '/r/test/c.ts', line: 1 },
+      { id: 'lib', file: null, line: 0, isLibrary: true }],
+      edges: [{ source: 'a', target: 'b' }, { source: 'a', target: 'c' }, { source: 'c', target: 'lib' }], files: ['/r/src/a.ts', '/r/src/deep/b.ts', '/r/test/c.ts'] };
+    const h = new FakeHost({ graph: g, structure: { root: '/r' }, mode: 'eager', parseDelayMs: 1, scope: { name: 'S', root: '/r', include: ['src'], exclude: ['test'] } });
+    const open = h.openingMessages().map(r => r.message);
+    expect(open.map(m => m.type)).toEqual(['subgraph', 'structure', 'graph']);
+    expect(open[0]).toMatchObject({ name: 'S', root: '/r', include: ['src'], exclude: ['test'] });
+    expect((open[2].data as GraphLite).nodes.map(n => n.id).sort()).toEqual(['a', 'b']);
+    // Visualize test/ → subgraph (now including test) + spinner + patch with c and its library
+    const inc = await h.onMessage({ type: 'subgraph-include', path: 'test' });
+    expect(inc.map(r => r.message.type)).toEqual(['subgraph', 'analysis-state', 'graph-patch']);
+    expect(inc[0].message).toMatchObject({ include: ['src', 'test'], exclude: [] });
+    expect((inc[2].message.patch as GraphLite).nodes.map(n => n.id).sort()).toEqual(['c', 'lib']);
+    expect(inc[2].message.replacedFiles).toEqual(['/r/test/c.ts']);
+    // exclude src → prune patch listing its files
+    const exc = await h.onMessage({ type: 'subgraph-exclude', path: 'src' });
+    expect(exc.map(r => r.message.type)).toEqual(['subgraph', 'graph-patch']);
+    expect(exc[0].message).toMatchObject({ include: ['test'], exclude: ['src'] });
+    expect((exc[1].message.replacedFiles as string[]).sort()).toEqual(['/r/src/a.ts', '/r/src/deep/b.ts']);
+    expect((exc[1].message.patch as GraphLite).nodes).toEqual([]);
+    // exit → scope null + the whole graph
+    const exit = await h.onMessage({ type: 'subgraph-exit' });
+    expect(exit.map(r => r.message.type)).toEqual(['subgraph', 'graph']);
+    expect(exit[0].message).toMatchObject({ name: null, include: [] });
+    expect((exit[1].message.data as GraphLite).nodes).toHaveLength(4);
+    expect(h.scope).toBeNull();
+    expect(await h.onMessage({ type: 'subgraph-include', path: 'src' })).toEqual([]); // no scope: nothing to change
+    expect(host().openingMessages().map(r => r.message.type)).toEqual(['structure', 'graph']); // unscoped hosts are unchanged
+  });
+
   test('source round-trip never touches disk', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uxtest-'));
     const file = path.join(dir, 'f.py');

@@ -48,6 +48,11 @@ export const SEL = {
   folderMode: { css: '#btn-folder-mode' },
   folderFiltersToggle: { css: '#toggle-folder-filters' },
   folderFiltersBody: { css: '#folder-filters-body' },
+  folderShowAll: { css: '#btn-folder-show-all', optional: true, note: 'round3 W2: clears all four filter sets + structural re-render' },
+  subgraphBlock: { css: '#folder-filters-body .subgraph-block', optional: true, note: 'round3 W4 (selector to be confirmed by session-111)' },
+  subgraphRow: { css: '#folder-filters-body .subgraph-row', optional: true, note: 'round3 W4: one row per excluded top-level folder (name + fileCount)' },
+  subgraphVisualize: { css: '#folder-filters-body .subgraph-visualize', optional: true, note: 'round3 W4: posts subgraph-include {path}' },
+  subgraphExit: { css: '#folder-filters-body .subgraph-exit', optional: true, note: 'round3 W4: posts subgraph-exit' },
   classMode: { css: '#btn-class-mode' },
 
   // forces (ux: one engine-specific Forces box in the left toolbar)
@@ -114,4 +119,4 @@ export type SelName = keyof typeof SEL;
 /** Selectors only present in the timeline variant of the HTML. */
 export const TIMELINE_ONLY: SelName[] = ['tlPlay', 'tlReset', 'tlPos', 'tlSpeed'];
 /** Selectors created at runtime by the renderer (absent from the static HTML). */
-export const RUNTIME_ONLY: SelName[] = ['svg', 'frame', 'frameTitle', 'frameTab', 'fileSlot', 'fnNode', 'clusterNode', 'ctxMenuItems', 'fileSlotHandle', 'fileFilterChip', 'arrowBundleMarker', 'hoverCard', 'hoverCardVisible', 'hoverCardName', 'hoverCardPath', 'hoverCardFacts', 'hoverCardSummary', 'hoverCardBadge'];
+export const RUNTIME_ONLY: SelName[] = ['svg', 'frame', 'frameTitle', 'frameTab', 'fileSlot', 'fnNode', 'clusterNode', 'ctxMenuItems', 'folderShowAll', 'subgraphBlock', 'subgraphRow', 'subgraphVisualize', 'subgraphExit', 'fileSlotHandle', 'fileFilterChip', 'arrowBundleMarker', 'hoverCard', 'hoverCardVisible', 'hoverCardName', 'hoverCardPath', 'hoverCardFacts', 'hoverCardSummary', 'hoverCardBadge'];

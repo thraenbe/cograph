@@ -90,3 +90,13 @@ Global (2 x 64 LHS samples + a 42-run candidate pass scored WITH folder separati
 - The previously top-ranked compact samples (13, 18, 19) fall BELOW the defaults on click and zod once folder separation
   is scored (folder overlap 0.21 - 1.0) - ranking and eye agree now.
 - F12 regression tuple on zod: responsive, settles, max |coordinate| 1 723 - 2 120 px (two runs).
+
+
+## Product decisions from the suite's findings
+
+- **Node dragged out of its slot (Shelf).** Observed on synthetic-1k and zod: a function node dragged out of its
+  file slot in Shelf+Dynamic stayed pinned where it was dropped. Raised as an open question; **decided
+  2026-09-24 (Bela via session-110):** in Shelf+Dynamic the node snaps back into its slot on release
+  (session-111 implements this as W5); in Shelf+Static a dropped node stays where dropped (unchanged).
+  Suite: `node-outside-slot` after a user drag is a high finding in Dynamic (ref B1/W5) and a low
+  `user-node-outside-slot` note in Static; scenario 70 has an explicit "drag out of its slot" step (`no-snap-back`).

@@ -53,7 +53,7 @@ suite('graph-loaded restore ordering (F14, source contract)', () => {
     const positionsAt = handler.indexOf('nodePositions[n.id]');
     assert.ok(drilldownAt > 0 && renderAt > drilldownAt && positionsAt > renderAt,
       'order must be: drill-down state → render → positions');
-    assert.ok(/isGlobalRestore\) \{\n\s+state\.hasFitted = false;[^]*?ticked\(\);/.test(handler),
+    assert.ok(/isGlobalRestore\) \{\s+state\.hasFitted = false;[^]*?ticked\(\);/.test(handler),
       'Global repaints + re-fits after positions instead of re-rendering');
     const tail = handler.slice(positionsAt);
     const secondRender = tail.indexOf('applyComplexity()');

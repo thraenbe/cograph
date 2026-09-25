@@ -105,7 +105,7 @@ suite('slot drag wiring (R2b, source contracts)', () => {
 
   test('the handle is the label band only and the drag uses the stable container', () => {
     assert.ok(src.includes("attr('class', 'file-slot-handle')"));
-    assert.ok(/file-slot-handle'\)\n\s+\.attr\('x', d\.x\)\.attr\('y', d\.y\)\.attr\('width', d\.w\)\.attr\('height', SLOT\.LABEL_H\)/.test(src),
+    assert.ok(/file-slot-handle'\)\s+\.attr\('x', d\.x\)\.attr\('y', d\.y\)\.attr\('width', d\.w\)\.attr\('height', SLOT\.LABEL_H\)/.test(src),
       'handle covers exactly the label band — node drags below keep working');
     const deps = src.slice(src.indexOf('function slotDragDeps'), src.indexOf('function frameDragDeps'));
     assert.ok(deps.includes('container: function () { return g.node(); }'),

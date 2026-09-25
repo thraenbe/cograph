@@ -71,7 +71,10 @@ suite('cliProcess.runCliStream', () => {
     await p;
     const env = spawn.firstCall.args[2].env;
     assert.strictEqual(env.MAX_THINKING_TOKENS, '0');
-    assert.strictEqual(env.PATH, process.env.PATH, 'PATH must survive, or the CLI is not found');
+    // Windows spells it `Path`; spreading process.env keeps the host's own casing.
+    const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH');
+    assert.ok(pathKey, 'the host has a PATH');
+    assert.strictEqual(env[pathKey!], process.env[pathKey!], 'PATH must survive, or the CLI is not found');
   });
 
   test('without extra env the host environment is passed through untouched', async () => {

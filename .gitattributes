@@ -1,0 +1,13 @@
+# The repository is LF-only. Without this, Git for Windows checks files out with
+# CRLF (core.autocrlf=true is the default there, including on GitHub's Windows
+# runners), and the source-contract tests — which read src/webview/*.js and match
+# patterns containing newlines — fail on Windows only.
+* text=auto eol=lf
+
+# Binary assets: never touch their bytes.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.wasm binary
+*.vsix binary

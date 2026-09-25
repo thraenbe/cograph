@@ -152,6 +152,9 @@ test.describe('fake host', () => {
     expect((await h.onMessage({ type: 'get-func-source', file, line: 2, reqId: 8 }))[0].message.source).toBe('edited');
     expect(fs.readFileSync(file, 'utf8')).toContain('def f()');
     expect(readSourceSlice(file, 1).split('\n')[0]).toBe('line1');
+    const crlf = path.join(dir, 'crlf.py');
+    fs.writeFileSync(crlf, 'line1\r\ndef g():\r\n  return 2\r\n');
+    expect(readSourceSlice(crlf, 2)).toBe('def g():\n  return 2\n'); // no stray \r reaches the webview
     const missing = await h.onMessage({ type: 'get-func-source', file: path.join(dir, 'nope.py'), line: 1, reqId: 9 });
     expect(missing[0].message.error).toBeTruthy();
   });

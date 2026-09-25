@@ -39,7 +39,7 @@ const MAX_SOURCE_LINES = 60;
 
 /** Cut a function-sized slice out of a file; mirrors getFuncSource loosely. */
 export function readSourceSlice(file: string, line: number): string {
-  const lines = fs.readFileSync(file, 'utf8').split('\n');
+  const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/); // corpus repos may be CRLF (Windows-authored or a Windows checkout)
   const start = Math.max(0, line - 1);
   return lines.slice(start, start + MAX_SOURCE_LINES).join('\n');
 }
@@ -168,7 +168,7 @@ export class FakeHost {
     const line = Number(msg.line ?? 1);
     try {
       const source = this.editedSources.get(`${file}:${line}`) ?? readSourceSlice(file, line);
-      const endLine = line + source.split('\n').length - 1;
+      const endLine = line + source.split(/\r?\n/).length - 1;
       return { message: { type: 'func-source', source, endLine, reqId: msg.reqId }, delayMs: 30 };
     } catch (err) {
       return { message: { type: 'func-source', source: '', error: (err as Error).message, reqId: msg.reqId } };

@@ -19,7 +19,7 @@ function value(name) { const i = argv.indexOf(`--${name}`); return i !== -1 && a
 function fail(msg) { process.stderr.write(`uxtest: ${msg}\n`); process.exit(2); }
 
 if (flag('help')) {
-  process.stdout.write(readFileSync(path.join(here, 'README.md'), 'utf8').split('## CLI')[1]?.split('\n## ')[0] ?? 'see uxtest/README.md\n');
+  process.stdout.write(readFileSync(path.join(here, 'README.md'), 'utf8').split('## CLI')[1]?.split(/\r?\n## /)[0] ?? 'see uxtest/README.md\n');
   process.exit(0);
 }
 

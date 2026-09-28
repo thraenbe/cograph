@@ -15,7 +15,8 @@ scenario('lazy-expand', { perMotion: false, hostMode: 'lazy', largeOk: true, exp
   const before = host.posted('expand-folder').length;
   await ux.step('Open folders until the host is asked to parse one (expand-folder)', async () => {
     // A folder without direct source files opens without a parse request, so dive until one has files.
-    for (let dive = 0; dive < 5 && host.posted('expand-folder').length === before; dive++) {
+    // Java trees nest deep: gson has no direct source file above gson/src/main/java/com/google/gson (7 levels).
+    for (let dive = 0; dive < 10 && host.posted('expand-folder').length === before; dive++) {
       await clickNode(page, { kind: 'folder', pick: 'largest' });
       await page.waitForTimeout(600);
       await fitToView(page);

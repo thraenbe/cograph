@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export function getLoadingHtml(message = 'Analyzing project…'): string {
   const esc = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -147,6 +149,26 @@ export function getErrorHtml(message: string): string {
 </html>`;
 }
 
+const D3_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js';
+
+/** URIs of the esbuild-produced webview assets, with dev fallbacks when absent. */
+function bundledWebviewAssets(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+): { d3Src: string; d3IsLocal: boolean; workerUri: string | null } {
+  const dir = vscode.Uri.joinPath(extensionUri, 'dist', 'webview');
+  const has = (name: string): boolean => {
+    try { return !!extensionUri.fsPath && fs.existsSync(path.join(extensionUri.fsPath, 'dist', 'webview', name)); }
+    catch { return false; }
+  };
+  const d3IsLocal = has('d3.min.js');
+  return {
+    d3IsLocal,
+    d3Src: d3IsLocal ? webview.asWebviewUri(vscode.Uri.joinPath(dir, 'd3.min.js')).toString() : D3_CDN,
+    workerUri: has('simWorker.js') ? webview.asWebviewUri(vscode.Uri.joinPath(dir, 'simWorker.js')).toString() : null,
+  };
+}
+
 export function getWebviewHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
@@ -166,6 +188,7 @@ export function getWebviewHtml(
   const classUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'class.js'));
   const colorsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'colors.js'));
   const popupsUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'popups.js'));
+  const scopeUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'scope.js'));
   const framesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frames.js'));
   const crossLinksUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'crossLinks.js'));
   const localSimUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'localSim.js'));
@@ -175,17 +198,37 @@ export function getWebviewHtml(
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
   const controlsUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'controls.js'));
   const timelineUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'timeline.js'));
+  const frameChromeUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameChrome.js'));
+  const forcesPanelUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'forcesPanel.js'));
+  const globalGuardUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'globalGuard.js'));
+  const slotDragUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'slotDrag.js'));
   const perfUri      = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'perf.js'));
+  const simPoolUri   = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'simPool.js'));
+  const localSimWorkerUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'localSimWorker.js'));
+  const simBackendUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'simBackend.js'));
+  const readyHandshakeUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'readyHandshake.js'));
+  const hotCacheUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hotCache.js'));
+  const hoverIndexUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverIndex.js'));
+  const visibilityUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'visibility.js'));
+  const viewCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'viewCull.js'));
+  const frameCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameCull.js'));
+  const hoverCardUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverCard.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
 
   // Boot config injected before state.js — no message-ordering race. Settings
   // that do not exist yet fall back to their defaults.
   const cfg = vscode.workspace.getConfiguration('cograph');
+  // Bundled webview assets (esbuild → dist/webview): vendored d3 and the
+  // simulation worker. A checkout that never ran `npm run bundle` has neither:
+  // d3 then comes from the CDN (dev only) and simulations stay on the main thread.
+  const bundled = bundledWebviewAssets(webview, extensionUri);
   const bootConfig = {
     defaultEngine: cfg.get<string>('layout.defaultEngine', 'shelf') ?? 'shelf',
     defaultMode: cfg.get<string>('layout.defaultMode', 'static') ?? 'static',
     perf: cfg.get<boolean>('debug.perfLog', false) ?? false,
+    workers: cfg.get<string>('layout.workers', 'auto') ?? 'auto',
+    workerUri: bundled.workerUri,
   };
 
   const timelinePanelHtml = timelineMode ? `
@@ -219,14 +262,15 @@ export function getWebviewHtml(
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none';
-             script-src 'nonce-${nonce}' https://cdnjs.cloudflare.com;
+             script-src 'nonce-${nonce}'${bundled.d3IsLocal ? '' : ' https://cdnjs.cloudflare.com'};
              style-src 'unsafe-inline' ${webview.cspSource};
-             img-src ${webview.cspSource} data:;" />
+             img-src ${webview.cspSource} data:;
+             worker-src blob:;
+             connect-src ${webview.cspSource};" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CoGraph</title>
   <link rel="stylesheet" href="${stylesUri}?v=${nonce}" />
-  <script nonce="${nonce}"
-    src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <script nonce="${nonce}" src="${bundled.d3Src}"></script>
 </head>
 <body>
   <div id="graph"></div>
@@ -256,6 +300,7 @@ export function getWebviewHtml(
         </div>
       </div>
       <p id="layout-hint" class="layout-hint">Folder frames &amp; file slots &#183; frozen</p>
+      <p id="global-guard-hint" class="layout-hint" style="display:none"></p>
     </div>
     <div id="panel-detail" class="tl-panel">
       <div class="tl-slider-header">
@@ -263,12 +308,6 @@ export function getWebviewHtml(
         <span id="val-complexity">1</span>
       </div>
       <input type="range" id="slider-complexity" min="0" max="1" step="0.01" value="1" />
-      <div class="tl-section-label">Group by</div>
-      <div class="btn-group">
-        <button id="btn-group-file"    class="tl-btn active" title="Navigate by folder (drill down)">File</button>
-        <button id="btn-group-class"   class="tl-btn"        title="Cluster by class">Class</button>
-        <button id="btn-group-connect" class="tl-btn"        title="Cluster by connection importance">Connect</button>
-      </div>
     </div>
     <div id="panel-git" class="tl-panel" style="display:none">
       <button id="btn-git-mode" class="tl-btn" title="Toggle git diff colors">Git</button>
@@ -296,29 +335,51 @@ export function getWebviewHtml(
       </div>
     </div>
     <div id="panel-lang" class="tl-panel">
-      <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Lang</button>
+      <button id="btn-language-mode" class="tl-btn" title="Toggle language colors">Language</button>
       <div id="language-legend"></div>
     </div>
     <div id="panel-folder" class="tl-panel">
       <button id="btn-folder-mode" class="tl-btn active" title="Toggle folder/file structure overlay">Folder</button>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.2</span></div>
-        <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.2" />
-      </div>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-folder-repel">Folder Repel Force</label><span id="val-folder-repel">0.25</span></div>
-        <input type="range" id="slider-folder-repel" min="0" max="10" step="0.01" value="0.25" />
-      </div>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-file-repel">File Repel Force</label><span id="val-file-repel">0.25</span></div>
-        <input type="range" id="slider-file-repel" min="0" max="10" step="0.01" value="0.25" />
-      </div>
-      <button id="btn-more-forces" class="tl-link-btn" title="Open settings to adjust all forces">view more forces &#9881;</button>
       <div class="tl-legend-header" id="toggle-folder-filters">
         <span>Filters</span>
         <span class="tl-chevron collapsed">▾</span>
       </div>
       <div class="tl-legend" id="folder-filters-body" style="display:none"></div>
+    </div>
+    <div id="panel-forces" class="tl-panel">
+      <div class="tl-section-label">Forces</div>
+      <p id="forces-hint" class="forces-hint" style="display:none">Static layout &#8212; forces are off. Switch Motion to Dynamic.</p>
+      <div class="slider-row" id="row-center-force">
+        <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">0.08</span></div>
+        <input type="range" id="slider-center-force" min="0" max="1" step="0.005" value="0.08" />
+      </div>
+      <div class="slider-row" id="row-repel-force">
+        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">450</span></div>
+        <input type="range" id="slider-repel-force" min="0" max="1000" step="1" value="450" />
+      </div>
+      <div class="slider-row" id="row-link-force">
+        <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">1</span></div>
+        <input type="range" id="slider-link-force" min="0" max="10" step="0.1" value="1" />
+      </div>
+      <div class="slider-row" id="row-file-cluster">
+        <div class="slider-header"><label for="slider-file-cluster" id="label-file-cluster">File Cluster Force</label><span id="val-file-cluster">0.36</span></div>
+        <input type="range" id="slider-file-cluster" min="0" max="1" step="0.01" value="0.36" />
+      </div>
+      <button id="btn-show-more-forces" class="tl-link-btn" title="Show advanced force controls">show more forces &#9662;</button>
+      <div id="forces-advanced">
+        <div class="slider-row" id="row-velocity-decay">
+          <div class="slider-header"><label for="slider-velocity-decay">Damping</label><span id="val-velocity-decay">0.3</span></div>
+          <input type="range" id="slider-velocity-decay" min="0.05" max="0.9" step="0.01" value="0.3" />
+        </div>
+        <div class="slider-row" id="row-collide-pad">
+          <div class="slider-header"><label for="slider-collide-pad">Collision Padding</label><span id="val-collide-pad">1.5</span></div>
+          <input type="range" id="slider-collide-pad" min="0" max="10" step="0.5" value="1.5" />
+        </div>
+        <div class="slider-row" id="row-repel-range">
+          <div class="slider-header"><label for="slider-repel-range">Repel Range</label><span id="val-repel-range">850</span></div>
+          <input type="range" id="slider-repel-range" min="100" max="2000" step="25" value="850" />
+        </div>
+      </div>
     </div>
     <div id="panel-class" class="tl-panel">
       <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
@@ -343,10 +404,11 @@ export function getWebviewHtml(
         <span>Show Orphans</span>
         <label class="switch"><input type="checkbox" id="toggle-orphans" checked /><span class="pill"></span></label>
       </div>
-      <div class="toggle-row">
+      <div class="toggle-row" id="row-show-libraries">
         <span>Show Libraries</span>
         <label class="switch"><input type="checkbox" id="toggle-libraries" /><span class="pill"></span></label>
       </div>
+      <p id="libraries-hint" class="forces-hint" style="display:none">Libraries are shown in the Global engine.</p>
       <div class="toggle-row">
         <span>Show Empty Files</span>
         <label class="switch"><input type="checkbox" id="toggle-empty-files" /><span class="pill"></span></label>
@@ -374,22 +436,6 @@ export function getWebviewHtml(
       <div class="slider-row">
         <div class="slider-header"><label for="slider-link-thickness">Link Thickness</label><span id="val-link-thickness">4</span></div>
         <input type="range" id="slider-link-thickness" min="0.1" max="8" step="0.1" value="4" />
-      </div>
-    </div>
-
-    <div class="panel-section" id="forces-section">
-      <h4>Forces</h4>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-center-force">Center Force</label><span id="val-center-force">0.05</span></div>
-        <input type="range" id="slider-center-force" min="0" max="1" step="0.005" value="0.05" />
-      </div>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-repel-force">Repel Force</label><span id="val-repel-force">250</span></div>
-        <input type="range" id="slider-repel-force" min="0" max="1000" step="1" value="250" />
-      </div>
-      <div class="slider-row">
-        <div class="slider-header"><label for="slider-link-force">Link Force</label><span id="val-link-force">1</span></div>
-        <input type="range" id="slider-link-force" min="0" max="10" step="0.1" value="1" />
       </div>
     </div>
 
@@ -440,6 +486,11 @@ export function getWebviewHtml(
   <script nonce="${nonce}">window.COGRAPH_CONFIG = ${JSON.stringify(bootConfig)};</script>
   <script nonce="${nonce}" src="${stateUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${perfUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${hotCacheUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${hoverIndexUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${visibilityUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${viewCullUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${frameCullUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${aggregateUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${clusteringUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${workflowUri}?v=${nonce}"></script>
@@ -451,15 +502,25 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${classUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${colorsUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${popupsUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${frameChromeUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${scopeUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${framesUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${crossLinksUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${localSimUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameSchedulerUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${simPoolUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${localSimWorkerUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${simBackendUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameRenderUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameInteractUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${globalGuardUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${readyHandshakeUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${scriptUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${controlsUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${forcesPanelUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${slotDragUri}?v=${nonce}"></script>
   ${timelineScriptTag}
+  <script nonce="${nonce}" src="${hoverCardUri}?v=${nonce}"></script>
 </body>
 </html>`;
 }

@@ -9,11 +9,15 @@ const state = {
   // Primary view: 'cluster' = the force graph (grouped per clusterGroupBy);
   // 'workflow' = the AI-pipeline staged layout (auto-detected from graph.workflow).
   viewMode: 'cluster',
-  // Cluster lens: 'file' = the folder drill-down (default); 'class'; 'connect'
-  // (call-connectivity; the enum value was 'connectivity', the button label "Auto").
+  // Cluster lens: always 'file' (the folder drill-down). The Class/Connect
+  // lenses were removed in 1.3.0; saved views carrying them load as 'file'.
   // Drill-down is active when clusterGroupBy === 'file' && viewMode !== 'workflow'
   // && a structure tree is loaded (see isDrilldown()).
   clusterGroupBy: 'file',
+  // Node ids whose position was deliberately placed (slot grid, settled sim,
+  // drag, saved layout). Keyed by id so graph patches that replace node
+  // objects keep the information. See frameRender.placeMembersInSlots.
+  slotPlacedIds: new Set(),
   workflowLevel: 0,                // 0..9 detail level when viewMode === 'workflow'
   workflowStageCount: 1,
   workflowDividerStage: 0,
@@ -55,6 +59,13 @@ const state = {
   allScannedFiles: [],
   hiddenFolders: new Set(),
   onlyShowFolder: null,
+  hiddenFiles: new Set(),        // file-level filters (R2a), mirroring the folder ones
+  onlyShowFile: null,
+  // Host subgraph scope (round 3 W4): {name, root, include:Set, exclude:Set}
+  // mapped from the last `subgraph` message, or null. NEVER persisted here —
+  // scope is host state; hidden*/onlyShow* above are view state.
+  scope: null,
+  scopePending: new Set(),       // rel paths whose Visualize is in flight
   // ── File-cluster (folder drill-down — the 'file' lens) ────────────────────
   // Active when clusterGroupBy === 'file' && viewMode !== 'workflow' &&
   // structureTree is set (isDrilldown()).

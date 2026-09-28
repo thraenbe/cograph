@@ -109,4 +109,52 @@ suite('crossLinks — ancestor/descendant routing', () => {
     assert.deepStrictEqual(cl.nearestEdgePoint(r, { x: 200, y: 50 }), { x: 100, y: 50 });
     assert.deepStrictEqual(cl.nearestEdgePoint(r, { x: 50, y: 98 }), { x: 50, y: 100 });
   });
+
+  // ── cacheable helpers (perf W1): aggregation is per render, routing per move ──
+  const FRAMES: Record<string, any> = {
+    '/a': { abs: { x: 0, y: 0, w: 100, h: 100 }, titleRect: { x: 0, y: 0, w: 100, h: 30 } },
+    '/b': { abs: { x: 300, y: 0, w: 100, h: 100 }, titleRect: { x: 300, y: 0, w: 100, h: 30 } },
+    '/c': { abs: { x: 0, y: 300, w: 100, h: 100 }, titleRect: { x: 0, y: 300, w: 100, h: 30 } },
+  };
+  const CROSS = [
+    { source: 'a1', target: 'b1' },
+    { source: { id: 'b2' }, target: { id: 'a2' }, _count: 3, pending: true },
+    { source: 'c1', target: 'a2' },
+    { source: 'a1', target: 'a2' },      // same frame → ignored by the aggregation
+    { source: 'a1', target: 'ghost' },   // unknown owner → ignored
+  ];
+
+  test('aggregateCrossPairs + routeBundles equals buildCrossLinks().bundles', () => {
+    const aggs = cl.aggregateCrossPairs(CROSS, frameOfId);
+    assert.deepStrictEqual(aggs.map((a: any) => [a.a, a.b, a.count, a.pending]),
+      [['/a', '/b', 4, true], ['/a', '/c', 1, false]]);
+    const routed = cl.routeBundles(aggs, (p: string) => FRAMES[p] ?? null);
+    const oneShot = cl.buildCrossLinks({ cross: CROSS, frameOfId, frameAt: (p: string) => FRAMES[p] ?? null });
+    assert.deepStrictEqual(routed, oneShot.bundles);
+  });
+
+  test('routeBundles re-routes cached aggregates after a frame moved, skips vanished frames', () => {
+    const aggs = cl.aggregateCrossPairs(CROSS, frameOfId);
+    const before = cl.routeBundles(aggs, (p: string) => FRAMES[p] ?? null);
+    const moved: Record<string, any> = { ...FRAMES, '/b': { abs: { x: 300, y: 500, w: 100, h: 100 }, titleRect: { x: 300, y: 500, w: 100, h: 30 } } };
+    const after = cl.routeBundles(aggs, (p: string) => moved[p] ?? null);
+    assert.notStrictEqual(after[0].y2, before[0].y2);
+    assert.deepStrictEqual(after[1], before[1], 'untouched pair keeps its geometry');
+    const gone = cl.routeBundles(aggs, (p: string) => (p === '/c' ? null : FRAMES[p]));
+    assert.deepStrictEqual(gone.map((b: any) => b.key), [aggs[0].key]);
+  });
+
+  test('indexCrossByNode + individualLinksFor give the hovered node\'s links in O(degree)', () => {
+    const idx = cl.indexCrossByNode(CROSS);
+    assert.strictEqual(idx.get('a1').length, 3);
+    assert.strictEqual(idx.get('b2').length, 1);
+    const pos: Record<string, any> = { a2: { x: 1, y: 2 }, b2: { x: 3, y: 4 }, c1: { x: 5, y: 6 } };
+    const viaIndex = cl.individualLinksFor(idx.get('a2'), 'a2', (id: string) => pos[id] ?? null);
+    const viaAll = cl.buildCrossLinks({
+      cross: CROSS, frameOfId, frameAt: () => null, hoverId: 'a2', absPosOf: (id: string) => pos[id] ?? null,
+    }).individual;
+    assert.deepStrictEqual(viaIndex, viaAll);
+    assert.strictEqual(viaIndex.length, 2, 'a1→a2 has no position for a1 and is skipped');
+    assert.deepStrictEqual(cl.individualLinksFor(CROSS, null, () => ({ x: 0, y: 0 })), []);
+  });
 });

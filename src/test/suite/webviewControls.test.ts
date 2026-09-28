@@ -57,13 +57,26 @@ function makeDOM() {
     <div class="func-resize-handle" data-dir="sw"></div>
     <input id="slider-complexity" type="range" value="0.99" />
     <span id="val-complexity">0.99</span>
-    <button id="btn-group-file" class="active"></button>
-    <button id="btn-group-class"></button>
-    <button id="btn-group-connect"></button>
     <button id="btn-folder-mode"></button>
     <button id="btn-class-mode"></button>
     <input id="slider-folder-repel" type="range" value="0.25" /><span id="val-folder-repel">0.25</span>
     <input id="slider-file-repel" type="range" value="0.25" /><span id="val-file-repel">0.25</span>
+    <div id="panel-forces">
+      <p id="forces-hint" style="display:none"></p>
+      <div id="row-center-force"></div><div id="row-repel-force"></div><div id="row-link-force"></div>
+      <div id="row-file-cluster"><label id="label-file-cluster">File Cluster Force</label></div>
+      <div id="row-folder-repel"></div><div id="row-file-repel"></div>
+      <button id="btn-show-more-forces">show more forces</button>
+      <div id="forces-advanced">
+        <div id="row-link-distance"><input id="slider-link-distance" type="range" value="40" /><span id="val-link-distance">40</span></div>
+        <div id="row-velocity-decay"><input id="slider-velocity-decay" type="range" value="0.3" /><span id="val-velocity-decay">0.3</span></div>
+        <div id="row-collide-pad"><input id="slider-collide-pad" type="range" value="1.5" /><span id="val-collide-pad">1.5</span></div>
+        <div id="row-slot-pad"><input id="slider-slot-pad" type="range" value="0" /><span id="val-slot-pad">0</span></div>
+        <div id="row-repel-range"><input id="slider-repel-range" type="range" min="100" max="2000" step="25" value="2000" /><span id="val-repel-range">∞</span></div>
+      </div>
+    </div>
+    <input id="slider-file-cluster" type="range" value="0.2" /><span id="val-file-cluster">0.2</span>
+    <button id="btn-reset-layout"></button>
     <button id="btn-save-graph"></button>
     <button id="btn-open-chat"></button>
   </body></html>`;
@@ -96,7 +109,9 @@ const dom = makeDOM();
   showOrphans: true, showLibraries: false, arrows: true,
   textFadeThreshold: 0.5, nodeSize: 2.5, textSize: 1.0, linkThickness: 4,
   centerForce: 1, repelForce: 50, linkForce: 1,
-  folderRepelForce: 0.25, fileRepelForce: 0.25,
+  folderRepelForce: 0.25, fileRepelForce: 0.25, fileClusterForce: 0.2,
+  linkDistance: 40, velocityDecay: 0.3, collidePad: 1.5, slotPad: 0,
+  repelRange: 850,
 };
 (global as any).vscode = { postMessage: () => {} };
 
@@ -121,7 +136,7 @@ require('../../../src/webview/controls.js');
 
 // Also get applyResizeDelta / applySavedViewSettings / buildSavePayload for direct testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { applyResizeDelta, applySavedViewSettings, buildSavePayload, clearSearch, updateSearchCount } = require('../../../src/webview/controls.js');
+const { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, applySavedFileFilters, fileFilterAllows, buildSavePayload, clearSearch, updateSearchCount, updateFolderPanel } = require('../../../src/webview/controls.js');
 
 // Load popups.js factory for textarea handler tests
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -386,34 +401,108 @@ suite('Textarea keyboard handlers', () => {
 // still read it, causing undefined → NaN distance and all nodes collapsing.
 // ---------------------------------------------------------------------------
 
-suite('Link Distance removal regression', () => {
-  test('settings object has no linkDistance property', () => {
-    assert.strictEqual(
-      (global as any).settings.linkDistance,
-      undefined,
-      'linkDistance was removed — rendering must use a hardcoded value, not settings.linkDistance',
-    );
-  });
+suite('Advanced forces (show more forces)', () => {
+  const doc = dom.window.document;
 
-  test('slider-link-distance element does not exist in DOM', () => {
-    const slider = dom.window.document.getElementById('slider-link-distance');
-    assert.strictEqual(slider, null, 'slider-link-distance should not be present in the webview HTML');
-  });
-
-  test('wireSlider input event does not create settings.linkDistance', () => {
-    // Trigger every wired slider — none should write linkDistance onto settings
-    const sliderIds = [
-      'slider-text-size', 'slider-center-force', 'slider-repel-force', 'slider-link-force',
+  test('advanced sliders write their settings keys', () => {
+    const cases: Array<[string, string, string, number]> = [
+      ['slider-link-distance', 'linkDistance', '60', 60],
+      ['slider-velocity-decay', 'velocityDecay', '0.5', 0.5],
+      ['slider-collide-pad', 'collidePad', '4', 4],
+      ['slider-slot-pad', 'slotPad', '6', 6],
     ];
-    for (const id of sliderIds) {
-      const slider = dom.window.document.getElementById(id) as any;
-      if (slider) dispatch(slider, 'input');
+    for (const [id, key, raw, expected] of cases) {
+      const slider = doc.getElementById(id) as any;
+      slider.value = raw;
+      dispatch(slider, 'input');
+      assert.strictEqual((global as any).settings[key], expected, key);
     }
-    assert.strictEqual(
-      (global as any).settings.linkDistance,
-      undefined,
-      'no slider should write settings.linkDistance',
-    );
+  });
+
+  test('show-more button toggles the advanced container open class', () => {
+    const btn = doc.getElementById('btn-show-more-forces') as any;
+    const adv = doc.getElementById('forces-advanced')!;
+    adv.classList.remove('open');
+    btn.click();
+    assert.ok(adv.classList.contains('open'), 'first click opens');
+    assert.ok(btn.textContent!.includes('fewer'), 'button flips its label');
+    btn.click();
+    assert.ok(!adv.classList.contains('open'), 'second click closes');
+  });
+
+  test('Node Size re-renders the shelf so the static grid re-packs (F16)', async () => {
+    const savedUsesFrames = (global as any).usesFrames;
+    const savedApplyFileClusters = (global as any).applyFileClusters;
+    let rerenders = 0;
+    (global as any).usesFrames = () => true;
+    (global as any).applyFileClusters = () => { rerenders++; };
+    try {
+      const slider = doc.getElementById('slider-node-size') as any;
+      slider.value = '5';
+      dispatch(slider, 'input');
+      dispatch(slider, 'input'); // drag fires many inputs — debounced to one
+      assert.strictEqual(rerenders, 0, 'debounced, not synchronous');
+      await new Promise(r => setTimeout(r, 200));
+      assert.strictEqual(rerenders, 1, 'exactly one re-render after the debounce');
+      (global as any).usesFrames = () => false;
+      dispatch(slider, 'input');
+      await new Promise(r => setTimeout(r, 200));
+      assert.strictEqual(rerenders, 1, 'global engine: no shelf re-render');
+    } finally {
+      (global as any).usesFrames = savedUsesFrames;
+      (global as any).applyFileClusters = savedApplyFileClusters;
+    }
+  });
+
+  test('Repel range: slider maps its max position to Infinity (unlimited)', () => {
+    const slider = doc.getElementById('slider-repel-range') as any;
+    const val = doc.getElementById('val-repel-range')!;
+    slider.value = '800';
+    dispatch(slider, 'input');
+    assert.strictEqual((global as any).settings.repelRange, 800);
+    assert.strictEqual(val.textContent, '800');
+    slider.value = '2000';
+    dispatch(slider, 'input');
+    assert.strictEqual((global as any).settings.repelRange, Infinity, 'max = unlimited');
+    assert.strictEqual(val.textContent, '\u221E');
+  });
+
+  test('Repel range: save payload round-trips through JSON as unlimited', () => {
+    (global as any).settings.repelRange = Infinity;
+    (global as any).state.currentNodes = [];
+    const p = buildSavePayload();
+    assert.strictEqual(p.settings.repelRange, Infinity, 'payload carries the live value');
+    const wire = JSON.parse(JSON.stringify(p)); // postMessage/disk serialization
+    assert.strictEqual(wire.settings.repelRange, null, 'Infinity crosses JSON as null');
+    (global as any).settings.repelRange = 300; // poison
+    applySavedViewSettings(wire.settings);
+    assert.strictEqual((global as any).settings.repelRange, Infinity, 'null restores as unlimited');
+    applySavedViewSettings({ repelRange: 800 });
+    assert.strictEqual((global as any).settings.repelRange, 800, 'finite value restores as-is');
+    applySavedViewSettings({});
+    assert.strictEqual((global as any).settings.repelRange, 800, 'old saves without the key change nothing');
+  });
+
+  test('reset restores every force to its canonical default (D1: centerForce 0.08)', () => {
+    Object.assign((global as any).settings, {
+      centerForce: 0.9, fileClusterForce: 0.9, folderRepelForce: 9, fileRepelForce: 9,
+      linkDistance: 99, velocityDecay: 0.9, collidePad: 9, slotPad: 9, repelRange: 300,
+    });
+    doc.getElementById('btn-reset-layout')?.click();
+    const st = (global as any).settings;
+    assert.strictEqual(st.repelRange, 850, 'D1: Repel range defaults to 850 px');
+    assert.strictEqual(doc.getElementById('val-repel-range')!.textContent, '850');
+    assert.strictEqual(st.centerForce, 0.08);
+    assert.strictEqual(st.repelForce, 450);
+    assert.strictEqual(st.fileClusterForce, 0.36);
+    // Sliders for these are gone (D2/D3) but the KEYS still reset — old
+    // saves that restore them must not leak into the next session.
+    assert.strictEqual(st.folderRepelForce, 0.25);
+    assert.strictEqual(st.fileRepelForce, 0.25);
+    assert.strictEqual(st.linkDistance, 40, 'shelf keeps its 0.75x = 30 constant');
+    assert.strictEqual(st.velocityDecay, 0.3);
+    assert.strictEqual(st.collidePad, 1.5);
+    assert.strictEqual(st.slotPad, 0);
   });
 });
 
@@ -431,7 +520,7 @@ suite('Save Graph Layout button', () => {
     // controls.js reads these at click time from the global state object
     (global as any).state.currentNodes = [];
     (global as any).state.complexityLevel = 0.5;
-    (global as any).state.clusterGroupBy = 'connect';
+    (global as any).state.clusterGroupBy = 'file';
     (global as any).state.layoutMode = 'dynamic';
     (global as any).state.gitMode = false;
     (global as any).state.languageMode = false;
@@ -449,7 +538,7 @@ suite('Save Graph Layout button', () => {
       { id: 'b::fn::2', x: 30, y: 40 },
     ];
     (global as any).state.complexityLevel = 0.8;
-    (global as any).state.clusterGroupBy = 'class';
+    (global as any).state.clusterGroupBy = 'file';
     (global as any).state.layoutMode = 'static';
     (global as any).state.gitMode = true;
     (global as any).state.folderMode = true;
@@ -463,7 +552,7 @@ suite('Save Graph Layout button', () => {
     assert.strictEqual(msg.mode, 'save-as', 'button always triggers save-as (prompt)');
     assert.deepStrictEqual(msg.payload.settings, {
       complexityLevel: 0.8,
-      clusterGroupBy: 'class',
+      clusterGroupBy: 'file',
       layoutMode: 'static',
       gitMode: true,
       languageMode: false,
@@ -471,6 +560,7 @@ suite('Save Graph Layout button', () => {
       classMode: false,
       detailDepth: undefined, // not set in this stub state (v2 adds it)
       layoutEngine: undefined, // not set in this stub state (two-axis adds it)
+      repelRange: 850,
     });
     assert.deepStrictEqual(msg.payload.nodePositions, {
       'a::fn::1': { x: 10, y: 20 },
@@ -546,7 +636,7 @@ suite('Save Graph Layout button', () => {
     assert.strictEqual(posted.length, 1);
     assert.deepStrictEqual(posted[0].payload.nodePositions, {});
     // settings payload should still be populated
-    assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'connect');
+    assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'file');
   });
 });
 
@@ -577,67 +667,6 @@ suite('Open Chat button', () => {
     dom.window.document.getElementById('btn-open-chat')!.click();
     assert.strictEqual(posted.length, 1);
     assert.strictEqual(Object.keys(posted[0]).length, 1, 'message has exactly one key');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Suite: Group-by lens buttons (File / Class / Connect)
-// ---------------------------------------------------------------------------
-
-suite('Group-by lens buttons', () => {
-  const st = () => (global as any).state;
-  const doc = dom.window.document;
-  let savedApplyComplexity: any;
-  let savedEnterFileClusterMode: any;
-  let applyComplexityCalls: number;
-  let enterFileClusterModeCalls: number;
-
-  setup(() => {
-    savedApplyComplexity = (global as any).applyComplexity;
-    savedEnterFileClusterMode = (global as any).enterFileClusterMode;
-    applyComplexityCalls = 0;
-    enterFileClusterModeCalls = 0;
-    (global as any).applyComplexity = () => { applyComplexityCalls++; };
-    (global as any).enterFileClusterMode = () => { enterFileClusterModeCalls++; };
-    Object.assign(st(), {
-      viewMode: 'cluster', clusterGroupBy: 'file',
-      expandedClusters: new Set(['some-cluster']),
-    });
-  });
-
-  teardown(() => {
-    (global as any).applyComplexity = savedApplyComplexity;
-    (global as any).enterFileClusterMode = savedEnterFileClusterMode;
-  });
-
-  test('File click → delegates to enterFileClusterMode and clears expandedClusters', () => {
-    doc.getElementById('btn-group-file')!.click();
-    assert.strictEqual(enterFileClusterModeCalls, 1, 'file lens enters the drill-down');
-    assert.strictEqual(st().expandedClusters.size, 0, 'expanded clusters reset');
-    assert.strictEqual(applyComplexityCalls, 0, 'handler defers rendering to enterFileClusterMode');
-  });
-
-  test('Class click → viewMode=cluster, clusterGroupBy=class, applyComplexity called', () => {
-    st().viewMode = 'workflow'; // prove the lens click leaves workflow mode
-    doc.getElementById('btn-group-class')!.click();
-    assert.strictEqual(st().viewMode, 'cluster');
-    assert.strictEqual(st().clusterGroupBy, 'class');
-    assert.strictEqual(applyComplexityCalls, 1);
-    assert.strictEqual(enterFileClusterModeCalls, 0);
-  });
-
-  test('Connect click → clusterGroupBy=connect and applyComplexity called', () => {
-    doc.getElementById('btn-group-connect')!.click();
-    assert.strictEqual(st().viewMode, 'cluster');
-    assert.strictEqual(st().clusterGroupBy, 'connect');
-    assert.strictEqual(applyComplexityCalls, 1);
-  });
-
-  test('lens buttons toggle the active class exclusively', () => {
-    doc.getElementById('btn-group-class')!.click();
-    assert.ok(doc.getElementById('btn-group-class')!.classList.contains('active'));
-    assert.ok(!doc.getElementById('btn-group-file')!.classList.contains('active'));
-    assert.ok(!doc.getElementById('btn-group-connect')!.classList.contains('active'));
   });
 });
 
@@ -688,21 +717,18 @@ suite('applySavedViewSettings()', () => {
     doc.getElementById('btn-folder-mode')!.classList.add('active');
   });
 
-  test('legacy clusterGroupBy remap: connectivity → connect', () => {
-    applySavedViewSettings({ clusterGroupBy: 'connectivity' });
-    assert.strictEqual(st().clusterGroupBy, 'connect');
+  test('every saved lens value loads as file (class/connect/legacy names)', () => {
+    for (const legacy of ['class', 'connect', 'connectivity', 'auto', 'file']) {
+      st().clusterGroupBy = 'poison';
+      applySavedViewSettings({ clusterGroupBy: legacy });
+      assert.strictEqual(st().clusterGroupBy, 'file', `saved '${legacy}' must load as file`);
+    }
   });
 
-  test('legacy clusterGroupBy remap: auto → connect', () => {
-    applySavedViewSettings({ clusterGroupBy: 'auto' });
-    assert.strictEqual(st().clusterGroupBy, 'connect');
-  });
-
-  test('modern clusterGroupBy passes through; undefined leaves state untouched', () => {
-    applySavedViewSettings({ clusterGroupBy: 'class' });
-    assert.strictEqual(st().clusterGroupBy, 'class');
+  test('undefined clusterGroupBy leaves state untouched', () => {
+    st().clusterGroupBy = 'file';
     applySavedViewSettings({});
-    assert.strictEqual(st().clusterGroupBy, 'class', 'undefined key must not reset the lens');
+    assert.strictEqual(st().clusterGroupBy, 'file');
   });
 
   test('folderMode:false restore updates state and clears the button active class', () => {
@@ -735,6 +761,126 @@ suite('applySavedViewSettings()', () => {
     assert.strictEqual(st().clusterGroupBy, before.clusterGroupBy);
     assert.strictEqual(st().gitMode, before.gitMode);
     assert.strictEqual(st().folderMode, before.folderMode);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: applySavedDrilldownState — Global engine restore (F14)
+// ---------------------------------------------------------------------------
+
+suite('applySavedDrilldownState()', () => {
+  const st = () => (global as any).state;
+  let sliderCalls: number[];
+  let parseCalls: number;
+
+  setup(() => {
+    sliderCalls = [];
+    parseCalls = 0;
+    (global as any).setDetailSlider = (v: number) => sliderCalls.push(v);
+    (global as any).requestParseForExpanded = () => { parseCalls++; };
+    st().detailDepth = 0.2;
+    st().expandedFolders = new Set(['/old']);
+  });
+
+  teardown(() => {
+    delete (global as any).setDetailSlider;
+    delete (global as any).requestParseForExpanded;
+  });
+
+  test('applies detailDepth and expandedFolders from the payload', () => {
+    const changed = applySavedDrilldownState({
+      settings: { detailDepth: 0.6 },
+      expandedFolders: ['/p', '/p/a'],
+    });
+    assert.strictEqual(changed, true);
+    assert.strictEqual(st().detailDepth, 0.6);
+    assert.deepStrictEqual([...st().expandedFolders].sort(), ['/p', '/p/a']);
+    assert.deepStrictEqual(sliderCalls, [0.6], 'slider synced');
+    assert.strictEqual(parseCalls, 1, 'expansion requests parses');
+  });
+
+  test('v1 payloads (no drill-down state) change nothing', () => {
+    const changed = applySavedDrilldownState({ settings: {}, nodePositions: {} });
+    assert.strictEqual(changed, false);
+    assert.strictEqual(st().detailDepth, 0.2);
+    assert.deepStrictEqual([...st().expandedFolders], ['/old']);
+  });
+
+  test('null payload is a no-op', () => {
+    assert.strictEqual(applySavedDrilldownState(null), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: file-level filters (R2a)
+// ---------------------------------------------------------------------------
+
+suite('file filters (R2a)', () => {
+  const st = () => (global as any).state;
+  const doc = dom.window.document;
+
+  let savedBasename: any;
+  setup(() => {
+    st().hiddenFiles = new Set();
+    st().onlyShowFile = null;
+    st().hiddenFolders = new Set();
+    st().onlyShowFolder = null;
+    savedBasename = (global as any).pathBasename;
+    (global as any).pathBasename = (fp: string) => fp.split('/').pop(); // folder.js global
+  });
+
+  teardown(() => { (global as any).pathBasename = savedBasename; });
+
+  test('fileFilterAllows mirrors the folder rules', () => {
+    assert.strictEqual(fileFilterAllows('/p/a.ts', null, new Set()), true);
+    assert.strictEqual(fileFilterAllows('/p/a.ts', null, new Set(['/p/a.ts'])), false);
+    assert.strictEqual(fileFilterAllows('/p/a.ts', '/p/a.ts', new Set()), true);
+    assert.strictEqual(fileFilterAllows('/p/b.ts', '/p/a.ts', new Set()), false);
+    // only-show wins even when also hidden (matches the folder semantics order)
+    assert.strictEqual(fileFilterAllows('/p/a.ts', '/p/a.ts', new Set(['/p/a.ts'])), false);
+  });
+
+  test('save payload carries the file filters additively; restore round-trips', () => {
+    st().currentNodes = [];
+    st().hiddenFiles = new Set(['/p/b.ts', '/p/a.ts']);
+    st().onlyShowFile = '/p/z.ts';
+    const p = buildSavePayload();
+    assert.deepStrictEqual(p.hiddenFiles, ['/p/a.ts', '/p/b.ts'], 'sorted, additive');
+    assert.strictEqual(p.onlyShowFile, '/p/z.ts');
+    st().hiddenFiles = new Set(); st().onlyShowFile = null;
+    applySavedFileFilters(JSON.parse(JSON.stringify(p)));
+    assert.deepStrictEqual([...st().hiddenFiles].sort(), ['/p/a.ts', '/p/b.ts']);
+    assert.strictEqual(st().onlyShowFile, '/p/z.ts');
+  });
+
+  test('old saves without the fields change nothing', () => {
+    st().hiddenFiles = new Set(['/keep.ts']);
+    st().onlyShowFile = '/keep2.ts';
+    assert.strictEqual(applySavedFileFilters({ settings: {}, nodePositions: {} }), false);
+    assert.deepStrictEqual([...st().hiddenFiles], ['/keep.ts']);
+    assert.strictEqual(st().onlyShowFile, '/keep2.ts');
+  });
+
+  test('filter chips render for files and clear them', () => {
+    st().hiddenFiles = new Set(['/p/hidden.ts']);
+    st().onlyShowFile = '/p/only.ts';
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    const chips = body.querySelectorAll('.chip-file');
+    assert.strictEqual(chips.length, 2, 'one chip per file filter');
+    (body.querySelector('[data-action="unhide-file"]') as any).click();
+    assert.strictEqual(st().hiddenFiles.size, 0, 'chip unhides the file');
+    (body.querySelector('[data-action="clear-only-file"]') as any)?.click();
+    assert.strictEqual(st().onlyShowFile, null);
+  });
+
+  test('Show All clears file filters too', () => {
+    st().hiddenFiles = new Set(['/p/x.ts']);
+    st().hiddenFolders = new Set(['/p']);
+    updateFolderPanel();
+    (doc.getElementById('btn-folder-show-all') as any).click();
+    assert.strictEqual(st().hiddenFiles.size, 0);
+    assert.strictEqual(st().hiddenFolders.size, 0);
   });
 });
 
@@ -892,5 +1038,222 @@ suite('Layout toggles (engine × motion)', () => {
     dispatch(dom.window.document.getElementById('btn-layout-static'), 'click');
     assert.deepStrictEqual(modeCalls, ['dynamic', 'static']);
     assert.deepStrictEqual(engineCalls, [], 'motion buttons never touch the engine axis');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: Filters section completeness (round 3, W2)
+// ---------------------------------------------------------------------------
+
+suite('Filters section (W2)', () => {
+  const st = () => (global as any).state;
+  const doc = dom.window.document;
+
+  let savedBasename: any;
+  setup(() => {
+    st().hiddenFiles = new Set();
+    st().onlyShowFile = null;
+    st().hiddenFolders = new Set();
+    st().onlyShowFolder = null;
+    savedBasename = (global as any).pathBasename;
+    (global as any).pathBasename = (fp: string) => fp.split('/').pop();
+  });
+  teardown(() => { (global as any).pathBasename = savedBasename; });
+
+  test('folder filters save and restore (they never did before W2)', () => {
+    st().currentNodes = [];
+    st().hiddenFolders = new Set(['/p/b', '/p/a']);
+    st().onlyShowFolder = '/p/z';
+    const p = buildSavePayload();
+    assert.deepStrictEqual(p.hiddenFolders, ['/p/a', '/p/b'], 'sorted, additive');
+    assert.strictEqual(p.onlyShowFolder, '/p/z');
+    st().hiddenFolders = new Set(); st().onlyShowFolder = null;
+    applySavedFileFilters(JSON.parse(JSON.stringify(p)));
+    assert.deepStrictEqual([...st().hiddenFolders].sort(), ['/p/a', '/p/b']);
+    assert.strictEqual(st().onlyShowFolder, '/p/z');
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    assert.strictEqual(body.querySelectorAll('[data-action="unhide"]').length, 2,
+      'restored folder filters render as chips');
+  });
+
+  test('old saves without folder fields change nothing', () => {
+    st().hiddenFolders = new Set(['/keep']);
+    st().onlyShowFolder = '/keep2';
+    applySavedFileFilters({ hiddenFiles: ['/p/x.ts'] });
+    assert.deepStrictEqual([...st().hiddenFolders], ['/keep']);
+    assert.strictEqual(st().onlyShowFolder, '/keep2');
+  });
+
+  test('un-hiding one kind leaves the other intact', () => {
+    st().hiddenFolders = new Set(['/p/dir']);
+    st().hiddenFiles = new Set(['/p/f.ts']);
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    (body.querySelector('[data-action="unhide"]') as any).click();
+    assert.strictEqual(st().hiddenFolders.size, 0);
+    assert.deepStrictEqual([...st().hiddenFiles], ['/p/f.ts'], 'file filter untouched');
+  });
+
+  test('repo-controlled names are escaped in the chips', () => {
+    const hostile = '/p/<img src=x onerror=boom>"\'.ts';
+    st().hiddenFiles = new Set([hostile]);
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    assert.strictEqual(body.querySelector('img'), null, 'no element injection');
+    const label = body.querySelector('.chip-file .folder-filter-label') as any;
+    assert.ok(label.textContent.includes('<img src=x onerror=boom>'), 'name shown verbatim');
+    assert.strictEqual(label.getAttribute('title'), hostile, 'title survives quotes');
+  });
+
+  test('every Show all action clears the FILE filters too', () => {
+    // A glyph menu's Show all cleared only the folder sets, stranding an
+    // onlyShowFile the user could not see a slot menu for (uxtest,
+    // synthetic-1k: only=f0.ts survived Show all).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    for (const f of ['folder.js', 'frameRender.js', 'rendering.js', 'drilldown.js']) {
+      const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/' + f), 'utf8');
+      for (const m of src.matchAll(/label: 'Show all', action: \(\) => \{[\s\S]*?\}(?: \}\);|,)/g)) {
+        assert.ok(m[0].includes('state.onlyShowFile = null'),
+          `${f}: a Show all action must clear onlyShowFile: ${m[0].slice(0, 90)}`);
+        assert.ok(/hiddenFiles[^\n]*clear\(\)/.test(m[0]),
+          `${f}: a Show all action must clear hiddenFiles`);
+      }
+      assert.ok([...src.matchAll(/label: 'Show all'/g)].length > 0 || f === 'drilldown.js', `${f} has a Show all`);
+    }
+  });
+
+  test('context-menu filter labels are sentence case in every engine', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    for (const f of ['folder.js', 'frameRender.js', 'rendering.js', 'drilldown.js']) {
+      const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/' + f), 'utf8');
+      assert.ok(!src.includes("'Hide Folder'") && !src.includes("'Only Show Folder'")
+        && !src.includes("'Show All Folders'"), `${f}: normalized labels`);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: Subgraph block in the Filters section (round 3 W4)
+// ---------------------------------------------------------------------------
+
+suite('Subgraph block (W4)', () => {
+  const st = () => (global as any).state;
+  const doc = dom.window.document;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const scMod = require('../../../src/webview/scope.js');
+
+  const originalVscode = (global as any).vscode;
+  let posted: any[];
+  let savedBasename: any;
+  let savedExcluded: any;
+  let savedASF: any;
+  setup(() => {
+    posted = [];
+    (global as any).vscode = { postMessage: (m: any) => posted.push(m) };
+    savedBasename = (global as any).pathBasename;
+    (global as any).pathBasename = (fp: string) => fp.split('/').pop();
+    savedExcluded = (global as any).excludedTopFolders;
+    (global as any).excludedTopFolders = scMod.excludedTopFolders;
+    savedASF = (global as any).applyStructuralFilters;
+    (global as any).applyStructuralFilters = () => {};
+    st().hiddenFiles = new Set(); st().onlyShowFile = null;
+    st().hiddenFolders = new Set(); st().onlyShowFolder = null;
+    st().scopePending = new Set();
+    st().structureTree = {
+      root: '/r',
+      folders: {
+        '/r': { parent: null, fileCount: 9 },
+        '/r/src': { parent: '/r', fileCount: 6 },
+        '/r/docs': { parent: '/r', fileCount: 3 },
+      },
+    };
+    st().scope = { name: 'click core', root: '/r',
+      include: new Set(['/r/src']), exclude: new Set() };
+  });
+  teardown(() => {
+    (global as any).vscode = originalVscode;
+    (global as any).pathBasename = savedBasename;
+    (global as any).excludedTopFolders = savedExcluded;
+    (global as any).applyStructuralFilters = savedASF;
+    st().scope = null; st().scopePending = new Set(); st().structureTree = null;
+  });
+
+  test('the section renders the name, the excluded rows and the exit action', () => {
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    assert.ok(body.querySelector('.subgraph-head')!.textContent!.includes('click core'));
+    const rows = body.querySelectorAll('.subgraph-row');
+    assert.strictEqual(rows.length, 1, 'one maximal excluded subtree (docs)');
+    assert.ok(rows[0].textContent!.includes('docs · 3'), 'name and recursive file count');
+    assert.ok(body.querySelector('.subgraph-exit'), 'exit action present');
+  });
+
+  test('Visualize posts subgraph-include with the RELATIVE path and goes pending', () => {
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    (body.querySelector('.subgraph-visualize') as any).click();
+    assert.deepStrictEqual(posted, [{ type: 'subgraph-include', path: 'docs' }]);
+    assert.ok(st().scopePending.has('docs'));
+    const body2 = doc.getElementById('folder-filters-body')!;
+    assert.ok(body2.querySelector('.subgraph-pending'), 'row shows the pending mark');
+    assert.strictEqual(body2.querySelector('.subgraph-visualize'), null);
+  });
+
+  test('exit posts subgraph-exit; Show All never does and keeps the scope', () => {
+    st().hiddenFolders = new Set(['/r/src/x']);
+    updateFolderPanel();
+    const body = doc.getElementById('folder-filters-body')!;
+    (body.querySelector('#btn-folder-show-all') as any).click();
+    assert.deepStrictEqual(posted, [], 'Show All does NOT touch the host scope (Q3)');
+    assert.ok(st().scope, 'scope survives Show All');
+    (doc.querySelector('#folder-filters-body .subgraph-exit') as any).click();
+    assert.deepStrictEqual(posted, [{ type: 'subgraph-exit' }]);
+  });
+
+  test('scoped boot order: no rows before the tree, rows appear when structure lands', () => {
+    // Real protocol order: `subgraph` arrives BEFORE `structure` — the rows
+    // cannot be derived yet, and the structure handler must refresh the panel.
+    st().structureTree = null;
+    updateFolderPanel();
+    let body = doc.getElementById('folder-filters-body')!;
+    assert.ok(body.querySelector('.subgraph-head'), 'section header renders without a tree');
+    assert.strictEqual(body.querySelectorAll('.subgraph-row').length, 0);
+    st().structureTree = {
+      root: '/r',
+      folders: {
+        '/r': { parent: null, fileCount: 9 },
+        '/r/src': { parent: '/r', fileCount: 6 },
+        '/r/docs': { parent: '/r', fileCount: 3 },
+      },
+    };
+    updateFolderPanel(); // what the structure handler triggers when scoped
+    body = doc.getElementById('folder-filters-body')!;
+    assert.strictEqual(body.querySelectorAll('.subgraph-row').length, 1, 'rows derived late');
+    assert.ok(body.querySelector('.subgraph-visualize'), 'Visualize offered');
+    // and the handler actually triggers it:
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsMod = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/main.js'), 'utf8');
+    const h = src.slice(src.indexOf("message.type === 'structure'"), src.indexOf("message.type === 'graph-patch'"));
+    assert.ok(/state\.scope && typeof updateFolderPanel === 'function'/.test(h),
+      'the structure handler refreshes the scoped Filters section');
+  });
+
+  test('an unsaved scope is labelled and a cleared scope removes the section', () => {
+    st().scope.name = null;
+    updateFolderPanel();
+    assert.ok(doc.querySelector('#folder-filters-body .subgraph-head')!.textContent!.includes('unsaved'));
+    st().scope = null;
+    updateFolderPanel();
+    assert.strictEqual(doc.querySelector('#folder-filters-body .subgraph-head'), null);
   });
 });

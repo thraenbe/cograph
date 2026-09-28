@@ -13,6 +13,7 @@
 const FRAME = {
   PAD: 40,               // == FOLDER_PADDING (folder.js)
   TITLE: 30,             // == FOLDER_TITLEBAR_HEIGHT (folder.js)
+  NAME_H: 16,            // the folder name line inside the body (R4) — content starts below it
   GAP: 8,                // gap inside a content block between member slots
   K: 1.6,                // content packing slack: A = K · Σ(2r+GAP)²
   ITEM_GAP: 16,          // gap between shelf-packed items
@@ -57,11 +58,14 @@ function ownerFolderOf(el, tree) {
 }
 
 /** Group visible node elements into per-folder member lists {id, r, file, isFn}. */
-function collectMembers(elements, tree, nodeSize) {
+function collectMembers(elements, tree, nodeSize, allow) {
   const members = new Map();
   for (const e of elements) {
     const d = e.data ? e.data : e;
     if (d.source !== undefined) { continue; } // edge
+    // Structural scope (round 3): out-of-scope members get no slot/space —
+    // a hidden file's slot disappears and the frame shrinks on re-pack.
+    if (allow && !allow(d)) { continue; }
     const owner = ownerFolderOf(d, tree);
     if (owner == null) { continue; }
     const r = d.isFileAnchor ? FRAME.ANCHOR_R : ((d._size ?? 8) / 2) * (nodeSize ?? 2.5);
@@ -100,7 +104,7 @@ function slotKeyOf(m) {
  * Returns {w, h, slots: Map<key, {x,y,w,h,file,count}>, slotOf: Map<id, key>}
  * with slot rects local to the content-block origin. Deterministic.
  */
-function packContentSlots(members) {
+function packContentSlots(members, pins) {
   if (!members.length) { return { w: 0, h: 0, slots: new Map(), slotOf: new Map() }; }
   const groups = new Map();
   for (const m of members) {
@@ -126,11 +130,26 @@ function packContentSlots(members) {
     items.push({ key, w, h });
     meta.set(key, { file: mems[0].file || null, count: fns });
   }
-  const p = shelfPack(items, { gap: SLOT.BETWEEN });
+  // User-pinned slots (R2b) become fixed obstacles: they keep their dragged
+  // position (clamped >= 0), the rest shelf-packs around them.
+  const fixedRects = [];
+  const freeItems = [];
+  const pinnedAt = new Map();
+  for (const it of items) {
+    const pin = pins && pins.get(it.key);
+    if (pin) {
+      const px = Math.max(0, Math.round(pin.x)), py = Math.max(0, Math.round(pin.y));
+      pinnedAt.set(it.key, { x: px, y: py });
+      fixedRects.push({ x: px, y: py, w: it.w, h: it.h });
+    } else {
+      freeItems.push(it);
+    }
+  }
+  const p = shelfPack(freeItems, { gap: SLOT.BETWEEN, fixed: fixedRects });
   const slots = new Map();
   const slotOf = new Map();
   for (const it of items) {
-    const pos = p.pos[it.key];
+    const pos = pinnedAt.get(it.key) ?? p.pos[it.key];
     slots.set(it.key, { x: pos.x, y: pos.y, w: it.w, h: it.h, ...meta.get(it.key) });
   }
   for (const m of members) { slotOf.set(m.id, slotKeyOf(m)); }
@@ -235,6 +254,7 @@ function newFrame(path, kind, parent) {
     abs: { x: 0, y: 0, w: 0, h: 0 },
     pinned: false,
     userSize: null,
+    slotPins: new Map(),   // slotKey -> {x,y} content-local (R2b slot drags)
     memberCount: 0,
     slots: new Map(),      // per-file slot rects, local to the content block
     slotOf: new Map(),     // member id -> slot key
@@ -242,10 +262,13 @@ function newFrame(path, kind, parent) {
 }
 
 /** Folders that are open AND whose whole ancestor chain is open (visible-open). */
-function visiblyOpenFolders(tree, expanded) {
+function visiblyOpenFolders(tree, expanded, folderOk) {
   const out = [];
   for (const p in tree.folders) {
     if (!expanded.has(p)) { continue; }
+    // Structural scope (round 3): a folder out of scope loses its frame
+    // entirely — the caller passes the predicate, this module stays pure.
+    if (folderOk && !folderOk(p)) { continue; }
     let cur = tree.folders[p].parent, ok = true;
     while (cur) {
       if (!expanded.has(cur)) { ok = false; break; }
@@ -259,7 +282,7 @@ function visiblyOpenFolders(tree, expanded) {
 function outerOf(f) {
   if (f.kind === 'root') { return { w: f.inner.w, h: f.inner.h }; }
   let w = f.inner.w + 2 * FRAME.PAD;
-  let h = f.inner.h + 2 * FRAME.PAD + FRAME.TITLE;
+  let h = f.inner.h + 2 * FRAME.PAD + FRAME.TITLE + FRAME.NAME_H;
   if (f.userSize) { w = Math.max(w, f.userSize.w); h = Math.max(h, f.userSize.h); }
   return { w, h };
 }
@@ -293,7 +316,7 @@ function packItems(fs, f) {
 function packFrame(fs, f, members) {
   const mem = members.get(f.path) ?? [];
   f.memberCount = mem.length;
-  const slotted = packContentSlots(mem);
+  const slotted = packContentSlots(mem, f.slotPins);
   f.slots = slotted.slots;
   f.slotOf = slotted.slotOf;
   f.content = { w: slotted.w, h: slotted.h };
@@ -302,7 +325,7 @@ function packFrame(fs, f, members) {
 
 function innerOrigin(f) {
   if (f.kind === 'root') { return { x: f.abs.x, y: f.abs.y }; }
-  return { x: f.abs.x + FRAME.PAD, y: f.abs.y + FRAME.PAD + FRAME.TITLE };
+  return { x: f.abs.x + FRAME.PAD, y: f.abs.y + FRAME.PAD + FRAME.TITLE + FRAME.NAME_H };
 }
 
 function resolveAbs(fs) {
@@ -323,11 +346,11 @@ function postOrder(fs, path, fn) {
 
 /** Build a FrameSet from scratch. `members` from collectMembers (mutated by
  *  the per-file partition). */
-function buildFrames(tree, expanded, members) {
+function buildFrames(tree, expanded, members, folderOk) {
   const fs = { root: tree.root, byPath: new Map(), gen: 0 };
   if (!tree.root) { return fs; }
   fs.byPath.set(tree.root, newFrame(tree.root, 'root', null));
-  for (const p of visiblyOpenFolders(tree, expanded)) {
+  for (const p of visiblyOpenFolders(tree, expanded, folderOk)) {
     if (p === tree.root) { continue; }
     fs.byPath.set(p, newFrame(p, 'folder', tree.folders[p].parent));
   }
@@ -357,6 +380,7 @@ function carryFrame(prev, path) {
     userSize: old.userSize ? { ...old.userSize } : null,
     slots: new Map(old.slots || []),
     slotOf: new Map(old.slotOf || []),
+    slotPins: new Map(old.slotPins || []),
   };
 }
 
@@ -392,13 +416,13 @@ function placeChildren(fs, f, repacked) {
  */
 function updateFrames(prev, tree, expanded, members, opts = {}) {
   if (!prev || !prev.byPath || prev.byPath.size === 0 || prev.root !== tree.root) {
-    const frames = buildFrames(tree, expanded, members);
+    const frames = buildFrames(tree, expanded, members, opts.folderOk);
     frames.gen = (prev && prev.gen != null ? prev.gen : -1) + 1;
     return { frames, changed: new Set(frames.byPath.keys()), repacked: new Set() };
   }
   const fs = { root: tree.root, byPath: new Map(), gen: prev.gen + 1 };
   fs.byPath.set(tree.root, carryFrame(prev, tree.root) || newFrame(tree.root, 'root', null));
-  for (const p of visiblyOpenFolders(tree, expanded)) {
+  for (const p of visiblyOpenFolders(tree, expanded, opts.folderOk)) {
     if (p === tree.root) { continue; }
     fs.byPath.set(p, carryFrame(prev, p) || newFrame(p, 'folder', tree.folders[p].parent));
   }
@@ -423,9 +447,27 @@ function updateFrames(prev, tree, expanded, members, opts = {}) {
     // Slots are cheap and deterministic — recompute them every update.
     const mem = members.get(f.path) ?? [];
     f.memberCount = mem.length;
-    const slotted = packContentSlots(mem);
+    const slotted = packContentSlots(mem, f.slotPins);
     f.slots = slotted.slots;
     f.slotOf = slotted.slotOf;
+    // W2b: a scope change (hide/unhide/Show all) re-SHELVES every affected
+    // ancestor instead of growing in place: unpinned children shelf up (the
+    // glide animates), pinned frames stay where the user put them, and the
+    // frame may SHRINK back to its exact packed size. Affected = its child
+    // set changed, its slot set changed, or a child was re-packed below.
+    if (opts.reshelve) {
+      const prevF = prev.byPath.get(f.path);
+      const kids = prevF && (f.children.length !== prevF.children.length
+        || f.children.some((c, i) => c !== prevF.children[i]));
+      const keys = [...slotted.slots.keys()].sort().join('|');
+      const prevKeys = prevF && prevF.slots ? [...prevF.slots.keys()].sort().join('|') : keys;
+      if (kids || keys !== prevKeys || f.children.some(c => repacked.has(c))) {
+        f.content = { w: slotted.w, h: slotted.h };
+        packItems(fs, f);
+        repacked.add(f.path);
+        return;
+      }
+    }
     f.content = { w: Math.max(f.content.w, slotted.w), h: Math.max(f.content.h, slotted.h) };
     let needW = f.content.w > 0 ? f.contentPos.x + f.content.w : 0;
     let needH = f.content.w > 0 ? f.contentPos.y + f.content.h : 0;
@@ -459,6 +501,25 @@ function updateFrames(prev, tree, expanded, members, opts = {}) {
 }
 
 // ── User interaction ──────────────────────────────────────────────────────────
+/** Clamp a frame's desired parent-local position so it stays inside its
+ *  parent's inner rect on all four sides (drag containment — R1). Children of
+ *  the root keep the classic >=0 clamp (the root canvas grows freely), as
+ *  does any child larger than its parent's inner rect. */
+function clampFrameLocal(fs, path, pos) {
+  const f = fs.byPath.get(path);
+  if (!f || !pos) { return pos; }
+  const parent = fs.byPath.get(f.parent);
+  if (!parent || parent.kind === 'root') {
+    return { x: Math.max(0, pos.x), y: Math.max(0, pos.y) };
+  }
+  const maxX = parent.inner.w - f.local.w;
+  const maxY = parent.inner.h - f.local.h;
+  return {
+    x: maxX >= 0 ? Math.max(0, Math.min(maxX, pos.x)) : Math.max(0, pos.x),
+    y: maxY >= 0 ? Math.max(0, Math.min(maxY, pos.y)) : Math.max(0, pos.y),
+  };
+}
+
 function pinFrame(fs, path, localPos, size) {
   const f = fs.byPath.get(path);
   if (!f || f.kind === 'root') { return; }
@@ -526,7 +587,21 @@ function serializeFrames(fs) {
   for (const p of [...fs.byPath.keys()].sort()) {
     const f = fs.byPath.get(p);
     if (f.kind === 'root') { continue; }
-    out[p] = { x: f.local.x ?? 0, y: f.local.y ?? 0, w: f.local.w, h: f.local.h, pinned: !!f.pinned };
+    // cx/cy: the content block's offset inside the frame. It depends on pack
+    // HISTORY (grow-in-place never re-centres), so a fresh build after reload
+    // derives a different one — saving it makes the slot geometry, and with
+    // it every node's slot-interior check, reproducible from the payload
+    // alone (F15).
+    out[p] = {
+      x: f.local.x ?? 0, y: f.local.y ?? 0, w: f.local.w, h: f.local.h,
+      pinned: !!f.pinned,
+      cx: f.contentPos.x ?? 0, cy: f.contentPos.y ?? 0,
+    };
+    if (f.slotPins && f.slotPins.size) {
+      const sp = {};
+      for (const [k, v] of f.slotPins) { sp[k] = [Math.round(v.x), Math.round(v.y)]; }
+      out[p].sp = sp; // additive (R2b): dragged slot positions
+    }
   }
   return out;
 }
@@ -542,8 +617,12 @@ function deserializeFrames(saved, fs) {
     f.local.w = r.w; f.local.h = r.h;
     f.inner = {
       w: Math.max(FRAME.MIN_INNER_W, r.w - 2 * FRAME.PAD),
-      h: Math.max(FRAME.MIN_INNER_H, r.h - 2 * FRAME.PAD - FRAME.TITLE),
+      h: Math.max(FRAME.MIN_INNER_H, r.h - 2 * FRAME.PAD - FRAME.TITLE - FRAME.NAME_H),
     };
+    if (r.cx != null) { f.contentPos = { x: r.cx, y: r.cy ?? 0 }; }
+    if (r.sp) {
+      f.slotPins = new Map(Object.entries(r.sp).map(([k, v]) => [k, { x: v[0], y: v[1] }]));
+    }
     f.pinned = !!r.pinned;
     applied.push(p);
   }
@@ -554,7 +633,7 @@ function deserializeFrames(saved, fs) {
 if (typeof module !== 'undefined') {
   module.exports = {
     FRAME, SLOT, frDirname, ownerFolderOf, collectMembers, contentBlockSize,
-    slotKeyOf, packContentSlots, slotInteriorFor, slotInteriors, gridPositions,
+    slotKeyOf, packContentSlots, slotInteriorFor, slotInteriors, gridPositions, clampFrameLocal,
     rectsOverlap, shelfPack, buildFrames, updateFrames, packFrame, packItems,
     pinFrame, unpinFrame, resolveAbs, innerOrigin, toAbs, toLocal,
     frameBounds, hitTest, titleBarRect, intersectsViewport,

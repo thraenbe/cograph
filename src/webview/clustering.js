@@ -109,55 +109,6 @@ function inferProjectName(data) {
   return commonLen > 0 ? parts[0][commonLen - 1] : 'Project';
 }
 
-function computeClusters(data, importanceScores, level) {
-  const nodeIds = data.nodes.filter((n) => n.id !== '::MAIN::0').map((n) => n.id);
-  const realEdges = data.edges.filter((e) => e.source !== '::MAIN::0');
-
-  const uf = new UnionFind(nodeIds);
-
-  // Neighbor-merge phase
-  if (level > 0.001 && level < 0.999) {
-    const fileById = new Map(data.nodes.map(n => [n.id, n.file]));
-    const FILE_AFFINITY = 0.05;
-    const sortedEdges = [...realEdges].sort((a, b) => {
-      const sameFileA = fileById.get(a.source) && fileById.get(a.source) === fileById.get(a.target);
-      const sameFileB = fileById.get(b.source) && fileById.get(b.source) === fileById.get(b.target);
-      const scoreA = (importanceScores.get(a.source) ?? 0) + (importanceScores.get(a.target) ?? 0) - (sameFileA ? FILE_AFFINITY : 0);
-      const scoreB = (importanceScores.get(b.source) ?? 0) + (importanceScores.get(b.target) ?? 0) - (sameFileB ? FILE_AFFINITY : 0);
-      return scoreA - scoreB;
-    });
-
-    const maxMerges = Math.max(0, nodeIds.length - 1);
-    const fraction = (0.999 - level) / 0.998; // 0 at level=0.999, 1 at level=0.001
-    const mergeCount = Math.floor(fraction * maxMerges);
-
-    let merged = 0;
-    for (const edge of sortedEdges) {
-      if (merged >= mergeCount) break;
-      if (uf.union(edge.source, edge.target)) merged++;
-    }
-  }
-
-  // Project phase: merge everything
-  if (level <= 0.001 && nodeIds.length > 1) {
-    for (let i = 1; i < nodeIds.length; i++) {
-      uf.union(nodeIds[0], nodeIds[i]);
-    }
-  }
-
-  // Build output maps
-  const nodeToCluster = new Map();
-  const clusterMembers = new Map();
-  for (const id of nodeIds) {
-    const rep = uf.find(id);
-    nodeToCluster.set(id, rep);
-    if (!clusterMembers.has(rep)) clusterMembers.set(rep, []);
-    clusterMembers.get(rep).push(id);
-  }
-
-  return { nodeToCluster, clusterMembers };
-}
-
 function computeStructuralClusters(data, groupBy, level) {
   const nodeIds = data.nodes.filter(n => n.id !== '::MAIN::0').map(n => n.id);
 
@@ -181,10 +132,7 @@ function computeStructuralClusters(data, groupBy, level) {
   for (const id of nodeIds) {
     const n = nodeById.get(id);
     let groupKey, label;
-    if (groupBy === 'class' && n.className) {
-      groupKey = `${n.file ?? ''}::${n.className}`;
-      label = n.className;
-    } else if (groupBy === 'file' && n.file) {
+    if (groupBy === 'file' && n.file) {
       groupKey = n.file;
       label = n.file.split(/[\\/]/).pop();
     }
@@ -204,8 +152,7 @@ function computeStructuralClusters(data, groupBy, level) {
 
   // Step 3: merge groups by path-prefix similarity (Kruskal-style)
   const groupPathSegs = new Map(allGroupIds.map(g => {
-    const pathKey = (groupBy === 'class' && g.includes('::')) ? g.split('::')[0] : g;
-    return [g, pathKey.split(/[\\/]/)];
+    return [g, g.split(/[\\/]/)];
   }));
 
   const uf = new UnionFind(allGroupIds);
@@ -376,5 +323,5 @@ function buildClusteredElements(data, clusterResult, level, importanceScores, ex
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 if (typeof module !== 'undefined') {
-  module.exports = { UnionFind, computeImportanceScores, computeClusters, computeStructuralClusters, buildClusteredElements, inferProjectName };
+  module.exports = { UnionFind, computeImportanceScores, computeStructuralClusters, buildClusteredElements, inferProjectName };
 }

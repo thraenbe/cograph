@@ -1273,3 +1273,108 @@ body.vscode-light {
 
 /* Sliders without effect under the frames layout engine */
 .is-noop { opacity: 0.4; }
+
+/* ── perf: hover + LOD (session perf) ─────────────────────────────────────────
+   Toggled by hoverIndex.js: one class on the root <g> dims every link, the
+   hovered node's own links carry .cg-hl. Replaces per-link attribute passes. */
+#graph g.cg-hovering g.links > line:not(.cg-hl):not(.cross-bundle):not(.cross-hover),
+#graph g.cg-hovering g.f-links > line:not(.cg-hl) { opacity: 0.15; }
+#graph g.cg-hovering line.cg-hl { stroke: var(--cograph-link-hover); opacity: 1; }
+#graph g.cg-hovering line.cg-hl.cg-hl-w { stroke-width: var(--cg-hl-width, 1.5); }
+/* Hover-only link layer never takes pointer events (F10: it sits under the cursor). */
+#graph line.cross-hover { pointer-events: none; }
+/* ── /perf ── */
+
+/* Forces box (left toolbar): static hint + collapsed advanced sliders */
+.forces-hint {
+  margin: 2px 0 4px;
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.75;
+}
+#forces-advanced { display: none; }
+#forces-advanced.open { display: block; }
+
+/* Draft A folder chrome: index tab + counts strip (both engines) */
+.frame-tab-glyph { opacity: 0.7; }
+.frame-tab-counts { font-size: 10px; opacity: 0.75; }
+
+/* ── Hover card (hoverCard.js) — folder / file facts and AI summary ─────────── */
+.hover-card {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  max-width: 320px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--vscode-editorHoverWidget-border, rgba(127, 127, 127, 0.4));
+  background: var(--vscode-editorHoverWidget-background, #252526);
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground, #cccccc));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none; /* can never block a click, drag or zoom */
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  will-change: transform;
+}
+.hover-card.visible { visibility: visible; opacity: 1; }
+.hc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.hc-name { font-weight: 600; overflow-wrap: anywhere; }
+.hc-badge {
+  flex: none;
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  border: 1px solid currentColor;
+}
+.hc-path, .hc-facts, .hc-hint { font-size: 11px; opacity: 0.7; overflow-wrap: anywhere; }
+.hc-role {
+  justify-self: start;
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--vscode-badge-background, #4d4d4d);
+  color: var(--vscode-badge-foreground, #ffffff);
+}
+.hc-hint { font-style: italic; }
+
+/* R1: frame drag affordance + calm canvas while dragging */
+g.frame.drag-hover .frame-tab-shape { filter: brightness(1.35); }
+g.frame.drag-hover > .folder-bubble-shape { stroke-opacity: 0.9; }
+.bundles-hidden line.cross-bundle,
+.bundles-hidden line.cross-hover { display: none; }
+
+
+/* ── Subgraph block in the Filters section (round 3 W4) ─────────────────── */
+.subgraph-head {
+  margin: 8px 0 2px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground, #858585);
+}
+.subgraph-visualize {
+  background: none;
+  border: 1px solid var(--vscode-button-background, #0e639c);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--vscode-button-background, #4da3e0);
+  padding: 0 6px;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+.subgraph-visualize:hover {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+}
+.subgraph-pending {
+  color: var(--vscode-descriptionForeground, #858585);
+  flex-shrink: 0;
+}

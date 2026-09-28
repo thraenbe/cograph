@@ -1,0 +1,131 @@
+import * as assert from 'assert';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { JSDOM } = require('jsdom');
+
+const dom = new JSDOM(`<!DOCTYPE html><html><body>
+  <div id="panel-forces">
+    <p id="forces-hint" style="display:none"></p>
+    <div id="row-center-force"></div>
+    <div id="row-repel-force"></div>
+    <div id="row-link-force"></div>
+    <div id="row-file-cluster"><label id="label-file-cluster">File Cluster Force</label></div>
+    <div id="row-folder-repel"></div>
+    <div id="row-file-repel"></div>
+    <button id="btn-show-more-forces"></button>
+    <div class="toggle-row" id="row-show-libraries"><input type="checkbox" id="toggle-libraries" /></div>
+    <p id="libraries-hint" style="display:none"></p>
+    <div id="forces-advanced">
+      <div id="row-link-distance"></div>
+      <div id="row-velocity-decay"></div>
+      <div id="row-collide-pad"></div>
+      <div id="row-slot-pad"></div>
+      <div id="row-repel-range"></div>
+    </div>
+  </div>
+</body></html>`);
+
+// Test files share one Node context: capture whatever document/state other
+// spec files installed, use our own during this file's suites, and restore.
+const prevDocument = (global as any).document;
+const prevState = (global as any).state;
+(global as any).document = dom.window.document;
+(global as any).state = { layoutEngine: 'shelf', layoutMode: 'static' };
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const fp = require('../../../src/webview/forcesPanel.js');
+
+// Module load ran the self-init against our DOM; hand the globals back until
+// our suites actually run.
+const bootHintShown = dom.window.document.getElementById('forces-hint')!.style.display !== 'none';
+const bootRepelShown = dom.window.document.getElementById('row-repel-force')!.style.display !== 'none';
+(global as any).document = prevDocument;
+(global as any).state = prevState;
+
+const shown = (id: string) =>
+  dom.window.document.getElementById(id)!.style.display !== 'none';
+
+suite('forcesPanel — updateForcesPanel()', () => {
+  let savedDocument: any;
+  let savedState: any;
+
+  suiteSetup(() => {
+    savedDocument = (global as any).document;
+    savedState = (global as any).state;
+    (global as any).document = dom.window.document;
+    (global as any).state = { layoutEngine: 'shelf', layoutMode: 'static' };
+  });
+
+  suiteTeardown(() => {
+    (global as any).document = savedDocument;
+    (global as any).state = savedState;
+  });
+
+  test('module load synced the panel to the boot state (shelf+static)', () => {
+    assert.ok(bootHintShown, 'static boot shows the hint');
+    assert.ok(!bootRepelShown, 'sliders hidden while static');
+  });
+
+  test('static hides every slider and the expander, shows the hint', () => {
+    fp.updateForcesPanel('global', 'static');
+    assert.ok(shown('forces-hint'));
+    for (const id of fp.FP_ALL) { assert.ok(!shown(id), `${id} hidden`); }
+    assert.ok(!shown('btn-show-more-forces'));
+    assert.ok(!shown('forces-advanced'));
+  });
+
+  test('shelf+dynamic: repel/link/keep-near-file only; slot padding in advanced', () => {
+    fp.updateForcesPanel('shelf', 'dynamic');
+    assert.ok(!shown('forces-hint'));
+    assert.ok(shown('row-repel-force'));
+    assert.ok(shown('row-link-force'));
+    assert.ok(shown('row-file-cluster'));
+    assert.ok(!shown('row-center-force'), 'no Center in the shelf');
+    assert.ok(!shown('row-repel-range'), 'Repel range is Global-only');
+    // D2/D3: retired sliders are out of every engine's row set.
+    for (const id of ['row-folder-repel', 'row-file-repel', 'row-link-distance', 'row-slot-pad']) {
+      assert.ok(!fp.FP_BASIC.shelf.includes(id) && !fp.FP_BASIC.global.includes(id)
+        && !fp.FP_ADVANCED.shelf.includes(id) && !fp.FP_ADVANCED.global.includes(id),
+      `${id} retired from the Forces box`);
+    }
+    assert.strictEqual(
+      dom.window.document.getElementById('label-file-cluster')!.textContent,
+      'Keep near file',
+    );
+  });
+
+  test('global+dynamic: the four basic sliders, no retired rows', () => {
+    fp.updateForcesPanel('global', 'dynamic');
+    for (const id of fp.FP_BASIC.global) { assert.ok(shown(id), `${id} shown`); }
+    assert.strictEqual(fp.FP_BASIC.global.length, 4, 'center/repel/link/file-cluster only (D2)');
+    assert.ok(shown('row-repel-range'), 'Repel range shows for Global');
+    assert.ok(shown('btn-show-more-forces'));
+    assert.strictEqual(
+      dom.window.document.getElementById('label-file-cluster')!.textContent,
+      'File Cluster Force',
+    );
+  });
+
+  test('falls back to state when called without arguments', () => {
+    (global as any).state.layoutEngine = 'global';
+    (global as any).state.layoutMode = 'dynamic';
+    fp.updateForcesPanel();
+    assert.ok(shown('row-center-force'));
+    assert.ok(!shown('forces-hint'));
+  });
+
+  test('Shelf disables the Show Libraries toggle and shows the hint (F5)', () => {
+    fp.updateForcesPanel('shelf', 'dynamic');
+    const toggle = dom.window.document.getElementById('toggle-libraries') as any;
+    assert.strictEqual(toggle.disabled, true);
+    assert.ok(shown('libraries-hint'), 'hint visible under the shelf engine');
+    fp.updateForcesPanel('global', 'dynamic');
+    assert.strictEqual(toggle.disabled, false);
+    assert.ok(!shown('libraries-hint'), 'hint gone in the Global engine');
+  });
+
+  test('unknown engine falls back to the global row set', () => {
+    fp.updateForcesPanel('martian', 'dynamic');
+    assert.ok(shown('row-center-force'));
+  });
+});

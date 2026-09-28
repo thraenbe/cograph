@@ -27,6 +27,13 @@ function makeSched(over: any = {}) {
     }),
     beforeTick: over.beforeTick,
     onTick: (out: any[]) => results.push(out),
+    onWake: over.onWake,
+    onStep: over.onStep,
+    onIdle: over.onIdle,
+    onResult: over.onResult,
+    onPauseChange: over.onPauseChange,
+    budgetMs: over.budgetMs,
+    isInert: over.isInert,
   });
   return { sched, rafQueue, ticked, results, tickClock: () => clock };
 }
@@ -115,5 +122,105 @@ suite('frameScheduler', () => {
     sched.add(rec('/a', { alpha: 0.4 }));
     sched.add(rec('/b', { alpha: 0.9, settled: true }));
     assert.strictEqual(sched.maxAlpha((r: any) => r.alpha), 0.4);
+  });
+
+  test('instrumentation hooks: onWake once, onStep per ticking frame, onIdle when dry', () => {
+    const events: string[] = [];
+    const { sched, rafQueue } = makeSched({
+      onWake: () => events.push('wake'),
+      onStep: (ms: number, n: number) => events.push(`step:${n}:${ms >= 0}`),
+      onIdle: () => events.push('idle'),
+    });
+    sched.add(rec('/a'));
+    sched.add(rec('/b')); // already running → no second wake
+    let guard = 0;
+    while (rafQueue.length && guard++ < 50) { (rafQueue.shift() as () => void)(); }
+    assert.strictEqual(events.filter(e => e === 'wake').length, 1);
+    assert.strictEqual(events[events.length - 1], 'idle');
+    assert.strictEqual(events.filter(e => e === 'idle').length, 1);
+    const steps = events.filter(e => e.startsWith('step:'));
+    assert.ok(steps.length >= 7);
+    assert.strictEqual(steps[0], 'step:2:true');
+  });
+
+  test('pauseAll ends the loop without reporting idle', () => {
+    const events: string[] = [];
+    const { sched, rafQueue } = makeSched({ onIdle: () => events.push('idle') });
+    sched.add(rec('/a'));
+    sched.pauseAll();
+    while (rafQueue.length) { (rafQueue.shift() as () => void)(); }
+    assert.deepStrictEqual(events, []);
+  });
+
+  // ── worker transport options (perf W2) ──
+  test('maxActive may be a function (sync: 4, workers: every frame with fresh positions)', () => {
+    let cap = 1;
+    const { sched } = makeSched({ maxActive: () => cap });
+    ['/a', '/b', '/c'].forEach(p => sched.add(rec(p)));
+    assert.strictEqual(sched.pick().length, 1);
+    cap = Infinity;
+    assert.strictEqual(sched.pick().length, 3);
+  });
+
+  test('budgetMs stops a step once spent (after ≥ 1 result); the rest drain next frame', () => {
+    const applied: string[] = [];
+    // the fake clock advances 1 per now() call → every result "costs" ≥ 1 ms
+    const { sched } = makeSched({ maxActive: Infinity, budgetMs: () => 2, onResult: (r: any) => applied.push(r.path) });
+    ['/a', '/b', '/c', '/d', '/e'].forEach(p => sched.add(rec(p)));
+    const first = sched.step();
+    assert.ok(first.length >= 1 && first.length < 5, `budget cut the step (${first.length})`);
+    assert.deepStrictEqual(applied, first.map((r: any) => r.path), 'onResult runs per result, inside the budget clock');
+    const tickedNull = makeSched({ maxActive: Infinity, budgetMs: 0, tick: () => null });
+    ['/a', '/b'].forEach(p => tickedNull.sched.add(rec(p)));
+    assert.deepStrictEqual(tickedNull.sched.step(), [], 'idle records (no fresh positions) cost no budget');
+  });
+
+  test('no budget (sync path) → unchanged: every picked record ticks', () => {
+    const { sched } = makeSched({ maxActive: 4 });
+    ['/a', '/b', '/c', '/d', '/e'].forEach(p => sched.add(rec(p)));
+    assert.strictEqual(sched.step().length, 4);
+  });
+
+  test('onPauseChange fires on transitions only', () => {
+    const seen: boolean[] = [];
+    const { sched } = makeSched({ onPauseChange: (p: boolean) => seen.push(p) });
+    sched.resumeAll();            // already running → nothing
+    sched.pauseAll(); sched.pauseAll();
+    sched.resumeAll(); sched.resumeAll();
+    assert.deepStrictEqual(seen, [true, false]);
+  });
+
+  // ── F7: no frame waits behind the others' whole settle ──
+  test('round-robin: after a global reheat every frame ticks within ceil(n / maxActive) steps', () => {
+    const slow = (r: any) => { r.alpha *= 0.99; return { path: r.path, gen: r.gen, nodes: [] }; }; // ~700 ticks to settle
+    const { sched } = makeSched({ maxActive: 4, tick: slow });
+    const paths = Array.from({ length: 12 }, (_, i) => `/f${String(i).padStart(2, '0')}`);
+    paths.forEach(p => sched.add(rec(p)));
+    const seen = new Set<string>();
+    for (let step = 0; step < 3; step++) { sched.step().forEach((r: any) => seen.add(r.path)); }
+    assert.strictEqual(seen.size, 12, 'all 12 frames moved within 3 animation frames (was: 4, for ~300 frames)');
+    const counts = new Map<string, number>();
+    for (let step = 0; step < 30; step++) { sched.step().forEach((r: any) => counts.set(r.path, (counts.get(r.path) || 0) + 1)); }
+    assert.deepStrictEqual([...new Set(counts.values())], [10], 'ticks are shared evenly');
+  });
+
+  test('a user-interacted frame keeps a slot every step while the rest rotate', () => {
+    const slow = (r: any) => ({ path: r.path, gen: r.gen, nodes: [] });
+    const { sched } = makeSched({ maxActive: 2, tick: slow });
+    ['/a', '/b', '/c', '/d'].forEach(p => sched.add(rec(p)));
+    sched.bumpUser('/d');
+    const steps = [0, 1, 2].map(() => sched.step().map((r: any) => r.path));
+    assert.ok(steps.every(s => s[0] === '/d'), 'dragged frame first, always');
+    assert.deepStrictEqual(steps.map(s => s[1]), ['/a', '/b', '/c'], 'the other slot rotates');
+  });
+
+  test('inert frames (nothing free to simulate) settle immediately and never take a slot', () => {
+    const { sched, ticked } = makeSched({ maxActive: 1, isInert: (r: any) => r.inert === true });
+    sched.add(rec('/a-empty-parent', { inert: true }));
+    sched.add(rec('/b'));
+    const out = sched.step();
+    assert.deepStrictEqual(out.map((r: any) => r.path), ['/b']);
+    assert.deepStrictEqual(ticked, ['/b']);
+    assert.strictEqual(sched.get('/a-empty-parent').settled, true);
   });
 });

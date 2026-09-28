@@ -38,12 +38,17 @@ const settings = {
   nodeSize: 2.5,
   textSize: 1.5,
   linkThickness: 4,
-  centerForce: 0.025,
-  repelForce: 250,
+  centerForce: 0.08,
+  repelForce: 450,
   linkForce: 1,
-  fileClusterForce: 0.2,
+  fileClusterForce: 0.36,
   folderRepelForce: 0.25,
   fileRepelForce: 0.25,
+  linkDistance: 40,   // shelf sims run this at 0.75x (localSim.lsLinkDistance)
+  repelRange: 850, // Global charge distanceMax in px; slider max = unlimited (shelf uses its fixed 140)
+  velocityDecay: 0.3,
+  collidePad: 1.5,
+  slotPad: 0,
   openFunctionPopup: true,
 };
 
@@ -55,8 +60,9 @@ function updateLayoutButtons() {
   for (const e of ['shelf', 'global']) {
     document.getElementById(`btn-engine-${e}`)?.classList.toggle('active', state.layoutEngine === e);
   }
-  const forcesSection = document.getElementById('forces-section');
-  if (forcesSection) forcesSection.style.opacity = state.layoutMode === 'static' ? '0.4' : '1';
+  if (typeof updateForcesPanel === 'function') {
+    updateForcesPanel(state.layoutEngine, state.layoutMode);
+  }
   const hint = document.getElementById('layout-hint');
   if (hint) {
     const engine = state.layoutEngine === 'shelf' ? 'Folder frames & file slots' : 'One free-floating graph';
@@ -83,28 +89,111 @@ function setLayoutMode(mode) {
   if (state.simulation) state.simulation.alpha(0.3).restart();
 }
 
+// Global guard (F-guard): the first click on Engine: Global above
+// GLOBAL_GUARD.N nodes only warns; a second click within the window switches.
+let __globalGuard = null;
+let __guardHintTimer = null;
+function globalGuardInstance() {
+  if (!__globalGuard && typeof createGlobalGuard === 'function') {
+    __globalGuard = createGlobalGuard();
+  }
+  return __globalGuard;
+}
+function showGlobalGuardHint(kind) {
+  const el = document.getElementById('global-guard-hint');
+  if (!el) { return; }
+  el.textContent = (typeof globalGuardHintText === 'function') ? globalGuardHintText(kind) : '';
+  el.style.display = '';
+  clearTimeout(__guardHintTimer);
+  __guardHintTimer = setTimeout(hideGlobalGuardHint, 6000);
+}
+function hideGlobalGuardHint() {
+  clearTimeout(__guardHintTimer);
+  const el = document.getElementById('global-guard-hint');
+  if (el) { el.style.display = 'none'; }
+}
+/** Hint (never block) when Detail pushes an already-Global layout past N. */
+function maybeWarnGlobalSize() {
+  if (typeof GLOBAL_GUARD === 'undefined' || state.layoutEngine !== 'global') { return; }
+  if (state.currentNodes.length > GLOBAL_GUARD.N) {
+    if (!state._globalSizeHinted) {
+      state._globalSizeHinted = true;
+      showGlobalGuardHint('detail');
+    }
+  } else {
+    state._globalSizeHinted = false;
+  }
+}
+
 // Engine axis — 'shelf' (folder frames; implies the File lens) | 'global'
 // (classic single simulation). Re-renders, then re-applies a static freeze so
 // the target engine honours the current motion mode.
-function setLayoutEngine(engine) {
+function setLayoutEngine(engine, opts = {}) {
   if (!['shelf', 'global'].includes(engine)) { engine = 'global'; }
+  if (engine === 'global' && state.layoutEngine !== 'global') {
+    const guard = globalGuardInstance();
+    if (guard && guard.check(state.currentNodes.length, opts) === 'blocked') {
+      showGlobalGuardHint('switch');
+      return; // a second click within the window switches
+    }
+  }
+  hideGlobalGuardHint();
   state.layoutEngine = engine;
   updateLayoutButtons();
+  // Detach the old engine's simulation BEFORE re-rendering: a still-settling
+  // global sim otherwise keeps firing ticks into the new engine's DOM (F3).
+  if (state.simulation && !state.simulation.isFrameFacade && state.simulation.on) {
+    state.simulation.on('tick', null).on('end', null);
+    state.simulation.stop();
+  }
   state.currentNodes.forEach(d => { d.fx = null; d.fy = null; });
-  if (engine === 'shelf' && (state.viewMode === 'workflow' || state.clusterGroupBy !== 'file')) {
+  state.userZoomed = false; // an engine switch re-lays out — allow auto-fit
+  if (engine === 'shelf' && state.viewMode === 'workflow') {
     if (typeof enterFileClusterMode === 'function') { enterFileClusterMode(); }
   } else if (typeof applyComplexity === 'function') {
     applyComplexity();
   }
   if (state.layoutMode === 'static') { setLayoutMode('static'); }
+  // One coalesced tick of the OLD engine may already sit in a rAF; it fires
+  // after this switch and scribbles on the new DOM. Queue a repair pass
+  // behind it (F3).
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      if (typeof usesFrames === 'function' && usesFrames() && typeof tickFrames === 'function') {
+        tickFrames();
+      } else if (typeof ticked === 'function' && state.currentNodes.length) {
+        ticked();
+      }
+    });
+  }
 }
 updateLayoutButtons(); // boot config may differ from the HTML's active buttons
 
 // ── Filters ───────────────────────────────────────────────────────────────────
+// Memoised when visibility.js is loaded (perf's branch): tick paths call this
+// 1-2× per simulation tick, so the O(N) scan only re-runs when an input
+// actually changed. EVERY filter must appear in the memo inputs — a missing
+// one makes the memo serve a stale set after that filter changes (this bit
+// the R2a file filters on the integrated branch).
+const __visMemo = (typeof createVisibleMemo === 'function') ? createVisibleMemo() : null;
+let __searchEl;
 function getVisibleNodeIds() {
-  if (typeof perfCount === 'function') { perfCount('getVisibleNodeIds'); }
-  const query = document.getElementById('search')?.value.toLowerCase() ?? '';
+  if (__searchEl === undefined) { __searchEl = document.getElementById('search'); }
+  const query = __searchEl?.value.toLowerCase() ?? '';
   const tlPredicate = state.timeline?.filterPredicate;
+  if (!__visMemo) { return computeVisibleNodeIds(query, tlPredicate); }
+  return __visMemo.get({
+    query, volatile: !!tlPredicate,
+    showLibraries: settings.showLibraries, existingFilesOnly: settings.existingFilesOnly,
+    showOrphans: settings.showOrphans, nodes: state.currentNodes, connected: state.connectedNodeIds,
+    onlyShowFolder: state.onlyShowFolder, hiddenFolders: state.hiddenFolders,
+    onlyShowFile: state.onlyShowFile, hiddenFiles: state.hiddenFiles, // R2a
+    scope: state.scope, // W4 subgraph — every filter must be a memo input (F17)
+  }, () => computeVisibleNodeIds(query, tlPredicate));
+}
+
+function computeVisibleNodeIds(query, tlPredicate) {
+  if (typeof perfCount === 'function') { perfCount('getVisibleNodeIds'); }
   const visible = new Set();
   state.currentNodes.forEach(n => {
     if (n.isLibrary) {
@@ -132,15 +221,81 @@ function getVisibleNodeIds() {
         if (inside(hf)) return;
       }
     }
+    // File-level filters (R2a): functions by their file, collapsed file::
+    // nodes by their path; folder glyphs are unaffected.
+    if (state.onlyShowFile || (state.hiddenFiles && state.hiddenFiles.size)) {
+      const ff = n.isFileCluster ? n._filePath
+        : (n.file && !n.isLibrary && !n.isCluster && !n.isSynthetic ? n.file : null);
+      if (ff != null && typeof fileFilterAllows === 'function'
+          && !fileFilterAllows(ff, state.onlyShowFile, state.hiddenFiles)) return;
+    }
+    // Subgraph scope (W4): the graph arrives scoped from the host, but
+    // transition windows (a folder just excluded, patch in flight) must not
+    // flash out-of-scope nodes.
+    if (state.scope && typeof memberInScope === 'function'
+        && !memberInScope(n, __scanScope())) return;
     if (tlPredicate && !tlPredicate(n)) return;
     visible.add(n.id);
   });
+  __scanScopeCache = null;
   return visible;
 }
 
+// Scope object for the scan above, built once per pass (not per node).
+let __scanScopeCache = null;
+function __scanScope() {
+  if (!__scanScopeCache) {
+    __scanScopeCache = { hiddenFolders: new Set(), onlyShowFolder: null,
+      hiddenFiles: new Set(), onlyShowFile: null, subgraph: state.scope };
+  }
+  return __scanScopeCache;
+}
+
+// Bursts (key repeat, timeline frames) collapse to one pass per animation
+// frame; a single call still applies synchronously. Only elements whose
+// visibility flipped are written (visibility.js).
+const __filterGate = (typeof createBurstGate === 'function')
+  ? createBurstGate(typeof requestAnimationFrame === 'function' ? (cb) => requestAnimationFrame(cb) : null)
+  : null;
+const __filterApplier = (typeof createFilterApplier === 'function') ? createFilterApplier() : null;
+
 function applyFilters() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
+  if (__filterGate) { __filterGate.run(applyFiltersNow); } else { applyFiltersNow(); }
+}
+
+// Hide folder/file, Only show and Show all reshape the LAYOUT since round 3
+// (frames/slots/boxes are scope-filtered at build time — scope.js), so every
+// filter MUTATION re-renders the drill-down; plain applyFilters stays the
+// cheap display pass for search/timeline/settings.
+function applyStructuralFilters() {
+  if (typeof isDrilldown === 'function' && isDrilldown()
+    && typeof applyFileClusters === 'function') {
+    applyFileClusters();
+  }
+  applyFilters();
+}
+
+function applyFiltersNow() {
+  if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
+  const __t0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
   const visibleSet = getVisibleNodeIds();
+  if (__filterApplier) {
+    __filterApplier.apply({
+      nodes: [state.svgNodes, state.svgCloudNodes, state.svgLabels, state.svgLibNodes, state.svgLibLabels],
+      links: state.svgLinks,
+    }, visibleSet);
+  } else {
+    applyFiltersFull(visibleSet);
+  }
+
+  if (typeof tickFolderOverlay === 'function') tickFolderOverlay();
+  if (typeof tickClassOverlay === 'function') tickClassOverlay(visibleSet);
+  if (typeof updateSearchCount === 'function') updateSearchCount(visibleSet);
+  if (__t0) { perfEnd('applyFilters', __t0); }
+}
+
+function applyFiltersFull(visibleSet) {
   state.svgNodes.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgCloudNodes?.style('display', d => visibleSet.has(d.id) ? null : 'none');
   state.svgLabels.style('display', d => visibleSet.has(d.id) ? null : 'none');
@@ -151,14 +306,8 @@ function applyFilters() {
     const tgt = d.target?.id ?? d.target;
     return (visibleSet.has(src) && visibleSet.has(tgt)) ? null : 'none';
   });
-
-  if (typeof tickFolderOverlay === 'function') tickFolderOverlay();
-  if (typeof tickClassOverlay === 'function') tickClassOverlay();
-  if (typeof updateSearchCount === 'function') updateSearchCount(visibleSet);
-  if (typeof usesFrames === 'function' && usesFrames()) { tickFrames(); }
 }
 
-// ── Display settings ──────────────────────────────────────────────────────────
 function applyDisplaySettings() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
   state.svgNodes
@@ -201,13 +350,17 @@ function rerunLayout() {
   state.simulation.force('center', d3.forceCenter(W / 2, H / 2).strength(0.05));
   state.simulation.force('x', d3.forceX(W / 2).strength(settings.centerForce));
   state.simulation.force('y', d3.forceY(H / 2).strength(settings.centerForce));
-  state.simulation.force('charge').strength(typeof chargeStrength === 'function' ? chargeStrength : -settings.repelForce);
+  const charge = state.simulation.force('charge');
+  charge.strength(typeof chargeStrength === 'function' ? chargeStrength : -settings.repelForce);
+  charge.distanceMax?.(settings.repelRange ?? Infinity);
   // Keep folder/file edges weak + long so folders stay separated (see startSimulation).
   const folderLink = typeof isFolderLink === 'function' ? isFolderLink : () => false;
   state.simulation.force('link')
     .strength(d => d.isLibraryEdge ? settings.linkForce * 0.1 * 0.3
       : folderLink(d) ? settings.linkForce * 0.1 * 0.25 : settings.linkForce * 0.1)
-    .distance(d => folderLink(d) ? 120 : 40);
+    .distance(d => folderLink(d) ? 120 : (settings.linkDistance ?? 40));
+  state.simulation.force('collision')?.radius?.(d => nodeRadius(d) + (settings.collidePad ?? 1.5));
+  state.simulation.velocityDecay?.(settings.velocityDecay ?? 0.3);
   state.simulation.alpha(0.5).restart();
 }
 
@@ -254,11 +407,9 @@ function applyComplexity() {
     degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
     degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
   });
-  // Reaches here for 'connect', 'class', or 'file' without a structure tree
-  // (which falls back to plain file-structural clustering instead of the drill-down).
-  const clusterResult = state.clusterGroupBy === 'connect'
-    ? computeClusters(projectData, state.importanceScores, state.complexityLevel)
-    : computeStructuralClusters(projectData, state.clusterGroupBy, state.complexityLevel);
+  // Reaches here only for 'file' without a structure tree (falls back to plain
+  // file-structural clustering instead of the drill-down).
+  const clusterResult = computeStructuralClusters(projectData, 'file', state.complexityLevel);
   const elements = buildClusteredElements(projectData, clusterResult, state.complexityLevel, state.importanceScores, state.expandedClusters, degreeMap);
   const nodeToRendered = buildRenderedNodeMap(clusterResult.nodeToCluster, state.expandedClusters);
   if (settings.showLibraries) {
@@ -315,10 +466,10 @@ function applyComplexity() {
       }
     });
   }
-  // For structural modes, seed each cluster at the centroid of its members'
-  // current on-screen positions so the layout starts compact instead of random.
+  // Seed each cluster at the centroid of its members' current on-screen
+  // positions so the layout starts compact instead of random.
   const positionHints = new Map();
-  if (state.clusterGroupBy !== 'connect' && state.currentNodes.length > 0) {
+  if (state.currentNodes.length > 0) {
     const currentById = new Map(state.currentNodes.map(n => [n.id, n]));
     for (const [clusterId, members] of clusterResult.clusterMembers) {
       const pts = members
@@ -334,6 +485,7 @@ function applyComplexity() {
   }
 
   renderElements(elements, positionHints);
+  maybeWarnGlobalSize();
 }
 
 // ── Main entry ────────────────────────────────────────────────────────────────
@@ -343,7 +495,11 @@ function renderGraph(data, isReanalysis = false) {
   state.importanceScores = computeImportanceScores(projectData);
   state.expandedClusters = new Set();
   state.expandedLibClusters = new Set();
-  if (!isReanalysis) { state.hasFitted = false; }
+  if (!isReanalysis) {
+    state.hasFitted = false;
+    state.userZoomed = false;
+    if (state.slotPlacedIds) { state.slotPlacedIds.clear(); } // new graph, new placements
+  }
 
   // Detect the AI Workflow Graph (its presence is marked by graph.workflow).
   // Workflow payloads route here even while the drill-down is active (see
@@ -388,6 +544,14 @@ function renderGraph(data, isReanalysis = false) {
   renderLanguageLegend();
 }
 
+// ── Ready handshake (F11, readyHandshake.js) ────────────────────────────────
+// Dedupe first (its listener must precede every other one), announce `ready`
+// once all scripts ran.
+if (typeof installSeqDedupe === 'function') {
+  installSeqDedupe(window);
+  announceReady(document, (m) => vscode.postMessage(m));
+}
+
 window.addEventListener('message', (event) => {
   const message = event.data;
   if (message.type === 'lib-description') {
@@ -418,6 +582,15 @@ window.addEventListener('message', (event) => {
     updateSaveBtn(inst);
     return;
   }
+  if (message.type === 'subgraph') {
+    // Host scope (round 3 W4). Arrives BEFORE structure/graph on open (ready
+    // gate) and on every change; include [] clears. Never persisted here.
+    state.scope = (typeof mapSubgraphMessage === 'function') ? mapSubgraphMessage(message) : null;
+    state.scopePending = new Set();
+    if (typeof applyStructuralFilters === 'function') { applyStructuralFilters(); }
+    if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+    return;
+  }
   if (message.type === 'graph') {
     state.gitAvailable = message.gitAvailable ?? false;
     state.fileGitStatus = message.fileGitStatus ?? {};
@@ -425,6 +598,18 @@ window.addEventListener('message', (event) => {
     if (gitPanel) gitPanel.style.display = state.gitAvailable ? '' : 'none';
     state.pendingReheat = message.isReanalysis && state.hasFitted;
     state.allScannedFiles = message.data.files ?? [];
+    // Boot guard: a Global boot config with a first graph beyond the guard
+    // threshold would freeze on any expansion — start in Shelf and say so.
+    if (!state._globalBootGuarded) {
+      state._globalBootGuarded = true;
+      const realNodes = (message.data.nodes ?? []).filter(n => !n.isLibrary).length;
+      if (state.layoutEngine === 'global' && typeof GLOBAL_GUARD !== 'undefined'
+          && realNodes > GLOBAL_GUARD.N) {
+        state.layoutEngine = 'shelf';
+        updateLayoutButtons();
+        showGlobalGuardHint('boot');
+      }
+    }
     window.resetTimelineState?.();
     if (classifyGraphMessage(message.data) === 'ingest') {
       // Skeleton is showing — fold the analysis result into it without losing
@@ -442,6 +627,10 @@ window.addEventListener('message', (event) => {
     if (typeof renderStructureSkeleton === 'function') {
       renderStructureSkeleton(message.tree, message.autoEngage);
     }
+    // A scoped boot delivers `subgraph` BEFORE `structure` (ready-gate
+    // order), so the Subgraph rows could not be derived then — refresh the
+    // Filters section now that the tree exists.
+    if (state.scope && typeof updateFolderPanel === 'function') { updateFolderPanel(); }
     return;
   }
   if (message.type === 'graph-patch') {
@@ -495,6 +684,7 @@ window.addEventListener('message', (event) => {
     if (typeof usesFrames === 'function' && usesFrames() && typeof resetFrames === 'function') {
       resetFrames();          // drop packed rects → next render re-packs from scratch
       state.hasFitted = false;
+      state.userZoomed = false;
       applyFileClusters();
       window.clearDirty?.();
       return;
@@ -522,7 +712,7 @@ window.addEventListener('message', (event) => {
     // Live push of cograph.layout.defaultEngine / defaultMode (engine first —
     // it re-renders; the motion freeze must land on the new engine).
     if (['shelf', 'global'].includes(message.defaultEngine)) {
-      setLayoutEngine(message.defaultEngine);
+      setLayoutEngine(message.defaultEngine, { force: true }); // user changed the setting
     }
     if (['dynamic', 'static'].includes(message.defaultMode)) {
       setLayoutMode(message.defaultMode);
@@ -538,6 +728,9 @@ window.addEventListener('message', (event) => {
 
     // Apply saved display state (defined in controls.js).
     applySavedViewSettings(saved);
+    if (typeof applySavedFileFilters === 'function') {
+      applySavedFileFilters(message.payload); // engine-independent (R2a)
+    }
 
     // Two-axis restore. Legacy payloads carried only layoutMode, where 'shelf'
     // meant the frames engine with dynamic motion.
@@ -545,9 +738,23 @@ window.addEventListener('message', (event) => {
       ? saved.layoutEngine
       : (saved.layoutMode === 'shelf' ? 'shelf' : 'global');
     const savedMotion = saved.layoutMode === 'static' ? 'static' : 'dynamic';
-    if (savedEngine !== state.layoutEngine) { setLayoutEngine(savedEngine); }
+    if (savedEngine !== state.layoutEngine) { setLayoutEngine(savedEngine, { force: true }); } // a saved Global view IS the explicit choice
 
-    // Apply saved node positions
+    const isGlobalRestore = savedEngine === 'global';
+    if (isGlobalRestore) {
+      // Global consumes the drill-down state here (the frames engine consumes
+      // it in applyPendingLayout as frames appear) and re-renders FIRST, so
+      // the saved positions land on the saved visible node set (F14).
+      if (typeof applySavedDrilldownState === 'function') {
+        applySavedDrilldownState(message.payload);
+      }
+      state.savedLayout = null; // consumed — nothing left for the frames path
+      applyComplexity();
+    }
+
+    // Apply saved node positions (stamped: a saved position is a placement,
+    // so the shelf grid must not overwrite it)
+    if (!state.slotPlacedIds) { state.slotPlacedIds = new Set(); }
     for (const n of state.currentNodes) {
       const pos = nodePositions[n.id];
       if (pos) {
@@ -555,6 +762,7 @@ window.addEventListener('message', (event) => {
         n.y = pos.y;
         n.fx = pos.x;
         n.fy = pos.y;
+        state.slotPlacedIds.add(n.id);
       }
     }
 
@@ -570,8 +778,16 @@ window.addEventListener('message', (event) => {
       }
     }
 
-    // Re-apply clustering and colors so the restored state renders correctly
-    applyComplexity();
+    // Re-apply clustering so the restored state renders correctly. Under
+    // Global the render already happened ABOVE — re-rendering here would
+    // re-settle the simulation and move the restored positions (F14); a
+    // repaint + re-fit is all that is left to do.
+    if (isGlobalRestore) {
+      state.hasFitted = false; // auto-fit the RESTORED layout, not the throwaway settle
+      ticked();
+    } else {
+      applyComplexity();
+    }
     if (savedMotion === 'static') { setLayoutMode('static'); } // pin AFTER the final render
     if (state.gitMode && state.gitAvailable) { applyGitColors(); }
     // Restoring a saved graph is not a dirty change — sync local flag with extension

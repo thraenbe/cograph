@@ -41,3 +41,9 @@ linkedin.txt
 project.txt
 Screenshot*
 test-results/**
+
+# Local-only clutter that vsce would otherwise sweep in from this checkout:
+# Termi worktrees/briefs (git-excluded, not ignored), c8 coverage output, Termi notes.
+.termi/**
+coverage/**
+project.md

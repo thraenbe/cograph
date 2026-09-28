@@ -48,10 +48,14 @@ function createFrameSimFacade(deps) {
       }
       // Global reheat: settings snapshot onto every frame, everything unsettles.
       const s = deps.getSettings();
-      const patch = {
-        repelForce: s.repelForce, centerForce: s.centerForce,
-        linkForce: s.linkForce, fileClusterForce: s.fileClusterForce,
-      };
+      // Opaque snapshot: every plain setting is forwarded, so force keys added
+      // elsewhere (linkDistance, velocityDecay, collidePad, slotPad, …) reach
+      // the live simulations — on the main thread and in the workers — without
+      // this facade knowing them. localSim.applySettings picks what it maps.
+      const patch = {};
+      for (const [k, v] of Object.entries(s || {})) {
+        if (v === null || ['number', 'boolean', 'string'].includes(typeof v)) { patch[k] = v; }
+      }
       const floor = nextAlpha;
       deps.sched.unsettleAll(rec => {
         deps.ls.applySettings(rec, patch);

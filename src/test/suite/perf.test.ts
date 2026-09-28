@@ -95,4 +95,40 @@ suite('webview perf instrumentation', () => {
     assert.strictEqual(report.stats['sim:settle'].count, 1);
     perf.perfReset(); // clears the auto-report timer perfSettled scheduled
   });
+
+  test('frame ring buffer caps and reports percentiles next to ticks', () => {
+    for (let i = 0; i < perf.PERF_TICK_RING + 5; i++) { perf.perfFrame(i); }
+    const report = perf.perfReport();
+    assert.strictEqual(report.frame.samples, perf.PERF_TICK_RING);
+    assert.ok(report.frame.p95Ms >= report.frame.p50Ms);
+    assert.strictEqual(report.tick.samples, 0);
+    perf.perfReset();
+    assert.strictEqual(perf.perfReport().frame.samples, 0);
+  });
+
+  test('perfBegin/perfEnd and perfSpan accumulate named stats', () => {
+    const t0 = perf.perfBegin();
+    assert.ok(t0 > 0);
+    perf.perfEnd('hover:over', t0);
+    const value = perf.perfSpan('hover:over', () => 42);
+    assert.strictEqual(value, 42);
+    assert.strictEqual(perf.perfReport().stats['hover:over'].count, 2);
+  });
+
+  test('perfSpan records even when the callback throws', () => {
+    assert.throws(() => perf.perfSpan('boom', () => { throw new Error('x'); }));
+    assert.strictEqual(perf.perfReport().stats.boom.count, 1);
+  });
+
+  test('disabled: perfBegin returns 0 and perfEnd/perfFrame/perfSpan record nothing', () => {
+    g.state.perfEnabled = false;
+    const t0 = perf.perfBegin();
+    assert.strictEqual(t0, 0);
+    perf.perfEnd('x', t0);
+    perf.perfFrame(3);
+    assert.strictEqual(perf.perfSpan('y', () => 'ok'), 'ok');
+    const report = perf.perfReport();
+    assert.deepStrictEqual(report.stats, {});
+    assert.strictEqual(report.frame.samples, 0);
+  });
 });

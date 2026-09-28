@@ -36,14 +36,20 @@ const EMPTY_FILE_EXTS = new Set([
 
 function groupByFile(nodes) {
   const map = new Map();
+  // Structural scope (round 3): a hidden file gets no circle at all.
+  const sc = (typeof buildScope === 'function' && typeof state !== 'undefined')
+    ? buildScope(state) : null;
+  const scoped = sc && scopeActive(sc);
   nodes.forEach(n => {
     if (n.isLibrary || !n.file) return;
     if (n.isCluster || n.isSynthetic) return;  // B2
+    if (scoped && !memberInScope(n, sc)) return;
     if (!map.has(n.file)) map.set(n.file, []);
     map.get(n.file).push(n);
   });
   if (settings.showEmptyFiles && state.allScannedFiles?.length) {
     state.allScannedFiles.forEach(fp => {
+      if (scoped && !memberInScope({ file: fp }, sc)) return;
       const dot = fp.lastIndexOf('.');
       const ext = dot >= 0 ? fp.slice(dot) : '';
       if (!map.has(fp) && EMPTY_FILE_EXTS.has(ext)) map.set(fp, []);
@@ -129,33 +135,37 @@ function isLightTheme() {
   return document.body.classList.contains('vscode-light');
 }
 
+// Draft A raises folder saturation ~14 points over the muted originals so
+// folders separate from the canvas (applies to both engines' chrome).
+const FOLDER_SAT_BOOST = 14;
+
 function folderFillColor(depth, hue) {
   if (isLightTheme()) {
-    const s = Math.min(25, 12 + depth * 3);
+    const s = Math.min(25, 12 + depth * 3) + FOLDER_SAT_BOOST;
     const l = Math.min(95, 88 + depth * 2);
     return `hsla(${hue}, ${s}%, ${l}%, 0.70)`;
   }
-  const s = Math.min(20, 8 + depth * 3);
+  const s = Math.min(20, 8 + depth * 3) + FOLDER_SAT_BOOST;
   const l = Math.max(10, 18 - depth * 2);
   return `hsla(${hue}, ${s}%, ${l}%, 0.55)`;
 }
 function folderStrokeColor(depth, hue) {
   if (isLightTheme()) {
-    const s = Math.min(30, 15 + depth * 4);
+    const s = Math.min(30, 15 + depth * 4) + FOLDER_SAT_BOOST;
     const l = Math.max(55, 72 - depth * 5);
     return `hsla(${hue}, ${s}%, ${l}%, 0.60)`;
   }
-  const s = Math.min(25, 10 + depth * 4);
+  const s = Math.min(25, 10 + depth * 4) + FOLDER_SAT_BOOST;
   const l = Math.max(25, 38 - depth * 4);
   return `hsla(${hue}, ${s}%, ${l}%, 0.35)`;
 }
 function folderTitlebarColor(depth, hue) {
   if (isLightTheme()) {
-    const s = Math.min(35, 18 + depth * 4);
+    const s = Math.min(35, 18 + depth * 4) + FOLDER_SAT_BOOST;
     const l = Math.max(68, 82 - depth * 4);
     return `hsla(${hue}, ${s}%, ${l}%, 0.92)`;
   }
-  const s = Math.min(25, 12 + depth * 4);
+  const s = Math.min(25, 12 + depth * 4) + FOLDER_SAT_BOOST;
   const l = Math.max(14, 24 - depth * 3);
   return `hsla(${hue}, ${s}%, ${l}%, 0.88)`;
 }
@@ -209,11 +219,29 @@ function renderFileCircles(fileG, nodesByFile) {
     .on('contextmenu', (event, d) => {
       event.preventDefault();
       event.stopPropagation();
-      showContextMenu(event, [
-        { label: 'Rename',       action: () => {} },
-        { label: 'New function', action: () => {} },
+      const items = [
+        { label: pathBasename(d.filePath), isHeader: true },
         { label: 'Go to File',   action: () => vscode.postMessage({ type: 'navigate', file: d.filePath, line: 1 }) },
-      ]);
+        { label: 'Hide file', action: () => {
+          state.hiddenFiles.add(d.filePath);
+          applyStructuralFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          window.markDirty?.();
+        } },
+        { label: 'Show only this file', action: () => {
+          state.onlyShowFile = d.filePath;
+          applyStructuralFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          window.markDirty?.();
+        } },
+      ];
+      if (state.hiddenFiles.size || state.onlyShowFile || state.hiddenFolders.size || state.onlyShowFolder) {
+        items.push({ label: 'Show all', action: () => {
+          state.hiddenFiles.clear(); state.onlyShowFile = null;
+          state.hiddenFolders.clear(); state.onlyShowFolder = null;
+          applyStructuralFilters(); ticked(); if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+          window.markDirty?.();
+        } });
+      }
+      showContextMenu(event, items);
     });
 }
 
@@ -238,6 +266,9 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
       childFolderPaths: [...info.childFolders],
       files: info.files,
       allNodes: getAllFolderNodes(folderPath, folderTree, nodesByFile),
+      counts: (typeof memberCounts === 'function')
+        ? memberCounts(getAllFolderNodes(folderPath, folderTree, nodesByFile))
+        : null,
     });
   });
   // Sort shallowest first → parent rects rendered behind child rects in SVG z-order
@@ -248,9 +279,14 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
     .join(
       enter => {
         const g = enter.append('g').attr('class', 'folder-bubble');
-        g.append('rect').attr('class', 'folder-bubble-shape');
-        g.append('rect').attr('class', 'folder-bubble-titlebar');
+        g.append('path').attr('class', 'folder-bubble-shape');
+        // Draft A chrome: visual tab + transparent full-width drag strip.
+        const tab = g.append('g').attr('class', 'frame-tab').attr('pointer-events', 'none');
+        tab.append('path').attr('class', 'frame-tab-shape');
+        tab.append('path').attr('class', 'frame-tab-glyph').attr('d', FOLDER_GLYPH);
+        tab.append('text').attr('class', 'frame-tab-counts').attr('text-anchor', 'end');
         g.append('text').attr('class', 'folder-bubble-label');
+        g.append('rect').attr('class', 'folder-bubble-titlebar').attr('fill', 'transparent');
         return g;
       },
       update => update,
@@ -263,11 +299,13 @@ function renderFolderBubbles(folderG, folderTree, nodesByFile) {
         { label: `${d.shortName} (Folder)`, isHeader: true },
         { label: 'Rename',           action: () => vscode.postMessage({ type: 'request-rename-folder', folderPath: d.folderPath }) },
         { label: 'New File',         action: () => vscode.postMessage({ type: 'request-new-file',      folderPath: d.folderPath }) },
-        { label: 'Hide Folder',      action: () => { state.hiddenFolders.add(d.folderPath); applyFilters(); ticked(); updateFolderPanel(); } },
-        { label: 'Only Show Folder', action: () => { state.onlyShowFolder = d.folderPath; applyFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Hide folder',      action: () => { state.hiddenFolders.add(d.folderPath); applyStructuralFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Only show this folder', action: () => { state.onlyShowFolder = d.folderPath; applyStructuralFilters(); ticked(); updateFolderPanel(); } },
       ];
-      if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-        items.push({ label: 'Show All Folders', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); ticked(); updateFolderPanel(); } });
+      if (state.hiddenFolders.size > 0 || state.onlyShowFolder || state.hiddenFiles?.size || state.onlyShowFile) {
+        // 'Show all' clears EVERY view filter, file-level included — a glyph's
+        // menu must not strand an onlyShowFile no slot menu can reach.
+        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles?.clear(); state.onlyShowFile = null; applyStructuralFilters(); ticked(); updateFolderPanel(); } });
       }
       showContextMenu(event, items);
     });
@@ -427,24 +465,37 @@ function tickFolderOverlay() {
     folderRectMap.set(d.folderPath, padded);
 
     d3.select(el).style('display', null);
+    const bw = padded.maxX - padded.minX;
+    const tw = tabWidth(d.shortName, bw);
+    // The x/y/width/height attrs don't render on a path — they are the
+    // geometry cache createFolderResizeDrag's filter and onFolderHoverMove
+    // read back from the element.
     d3.select(el).select('.folder-bubble-shape')
+      .attr('d', tabBodyPath(padded.minX, padded.minY, bw, padded.maxY - padded.minY, tw))
       .attr('x', padded.minX).attr('y', padded.minY)
-      .attr('width',  padded.maxX - padded.minX)
+      .attr('width',  bw)
       .attr('height', padded.maxY - padded.minY)
       .attr('fill',   folderFillColor(d.depth, d.hue))
       .attr('stroke', folderStrokeColor(d.depth, d.hue));
 
+    d3.select(el).select('.frame-tab-shape')
+      .attr('d', tabOnlyPath(padded.minX, padded.minY, tw))
+      .attr('fill', folderTitlebarColor(d.depth, d.hue));
+    d3.select(el).select('.frame-tab-glyph')
+      .attr('transform', `translate(${padded.minX + 9},${padded.minY + 6}) scale(0.85)`);
+    d3.select(el).select('.frame-tab-counts')
+      .attr('x', padded.maxX - 6).attr('y', padded.minY + TAB.H + 10)
+      .text(d.counts ? countsText(d.counts.files, d.counts.fns, bw - 20 - d.shortName.length * TAB.CHAR_W) : '');
+
     d3.select(el).select('.folder-bubble-titlebar')
       .attr('x', padded.minX).attr('y', padded.minY)
-      .attr('width',  padded.maxX - padded.minX)
-      .attr('height', FOLDER_TITLEBAR_HEIGHT)
-      .attr('fill',   folderTitlebarColor(d.depth, d.hue))
-      .attr('rx', 8);
+      .attr('width',  bw)
+      .attr('height', FOLDER_TITLEBAR_HEIGHT);
 
     d3.select(el).select('.folder-bubble-label')
-      .attr('x', (padded.minX + padded.maxX) / 2)
-      .attr('y', padded.minY + FOLDER_TITLEBAR_HEIGHT / 2)
-      .text(d.shortName);
+      .attr('x', padded.minX + 10)
+      .attr('y', padded.minY + TAB.H + 10)
+      .text(cutLabel(d.shortName, Math.max(4, Math.floor((bw * 0.6) / TAB.CHAR_W))));
   });
 }
 

@@ -87,6 +87,26 @@ suite('package.json contributions', () => {
     );
   });
 
+  test('declares the Annotate Graph command, activation event and settings', () => {
+    const cmds = pkg.contributes?.commands ?? [];
+    assert.ok(cmds.some((c: { command: string }) => c.command === 'cograph.annotateGraph'), 'command missing');
+    assert.ok(pkg.activationEvents.includes('onCommand:cograph.annotateGraph'), 'activation event missing');
+    const props = pkg.contributes.configuration.properties;
+    assert.strictEqual(props['cograph.graphIntelligence.annotate.readSource'].default, false, 'source reading must be opt-in');
+    assert.match(props['cograph.graphIntelligence.annotate.readSource'].markdownDescription, /No function bodies/);
+    assert.strictEqual(props['cograph.graphIntelligence.annotate.model'].default, 'haiku');
+    assert.strictEqual(props['cograph.graphIntelligence.annotate.codex.model'].default, 'gpt-5-mini');
+    assert.strictEqual(props['cograph.graphIntelligence.annotate.maxRunBudgetUsd'].default, 2);
+  });
+
+  test("'Open or Reset Layout' title with the UNCHANGED command id", () => {
+    const cmds = pkg.contributes?.commands ?? [];
+    const cmd = cmds.find((c: { command: string }) => c.command === 'cograph.openOrReload');
+    assert.ok(cmd, 'cograph.openOrReload must keep its id — keybindings/users depend on it');
+    assert.strictEqual(cmd.title, 'CoGraph: Open or Reset Layout',
+      "the command opens a FRESH layout; 'Reload' read like loading a saved graph");
+  });
+
   test('view id matches SidebarProvider.viewType', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { SidebarProvider } = require('../../sidebarProvider');
@@ -96,5 +116,13 @@ suite('package.json contributions', () => {
       SidebarProvider.viewType,
       'package.json view id must match SidebarProvider.viewType or the view will never resolve',
     );
+  });
+
+  test('declares cograph.layout.workers (auto | on | off, default auto)', () => {
+    const w = pkg.contributes?.configuration?.properties?.['cograph.layout.workers'];
+    assert.ok(w, 'cograph.layout.workers setting missing');
+    assert.deepStrictEqual(w.enum, ['auto', 'on', 'off']);
+    assert.strictEqual(w.default, 'auto');
+    assert.strictEqual(w.enumDescriptions.length, 3);
   });
 });

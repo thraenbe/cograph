@@ -812,7 +812,7 @@ suite('save-graph message handler', () => {
       payload: {
         settings: {
           complexityLevel: 0.8,
-          clusterGroupBy: 'class',
+          clusterGroupBy: 'file',
           layoutMode: 'static',
           gitMode: true,
           languageMode: false,
@@ -834,7 +834,7 @@ suite('save-graph message handler', () => {
     assert.ok(!Number.isNaN(new Date(written.savedAt).getTime()), 'savedAt should parse as a date');
     assert.deepStrictEqual(written.settings, {
       complexityLevel: 0.8,
-      clusterGroupBy: 'class',
+      clusterGroupBy: 'file',
       layoutMode: 'static',
       gitMode: true,
       languageMode: false,

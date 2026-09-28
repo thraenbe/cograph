@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { scanStructure } from '../../structureScanner';
-import { loadCache, writeCache } from '../../cacheStore';
+import { loadCache, writeCache, writeCacheAsync, scheduleCacheWrite, flushCacheWrites } from '../../cacheStore';
 
 const NODE = (file: string) => ({ id: 'n', name: 'n', file, line: 1 });
 function graphWith(file: string) {
@@ -104,5 +104,46 @@ suite('cacheStore', () => {
     const ghost = path.join(tmp, 'does', 'not', 'exist');
     assert.doesNotThrow(() => writeCache(ghost, graphWith('/x'), scanStructure(tmp)));
     assert.strictEqual(fs.existsSync(ghost), false);
+  });
+
+  // ── async, coalesced writes (perf W5) ──
+  test('writeCacheAsync produces the same cache as writeCache', async () => {
+    const structure = setupRepo();
+    const graph = graphWith(path.join(tmp, 'src', 'a.ts'));
+    await writeCacheAsync(tmp, graph, structure);
+    const res = loadCache(tmp, structure)!;
+    assert.ok(res && res.valid);
+    assert.deepStrictEqual(res.graph, graph);
+    const leftovers = fs.readdirSync(path.join(tmp, '.cograph')).filter(n => n.endsWith('.tmp'));
+    assert.deepStrictEqual(leftovers, [], 'temp file renamed away');
+  });
+
+  test('writeCacheAsync never throws and never creates a missing workspace root', async () => {
+    const structure = setupRepo();
+    const ghost = path.join(tmp, 'does-not-exist');
+    await writeCacheAsync(ghost, graphWith('x'), structure);
+    assert.strictEqual(fs.existsSync(ghost), false);
+    await writeCacheAsync(tmp, { nodes: [], edges: [], files: [] }, structure);
+    assert.strictEqual(loadCache(tmp, structure), null, 'empty graphs are not cached');
+  });
+
+  test('scheduleCacheWrite coalesces: only the newest graph per root is written; flush waits for it', async () => {
+    const structure = setupRepo();
+    const first = graphWith(path.join(tmp, 'src', 'a.ts'));
+    const second = { ...graphWith(path.join(tmp, 'src', 'b.ts')), nodes: [{ id: 'second', name: 's', file: path.join(tmp, 'src', 'b.ts'), line: 1 }] };
+    scheduleCacheWrite(tmp, first, structure, 10_000);
+    scheduleCacheWrite(tmp, second, structure, 10_000);
+    assert.strictEqual(loadCache(tmp, structure), null, 'nothing written synchronously');
+    await flushCacheWrites();
+    assert.deepStrictEqual(loadCache(tmp, structure)!.graph.nodes.map(n => n.id), ['second']);
+    await flushCacheWrites(); // idempotent when nothing is pending
+  });
+
+  test('scheduleCacheWrite fires on its own after the delay', async () => {
+    const structure = setupRepo();
+    scheduleCacheWrite(tmp, graphWith(path.join(tmp, 'src', 'a.ts')), structure, 5);
+    await new Promise(r => setTimeout(r, 60));
+    await flushCacheWrites();
+    assert.ok(loadCache(tmp, structure));
   });
 });

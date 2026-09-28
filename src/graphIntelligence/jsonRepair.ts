@@ -26,6 +26,31 @@ export function extractCographResult(
   );
 }
 
+/**
+ * Pull one JSON object out of a provider result for the narrow `runJson` call:
+ * the structured output when present, else the first balanced object in the text
+ * that satisfies `predicate` (same fence/garbage tolerance as extractCographResult).
+ */
+export function extractJsonObject(
+  ev: ProgressEvent & { kind: 'result' },
+  providerName: string,
+  predicate: (obj: unknown) => boolean = isPlainObject,
+): unknown {
+  if (ev.structured !== undefined && ev.structured !== null && predicate(ev.structured)) {
+    return ev.structured;
+  }
+  const text = ev.text ?? '';
+  const found = findFirstValidBalancedObject(text, predicate);
+  if (found) { return found; }
+  throw new Error(
+    `Unable to extract a JSON object from ${providerName} response. First 300 chars: ${text.slice(0, 300)}`,
+  );
+}
+
+function isPlainObject(obj: unknown): boolean {
+  return typeof obj === 'object' && obj !== null && !Array.isArray(obj);
+}
+
 function findFirstValidBalancedObject(
   raw: string,
   predicate: (obj: unknown) => boolean,

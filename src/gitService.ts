@@ -28,24 +28,29 @@ export class GitService {
         cwd: workspaceRoot, timeout: 5000, encoding: 'utf8',
         shell: process.platform === 'win32',
       });
-      const map = new Map();
-      for (const entry of out.split('\0').filter((e: string) => e.length >= 4 && /^[A-Z? ][A-Z? ] /.test(e))) {
-        const X = entry[0], Y = entry[1];
-        const rel = entry.slice(3);
-        const abs = toFwdSlash(path.join(workspaceRoot, rel));
-        let unstaged: 'added'|'modified'|'deleted'|null = null;
-        if (X === '?' && Y === '?') { unstaged = 'added'; }
-        else if (Y === 'M') { unstaged = 'modified'; }
-        else if (Y === 'D') { unstaged = 'deleted'; }
-        else if (X === 'A' && Y === ' ') { unstaged = 'added'; }
-        let staged: 'added' | 'modified' | 'deleted' | null = null;
-        if (X === 'A') { staged = 'added'; }
-        else if (X === 'D') { staged = 'deleted'; }
-        else if (X !== ' ' && X !== '?') { staged = 'modified'; }
-        map.set(abs, { unstaged, staged });
-      }
-      return map;
+      return this.parseStatusOutput(out, workspaceRoot);
     } catch { return null; }
+  }
+
+  /** `git status --porcelain -z` text → file status map (pure). */
+  parseStatusOutput(out: string, workspaceRoot: string): Map<string, FileStatus> {
+    const map = new Map();
+    for (const entry of out.split('\0').filter((e: string) => e.length >= 4 && /^[A-Z? ][A-Z? ] /.test(e))) {
+      const X = entry[0], Y = entry[1];
+      const rel = entry.slice(3);
+      const abs = toFwdSlash(path.join(workspaceRoot, rel));
+      let unstaged: 'added'|'modified'|'deleted'|null = null;
+      if (X === '?' && Y === '?') { unstaged = 'added'; }
+      else if (Y === 'M') { unstaged = 'modified'; }
+      else if (Y === 'D') { unstaged = 'deleted'; }
+      else if (X === 'A' && Y === ' ') { unstaged = 'added'; }
+      let staged: 'added' | 'modified' | 'deleted' | null = null;
+      if (X === 'A') { staged = 'added'; }
+      else if (X === 'D') { staged = 'deleted'; }
+      else if (X !== ' ' && X !== '?') { staged = 'modified'; }
+      map.set(abs, { unstaged, staged });
+    }
+    return map;
   }
 
   parseGitDiff(workspaceRoot: string, staged: boolean): Map<string, Array<{start: number; end: number; isNew: boolean}>> {
@@ -56,25 +61,30 @@ export class GitService {
         cwd: workspaceRoot, timeout: 5000, encoding: 'utf8',
         shell: process.platform === 'win32',
       });
-      const map = new Map<string, Array<{start: number; end: number; isNew: boolean}>>();
-      let currentFile: string | null = null;
-      for (const line of out.split('\n')) {
-        if (line.startsWith('+++ b/')) {
-          currentFile = toFwdSlash(path.join(workspaceRoot, line.slice(6).trimEnd()));
-          if (!map.has(currentFile)) { map.set(currentFile, []); }
-        } else if (line.startsWith('@@') && currentFile) {
-          const m = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-          if (m) {
-            const oldCount = m[2] !== undefined ? parseInt(m[2], 10) : 1;
-            const newStart = parseInt(m[3], 10);
-            const newCount = m[4] !== undefined ? parseInt(m[4], 10) : 1;
-            const end = newCount > 0 ? newStart + newCount - 1 : newStart;
-            map.get(currentFile)!.push({ start: newStart, end, isNew: oldCount === 0 });
-          }
+      return this.parseDiffOutput(out, workspaceRoot);
+    } catch { return new Map(); }
+  }
+
+  /** `git diff --unified=0` text → changed hunks per file (pure). */
+  parseDiffOutput(out: string, workspaceRoot: string): Map<string, Array<{start: number; end: number; isNew: boolean}>> {
+    const map = new Map<string, Array<{start: number; end: number; isNew: boolean}>>();
+    let currentFile: string | null = null;
+    for (const line of out.split('\n')) {
+      if (line.startsWith('+++ b/')) {
+        currentFile = toFwdSlash(path.join(workspaceRoot, line.slice(6).trimEnd()));
+        if (!map.has(currentFile)) { map.set(currentFile, []); }
+      } else if (line.startsWith('@@') && currentFile) {
+        const m = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+        if (m) {
+          const oldCount = m[2] !== undefined ? parseInt(m[2], 10) : 1;
+          const newStart = parseInt(m[3], 10);
+          const newCount = m[4] !== undefined ? parseInt(m[4], 10) : 1;
+          const end = newCount > 0 ? newStart + newCount - 1 : newStart;
+          map.get(currentFile)!.push({ start: newStart, end, isNew: oldCount === 0 });
         }
       }
-      return map;
-    } catch { return new Map(); }
+    }
+    return map;
   }
 
   /**
@@ -159,7 +169,44 @@ export class GitService {
   applyGitStatuses(nodes: GraphNode[], workspaceRoot: string): boolean {
     const gitMap = this.parseGitStatus(workspaceRoot);
     if (gitMap === null) { this.fileStatuses = {}; return false; }
+    this.annotateNodes(nodes, gitMap,
+      this.parseGitDiff(workspaceRoot, false), this.parseGitDiff(workspaceRoot, true));
+    return true;
+  }
 
+  /**
+   * Non-blocking variant for the hot path (every save / .git/index change):
+   * the three git subprocesses run in parallel off the extension-host thread.
+   */
+  async applyGitStatusesAsync(nodes: GraphNode[], workspaceRoot: string): Promise<boolean> {
+    const run = (args: string[]): Promise<string> => new Promise((resolve, reject) => {
+      cp.execFile('git', args, {
+        cwd: workspaceRoot, timeout: 5000, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+        shell: process.platform === 'win32',
+      }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))));
+    });
+    let statusOut: string;
+    try {
+      statusOut = await run(['status', '--porcelain', '-z']);
+    } catch {
+      this.fileStatuses = {};
+      return false;                       // not a repository / git missing
+    }
+    const [unstaged, staged] = await Promise.all([
+      run(['diff', '--unified=0']).catch(() => ''),
+      run(['diff', '--unified=0', '--cached']).catch(() => ''),
+    ]);
+    this.annotateNodes(nodes, this.parseStatusOutput(statusOut, workspaceRoot),
+      this.parseDiffOutput(unstaged, workspaceRoot), this.parseDiffOutput(staged, workspaceRoot));
+    return true;
+  }
+
+  private annotateNodes(
+    nodes: GraphNode[],
+    gitMap: Map<string, FileStatus>,
+    unstagedDiff: Map<string, Array<{start: number; end: number; isNew: boolean}>>,
+    stagedDiff: Map<string, Array<{start: number; end: number; isNew: boolean}>>,
+  ): void {
     this.fileStatuses = Object.fromEntries(gitMap);
 
     const nodesByFile = new Map<string, GraphNode[]>();
@@ -168,12 +215,13 @@ export class GitService {
       if (!nodesByFile.has(node.file)) { nodesByFile.set(node.file, []); }
       nodesByFile.get(node.file)!.push(node);
     }
+    // End line of each definition = the next definition's line − 1. Computed
+    // once per file (was an indexOf per node → O(n²) within large files).
+    const endLineOf = new Map<GraphNode, number>();
     for (const list of nodesByFile.values()) {
       list.sort((a, b) => a.line - b.line);
+      list.forEach((n, i) => endLineOf.set(n, i + 1 < list.length ? list[i + 1].line - 1 : Infinity));
     }
-
-    const unstagedDiff = this.parseGitDiff(workspaceRoot, false);
-    const stagedDiff   = this.parseGitDiff(workspaceRoot, true);
 
     for (const node of nodes) {
       if (!node.file) continue;
@@ -182,10 +230,8 @@ export class GitService {
       if (fileStatus.unstaged === 'added' || fileStatus.unstaged === 'deleted') {
         node.gitStatus = fileStatus; continue;
       }
-      const siblings  = nodesByFile.get(node.file)!;
-      const idx       = siblings.indexOf(node);
       const nodeStart = node.line;
-      const nodeEnd   = idx + 1 < siblings.length ? siblings[idx + 1].line - 1 : Infinity;
+      const nodeEnd   = endLineOf.get(node) ?? Infinity;
       const hunkStatus = (hunks: Array<{start: number; end: number; isNew: boolean}>): 'added'|'modified'|null => {
         const overlapping = hunks.filter(h => h.start <= nodeEnd && h.end >= nodeStart);
         if (overlapping.length === 0) { return null; }
@@ -197,6 +243,5 @@ export class GitService {
         staged:   hunkStatus(stagedDiff.get(toFwdSlash(node.file))   ?? []),
       };
     }
-    return true;
   }
 }

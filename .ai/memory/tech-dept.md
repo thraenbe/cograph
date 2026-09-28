@@ -78,3 +78,48 @@ reanalysis-scheduling path would re-load the gun. Fix shape: same captured
   Frames-engine follow-ups: CSS transition for repack moves; per-frame viewport culling
   wired to the zoom transform (scheduler visibility hook exists, currently always-visible);
   "always individual cross links" settings toggle; class bubbles inside frames.
+
+- 2026-09-21 (perf push, round-2 candidates — measured, see `.ai/plans/perf.md` Results log):
+  - **Giant frames at rest** (fmt-class repos: one folder with > 1 000 functions): drag runs at
+    ~15 fps and settle costs ~22 ms main-thread per animation frame, because one frame = one
+    10-20 ms DOM pass + full SVG repaint. Step 1: split a giant frame's position apply across
+    several rAFs and cap visible labels per frame. Step 2 (only if step 1 is not enough): a
+    Canvas2D layer for function nodes + intra-frame links above ~2 000 visible elements
+    (frames/slots/labels/bundles stay SVG; quadtree hit-testing; ~3-4 days; touches annotate's
+    hover card). The agreed W3b gate passes without it (56.6 fps @3k, 41.9 @10k in-editor).
+  - **Global engine** still ticks on the main thread (128 ms/tick @3k) → W4: same worker,
+    single-sim mode + separation-force rewrite (precomputed membership, no per-tick allocation).
+    CORRECTION (2026-09-21, root cause found by session-111): the F12 zod freeze is NOT tick
+    cost — nested drill-down cluster pulls SUM per node (zod: factor 16 vs a stability limit of
+    ~2), coordinates run away to 1e40 and everything downstream chokes. Moving the sim into a
+    worker would not have fixed it; the per-node stability clamp (1.5·alpha in
+    `createDrilldownClusterForce`) must travel WITH the force into the worker.
+  - **Analyzer call fan-out** — D6 shipped 2026-09-21 (`scripts/narrowCalls.js`, mirrored in
+    `analyze.py`): > 8 same-named definitions → file → directory → top-level package → drop.
+    Follow-ups: use each analyzer's import map as a stage (a name imported from module X should
+    resolve to X even across packages); guava still needs 74 s (parse-bound → sharding, W5-6).
+  - When the global engine moves into the worker (W4), every Global-only force key must travel
+    with the settings patch too — notably ux's F4 `repelRange` (charge `.distanceMax`) and the
+    drill-down/file separation forces, which exist only in `rendering.js`/`drilldown.js` today.
+  - **First-character search keystroke** still runs the full display pass when > 25 % of nodes
+    flip (10-14 ms @3k, 34 ms @10k vs ≤ 10 / ≤ 25 targets): index labels or chunk the flip.
+  - The simulation worker's Blob URL is never revoked (≈ 56 KB per panel; simBackend.js).
+  - `cograph.layout.workers` is read at panel open only (not live).
+  - Intra-language analyzer sharding (W5-6) and NDJSON streaming not started.
+- **2026-09-21 — Libraries are not rendered in the Shelf engine.** frameRender
+  clears `libNodeG`/`libLabelG`, so "Show Libraries" is disabled with a hint
+  under Shelf (orchestrator decision, uxtest F5). Follow-up: design library
+  rendering inside frames (own shelf strip? per-frame lib slots?) and re-enable
+  the toggle.
+
+- **2026-09-21 — Tab titles unreadable when zoomed far out (uxtest, zod).** At
+  fit-to-view all 51 folder boxes render < 40 px on screen, so the Draft A tab
+  labels are illegible. Follow-up idea: constant on-screen tab label size
+  (counter-scale the tab text/glyph against the zoom transform below a
+  threshold). No action yet per orchestrator.
+
+- **2026-09-21 — Global never fully stills at defaults on click.** ~0.9 px/tick
+  residual jitter at alpha 0, driven by forceCollide (which ignores alpha) on a
+  dense layout — pre-existing, source of uxtest 'did-not-settle' findings.
+  Round-2 item (perf/layout tuning), measured during the F12 investigation.
+

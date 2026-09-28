@@ -13,6 +13,7 @@ const __perf = {
   stats: new Map(),    // name -> { count, total, max, last } (perfMeasure)
   counts: new Map(),   // name -> count (perfCount)
   ticks: [],           // ring buffer of tick durations in ms
+  frames: [],          // ring buffer: main-thread ms per animation frame (perfFrame)
   simStartMs: null,    // set on 'sim:start', read by perfSettled
   reportTimer: null,
 };
@@ -35,10 +36,7 @@ function perfMeasure(name, sinceMark) {
   if (!perfOn()) { return; }
   const t0 = __perf.marks.get(sinceMark);
   if (t0 === undefined) { return; }
-  const ms = perfNow() - t0;
-  let s = __perf.stats.get(name);
-  if (!s) { s = { count: 0, total: 0, max: 0, last: 0 }; __perf.stats.set(name, s); }
-  s.count++; s.total += ms; s.last = ms; if (ms > s.max) { s.max = ms; }
+  __perfAdd(name, perfNow() - t0);
 }
 
 function perfCount(name) {
@@ -52,14 +50,40 @@ function perfTick(ms) {
   if (__perf.ticks.length > PERF_TICK_RING) { __perf.ticks.shift(); }
 }
 
+/** Main-thread milliseconds spent in one animation frame (frames engine). */
+function perfFrame(ms) {
+  if (!perfOn()) { return; }
+  __perf.frames.push(ms);
+  if (__perf.frames.length > PERF_TICK_RING) { __perf.frames.shift(); }
+}
+
+/** Span timing without a closure: `const t0 = perfBegin(); …; perfEnd(name, t0)`.
+ *  perfBegin returns 0 when disabled, which makes perfEnd a no-op. */
+function perfBegin() {
+  return perfOn() ? perfNow() : 0;
+}
+
+function perfEnd(name, t0) {
+  if (!t0 || !perfOn()) { return; }
+  __perfAdd(name, perfNow() - t0);
+}
+
+function perfSpan(name, fn) {
+  const t0 = perfBegin();
+  try { return fn(); } finally { perfEnd(name, t0); }
+}
+
+function __perfAdd(name, ms) {
+  let s = __perf.stats.get(name);
+  if (!s) { s = { count: 0, total: 0, max: 0, last: 0 }; __perf.stats.set(name, s); }
+  s.count++; s.total += ms; s.last = ms; if (ms > s.max) { s.max = ms; }
+}
+
 /** Simulation reached alphaMin: record settle time, auto-report shortly after. */
 function perfSettled() {
   if (!perfOn()) { return; }
   if (__perf.simStartMs != null) {
-    let s = __perf.stats.get('sim:settle');
-    if (!s) { s = { count: 0, total: 0, max: 0, last: 0 }; __perf.stats.set('sim:settle', s); }
-    const ms = perfNow() - __perf.simStartMs;
-    s.count++; s.total += ms; s.last = ms; if (ms > s.max) { s.max = ms; }
+    __perfAdd('sim:settle', perfNow() - __perf.simStartMs);
     __perf.simStartMs = null;
   }
   if (__perf.reportTimer) { clearTimeout(__perf.reportTimer); }
@@ -72,8 +96,17 @@ function __percentile(sorted, p) {
   return sorted[idx];
 }
 
+function __ringSummary(ring) {
+  const sorted = [...ring].sort((a, b) => a - b);
+  return {
+    samples: sorted.length,
+    p50Ms: +__percentile(sorted, 50).toFixed(2),
+    p95Ms: +__percentile(sorted, 95).toFixed(2),
+    maxMs: sorted.length ? +sorted[sorted.length - 1].toFixed(2) : 0,
+  };
+}
+
 function perfReport() {
-  const ticks = [...__perf.ticks].sort((a, b) => a - b);
   const stats = {};
   for (const [name, s] of __perf.stats) {
     stats[name] = {
@@ -92,12 +125,8 @@ function perfReport() {
     engine: (typeof state !== 'undefined' && state.layoutEngine)
       ? (state.layoutMode ? `${state.layoutEngine}/${state.layoutMode}` : state.layoutEngine)
       : ((typeof state !== 'undefined' && state.layoutMode) || 'global'),
-    tick: {
-      samples: ticks.length,
-      p50Ms: +__percentile(ticks, 50).toFixed(2),
-      p95Ms: +__percentile(ticks, 95).toFixed(2),
-      maxMs: ticks.length ? +ticks[ticks.length - 1].toFixed(2) : 0,
-    },
+    tick: __ringSummary(__perf.ticks),
+    frame: __ringSummary(__perf.frames),
     stats,
     counts,
   };
@@ -118,7 +147,7 @@ function postPerfReport() {
 
 function perfReset() {
   __perf.marks.clear(); __perf.stats.clear(); __perf.counts.clear();
-  __perf.ticks.length = 0; __perf.simStartMs = null;
+  __perf.ticks.length = 0; __perf.frames.length = 0; __perf.simStartMs = null;
   if (__perf.reportTimer) { clearTimeout(__perf.reportTimer); __perf.reportTimer = null; }
 }
 
@@ -129,6 +158,7 @@ if (typeof window !== 'undefined') {
 if (typeof module !== 'undefined') {
   module.exports = {
     perfOn, perfNow, perfMark, perfMeasure, perfCount, perfTick,
+    perfFrame, perfBegin, perfEnd, perfSpan,
     perfSettled, perfReport, postPerfReport, perfReset, PERF_TICK_RING,
   };
 }

@@ -450,4 +450,37 @@ suite('frames.js — queries & persistence', () => {
     assert.strictEqual(fs3.byPath.get('/p/c').local.x, 500);
     assert.strictEqual(fs3.byPath.get('/p/c').pinned, true);
   });
+
+  test('contentPos round-trips: slot geometry no longer depends on pack history (F15)', () => {
+    const fs2 = build(tree, allOpen, parsed);
+    const f = fs2.byPath.get('/p/a');
+    // Simulate pack history: a grow-in-place pass left the content block at a
+    // non-default offset inside a larger-than-natural frame.
+    f.contentPos = { x: 37, y: 21 };
+    f.local.w += 120; f.local.h += 90;
+    fr.resolveAbs(fs2);
+    const memberId = [...f.slotOf.keys()][0];
+    const savedInterior = fr.slotInteriorFor(f, memberId);
+    assert.ok(savedInterior, 'sanity: member has a slot interior');
+
+    const saved = fr.serializeFrames(fs2);
+    assert.strictEqual(saved['/p/a'].cx, 37, 'contentPos.x saved');
+    assert.strictEqual(saved['/p/a'].cy, 21, 'contentPos.y saved');
+
+    // Fresh build (no history) + deserialize must reproduce the interiors.
+    const fs3 = build(tree, allOpen, parsed);
+    fr.deserializeFrames(saved, fs3);
+    const g = fs3.byPath.get('/p/a');
+    assert.deepStrictEqual(g.contentPos, { x: 37, y: 21 });
+    const restoredInterior = fr.slotInteriorFor(g, memberId);
+    assert.deepStrictEqual(restoredInterior, savedInterior,
+      'slot interior identical from the payload alone');
+  });
+
+  test('old saves without cx/cy leave the fresh contentPos untouched', () => {
+    const fs2 = build(tree, allOpen, parsed);
+    const before = { ...fs2.byPath.get('/p/a').contentPos };
+    fr.deserializeFrames({ '/p/a': { x: 5, y: 6, w: 400, h: 300, pinned: false } }, fs2);
+    assert.deepStrictEqual(fs2.byPath.get('/p/a').contentPos, before);
+  });
 });

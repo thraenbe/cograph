@@ -3,6 +3,10 @@ import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { activate, deactivate } from '../../extension';
 import { SidebarProvider } from '../../sidebarProvider';
+import { GraphProvider } from '../../graphProvider';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 // ---------------------------------------------------------------------------
 // Suite: extension activation wiring (commands, sidebar view, config listener)
@@ -56,6 +60,28 @@ suite('extension activate()', () => {
     const declared = (pkg.contributes.commands as Array<{ command: string }>)
       .map(c => c.command).sort();
     assert.deepStrictEqual([...registeredCommands.keys()].sort(), declared);
+  });
+
+  test('cograph.visualizeFolder: the picked folder opens the panel scoped to it; dismissing does nothing', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-cmd-'));
+    fs.mkdirSync(path.join(tmp, 'src', 'server'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'src', 'server', 'a.ts'), 'export const a = 1;\n');
+    (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: tmp } }];
+    const showScoped = sandbox.stub(GraphProvider.prototype, 'showScoped');
+    const qp = sandbox.stub(vscode.window, 'showQuickPick');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    qp.onFirstCall().callsFake((async (items: unknown) => (items as Array<{ rel: string }>).find(i => i.rel === 'src/server')) as any);
+    qp.onSecondCall().resolves(undefined);
+    try {
+      activate(context);
+      await registeredCommands.get('cograph.visualizeFolder')!();
+      assert.ok(showScoped.calledOnce);
+      assert.deepStrictEqual(showScoped.firstCall.args, [{ include: ['src/server'], exclude: [] }, 'folder']);
+      await registeredCommands.get('cograph.visualizeFolder')!();
+      assert.ok(showScoped.calledOnce, 'dismissed picker opens nothing');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   test('registers the sidebar webview view provider under its viewType', () => {

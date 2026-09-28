@@ -6,6 +6,12 @@ import type { GraphIntelligenceResult, ProgressEvent } from './graphIntelligence
 import type { GraphData } from './graphProvider';
 import { PROVIDER_CATALOG, getProviderInfo, findProviderForModel } from './graphIntelligence/provider';
 import { ChatStore, type ChatMessage, DEFAULT_CHAT_KEY } from './graphIntelligence/chatStore';
+import { ANNOTATION_CARD_CSS, ANNOTATION_CARD_SCRIPT } from './graphIntelligence/annotationCard';
+import { readSubgraphField, normalize as normalizeScope } from './subgraphScope';
+import { scanStructure } from './structureScanner';
+import { buildPickerFolders, SUBGRAPH_PICKER_CSS, SUBGRAPH_PICKER_MARKUP, SUBGRAPH_PICKER_SCRIPT } from './subgraphPicker';
+import { SAVED_LAYOUT_VERSION } from './graphProvider';
+import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
 
 export interface SavedGraphMeta {
   name: string;
@@ -16,6 +22,10 @@ export interface SavedGraphMeta {
   isWorkflow?: boolean;
   /** Workflow card lifecycle state; undefined for ordinary saved graphs. */
   status?: 'before' | 'generating' | 'ready';
+  /** True when the file carries a `subgraph` field (round 3): a scoped saved graph. */
+  isSubgraph?: boolean;
+  /** Number of included folders of a subgraph. */
+  folderCount?: number;
 }
 
 // Forward reference — the actual GraphProvider is passed in at construction time
@@ -38,6 +48,10 @@ export interface GraphController {
     onProgress?: (ev: ProgressEvent) => void,
   ): Promise<GraphIntelligenceResult>;
   showWorkflowGraph?(graph: GraphData, filePath: string, name: string): Promise<void>;
+  annotateGraph?(providerId: string): Promise<unknown>;
+  cancelAnnotate?(): void;
+  annotationStatus?(): AnnotationStatus;
+  onAnnotationStatus?(listener: (s: AnnotationStatus) => void): { dispose(): void };
 }
 
 /** Filename of the special, pinned AI Workflow Graph inside `.cograph/`. */
@@ -99,8 +113,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     };
     webviewView.webview.html = this._buildHtml(webviewView.webview);
 
+    const annotateSub = this._graphController.onAnnotationStatus?.((status) => {
+      this._view?.webview.postMessage({ type: 'annotate-status', status });
+    });
+
     webviewView.onDidDispose(() => {
       this._view = undefined;
+      annotateSub?.dispose();
       this._graphController.abortIntelligence?.();
     });
 
@@ -111,6 +130,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           this._view?.webview.postMessage({ type: 'provider-catalog', catalog: PROVIDER_CATALOG });
           this._sendActiveModel();
           this._sendAiEnabled();
+          this._sendAnnotateStatus();
           // Restore previously-saved splitter height.
           const savedHeight = this._workspaceState?.get<number>(SidebarProvider.STATE_KEY_GRAPHS_HEIGHT);
           if (typeof savedHeight === 'number' && savedHeight > 0) {
@@ -252,6 +272,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           }
           await this._generateWorkflow();
           break;
+        case 'annotate-generate':
+        case 'annotate-update':
+          if (!this._aiEnabled()) {
+            await this._openAiSettings();
+            break;
+          }
+          await this._annotateGraph();
+          break;
+        case 'annotate-cancel':
+          // Deliberately not gated: stopping a run must work even if AI was just switched off.
+          this._graphController.cancelAnnotate?.();
+          break;
         case 'open-ai-settings':
           await this._openAiSettings();
           break;
@@ -290,6 +322,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           }
           break;
         }
+        case 'subgraph-picker-open':
+          this._openSubgraphPicker();
+          break;
+        case 'subgraph-create':
+          await this._createSubgraph(String(msg.name ?? ''), Array.isArray(msg.include) ? msg.include.map(String) : []);
+          break;
         case 'new-graph':
           if (this._graphController.isOpen()) {
             this._graphController.reloadLayout();
@@ -568,8 +606,79 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /** Push the Annotate Graph card state (also sent on every status change via the subscription). */
+  private _sendAnnotateStatus(): void {
+    const status = this._graphController.annotationStatus?.();
+    if (status) { this._view?.webview.postMessage({ type: 'annotate-status', status }); }
+  }
+
+  /** Start, resume or update annotations. The controller confirms an estimate with the user first. */
+  private async _annotateGraph(): Promise<void> {
+    if (!this._graphController.annotateGraph) {
+      vscode.window.showErrorMessage('CoGraph: Annotate Graph is not available.');
+      return;
+    }
+    const provider = vscode.workspace.getConfiguration('cograph')
+      .get<string>('graphIntelligence.provider', 'claude-code');
+    try {
+      await this._graphController.annotateGraph(provider);
+    } catch (err) {
+      vscode.window.showErrorMessage(`CoGraph: Annotate Graph failed — ${(err as Error).message}`);
+    } finally {
+      this._sendAnnotateStatus();
+    }
+  }
+
   private _postWorkflowStatus(status: 'before' | 'generating' | 'ready', detail?: string): void {
     this._view?.webview.postMessage({ type: 'workflow-status', status, detail });
+  }
+
+  /** Scan the workspace and hand the picker its folder rows plus a free default name. */
+  private _openSubgraphPicker(): void {
+    const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!ws) { vscode.window.showErrorMessage('CoGraph: No workspace folder open.'); return; }
+    try {
+      const folders = buildPickerFolders(scanStructure(ws), ws);
+      if (folders.length === 0) {
+        vscode.window.showInformationMessage('CoGraph: No source folders found in this workspace.');
+        return;
+      }
+      const taken = new Set(this._listCographFiles().map(g => g.name));
+      let n = 1;
+      while (taken.has(`Subgraph ${n}`)) { n++; }
+      this._view?.webview.postMessage({ type: 'subgraph-picker', root: ws, folders, defaultName: `Subgraph ${n}` });
+    } catch (err) {
+      vscode.window.showErrorMessage(`CoGraph: Could not read the folder tree — ${(err as Error).message}`);
+    }
+  }
+
+  /** Write `.cograph/<name>.json` with the subgraph field (no layout yet) and open it. */
+  private async _createSubgraph(rawName: string, include: string[]): Promise<void> {
+    const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!ws) { vscode.window.showErrorMessage('CoGraph: No workspace folder open.'); return; }
+    const name = rawName.trim();
+    const spec = normalizeScope({ include, exclude: [] });
+    if (!name) { vscode.window.showErrorMessage('CoGraph: The subgraph needs a name.'); return; }
+    if (spec.include.length === 0) { vscode.window.showErrorMessage('CoGraph: Pick at least one folder for the subgraph.'); return; }
+    if (spec.include.length === 1 && spec.include[0] === '.') {
+      vscode.window.showErrorMessage('CoGraph: That is the whole project — use "+ New Graph" for that.');
+      return;
+    }
+    const dir = path.join(ws, '.cograph');
+    const file = path.join(dir, name.replace(/[^a-zA-Z0-9_\- ]/g, '_') + '.json');
+    try {
+      if (fs.existsSync(file)) {
+        const choice = await vscode.window.showWarningMessage(`"${name}" already exists. Replace it?`, { modal: true }, 'Replace');
+        if (choice !== 'Replace') { return; }
+      }
+      if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+      const data = { version: SAVED_LAYOUT_VERSION, name, description: '', savedAt: new Date().toISOString(), subgraph: spec };
+      fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+      this._sendGraphList();
+      await this._graphController.loadGraph(data, file);
+    } catch (err) {
+      vscode.window.showErrorMessage(`CoGraph: Failed to create the subgraph — ${(err as Error).message}`);
+    }
   }
 
   private _listCographFiles(): SavedGraphMeta[] {
@@ -583,11 +692,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       .map(f => {
         try {
           const data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+          const spec = readSubgraphField(data);
           return {
             name: data.name || f.replace('.json', ''),
             description: data.description || '',
             savedAt: data.savedAt || '',
             file: path.join(dir, f),
+            ...(spec ? { isSubgraph: true, folderCount: spec.include.length } : {}),
           };
         } catch {
           return null;
@@ -841,7 +952,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       animation: wf-slide 1.1s ease-in-out infinite;
     }
     @keyframes wf-slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
-
+${ANNOTATION_CARD_CSS}${SUBGRAPH_PICKER_CSS}
+    .card-glyph {
+      display: inline-block; margin-right: 5px; font-weight: 700;
+      color: var(--vscode-focusBorder, #007fd4);
+    }
     .card-name {
       font-size: 12px;
       font-weight: 600;
@@ -1542,7 +1657,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       <span>Saved Graphs</span>
     </div>
     <div class="section-body" id="body-graphs">
-      <button id="btn-new-graph">+ New Graph</button>
+      <button id="btn-new-graph">+ New Graph</button>${SUBGRAPH_PICKER_MARKUP}
       <input id="search" type="text" placeholder="Search graphs…" />
       <div id="graph-list">
         <div class="empty-state">No saved graphs yet.</div>
@@ -1705,6 +1820,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
+${ANNOTATION_CARD_SCRIPT}
+${SUBGRAPH_PICKER_SCRIPT}
+    wireSubgraphPicker();
+
     function renderCards(graphs, query) {
       const list = document.getElementById('graph-list');
       const workflow = graphs.find(g => g.isWorkflow);
@@ -1713,18 +1832,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         ? rest.filter(g => g.name.toLowerCase().includes(query) || g.description.toLowerCase().includes(query))
         : rest;
 
-      let html = workflow ? renderWorkflowCard(workflow) : '';
+      let html = (workflow ? renderWorkflowCard(workflow) : '') + renderAnnotateCard();
       if (filtered.length === 0) {
         if (query) { html += '<div class="empty-state">No matches.</div>'; }
         else if (!rest.length) { html += '<div class="empty-state">No saved graphs yet.</div>'; }
       } else {
         html += filtered.map(g => {
-          const desc = g.description || formatDate(g.savedAt) || '—';
+          const folders = g.isSubgraph ? (g.folderCount === 1 ? '1 folder' : (g.folderCount || 0) + ' folders') : '';
+          const desc = g.description || (g.isSubgraph ? 'Subgraph · ' + folders : '') || formatDate(g.savedAt) || '—';
           const safeFile = g.file.replace(/"/g, '&quot;');
           const safeName = g.name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
           const safeDesc = desc.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          return \`<div class="graph-card" data-file="\${safeFile}" data-name="\${safeName}">
-            <div class="card-name">\${safeName}</div>
+          const glyph = g.isSubgraph ? '<span class="card-glyph" title="Subgraph: a scoped view of the project">⊂</span>' : '';
+          return \`<div class="graph-card\${g.isSubgraph ? ' subgraph' : ''}" data-file="\${safeFile}" data-name="\${safeName}">
+            <div class="card-name">\${glyph}\${safeName}</div>
             <div class="card-bottom">
               <span class="card-desc">\${safeDesc}</span>
               <button class="btn-timeline" data-file="\${safeFile}" data-name="\${safeName}" title="Open timeline view for this graph">Timeline</button>
@@ -1735,6 +1856,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       list.innerHTML = html;
 
       wireWorkflowCard(list);
+      wireAnnotateCard(list);
 
       list.querySelectorAll('.graph-card').forEach(card => {
         card.addEventListener('click', () => {
@@ -1805,6 +1927,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         allGraphs = msg.files;
         const query = document.getElementById('search').value.toLowerCase();
         renderCards(allGraphs, query);
+      } else if (msg.type === 'subgraph-picker') {
+        spOpen(msg);
       } else if (msg.type === 'graph-context-set') {
         const dot  = document.getElementById('graph-dot');
         const name = document.getElementById('graph-name');
@@ -1827,6 +1951,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           const d = document.getElementById('wf-detail');
           if (d) { d.textContent = msg.detail; }
         }
+      } else if (msg.type === 'annotate-status') {
+        onAnnotateStatus(msg);
       } else if (msg.type === 'ai-enabled') {
         aiEnabled = !!msg.enabled;
         document.body.classList.toggle('ai-disabled', !aiEnabled);

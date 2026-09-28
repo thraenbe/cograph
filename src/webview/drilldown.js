@@ -44,13 +44,18 @@ function buildDrilldownBoxData() {
   const tree = state.structureTree;
   if (!tree || !tree.folders) { return []; }
   const boxes = [];
+  // Structural scope (round 3): out-of-scope folders get no box, and a box
+  // sizes only around its in-scope members — same predicate as the frames.
+  const sc = (typeof buildScope === 'function') ? buildScope(state) : null;
+  const scoped = sc && scopeActive(sc);
   for (const folderPath of state.expandedFolders) {
     if (folderPath === tree.root) { continue; } // no box around the whole project root
     const info = tree.folders[folderPath];
     if (!info) { continue; } // an expanded file path, not a folder
+    if (scoped && !frameFolderVisible(folderPath, sc)) { continue; }
     const members = state.currentNodes.filter(n => {
       const p = ddNodePath(n);
-      return p && pathUnder(p, folderPath);
+      return p && pathUnder(p, folderPath) && (!scoped || memberInScope(n, sc));
     });
     if (!members.length) { continue; }
     boxes.push({
@@ -59,6 +64,7 @@ function buildDrilldownBoxData() {
       depth: info.depth || 0,
       hue: ddHue(folderPath),
       members,
+      counts: (typeof memberCounts === 'function') ? memberCounts(members) : null,
     });
   }
   boxes.sort((a, b) => a.depth - b.depth); // shallow first → parents behind children
@@ -71,9 +77,14 @@ function renderDrilldownBoxes(boxes) {
     .join(
       enter => {
         const grp = enter.append('g').attr('class', 'folder-bubble');
-        grp.append('rect').attr('class', 'folder-bubble-shape');
-        grp.append('rect').attr('class', 'folder-bubble-titlebar');
+        grp.append('path').attr('class', 'folder-bubble-shape');
+        // Draft A chrome: visual tab + transparent full-width drag strip.
+        const tab = grp.append('g').attr('class', 'frame-tab').attr('pointer-events', 'none');
+        tab.append('path').attr('class', 'frame-tab-shape');
+        tab.append('path').attr('class', 'frame-tab-glyph').attr('d', FOLDER_GLYPH);
+        tab.append('text').attr('class', 'frame-tab-counts').attr('text-anchor', 'end');
         grp.append('text').attr('class', 'folder-bubble-label');
+        grp.append('rect').attr('class', 'folder-bubble-titlebar');
         return grp;
       },
       update => update,
@@ -86,23 +97,27 @@ function renderDrilldownBoxes(boxes) {
         { label: `${d.shortName} (Folder)`, isHeader: true },
         { label: 'Elapse folder',         action: () => { if (typeof elapseFolder === 'function') { elapseFolder(d.folderPath); } } },
         { label: 'Collapse folder',       action: () => { if (typeof collapseFolder === 'function') { collapseFolder(d.folderPath); } } },
-        { label: 'Only show this folder', action: () => { state.onlyShowFolder = d.folderPath; applyFilters(); ticked(); updateFolderPanel(); } },
-        { label: 'Hide folder',           action: () => { state.hiddenFolders.add(d.folderPath); applyFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Only show this folder', action: () => { state.onlyShowFolder = d.folderPath; applyStructuralFilters(); ticked(); updateFolderPanel(); } },
+        { label: 'Hide folder',           action: () => { state.hiddenFolders.add(d.folderPath); applyStructuralFilters(); ticked(); updateFolderPanel(); } },
         { label: 'Go to folder',          action: () => vscode.postMessage({ type: 'navigate', file: d.folderPath, line: 1 }) },
       ];
       if (state.hiddenFolders.size > 0 || state.onlyShowFolder) {
-        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; applyFilters(); ticked(); updateFolderPanel(); } });
+        items.push({ label: 'Show all', action: () => { state.hiddenFolders.clear(); state.onlyShowFolder = null; state.hiddenFiles.clear(); state.onlyShowFile = null; applyStructuralFilters(); ticked(); updateFolderPanel(); } });
       }
       showContextMenu(event, items);
     });
   sel.each(function(d) {
     d3.select(this).select('.folder-bubble-shape')
-      .attr('rx', 8).attr('stroke-width', 1.5).attr('pointer-events', 'none');
+      .attr('stroke-width', 1.5).attr('pointer-events', 'none');
     d3.select(this).select('.folder-bubble-titlebar')
-      .attr('rx', 8).attr('pointer-events', 'all').attr('cursor', 'grab');
+      .attr('fill', 'transparent').attr('pointer-events', 'all').attr('cursor', 'grab');
+    d3.select(this).select('.frame-tab-glyph')
+      .attr('fill', isLightTheme() ? '#333333' : '#cccccc');
+    d3.select(this).select('.frame-tab-counts')
+      .attr('fill', isLightTheme() ? '#333333' : '#cccccc');
     d3.select(this).select('.folder-bubble-label')
-      .attr('font-size', `${(12 + 6 / ((d.depth || 0) + 1)) * settings.textSize}px`)
-      .attr('text-anchor', 'middle').attr('font-weight', '600')
+      .attr('font-size', `${12 * settings.textSize}px`)
+      .attr('text-anchor', 'start').attr('font-weight', '600')
       .attr('dominant-baseline', 'central')
       .attr('fill', isLightTheme() ? '#333333' : '#cccccc').attr('pointer-events', 'none');
   });
@@ -138,9 +153,9 @@ function createDrilldownBoxDrag() {
 }
 
 /** Per-tick: size each box to the padded bounding rect of its visible members. */
-function tickDrilldownBoxes() {
+function tickDrilldownBoxes(vis) {
   if (!state.svgDrilldownBoxes) { return; }
-  const visible = (typeof getVisibleNodeIds === 'function') ? getVisibleNodeIds() : null;
+  const visible = vis || ((typeof getVisibleNodeIds === 'function') ? getVisibleNodeIds() : null);
   state.svgDrilldownBoxes.each(function(d) {
     const pts = d.members.filter(n =>
       (!visible || visible.has(n.id)) && n.x != null && n.y != null);
@@ -156,21 +171,51 @@ function tickDrilldownBoxes() {
     minX -= DD_FOLDER_PADDING; minY -= DD_FOLDER_PADDING;
     maxX += DD_FOLDER_PADDING; maxY += DD_FOLDER_PADDING;
     const el = d3.select(this).style('display', null);
+    const w = maxX - minX;
+    const tw = tabWidth(d.shortName, w);
     el.select('.folder-bubble-shape')
-      .attr('x', minX).attr('y', minY).attr('width', maxX - minX).attr('height', maxY - minY)
+      .attr('d', tabBodyPath(minX, minY, w, maxY - minY, tw))
       .attr('fill', folderFillColor(d.depth, d.hue)).attr('stroke', folderStrokeColor(d.depth, d.hue));
+    el.select('.frame-tab-shape')
+      .attr('d', tabOnlyPath(minX, minY, tw))
+      .attr('fill', folderTitlebarColor(d.depth, d.hue));
+    el.select('.frame-tab-glyph')
+      .attr('transform', `translate(${minX + 9},${minY + 6}) scale(0.85)`);
+    el.select('.frame-tab-counts')
+      .attr('x', maxX - 6).attr('y', minY + TAB.H + 10)
+      .text(d.counts ? countsText(d.counts.files, d.counts.fns, w - 20 - d.shortName.length * TAB.CHAR_W) : '');
     el.select('.folder-bubble-titlebar')
-      .attr('x', minX).attr('y', minY).attr('width', maxX - minX).attr('height', DD_TITLEBAR_HEIGHT)
-      .attr('fill', folderTitlebarColor(d.depth, d.hue)).attr('rx', 8);
+      .attr('x', minX).attr('y', minY).attr('width', w).attr('height', DD_TITLEBAR_HEIGHT);
     el.select('.folder-bubble-label')
-      .attr('x', (minX + maxX) / 2).attr('y', minY + DD_TITLEBAR_HEIGHT / 2).text(d.shortName);
+      .attr('x', minX + 10).attr('y', minY + TAB.H + 10)
+      .text(cutLabel(d.shortName, Math.max(4, Math.floor((w * 0.6) / TAB.CHAR_W))));
   });
 }
 
 /** Cohesion force: pull each folder's members toward their centroid (deeper = tighter)
  *  so a box's bounding rect stays tight and excludes foreign nodes. */
+// Stability bound for the nested cluster pulls. Boxes are nested (one per
+// expanded folder, members = everything under it), so a node below k expanded
+// ancestors receives k centroid kicks per tick, each scaled
+// fileClusterForce·(1+depth·0.3). Measured on zod (folder depth 7): the
+// per-node SUM reaches 16 at extreme slider values while the integrator's
+// stability limit is ~2 — coordinates ran away to 1e43 and froze the page
+// (F12). Capping the sum at 1.5 kills the divergence and preserves layouts:
+// click/express are unchanged (their sums stay ≤ 1.6), zod's mean file
+// spread grows only ~11 %.
+const DD_CLUSTER_STABILITY = 1.5;
+
 function createDrilldownClusterForce(boxes) {
+  // Per-node summed depth multiplier across all (nested) boxes. Membership is
+  // fixed for this force's lifetime (one render); the live fileClusterForce
+  // slider value is applied at tick time so the bound stays exact.
+  const multOf = new Map();
+  for (const box of boxes) {
+    const m = 1 + (box.depth || 0) * 0.3;
+    for (const n of box.members) { multOf.set(n.id, (multOf.get(n.id) || 0) + m); }
+  }
   function force(alpha) {
+    const fcf = (settings.fileClusterForce ?? 0.2);
     for (const box of boxes) {
       const mem = box.members;
       if (mem.length < 2) { continue; }
@@ -178,9 +223,11 @@ function createDrilldownClusterForce(boxes) {
       for (const n of mem) { if (n.x != null) { cx += n.x; cy += n.y; k++; } }
       if (!k) { continue; }
       cx /= k; cy /= k;
-      const s = (settings.fileClusterForce ?? 0.2) * alpha * (1 + (box.depth || 0) * 0.3);
+      const base = fcf * alpha * (1 + (box.depth || 0) * 0.3);
       for (const n of mem) {
         if (n.fx != null) { continue; }
+        const tot = fcf * (multOf.get(n.id) || 0);
+        const s = tot > DD_CLUSTER_STABILITY ? base * (DD_CLUSTER_STABILITY / tot) : base;
         n.vx += (cx - n.x) * s;
         n.vy += (cy - n.y) * s;
       }

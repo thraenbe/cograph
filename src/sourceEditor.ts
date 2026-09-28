@@ -56,8 +56,25 @@ export function saveFuncSource(file: string, line: number, newSource: string, ex
   }
   const current = lines.slice(startIdx, r.end + 1).join('\n');
   if (current !== expectedOriginal.replace(/\r\n/g, '\n')) {
-    throw new Error('the file changed since this popup was opened (or the function could not be matched), so nothing was saved. Reopen the popup and try again.');
+    throw new Error('the file changed since this popup was opened (or the function could not be matched), so nothing was saved.');
   }
   lines.splice(startIdx, r.end - startIdx + 1, ...newSource.replace(/\r\n/g, '\n').split('\n'));
   fs.writeFileSync(file, lines.join(crlf ? '\r\n' : '\n'), 'utf8');
+}
+
+/**
+ * After a refused save: where is the popup's function now? Looks for its first
+ * line (the signature the user was shown) nearest to the old start line, so a
+ * function that moved because lines were added above is found again. Null when
+ * the signature is gone. Read-only; the caller offers the result as "Reload".
+ */
+export function relocateFuncSource(file: string, line: number, shownOriginal: string): { line: number; source: string } | null {
+  const first = shownOriginal.replace(/\r\n/g, '\n').split('\n')[0];
+  if (!first.trim()) { return null; }
+  const { lines } = readLines(file);
+  let best = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] === first && (best < 0 || Math.abs(i - (line - 1)) < Math.abs(best - (line - 1)))) { best = i; }
+  }
+  return best < 0 ? null : { line: best + 1, source: getFuncSource(file, best + 1) };
 }

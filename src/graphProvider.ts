@@ -11,7 +11,7 @@ import { mergeGraph } from './graphMerge';
 import { loadCache, scheduleCacheWrite, type CacheLoadResult } from './cacheStore';
 import { WebviewReadyGate } from './webviewReadyGate';
 import { LibraryDescriber } from './libraryDescriber';
-import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource } from './sourceEditor';
+import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource, relocateFuncSource } from './sourceEditor';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
 import type { SidebarProvider } from './sidebarProvider';
 import { createProvider, getProviderInfo } from './graphIntelligence/provider';
@@ -343,15 +343,25 @@ export class GraphProvider {
           this.panel?.webview.postMessage({ type: 'func-source', source: '', error: (err as Error).message, reqId });
         }
       } else if (message.type === 'save-func-source') {
-        const { file, line, newSource, original } = message;
+        const { file, line, newSource, original, reqId } = message;
+        // The popup waits for this answer (funcSave.js) and keeps the edit on a refusal.
+        const reply = (m: object) => this.panel?.webview.postMessage({ type: 'func-source-saved', reqId, ...m });
         try {
           saveFuncSource(file, line, newSource, original);
           this.refreshGitStatus(workspaceRoot);
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
+          if (reqId !== undefined) { reply({ ok: true }); }
         } catch (err: unknown) {
           // The webview already coloured the node as modified: undo that.
           this.refreshGitStatus(workspaceRoot);
-          vscode.window.showErrorMessage(`CoGraph: Failed to save — ${(err as Error).message}`);
+          const reason = (err as Error).message;
+          if (reqId === undefined) {
+            vscode.window.showErrorMessage(`CoGraph: Failed to save — ${reason}`);
+          } else {
+            let found: { line: number; source: string } | null = null;
+            try { found = typeof original === 'string' ? relocateFuncSource(file, line, original) : null; } catch { found = null; }
+            reply({ ok: false, reason, current: found?.source, line: found?.line });
+          }
         }
       } else if (message.type === 'request-rename-folder') {
         const { folderPath } = message;

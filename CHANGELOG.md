@@ -14,7 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the editor, or another popup on the same file saved first and shifted the lines), the
   save overwrote whatever was there now. Save now only writes when the file still contains
   exactly the text the popup showed, and never when the end of the function cannot be
-  found. Otherwise nothing is written and a message says why.
+  found. Otherwise nothing is written.
+- **A refused or unconfirmed popup save keeps your edit.** The popup now stays open until
+  the save is confirmed. If it is refused, or no answer comes within 8 s, the popup keeps
+  your text editable and shows the reason inline, with **Copy my edit** and, when the
+  function was found again in the file, **Reload from file** (which replaces your edit, so
+  it needs a second click). Saving again is safe: it still compares against the text you
+  were shown.
 - **The function popup shows the whole function, and only that function.** Its end used to
   be found by counting every brace, including braces inside strings, comments and regexes,
   and a body-less declaration (a Java interface method, a C++ prototype) ran on into the

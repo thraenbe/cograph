@@ -564,6 +564,10 @@ window.addEventListener('message', (event) => {
     }
     return;
   }
+  if (message.type === 'func-source-saved') {
+    if (typeof onFuncSourceSaved === 'function') { onFuncSourceSaved(message); }
+    return;
+  }
   if (message.type === 'func-source') {
     const inst = [...state.funcPopups.values()].find(p => p.reqId === message.reqId);
     if (!inst) return;

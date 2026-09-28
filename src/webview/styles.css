@@ -1378,3 +1378,39 @@ g.frame.drag-hover > .folder-bubble-shape { stroke-opacity: 0.9; }
   color: var(--vscode-descriptionForeground, #858585);
   flex-shrink: 0;
 }
+
+/* ── Function popup: refused / unconfirmed save (funcSave.js) ──
+   Copy is the filled button; Reload (replaces the edit, two clicks) is the quiet one. */
+.func-save-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--vscode-errorForeground, #f48771);
+  border-top: 1px solid var(--vscode-inputValidation-errorBorder, #be1100);
+  background: var(--vscode-inputValidation-errorBackground, rgba(90, 29, 29, 0.35));
+}
+.func-save-reason { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.func-save-copy,
+.func-save-reload {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.func-save-copy {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #ffffff);
+  border: none;
+}
+.func-save-reload {
+  background: transparent;
+  color: var(--vscode-foreground, #cccccc);
+  border: 1px solid var(--vscode-widget-border, #3a3a3a);
+}
+.func-save-reload.armed {
+  color: var(--vscode-errorForeground, #f48771);
+  border-color: currentColor;
+}

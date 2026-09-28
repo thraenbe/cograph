@@ -283,13 +283,26 @@ in callers/callees. This is Bela's decision.
 
 | # | Step | Files | New/changed LOC | Effort |
 |---|---|---|---|---|
-| 1 | **Graph index**: load cache + annotations, build lookup maps (id ↔ agent id, callers/callees adjacency, per-file symbol order, i.e. start line + next symbol's line, which is the input `funcBrief` takes), staleness check. Pure functions, no MCP. | `src/mcp/graphIndex.ts`, `src/mcp/ids.ts`, `src/mcp/paths.ts` | ~330 | 0.5 d |
+| 1 | **Graph index**: load cache + annotations, build lookup maps (id ↔ agent id, callers/callees adjacency, per-file symbol order: start line, plus the next symbol's line as a *fallback* bound only, see the step-2 note), staleness check. Pure functions, no MCP. | `src/mcp/graphIndex.ts`, `src/mcp/ids.ts`, `src/mcp/paths.ts` | ~330 | 0.5 d |
 | 2 | **Queries**: find, get, bounded BFS callers/callees, impact by id/file/folder, overview. Pure functions over the index. `get_symbol`'s signature/docstring/source slice **imports `src/funcBrief.ts`** (owned by session-216, vscode-free per session-110's ruling); no slicer of our own. | `src/mcp/queries.ts`, `src/mcp/overview.ts` | ~350 | 1 d |
 | 3 | **Formatting**: text + structured output, truncation notes, footer. | `src/mcp/format.ts` | ~180 | 0.5 d |
 | 4 | **Server**: SDK stdio server, six tool definitions (zod schemas, descriptions written for an agent), argv parsing, stderr logging, error mapping. esbuild entry `dist/mcp/server.js`. | `src/mcp/server.ts`, `src/mcp/tools.ts`, `esbuild.js`, `package.json` | ~250 | 0.5 d |
 | 5 | **Extension integration**: guarded VS Code MCP provider registration; sidebar "Use CoGraph from your agent" card (status, write `.mcp.json` after confirm, copy commands); remove Chat (D4 list); one-time "your chats are still on disk" note; setting text; CHANGELOG (the removal entry says why: Chat returned empty answers on repos above ~300 functions because the graph no longer fit the CLI's Read limit; the MCP server replaces it) + README section. | `src/mcp/vscodeRegistration.ts`, `src/mcp/setupSnippets.ts`, new `src/webview/sidebar-agent.js`, `sidebarProvider.ts` (net shrink), `graphProvider.ts` (−1 method), `extension.ts`, `package.json`, docs | +~350 / −~1,100 | 1 d |
 | 6 | *(optional, separable)* **Headless re-analysis** `reanalyze=true`: vscode-free analyzer core out of `AnalyzerRunner` (ask owner first). | `src/analyzerCore.ts` (new), `analyzerRunner.ts` (delegates), `src/mcp/reanalyze.ts` | ~250 | 1 d |
 | 7 | *(PRODUCT gate)* **npm package** `cograph-mcp`: `package.json` with `bin`, publish workflow. | `mcp-package/` or a script | ~60 | 0.5 d + Bela's npm account |
+
+**Slice bounds (corrected 2026-09-29).** `funcBrief` sits on the shipped `src/sourceEditor.ts`
+(fs only). That module finds a function's end by indentation for Python and by brace counting
+otherwise; Java and C++ also go through the brace path. My first draft bounded slices by the next
+symbol's start line. That is **wrong as a hard bound**. In the click cache, **399** Python
+functions have a nested function as their next symbol (e.g. `tests/test_termui.py:44` contains
+`cli`), so a next-symbol cap would cut them off after a few lines. The rules are:
+1. The language end detection gives the end.
+2. `maxLines` is the hard cap. It is always safe, and it also catches brace runaways from `{`
+   inside strings, comments and regexes.
+3. The next-symbol line is used **only when detection fails** (reaches EOF without closing).
+The result reports which rule ended the slice, so `get_symbol` can tell the agent when a slice
+was truncated.
 
 **Dependency:** step 2's `get_symbol` source output needs session-216's `src/funcBrief.ts`
 committed (session-110 relays when). Steps 1, 3, 4 and the rest of step 2 do not wait on it; until

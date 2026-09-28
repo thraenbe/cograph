@@ -33,6 +33,8 @@ test('corpus helpers', () => {
   expect([sizeClass(10), sizeClass(2000), sizeClass(8000)]).toEqual(['small', 'medium', 'large']);
   const cfg = loadConfig();
   expect(cfg.defaultRepos.length).toBeGreaterThan(0);
+  // The release matrix may add repos but never drop a default one (1.3.0 skipped gson + flask).
+  expect(cfg.defaultRepos.filter(r => !cfg.releaseRepos.includes(r))).toEqual([]);
   expect(path.isAbsolute(cfg.corpusDir)).toBe(true);
   withEnv({ UXTEST_REPOS: 'a, b', UXTEST_CORPUS: '/tmp/corpus' }, () => {
     expect(selectedRepos(cfg)).toEqual(['a', 'b']);

@@ -27,6 +27,13 @@ const project = value('project') ?? 'lab';
 const env = { ...process.env };
 env.UXTEST_RUN_ID = value('run-id') ?? env.UXTEST_RUN_ID ?? new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 if (value('repo')) { env.UXTEST_REPOS = value('repo'); }
+if (flag('release')) {
+  // Release verification: every default repo plus synthetic-1k. The 1.3.0 run picked its repos by hand and left out
+  // gson (7-level source root) and flask, so a gson-only harness gap stayed invisible. Tier B opens real folders only.
+  if (value('repo') || flag('all-repos')) { fail('--release picks the repos itself; drop --repo / --all-repos'); }
+  const cfg = JSON.parse(readFileSync(path.join(here, 'uxtest.config.json'), 'utf8'));
+  env.UXTEST_REPOS = cfg.releaseRepos.filter(r => value('project') !== 'vscode' || !r.startsWith('synthetic-')).join(',');
+}
 if (flag('all-repos')) {
   const cfg = JSON.parse(readFileSync(path.join(here, 'uxtest.config.json'), 'utf8'));
   env.UXTEST_REPOS = [...cfg.defaultRepos, ...cfg.largeRepos].join(',');

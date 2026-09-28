@@ -2,6 +2,7 @@
   "corpusDir": "~/cograph/test-projects",
   "defaultRepos": ["click", "flask", "express", "zod", "gson"],
   "largeRepos": ["django", "excalidraw"],
+  "releaseRepos": ["click", "flask", "express", "zod", "gson", "synthetic-1k"],
   "knownAnalyzerFailures": ["guava"],
   "viewport": { "width": 1280, "height": 800 },
   "analyzerTimeoutMs": 600000,

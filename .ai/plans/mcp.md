@@ -187,6 +187,16 @@ deprecation release.** Reasons:
 3. A deprecation release means keeping ~1,000 LOC of chat code plus the `chat-*` test suites
    alive and merge-conflicting with 183's sidebar and button work for another cycle.
 4. It unblocks session-183's removal step now.
+5. **Chat is already broken on most real repos** (measured by session-215, 2026-09-29, evidence
+   in `.termi/briefs/workflow-eval/runs/`). `provider.run()` writes the whole graph as one-line
+   JSON to `.cograph/.intelligence-request.json` and asks the model to Read it. Above roughly
+   300 functions, Claude Code's Read tool refuses the file. The axios log says "exceeds maximum
+   allowed size (256KB). Use offset and limit…". `--permission-mode dontAsk` denies the Bash
+   fallback, so the model answers that it "couldn't read the request" and returns an empty graph.
+   All of these came back empty: axios (696 fns), requests (711), CoGraph itself (1517),
+   socket.io (1549) and gson (3437). So removing Chat does **not take away a working feature**.
+   This is also the case for the MCP design: bounded, tool-shaped answers (our ~20 kB cap per
+   result) are the fix for exactly the ceiling that paste-the-graph hits.
 
 What replaces it in the sidebar: the Chat section becomes a small **"Use CoGraph from your
 agent"** card:
@@ -277,7 +287,7 @@ in callers/callees. This is Bela's decision.
 | 2 | **Queries**: find, get, bounded BFS callers/callees, impact by id/file/folder, overview. Pure functions over the index. `get_symbol`'s signature/docstring/source slice **imports `src/funcBrief.ts`** (owned by session-216, vscode-free per session-110's ruling); no slicer of our own. | `src/mcp/queries.ts`, `src/mcp/overview.ts` | ~350 | 1 d |
 | 3 | **Formatting**: text + structured output, truncation notes, footer. | `src/mcp/format.ts` | ~180 | 0.5 d |
 | 4 | **Server**: SDK stdio server, six tool definitions (zod schemas, descriptions written for an agent), argv parsing, stderr logging, error mapping. esbuild entry `dist/mcp/server.js`. | `src/mcp/server.ts`, `src/mcp/tools.ts`, `esbuild.js`, `package.json` | ~250 | 0.5 d |
-| 5 | **Extension integration**: guarded VS Code MCP provider registration; sidebar "Use CoGraph from your agent" card (status, write `.mcp.json` after confirm, copy commands); remove Chat (D4 list); one-time "your chats are still on disk" note; setting text; CHANGELOG + README section. | `src/mcp/vscodeRegistration.ts`, `src/mcp/setupSnippets.ts`, new `src/webview/sidebar-agent.js`, `sidebarProvider.ts` (net shrink), `graphProvider.ts` (−1 method), `extension.ts`, `package.json`, docs | +~350 / −~1,100 | 1 d |
+| 5 | **Extension integration**: guarded VS Code MCP provider registration; sidebar "Use CoGraph from your agent" card (status, write `.mcp.json` after confirm, copy commands); remove Chat (D4 list); one-time "your chats are still on disk" note; setting text; CHANGELOG (the removal entry says why: Chat returned empty answers on repos above ~300 functions because the graph no longer fit the CLI's Read limit; the MCP server replaces it) + README section. | `src/mcp/vscodeRegistration.ts`, `src/mcp/setupSnippets.ts`, new `src/webview/sidebar-agent.js`, `sidebarProvider.ts` (net shrink), `graphProvider.ts` (−1 method), `extension.ts`, `package.json`, docs | +~350 / −~1,100 | 1 d |
 | 6 | *(optional, separable)* **Headless re-analysis** `reanalyze=true`: vscode-free analyzer core out of `AnalyzerRunner` (ask owner first). | `src/analyzerCore.ts` (new), `analyzerRunner.ts` (delegates), `src/mcp/reanalyze.ts` | ~250 | 1 d |
 | 7 | *(PRODUCT gate)* **npm package** `cograph-mcp`: `package.json` with `bin`, publish workflow. | `mcp-package/` or a script | ~60 | 0.5 d + Bela's npm account |
 

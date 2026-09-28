@@ -1,47 +1,63 @@
 import * as fs from 'fs';
+import { funcLangOf, scanFuncEnd, scanPythonFuncEnd, scanBraceFuncEnd } from './funcEnd';
 
-export function getFuncSource(file: string, line: number): string {
-  const lines = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n').split('\n');
+/** Lines shown when the end of a function cannot be found (read path only). */
+export const UNCLOSED_READ_CAP = 200;
+
+function readLines(file: string): { lines: string[]; crlf: boolean } {
+  const raw = fs.readFileSync(file, 'utf8');
+  return { lines: raw.replace(/\r\n/g, '\n').split('\n'), crlf: raw.includes('\r\n') };
+}
+
+function checkLine(lines: string[], line: number): number {
   const startIdx = line - 1;
-  if (startIdx < 0 || startIdx >= lines.length) throw new Error(`Line ${line} out of range`);
-  const endIdx = file.endsWith('.py')
-    ? findPythonFuncEnd(lines, startIdx)
-    : findJsFuncEnd(lines, startIdx);
+  if (startIdx < 0 || startIdx >= lines.length) { throw new Error(`Line ${line} out of range`); }
+  return startIdx;
+}
+
+/** Source of the function starting at `line` (1-based). Best effort: an end that
+ *  cannot be found is capped instead of returning the rest of the file. */
+export function getFuncSource(file: string, line: number): string {
+  const { lines } = readLines(file);
+  const startIdx = checkLine(lines, line);
+  const r = scanFuncEnd(lines, startIdx, funcLangOf(file));
+  const endIdx = r.closed ? r.end : Math.min(r.end, startIdx + UNCLOSED_READ_CAP - 1);
   return lines.slice(startIdx, endIdx + 1).join('\n');
 }
 
+/** Kept for callers of the 1.3.0 API: last line index of a Python function. */
 export function findPythonFuncEnd(lines: string[], startIdx: number): number {
-  const baseIndent = lines[startIdx].match(/^(\s*)/)?.[1].length ?? 0;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    if (lines[i].trim() === '') continue;
-    if ((lines[i].match(/^(\s*)/)?.[1].length ?? 0) <= baseIndent) return i - 1;
-  }
-  return lines.length - 1;
+  return scanPythonFuncEnd(lines, startIdx).end;
 }
 
+/** Kept for callers of the 1.3.0 API: last line index of a brace-language function. */
 export function findJsFuncEnd(lines: string[], startIdx: number): number {
-  let depth = 0, foundOpen = false;
-  for (let i = startIdx; i < lines.length; i++) {
-    for (const ch of lines[i]) {
-      if (ch === '{') { depth++; foundOpen = true; }
-      else if (ch === '}') depth--;
-    }
-    if (!foundOpen && i > startIdx) return startIdx; // arrow fn without braces
-    if (foundOpen && depth === 0) return i;
-  }
-  return lines.length - 1;
+  return scanBraceFuncEnd(lines, startIdx, 'js').end;
 }
 
-export function saveFuncSource(file: string, line: number, newSource: string): void {
-  const raw = fs.readFileSync(file, 'utf8');
-  const crlf = raw.includes('\r\n');
-  const lines = raw.replace(/\r\n/g, '\n').split('\n');
-  const startIdx = line - 1;
-  if (startIdx < 0 || startIdx >= lines.length) throw new Error(`Line ${line} out of range`);
-  const endIdx = file.endsWith('.py')
-    ? findPythonFuncEnd(lines, startIdx)
-    : findJsFuncEnd(lines, startIdx);
-  lines.splice(startIdx, endIdx - startIdx + 1, ...newSource.replace(/\r\n/g, '\n').split('\n'));
-  const eol = crlf ? '\r\n' : '\n';
-  fs.writeFileSync(file, lines.join(eol), 'utf8');
+/**
+ * Replace the function starting at `line` with `newSource` — only if the region
+ * it would overwrite is exactly the text the user was shown (`expectedOriginal`,
+ * as returned by getFuncSource). Any doubt refuses and writes nothing:
+ *   - no original sent,
+ *   - the end of the function cannot be found (never "to the end of the file"),
+ *   - the file changed since the popup read it, or the region does not match.
+ * The round trip, not the parser, is what makes the write safe.
+ */
+export function saveFuncSource(file: string, line: number, newSource: string, expectedOriginal?: string | null): void {
+  if (typeof expectedOriginal !== 'string') {
+    throw new Error('the original text of the function was not sent, so nothing was saved.');
+  }
+  const { lines, crlf } = readLines(file);
+  const startIdx = checkLine(lines, line);
+  const r = scanFuncEnd(lines, startIdx, funcLangOf(file));
+  if (!r.closed) {
+    throw new Error(`could not find where the function at line ${line} ends, so nothing was saved. Edit it in the editor instead.`);
+  }
+  const current = lines.slice(startIdx, r.end + 1).join('\n');
+  if (current !== expectedOriginal.replace(/\r\n/g, '\n')) {
+    throw new Error('the file changed since this popup was opened (or the function could not be matched), so nothing was saved. Reopen the popup and try again.');
+  }
+  lines.splice(startIdx, r.end - startIdx + 1, ...newSource.replace(/\r\n/g, '\n').split('\n'));
+  fs.writeFileSync(file, lines.join(crlf ? '\r\n' : '\n'), 'utf8');
 }

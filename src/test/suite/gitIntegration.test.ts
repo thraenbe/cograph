@@ -530,10 +530,27 @@ suite('Message Handling', () => {
       file: filePath,
       line: 1,
       newSource: 'def greet():\n    return "world"\n',
+      original: 'def greet():\n    return "hello"\n',   // what the popup showed (get-func-source)
     });
 
     const written = fs.readFileSync(filePath, 'utf8');
     assert.ok(written.includes('return "world"'), 'modified source should be written to file');
+  });
+
+  test('save-func-source without the shown original → refused, file untouched, error shown', () => {
+    const { fakePanel } = setupProvider();
+    const showErr = sandbox.stub(vscode.window, 'showErrorMessage');
+    const filePath = path.join(tmpDir, 'save_test.py');
+    fs.writeFileSync(filePath, 'def greet():\n    return "hello"\n');
+
+    fakePanel.sendMessage({ type: 'save-func-source', file: filePath, line: 1, newSource: 'def greet():\n    return "world"\n' });
+    fakePanel.sendMessage({ type: 'save-func-source', file: filePath, line: 1, newSource: 'def greet():\n    return "world"\n',
+      original: 'def greet():\n    return "stale"\n' });
+
+    assert.strictEqual(fs.readFileSync(filePath, 'utf8'), 'def greet():\n    return "hello"\n', 'nothing written');
+    assert.strictEqual(showErr.callCount, 2);
+    assert.ok(showErr.firstCall.args[0].includes('nothing was saved'));
+    assert.ok(showErr.secondCall.args[0].includes('changed since this popup was opened'));
   });
 
   test('save-func-source with bad path → shows error message', () => {
@@ -565,6 +582,7 @@ suite('Message Handling', () => {
       file: filePath,
       line: 1,
       newSource: 'def greet():\n    return "world"\n',
+      original: 'def greet():\n    return "hello"\n',   // what the popup showed (get-func-source)
     });
     (fakePanel as any)._disposeCallback();
 

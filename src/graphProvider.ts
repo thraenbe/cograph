@@ -343,12 +343,14 @@ export class GraphProvider {
           this.panel?.webview.postMessage({ type: 'func-source', source: '', error: (err as Error).message, reqId });
         }
       } else if (message.type === 'save-func-source') {
-        const { file, line, newSource } = message;
+        const { file, line, newSource, original } = message;
         try {
-          saveFuncSource(file, line, newSource);
+          saveFuncSource(file, line, newSource, original);
           this.refreshGitStatus(workspaceRoot);
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         } catch (err: unknown) {
+          // The webview already coloured the node as modified: undo that.
+          this.refreshGitStatus(workspaceRoot);
           vscode.window.showErrorMessage(`CoGraph: Failed to save — ${(err as Error).message}`);
         }
       } else if (message.type === 'request-rename-folder') {
@@ -1376,8 +1378,8 @@ export class GraphProvider {
     return findJsFuncEnd(lines, startIdx);
   }
 
-  private saveFuncSource(file: string, line: number, newSource: string) {
-    return saveFuncSource(file, line, newSource);
+  private saveFuncSource(file: string, line: number, newSource: string, expectedOriginal?: string | null) {
+    return saveFuncSource(file, line, newSource, expectedOriginal);
   }
 
   private getErrorHtml(message: string) {

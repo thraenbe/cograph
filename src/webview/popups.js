@@ -251,7 +251,8 @@ function createFuncPopupInstance(d) {
       applyGitColors();
     }
 
-    vscode.postMessage({ type: 'save-func-source', file: node.file, line: node.line, newSource: textarea.value });
+    // `original` = what the user was shown: the host saves only if the file still has exactly that.
+    vscode.postMessage({ type: 'save-func-source', file: node.file, line: node.line, newSource: textarea.value, original: inst.originalSource });
     closeFuncPopupInstance(inst);
   });
 

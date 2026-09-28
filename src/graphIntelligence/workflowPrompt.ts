@@ -73,6 +73,26 @@ export function validateWorkflowModel(graph: GraphData | null | undefined): Work
   return { ok: errors.length === 0, errors };
 }
 
+/**
+ * Copy the model's workflow annotations onto the ORIGINAL graph by id. The model
+ * echoes the graph back and routinely drops fields or edges; only its annotations
+ * (plus dynamic edges between known nodes) are trusted. Pure.
+ */
+export function mergeWorkflowAnnotations(base: GraphData, annotated: GraphData): GraphData {
+  const key = (e: { source: string; target: string }) => `${e.source}\u0000${e.target}`;
+  const nodeWf = new Map(annotated.nodes.filter(n => n.workflow).map(n => [n.id, n.workflow]));
+  const edgeWf = new Map(annotated.edges.filter(e => e.workflow).map(e => [key(e), e.workflow]));
+  const ids = new Set(base.nodes.map(n => n.id));
+  const baseKeys = new Set(base.edges.map(key));
+  const nodes = base.nodes.map(n => (nodeWf.has(n.id) ? { ...n, workflow: nodeWf.get(n.id) } : n));
+  const edges = base.edges.map(e => (edgeWf.has(key(e)) ? { ...e, workflow: edgeWf.get(key(e)) } : e));
+  for (const e of annotated.edges) {
+    const extra = e.workflow?.kind === 'dynamic' && ids.has(e.source) && ids.has(e.target) && !baseKeys.has(key(e));
+    if (extra) { edges.push({ source: e.source, target: e.target, workflow: e.workflow }); }
+  }
+  return { ...base, nodes, edges, ...(annotated.workflow ? { workflow: annotated.workflow } : {}) };
+}
+
 const DEFAULT_STAGE_COUNT = 3;
 
 /**

@@ -165,15 +165,15 @@ function renderFrameLayout(allLinks, visibleSet) {
   ]);
   const reshelve = __fr.scopeSig !== undefined && __fr.scopeSig !== scopeSig;
   __fr.scopeSig = scopeSig;
-  if (reshelve && !state.userZoomed && !state._frameInteracting
-    && typeof setTimeout === 'function') {
+  if (reshelve && !state._frameInteracting && typeof setTimeout === 'function') {
     // A scope change that SHRINKS the layout leaves the view hanging over
     // empty space (growth is already covered by shouldRefit). Re-fit once
-    // after the re-pack glide — never when the user owns the viewport (F2).
+    // after the re-pack glide. A user-owned viewport (F2) is kept unless the
+    // re-pack moved everything out of it (F26: Only show while zoomed in).
     if (__fr.scopeRefit) { clearTimeout(__fr.scopeRefit); }
     __fr.scopeRefit = setTimeout(() => {
       __fr.scopeRefit = null;
-      if (!state.userZoomed && !state._frameInteracting) { fitToView(); }
+      if (typeof refitAfterScope === 'function') { refitAfterScope(); }
     }, 230);
   }
   const members = collectMembers(state.currentNodes, tree, settings.nodeSize, allow);

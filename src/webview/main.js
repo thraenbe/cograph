@@ -274,6 +274,10 @@ function applyStructuralFilters() {
     applyFileClusters();
   }
   applyFilters();
+  // Global has no re-pack to hang the F26 check on (Shelf: renderFrameLayout).
+  if (typeof scheduleScopeRefit === 'function' && !(typeof usesFrames === 'function' && usesFrames())) {
+    scheduleScopeRefit();
+  }
 }
 
 function applyFiltersNow() {

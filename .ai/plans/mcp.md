@@ -62,7 +62,7 @@ step, and every result must be readable as plain text without a picture.
 | Tool | Input | Returns | Why it earns a slot |
 |---|---|---|---|
 | `find_symbol` | `query` (name, `Class.method`, or `path:name`), `path?` (folder filter), `limit=20` | matching functions: id, `file:line`, class, language, caller/callee counts | entry point: turns a name the agent saw into stable ids. Replaces both `list_functions` and `get_function` lookup. |
-| `get_symbol` | `id`, `includeSource=true`, `maxLines=80` | location, class/extends, source slice (from `line` to the next symbol in the same file, capped), direct callers and callees (names + ids, capped at 25 each) | one call gives the agent the function plus its immediate neighbourhood |
+| `get_symbol` | `id`, `includeSource=true`, `maxLines=80` | location, class/extends, signature + leading docstring + capped source slice (via session-216's `src/funcBrief.ts`), direct callers and callees (names + ids, capped at 25 each) | one call gives the agent the function plus its immediate neighbourhood |
 | `callers` | `id`, `depth=1` (max 5), `limit=50` | tree of who calls it, grouped by depth, with `file:line` | the core thing grep cannot do reliably (dynamic names, same-name methods) |
 | `callees` | `id`, `depth=1` (max 5), `limit=50`, `includeLibraries=false` | tree of what it calls | "what does this reach" |
 | `impact` | `id` **or** `path` (file / folder), `limit=100` | transitive callers of everything in scope, grouped by file, with counts, plus which entry points / tests are hit | "what breaks if I change this". Highest-value tool for an agent about to edit. |
@@ -104,14 +104,30 @@ Output contract (all tools):
   `dist/mcp/server.js`, but that path changes with every extension version.
 - **(b) VS Code registration** via the MCP server definition provider API: one-click for VS Code
   users (Copilot agent mode picks it up with no config). It needs VS Code **1.101+**; our floor is
-  `^1.75.0`. **I recommend a guarded optional registration, not a floor bump.** We **cannot**
-  simply raise `@types/vscode` to 1.101, because vsce refuses to package when `@types/vscode` is
-  newer than `engines.vscode`. I confirmed that in our installed vsce
-  (`validation.js:115`: "@types/vscode X greater than engines.vscode Y"). So we keep the old
-  typings and add a small local interface for the three API shapes in
-  `src/mcp/vscodeRegistration.ts`. At runtime we check
-  `typeof (vscode as any).lm?.registerMcpServerDefinitionProvider === 'function'` and do nothing on
-  older hosts. The server runs on VS Code's own Node (`process.execPath` +
+  `^1.75.0`. **I recommend a guarded optional registration, not a floor bump.** The **runtime
+  guard** is what actually protects the floor:
+  `typeof (vscode as any).lm?.registerMcpServerDefinitionProvider === 'function'`, and a no-op on
+  older hosts.
+
+  *Typings (corrected by session-110, then measured).* `package.json` declares
+  `@types/vscode ^1.64.0`, but the caret resolves to **1.109.0**, which already contains the MCP
+  API. So today the compiler checks against 1.109, while the extension claims to run on 1.75.
+  Nothing catches a post-1.75 API used by accident. That hazard predates this plan. vsce compares
+  the *declared* range (`package.js:960`, then `validation.js:115`), so declaring `^1.101.0`
+  against engines `^1.75.0` would fail packaging.
+
+  *Measurement, 2026-09-29.* I ran `npm i -D --no-save @types/vscode@1.75.0` and then
+  `tsc -p ./` in this worktree:
+  - It produced **0 errors in 0 files**. The whole codebase is already 1.75-clean.
+  - Negative control: with 1.75 typings, a probe `vscode.lm.registerMcpServerDefinitionProvider`
+    fails with `TS2339: Property 'lm' does not exist`. So pinning really does enforce the floor.
+
+  I restored the typings with `npm ci`; `package.json` is unchanged.
+
+  *Recommendation.* Pin `@types/vscode` to `~1.75.0` (session-110 to take to Bela). Then the
+  compiler enforces the floor. The small local interface for the three API shapes in
+  `src/mcp/vscodeRegistration.ts` becomes genuinely necessary: it is the one sanctioned place
+  that reaches past 1.75, always behind the runtime guard. The server runs on VS Code's own Node (`process.execPath` +
   `ELECTRON_RUN_AS_NODE=1`), so the user needs no Node install. API facts are below.
 
   **VS Code API (checked 2026-09-29 against code.visualstudio.com/api/extension-guides/ai/mcp,
@@ -257,13 +273,20 @@ in callers/callees. This is Bela's decision.
 
 | # | Step | Files | New/changed LOC | Effort |
 |---|---|---|---|---|
-| 1 | **Graph index**: load cache + annotations, build lookup maps (id ↔ agent id, callers/callees adjacency, per-file symbol order for source slicing), staleness check. Pure functions, no MCP. | `src/mcp/graphIndex.ts`, `src/mcp/ids.ts`, `src/mcp/paths.ts` | ~330 | 0.5 d |
-| 2 | **Queries**: find, get, bounded BFS callers/callees, impact by id/file/folder, overview. Pure functions over the index. | `src/mcp/queries.ts`, `src/mcp/overview.ts` | ~380 | 1 d |
+| 1 | **Graph index**: load cache + annotations, build lookup maps (id ↔ agent id, callers/callees adjacency, per-file symbol order, i.e. start line + next symbol's line, which is the input `funcBrief` takes), staleness check. Pure functions, no MCP. | `src/mcp/graphIndex.ts`, `src/mcp/ids.ts`, `src/mcp/paths.ts` | ~330 | 0.5 d |
+| 2 | **Queries**: find, get, bounded BFS callers/callees, impact by id/file/folder, overview. Pure functions over the index. `get_symbol`'s signature/docstring/source slice **imports `src/funcBrief.ts`** (owned by session-216, vscode-free per session-110's ruling); no slicer of our own. | `src/mcp/queries.ts`, `src/mcp/overview.ts` | ~350 | 1 d |
 | 3 | **Formatting**: text + structured output, truncation notes, footer. | `src/mcp/format.ts` | ~180 | 0.5 d |
 | 4 | **Server**: SDK stdio server, six tool definitions (zod schemas, descriptions written for an agent), argv parsing, stderr logging, error mapping. esbuild entry `dist/mcp/server.js`. | `src/mcp/server.ts`, `src/mcp/tools.ts`, `esbuild.js`, `package.json` | ~250 | 0.5 d |
 | 5 | **Extension integration**: guarded VS Code MCP provider registration; sidebar "Use CoGraph from your agent" card (status, write `.mcp.json` after confirm, copy commands); remove Chat (D4 list); one-time "your chats are still on disk" note; setting text; CHANGELOG + README section. | `src/mcp/vscodeRegistration.ts`, `src/mcp/setupSnippets.ts`, new `src/webview/sidebar-agent.js`, `sidebarProvider.ts` (net shrink), `graphProvider.ts` (−1 method), `extension.ts`, `package.json`, docs | +~350 / −~1,100 | 1 d |
 | 6 | *(optional, separable)* **Headless re-analysis** `reanalyze=true`: vscode-free analyzer core out of `AnalyzerRunner` (ask owner first). | `src/analyzerCore.ts` (new), `analyzerRunner.ts` (delegates), `src/mcp/reanalyze.ts` | ~250 | 1 d |
 | 7 | *(PRODUCT gate)* **npm package** `cograph-mcp`: `package.json` with `bin`, publish workflow. | `mcp-package/` or a script | ~60 | 0.5 d + Bela's npm account |
+
+**Dependency:** step 2's `get_symbol` source output needs session-216's `src/funcBrief.ts`
+committed (session-110 relays when). Steps 1, 3, 4 and the rest of step 2 do not wait on it; until
+it lands, `get_symbol` is built and tested with `includeSource` stubbed. If `funcBrief` lacks
+something we need (candidates: a caller-supplied `maxLines` cap, working from a file path the MCP
+server has already confined to the workspace, not throwing on an unreadable file), we ask
+session-110 to have 216 widen it. We do not fork it.
 
 Total for 1–5: ~3.5 dev days, net −300 LOC across the repo. With 6 and 7: ~5 days.
 

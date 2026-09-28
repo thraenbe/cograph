@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what is still shown, even after you zoomed or panned. As long as anything in scope is
   still visible, your view is kept. The fit also covers only in-scope content, no longer
   the positions of hidden nodes. Works in Shelf and Global.
+- **A failed AI Workflow Graph generation no longer replaces your graph.** On projects too
+  large for the AI CLI to read the request, the model returned an empty graph that was shown
+  and saved over your own; it is now rejected with an explanation and your graph is left
+  alone. On smaller projects only the returned annotations are merged onto your existing
+  graph, so function names, files and call edges are no longer lost.
 
 ## [1.3.0] - 2026-09-24
 

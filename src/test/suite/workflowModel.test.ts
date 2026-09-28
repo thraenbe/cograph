@@ -4,6 +4,7 @@ import {
   buildWorkflowPrompt,
   validateWorkflowModel,
   normalizeWorkflowModel,
+  mergeWorkflowAnnotations,
 } from '../../graphIntelligence/workflowPrompt';
 import { extractCographResult } from '../../graphIntelligence/jsonRepair';
 import type { GraphData } from '../../graphProvider';
@@ -148,5 +149,40 @@ suite('workflowPrompt — extra fields survive extractCographResult', () => {
     assert.strictEqual(g.nodes[0].workflow.tier, 'backend');
     assert.strictEqual(g.edges[0].workflow.scope, 'intra-file');
     assert.strictEqual(g.workflow.dividerStage, 1);
+  });
+});
+
+suite('mergeWorkflowAnnotations', () => {
+  const base: GraphData = {
+    nodes: [node('a', 'f.ts'), node('b', 'f.ts'), node('c', 'g.ts')],
+    edges: [{ source: 'a', target: 'b' }, { source: 'b', target: 'c' }],
+  };
+
+  test('keeps every original node field and edge when the reply drops them', () => {
+    const reply = { nodes: [{ id: 'a', workflow: { stage: 0 } }], edges: [] } as unknown as GraphData;
+    const g = mergeWorkflowAnnotations(base, reply);
+    assert.deepStrictEqual(g.nodes.map(n => n.name), ['a', 'b', 'c']);
+    assert.strictEqual(g.nodes[0].workflow?.stage, 0);
+    assert.strictEqual(g.nodes[1].workflow, undefined);
+    assert.strictEqual(g.edges.length, 2, 'dropped edges restored');
+  });
+
+  test('adds dynamic edges between known nodes only; ignores invented nodes and static extras', () => {
+    const reply = {
+      nodes: [{ id: 'ghost', name: 'ghost', file: null, line: 1, workflow: { stage: 0 } }],
+      edges: [
+        { source: 'c', target: 'a', workflow: { kind: 'dynamic', scope: 'inter-file', label: 'emits' } },
+        { source: 'a', target: 'ghost', workflow: { kind: 'dynamic', scope: 'inter-file' } },
+        { source: 'c', target: 'b', workflow: { kind: 'static', scope: 'inter-file' } },
+        { source: 'a', target: 'b', workflow: { kind: 'static', scope: 'intra-file' } },
+      ],
+      workflow: { stageCount: 2, dividerStage: 1, clusters: [] },
+    } as unknown as GraphData;
+    const g = mergeWorkflowAnnotations(base, reply);
+    assert.ok(!g.nodes.some(n => n.id === 'ghost'));
+    assert.deepStrictEqual(g.edges.map(e => `${e.source}>${e.target}`), ['a>b', 'b>c', 'c>a']);
+    assert.strictEqual(g.edges[0].workflow?.scope, 'intra-file', 'annotation copied onto the original edge');
+    assert.strictEqual(g.workflow?.stageCount, 2);
+    assert.strictEqual(base.edges.length, 2, 'input not mutated');
   });
 });

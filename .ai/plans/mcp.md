@@ -304,6 +304,19 @@ functions have a nested function as their next symbol (e.g. `tests/test_termui.p
 The result reports which rule ended the slice, so `get_symbol` can tell the agent when a slice
 was truncated.
 
+**What `get_symbol` promises (per session-110 / 216).** A stray `}` inside a string can end the
+brace scan early at a balanced but wrong point, and that result still reports `detected`. 216 is
+making the scanner aware of strings, chars, comments and regexes, but `detected` will only ever
+mean "balanced parse", never "complete function". So:
+- the tool description calls the source a **best-effort slice**;
+- every source block is headed with its exact range (`src/a.ts:42-97, best-effort; ended by:
+  detected|maxLines|fallback|eof`);
+- the tool description tells the agent to read the file at that range itself when it is about
+  to edit the function.
+
+Tests: a fixture with `"}"` in a string and one with `{` in a regex, asserting the header states
+the range and the reason.
+
 **Dependency:** step 2's `get_symbol` source output needs session-216's `src/funcBrief.ts`
 committed (session-110 relays when). Steps 1, 3, 4 and the rest of step 2 do not wait on it; until
 it lands, `get_symbol` is built and tested with `includeSource` stubbed. If `funcBrief` lacks

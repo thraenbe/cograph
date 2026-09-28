@@ -5,6 +5,15 @@ All notable changes to CoGraph are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **"Show only this file" while zoomed in no longer leaves a blank canvas.** When a Hide,
+  Only show or subgraph change moves everything out of the current view, the view now fits
+  what is still shown, even after you zoomed or panned. As long as anything in scope is
+  still visible, your view is kept. The fit also covers only in-scope content, no longer
+  the positions of hidden nodes. Works in Shelf and Global.
+
 ## [1.3.0] - 2026-09-24
 
 The Shelf engine release: nested, non-overlapping folder frames with per-file slots,

@@ -2,6 +2,7 @@
 // message the webview posts and answers the ones a real host would answer.
 // Never writes to the repository under test.
 import * as fs from 'fs';
+import { MAX_SOURCE_LINES, VirtualSources, type FuncEndLib } from './fakeSource';
 
 export interface HostMessage { type: string; [k: string]: unknown }
 export interface HostReply { message: HostMessage; delayMs?: number }
@@ -26,6 +27,8 @@ export interface FakeHostOpts {
   /** round3 W4: open with a subgraph scope (workspace-relative POSIX folders, folder + descendants). The
    *  `subgraph` message goes out BEFORE structure/graph and the graph arrives already scoped. */
   scope?: { name: string | null; root: string; include: string[]; exclude?: string[] };
+  /** Function-end scanner for the source popup. Default: out/funcEnd.js of the checkout under test (null = none). */
+  funcEnd?: FuncEndLib | null;
 }
 
 export interface AnnotationsFixture {
@@ -34,8 +37,6 @@ export interface AnnotationsFixture {
   folders: Record<string, { summary?: string; role?: string }>;
   stale: string[];
 }
-
-const MAX_SOURCE_LINES = 60;
 
 /** Cut a function-sized slice out of a file; mirrors getFuncSource loosely. */
 export function readSourceSlice(file: string, line: number): string {
@@ -66,10 +67,14 @@ const under = (file: string, root: string, rel: string): boolean => {
 export class FakeHost {
   readonly log: LoggedMessage[] = [];
   readonly saved: HostMessage[] = [];
-  readonly editedSources = new Map<string, string>();
+  /** The function popup's files, in memory: saves land here, never on disk. `sources.externalEdit` changes a file behind the popup. */
+  readonly sources: VirtualSources;
   private readonly t0 = Date.now();
 
-  constructor(private readonly opts: FakeHostOpts) { this.scope = opts.scope ?? null; }
+  constructor(private readonly opts: FakeHostOpts) {
+    this.scope = opts.scope ?? null;
+    this.sources = opts.funcEnd === undefined ? new VirtualSources() : new VirtualSources(opts.funcEnd);
+  }
 
   get mode(): HostMode { return this.opts.mode ?? 'eager'; }
 
@@ -167,17 +172,20 @@ export class FakeHost {
     const file = String(msg.file ?? '');
     const line = Number(msg.line ?? 1);
     try {
-      const source = this.editedSources.get(`${file}:${line}`) ?? readSourceSlice(file, line);
-      const endLine = line + source.split(/\r?\n/).length - 1;
+      const source = this.sources.read(file, line);
+      const endLine = line + source.split('\n').length - 1;
       return { message: { type: 'func-source', source, endLine, reqId: msg.reqId }, delayMs: 30 };
     } catch (err) {
       return { message: { type: 'func-source', source: '', error: (err as Error).message, reqId: msg.reqId } };
     }
   }
 
+  /** Like graphProvider: a save with a reqId (PR #69 popup) is answered with func-source-saved; without one it stays silent. */
   private saveFuncSource(msg: HostMessage): HostReply[] {
-    this.editedSources.set(`${String(msg.file)}:${Number(msg.line)}`, String(msg.newSource ?? ''));
-    return [];
+    let result;
+    try { result = this.sources.save(String(msg.file ?? ''), Number(msg.line ?? 1), String(msg.newSource ?? ''), msg.original); }
+    catch (err) { result = { ok: false, reason: (err as Error).message }; }
+    return msg.reqId === undefined ? [] : [{ message: { type: 'func-source-saved', reqId: msg.reqId, ...result }, delayMs: 30 }];
   }
 
   private parseSubset(files: string[], folderTag: string): HostReply[] {

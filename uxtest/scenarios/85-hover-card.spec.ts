@@ -55,7 +55,12 @@ scenario('hover-card', { perMotion: false, perEngine: false, only: { engine: 'sh
       .filter(b => b.x > 230 && b.x < window.innerWidth - 20 && b.y > 10 && b.y < window.innerHeight - 60 && b.w > 8));
     if (!boxes.length) { throw new SkipStep('no file slot label on screen'); }
     await hoverPoint(page, boxes[0], 700);
-    await cardOpens('a file slot label');
+    // F18: whatever element sits on top of the label band (R2b's rect.file-slot-handle), resting there must open the file card.
+    try { await cardOpens('a file slot label'); }
+    catch (e) {
+      const top = await page.evaluate(([x, y]) => { const el = document.elementFromPoint(x, y); return el ? `${el.tagName}.${el.getAttribute('class')}` : 'none'; }, [boxes[0].x, boxes[0].y]);
+      throw new StepFinding({ rule: 'slot-label-no-card', severity: 'high', ref: 'F18', message: `no hover card after resting on a file slot label (topmost element there: ${top})` });
+    }
     expect((await text(SEL.hoverCardName.css)).length).toBeGreaterThan(0);
   }, { metrics: false });
 

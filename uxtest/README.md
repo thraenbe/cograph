@@ -160,6 +160,8 @@ which is how the suite stays green across the ux panel restructure.
 npm run uxtest -- [flags]
   --repo a,b,c        repos (corpus names, paths, synthetic-1k|3k|10k); default set in uxtest.config.json
   --all-repos         default + large repos
+  --release           release-verification matrix: releaseRepos in uxtest.config.json (every default repo + synthetic-1k;
+                      Tier B drops the synthetic ones). ~1.3 h lab wall time at 2 workers
   --scenario <name>   file-name filter, e.g. smoke
   --engine shelf|global     --motion static|dynamic      narrow the matrix
   --workers-mode auto|on|off   cograph.layout.workers inside the lab = simulation transport (NOT Playwright workers).
@@ -173,7 +175,9 @@ npm run uxtest -- [flags]
   --run-id <id>       artifacts folder name (default: timestamp)
   --no-compile        skip the automatic `npm run compile` (and `bundle` for Tier B)
   --project <name>    lab (default) | sweep | report | vscode | examples | unit
-  --samples N --space <json> --video      sweep options
+  --samples N --space <json> --video      sweep options; `--resume --run-id <existing>` runs only the missing samples
+                      Aborting: Ctrl+C ends the runner's whole process group; after ANY abort the wrapper lists leftover
+                      worker/browser processes of this worktree - end them, they distort every later timing.
   --baseline <runId>  report: show metric deltas against another run
 npm run uxtest:unit        pure-module unit tests (Playwright runner, no browser)
 npm run uxtest:typecheck   tsc --noEmit over uxtest/

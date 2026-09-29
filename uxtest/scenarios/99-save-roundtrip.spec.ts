@@ -3,7 +3,7 @@
 import { expect } from '@playwright/test';
 import { scenario } from '../lib/scenario';
 import { openLab } from '../lib/lab';
-import { clickSel, dragBy, fitToView, locateFrame, setSlider } from '../lib/actions';
+import { clickSel, dragFrame, fitToView, judgeFrameDrag, locateFrame, setSlider } from '../lib/actions';
 import { v1Payload } from '../lib/fixtures';
 import { maxDisplacement } from '../metrics/compute';
 
@@ -14,7 +14,7 @@ scenario('save-roundtrip', { perMotion: false }, async (lab, combo) => {
     await fitToView(page);
     await page.waitForTimeout(700);
     const f = await locateFrame(page, 'smallest');
-    await dragBy(page, f.title, 60, 45);
+    judgeFrameDrag(await dragFrame(page, f, 60, 45));
   }, { userMoved: true });
   const arranged = ux.lastSnapshot;
   await ux.step('Save layout', async () => {

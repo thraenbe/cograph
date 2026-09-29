@@ -30,6 +30,8 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
   const st: any = typeof state !== 'undefined' ? state : {};
   const radiusOf: ((d: any) => number) | null = typeof nodeRadius === 'function' ? nodeRadius : null;
   const FRAME_K = typeof FRAME !== 'undefined' ? FRAME : { PAD: 40, TITLE: 30 };
+  // ux-round2 R4 reserves a name line inside the body (FRAME.NAME_H); older branches have no such field.
+  const NAME_H = Number(FRAME_K.NAME_H) || 0;
   const SLOT_K = typeof SLOT !== 'undefined' ? SLOT : { LABEL_H: 16 };
   // ux 'slot pad' moves the clamp wall inward (localSim.hardClamp: r + slotPad). The interior used for the
   // pinned-to-wall metric must move with it, or a padded layout looks wall-free.
@@ -52,7 +54,7 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
   if (byPath) {
     for (const f of byPath.values()) {
       const root = f.kind === 'root';
-      const io = root ? { x: f.abs.x, y: f.abs.y } : { x: f.abs.x + FRAME_K.PAD, y: f.abs.y + FRAME_K.PAD + FRAME_K.TITLE };
+      const io = root ? { x: f.abs.x, y: f.abs.y } : { x: f.abs.x + FRAME_K.PAD, y: f.abs.y + FRAME_K.PAD + FRAME_K.TITLE + NAME_H };
       frames.push({ path: f.path, kind: f.kind, parent: f.parent ?? null,
         rect: { x: f.abs.x, y: f.abs.y, w: f.abs.w, h: f.abs.h },
         inner: { x: io.x, y: io.y, w: f.inner.w, h: f.inner.h } });
@@ -132,7 +134,43 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
   (svgEl ? svgEl.querySelectorAll('.folder-bubble-shape') : []).forEach((el) => {
     if (!shown(el)) { return; }
     const b = el.getBoundingClientRect();
-    if (b.width > 0 && b.height > 0) { boxes.push({ x: b.left, y: b.top, w: b.width, h: b.height }); }
+    const d = (el.parentElement as any)?.__data__ ?? (el as any).__data__;
+    const path = d ? String(d.path ?? d.folderPath ?? '') : '';
+    if (b.width > 0 && b.height > 0) { boxes.push({ x: b.left, y: b.top, w: b.width, h: b.height, path: path || undefined }); }
+  });
+
+  // ── R3: arrowhead size. Markers live in <defs>; their on-screen size follows from the marker attributes:
+  //    userSpaceOnUse → markerWidth × zoom, strokeWidth units → markerWidth × line stroke-width × zoom.
+  let maxMarkerPx = 0, maxMarkerId = '';
+  if (svgEl) {
+    const markerCache = new Map<string, { w: number; units: string }>();
+    svgEl.querySelectorAll('line[marker-end], path[marker-end]').forEach((el) => {
+      if (!shown(el)) { return; }
+      const ref = /url\(#([^)]+)\)/.exec(el.getAttribute('marker-end') || '');
+      if (!ref) { return; }
+      let mk = markerCache.get(ref[1]);
+      if (!mk) {
+        const m = document.getElementById(ref[1]);
+        if (!m) { return; }
+        mk = { w: Math.max(Number(m.getAttribute('markerWidth')) || 3, Number(m.getAttribute('markerHeight')) || 3), units: m.getAttribute('markerUnits') || 'strokeWidth' };
+        markerCache.set(ref[1], mk);
+      }
+      const sw = mk.units === 'userSpaceOnUse' ? 1 : (parseFloat(getComputedStyle(el).strokeWidth) || 1);
+      const px = mk.w * sw * zt.k;
+      if (px > maxMarkerPx) { maxMarkerPx = px; maxMarkerId = ref[1]; }
+    });
+  }
+  // ── R4: slot rows vs the frame's own name line (screen space) ─────────────
+  let slotsOverName = 0;
+  (svgEl ? svgEl.querySelectorAll('g.frame') : []).forEach((grp) => {
+    const name = grp.querySelector(':scope > .folder-bubble-label');
+    if (!name || !shown(name)) { return; }
+    const nb = name.getBoundingClientRect();
+    if (nb.width < 1) { return; }
+    for (const slot of grp.querySelectorAll(':scope > g.f-slots .file-slot-shape, :scope > g.f-slots rect')) {
+      const sb = slot.getBoundingClientRect();
+      if (sb.width > 0 && sb.top < nb.bottom - 0.5 && sb.bottom > nb.top + 0.5 && sb.left < nb.right && sb.right > nb.left) { slotsOverName++; break; }
+    }
   });
 
   const mem = (performance as any).memory;
@@ -142,6 +180,7 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
     nodes, frames, slots, edges, labels, boxes, labelsTruncated,
     domNodes: document.querySelectorAll('*').length,
     heapMB: mem ? +(mem.usedJSHeapSize / 1048576).toFixed(1) : null,
+    maxMarkerPx: +maxMarkerPx.toFixed(1), maxMarkerId, slotsOverName,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

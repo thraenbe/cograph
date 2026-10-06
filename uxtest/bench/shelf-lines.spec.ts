@@ -1,0 +1,144 @@
+// Bench: Shelf in-frame call lines (F27). Before the fix every in-frame line started display:none; after it
+// they are painted at rest. What it costs, per repo, Shelf only (the engine F27 changes), both motions:
+//   - settle after expanding everything (Detail 1),
+//   - real pointer gestures (mouse-drag pan, wheel zoom) at fit and at a working zoom: frame rate (uncapped,
+//     see the bench project), p95 frame time, long frames, and main-thread CPU per frame (Performance.getMetrics,
+//     which a 60 Hz cap cannot hide),
+//   - whether the gesture LOD parks the lines mid-gesture (sampled during the drag), with the culler's own
+//     decision (__cull.want.links) and the in-view counts it decided on,
+//   - line counts at rest: in-frame lines in the DOM / painted, bundles painted.
+// Everything lands in bench.json next to run.json. Compare builds with --ext-root, interleaved, one worker.
+import * as fs from 'fs';
+import * as path from 'path';
+import type { CDPSession, Page } from '@playwright/test';
+import { scenario } from '../lib/scenario';
+import { drainFps, type FpsWindow } from '../lib/fps';
+import { fitToView, locateFrame, setSlider } from '../lib/actions';
+import { SkipStep } from '../lib/step';
+
+interface Lines { inFrameDom: number; inFramePainted: number; layersAttached: number; bundlesPainted: number; k: number }
+interface Gesture extends FpsWindow { fps: number; cpuMsPerFrame: number; scriptMsPerFrame: number; layoutStyleMsPerFrame: number; mid: Lines & { wantLinks: boolean | null; gesture: boolean | null; inViewLinks: number | null } }
+
+/** Runs in the page. */
+function linesInPage(): Lines {
+  const g = globalThis as unknown as { d3?: { zoomTransform(el: Element): { k: number } } };
+  const svg = document.querySelector('#graph svg');
+  const layers = [...document.querySelectorAll('#graph g.frame g.f-links')];
+  const lines = layers.flatMap(l => [...l.querySelectorAll('line')]);
+  const painted = lines.filter(el => getComputedStyle(el).display !== 'none').length;
+  const bundles = [...document.querySelectorAll('#graph line.cross-bundle')].filter(el => getComputedStyle(el).display !== 'none').length;
+  return { inFrameDom: lines.length, inFramePainted: painted, layersAttached: layers.length, bundlesPainted: bundles,
+    k: svg && g.d3 ? +g.d3.zoomTransform(svg).k.toFixed(3) : 0 };
+}
+
+/** Mid-gesture: what is painted, and what the culler decided (globals of frameRender.js, absent on old builds). */
+async function midGesture(page: Page): Promise<Gesture['mid']> {
+  const l = await page.evaluate(linesInPage);
+  const cull = await page.evaluate(`(() => {
+    const c = typeof __cull !== 'undefined' ? __cull : null;
+    const v = typeof visibleDetailCounts === 'function' ? visibleDetailCounts() : null;
+    return { wantLinks: c ? !!c.want.links : null, gesture: c ? !!c.gesture : null, inViewLinks: v ? v.links : null };
+  })()`) as { wantLinks: boolean | null; gesture: boolean | null; inViewLinks: number | null };
+  return { ...l, ...cull };
+}
+
+async function cpu(cdp: CDPSession): Promise<Record<string, number>> {
+  const { metrics } = await cdp.send('Performance.getMetrics') as { metrics: { name: string; value: number }[] };
+  return Object.fromEntries(metrics.map(m => [m.name, m.value]));
+}
+
+/** A free canvas point (bare svg): dragging there pans; dragging a frame would move the frame. */
+async function bareCanvasPoint(page: Page): Promise<{ x: number; y: number } | null> {
+  return page.evaluate(() => {
+    const svg = document.querySelector('#graph svg');
+    if (!svg) { return null; }
+    const r = svg.getBoundingClientRect();
+    for (let fy = 0.1; fy < 0.95; fy += 0.08) {
+      for (let fx = 0.05; fx < 0.95; fx += 0.06) {
+        const x = r.left + r.width * fx, y = r.top + r.height * fy;
+        if (document.elementFromPoint(x, y) === svg) { return { x, y }; }
+      }
+    }
+    return null;
+  });
+}
+
+async function measure(page: Page, cdp: CDPSession, act: (mid: () => Promise<void>) => Promise<void>): Promise<Gesture> {
+  let mid: Gesture['mid'] | null = null;
+  await page.waitForTimeout(400); // let the previous gesture's idle timer (180 ms) restore everything
+  await drainFps(page);
+  const c0 = await cpu(cdp);
+  await act(async () => { mid = await midGesture(page); });
+  const f = await drainFps(page);
+  const c1 = await cpu(cdp);
+  const per = (k: string): number => f.frames ? +(((c1[k] ?? 0) - (c0[k] ?? 0)) * 1000 / f.frames).toFixed(2) : 0;
+  return { ...f, fps: f.avgMs ? +(1000 / f.avgMs).toFixed(1) : 0, cpuMsPerFrame: per('TaskDuration'), scriptMsPerFrame: per('ScriptDuration'),
+    layoutStyleMsPerFrame: +(per('LayoutDuration') + per('RecalcStyleDuration')).toFixed(2), mid: mid as unknown as Gesture['mid'] };
+}
+
+const MOVES = 90;
+async function pan(page: Page, cdp: CDPSession): Promise<Gesture> {
+  const p = await bareCanvasPoint(page);
+  if (!p) { throw new SkipStep('no bare canvas point to drag (frames cover the view)'); }
+  return measure(page, cdp, async (mid) => {
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down();
+    for (let i = 1; i <= MOVES; i++) {
+      await page.mouse.move(p.x + 120 * Math.sin(i / 9), p.y + 80 * (1 - Math.cos(i / 9))); // a smooth back-and-forth drag
+      await page.waitForTimeout(12);
+      if (i === MOVES / 2) { await mid(); }
+    }
+    await page.mouse.up();
+  });
+}
+
+async function zoom(page: Page, cdp: CDPSession): Promise<Gesture> {
+  return measure(page, cdp, async (mid) => {
+    await page.mouse.move(640, 400);
+    for (let i = 0; i < 24; i++) {
+      await page.mouse.wheel(0, i < 12 ? -80 : 80);
+      await page.waitForTimeout(30);
+      if (i === 6) { await mid(); }
+    }
+  });
+}
+
+scenario('shelf-lines', { only: { engine: 'shelf' }, largeOk: true, expandFirst: false }, async (lab, combo) => {
+  const { page, ux } = lab;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Performance.enable');
+  const out: Record<string, unknown> = { repo: lab.repo.name, motion: combo.motion, functions: lab.repo.functions, edges: lab.repo.graph.edges.length,
+    extRoot: process.env.UXTEST_EXT_ROOT ?? null, loadavg: fs.readFileSync('/proc/loadavg', 'utf8').split(' ').slice(0, 3).map(Number) };
+
+  const expand = await ux.step('Expand everything (Detail 1) and settle', async () => {
+    await setSlider(page, 'detailSlider', 1);
+    await page.waitForTimeout(300);
+    await fitToView(page);
+  }, { stillTimeoutMs: 120000, metrics: false, armBefore: true });
+  out.settle = { stepMs: expand.durationMs, still: expand.still ?? null };
+  await page.waitForTimeout(1000);
+  out.fitLines = await page.evaluate(linesInPage);
+
+  const views: [string, () => Promise<void>][] = [
+    ['fit', async () => { /* already fitted */ }],
+    ['working', async () => {
+      const f = await locateFrame(page, 'largest');
+      await page.mouse.move(f.rect.x + f.rect.w / 2, f.rect.y + f.rect.h / 2);
+      for (let i = 0; i < 8; i++) { await page.mouse.wheel(0, -240); await page.waitForTimeout(60); }
+      await page.waitForTimeout(900);
+    }],
+  ];
+  for (const [view, enter] of views) {
+    const res: Record<string, unknown> = {};
+    await ux.step(`${view}: enter view`, enter, { metrics: false });
+    res.lines = await page.evaluate(linesInPage);
+    const p = await ux.step(`${view}: pan (mouse drag)`, async () => { res.pan = await pan(page, cdp); }, { metrics: false, settle: false });
+    const z = await ux.step(`${view}: zoom (wheel in/out)`, async () => { res.zoom = await zoom(page, cdp); }, { metrics: false, settle: false });
+    for (const [rec, g] of [[p, res.pan], [z, res.zoom]] as const) {
+      const x = g as Gesture | undefined;
+      if (x) { rec.note = `${x.fps} fps, p95 ${x.p95Ms} ms, ${x.longFrames} long, cpu ${x.cpuMsPerFrame} ms/frame; mid-gesture ${x.mid.inFramePainted}/${x.mid.inFrameDom} in-frame lines painted, want.links=${x.mid.wantLinks}, in-view links ${x.mid.inViewLinks}`; }
+    }
+    out[view] = res;
+  }
+  fs.writeFileSync(path.join(lab.outDir, 'bench.json'), JSON.stringify(out, null, 2));
+});

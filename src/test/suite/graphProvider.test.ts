@@ -798,11 +798,9 @@ suite('save-graph message handler', () => {
     const provider = new GraphProvider(makeFakeContext());
     const sidebarRefresh = sinon.stub();
     const setCurrentGraph = sinon.stub();
-    const appendSystem = sinon.stub();
     provider.setSidebarProvider({
       refresh: sidebarRefresh,
       setCurrentGraph,
-      appendSystem,
     } as unknown as import('../../sidebarProvider').SidebarProvider);
     provider.show();
 
@@ -1174,11 +1172,9 @@ suite('setSidebarProvider()', () => {
 
       const refresh = sinon.stub();
       const setCurrentGraph = sinon.stub();
-      const appendSystem = sinon.stub();
       provider.setSidebarProvider({
         refresh,
         setCurrentGraph,
-        appendSystem,
       } as unknown as import('../../sidebarProvider').SidebarProvider);
 
       provider.show();
@@ -1186,8 +1182,6 @@ suite('setSidebarProvider()', () => {
 
       assert.ok(refresh.calledOnce, 'sidebar.refresh() should fire after successful save');
       assert.ok(setCurrentGraph.calledOnce, 'sidebar.setCurrentGraph() should be called with the saved graph');
-      assert.ok(appendSystem.calledOnce, 'sidebar.appendSystem() should append the "Graph: X Updated" message');
-      assert.match(appendSystem.firstCall.args[0] as string, /^Graph: .* Updated$/);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

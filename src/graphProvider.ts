@@ -470,7 +470,6 @@ export class GraphProvider {
         this.panel?.webview.postMessage({ type: 'clear-dirty' });
         this._sidebar?.refresh();
         this._sidebar?.setCurrentGraph({ name, file: targetPath });
-        this._sidebar?.appendSystem(`Graph: ${name} Updated`);
         vscode.window.showInformationMessage(
           isSaveAs ? `CoGraph: Layout saved as "${name}".` : `CoGraph: Saved "${name}".`,
         );
@@ -1071,23 +1070,6 @@ export class GraphProvider {
     return this.graphReadyPromise;
   }
 
-  async runGraphIntelligence(
-    prompt: string,
-    providerId: string,
-    sessionId: string | null,
-    onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
-  ): Promise<GraphIntelligenceResult> {
-    // Host-side gate: the sidebar already blocks chat-send, but no caller may reach a provider while AI is off.
-    if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
-      throw new Error('AI features are off — enable them in CoGraph settings to use Chat.');
-    }
-    const { result, workspaceRoot } = await this.invokeProvider(prompt, providerId, sessionId, onProgress);
-    this.cachedGraph = result.graph;
-    this.cachedNodes = result.graph.nodes.filter(n => !n.isLibrary);
-    this.postGraphData(result.graph, workspaceRoot);
-    return result;
-  }
-
   /**
    * Generate the AI Workflow Graph: annotate the current graph with workflow
    * metadata (pipeline stages, tiers, topic clusters, dynamic edges) in a single
@@ -1163,7 +1145,7 @@ export class GraphProvider {
     return { result, workspaceRoot };
   }
 
-  /** Post a graph to the webview as a reanalysis render (shared by chat + workflow). */
+  /** Post a graph to the webview as a reanalysis render (Workflow Graph). */
   private postGraphData(graph: GraphData, workspaceRoot: string): void {
     this.panel?.webview.postMessage({
       type: 'graph',
@@ -1227,7 +1209,7 @@ export class GraphProvider {
     this.currentSavedGraphPath = undefined;
     this.isDirty = false;
     this.setPanelTitle(this.scopeTitle());
-    // An unsaved scoped view is not a saved graph: the sidebar's chat context must not stay on the last one.
+    // An unsaved scoped view is not a saved graph: the sidebar's current-graph record must not stay on the last one.
     if (!name) { this._sidebar?.setCurrentGraph(null); }
   }
 

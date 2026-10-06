@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { GraphProvider } from './graphProvider';
 import { SidebarProvider } from './sidebarProvider';
-import { ChatStore } from './graphIntelligence/chatStore';
+import { showChatRemovalNotice } from './chatRemovalNotice';
 import { scanStructure } from './structureScanner';
 import { pickFolder } from './folderPicker';
 import { specForFolder } from './subgraphScope';
@@ -10,9 +10,9 @@ import { flushCacheWrites } from './cacheStore';
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const chatStore = workspaceRoot ? new ChatStore(workspaceRoot) : null;
+  void showChatRemovalNotice(workspaceRoot, context.workspaceState);
 
-  const sidebarProvider = new SidebarProvider(context.extensionUri, provider, chatStore, context.workspaceState);
+  const sidebarProvider = new SidebarProvider(context.extensionUri, provider, context.workspaceState);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
   );

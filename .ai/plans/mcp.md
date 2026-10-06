@@ -92,16 +92,28 @@ Output contract (all tools):
 - **Read-only.** No tool writes anything. Tool annotations: `readOnlyHint: true`,
   `openWorldHint: false`.
 
-### D2. Where it runs: (c) both, with (a) as the product (PRODUCT: confirm; npm publishing is new)
+### D2. Where it runs: (c) both, with (a) as the product (PRODUCT: confirm; npm is BLOCKED, see below)
 
 - **(a) Standalone stdio server** `dist/mcp/server.js`, built by esbuild as its own self-contained
   CJS bundle (like the analyzer bundles; `@modelcontextprotocol/sdk` + `zod` inlined, no
   `vscode` import). Invocation: `node server.js --workspace <root>` (default: cwd).
-  To make it usable without VS Code it needs a stable path, so publish the same bundle to npm as
-  a tiny package with a `bin` (name TBD: `cograph-mcp` is simplest; `@cograph/mcp` needs the npm
-  org). Then: `npx -y cograph-mcp`. Publishing to npm is outward-facing and new for this project,
-  so it is a Bela call. Without npm, (a) still works by pointing at the installed extension's
-  `dist/mcp/server.js`, but that path changes with every extension version.
+  - **Bundled path, which works without npm and is the v1 default.** The installed extension's
+    `dist/mcp/server.js` changes path with every extension version
+    (`…/extensions/thraenbe.cograph-<version>/`). So on every activation the extension copies the
+    bundle to a stable per-user location under its `globalStorageUri`
+    (`<globalStorage>/thraenbe.cograph/mcp/server.js`). Every snippet below points there, and
+    an extension update refreshes the file in place.
+  - **npm package: BLOCKED on a name (M2), not just on Bela's permission.** Session-183 found the
+    conflict and session-110 checked it against the registry on 2026-10-06:
+    - npm `cograph` is taken by another project ("Cograph SDK and CLI").
+    - npm `cograph-mcp` is taken by "Onta (formerly Cograph) MCP server", which is another
+      project's MCP server for AI agents.
+    - `github.com/cograph` is an existing user account, so an `@cograph` scope cannot be backed
+      by a matching GitHub org.
+
+    A README line telling users to run that package by name would download and run **their**
+    server. The name is Bela's call, and it is a positioning question as much as a packaging one.
+    This plan proposes no name. Until one exists, (a) ships only as the bundled path.
 - **(b) VS Code registration** via the MCP server definition provider API: one-click for VS Code
   users (Copilot agent mode picks it up with no config). It needs VS Code **1.101+**; our floor is
   `^1.75.0`. **I recommend a guarded optional registration, not a floor bump.** The **runtime
@@ -155,8 +167,7 @@ Output contract (all tools):
   **Result size:** Claude Code warns at 10k tokens and caps MCP results at 25k tokens by default
   (`MAX_MCP_OUTPUT_TOKENS`). Our ~20 kB hard cap (~5k tokens) stays well inside that.
 - **Claude Code in the integrated terminal is the most common case** and needs neither (b) nor
-  npm: the sidebar card (D4) writes/copies a `.mcp.json` pointing at the extension's bundled
-  server.
+  npm. The setup command (D4) writes or copies a config that points at the bundled server.
 
 ### D3. Freshness: trust the cache, report its age, re-analyze on request (PRODUCT: confirm)
 
@@ -177,8 +188,8 @@ Output contract (all tools):
 
 ### D4. Retiring the Chat: remove outright in the MCP release, do not deprecate (PRODUCT: confirm)
 
-**Recommendation: remove it in the same release that ships the MCP server (1.4.0), with no
-deprecation release.** Reasons:
+**Recommendation (adopted by Bela): remove it outright, with no deprecation release, and ahead
+of the MCP server.** Reasons:
 1. Chat is opt-in (`graphIntelligence.enabled` defaults to `false`) and CLI-dependent, so the user
    base is small and already has Claude Code or Codex installed, i.e. exactly the tools the MCP
    server plugs into. The replacement is one `claude mcp add` line away for every Chat user.
@@ -198,21 +209,33 @@ deprecation release.** Reasons:
    This is also the case for the MCP design: bounded, tool-shaped answers (our ~20 kB cap per
    result) are the fix for exactly the ceiling that paste-the-graph hits.
 
-What replaces it in the sidebar: the Chat section becomes a small **"Use CoGraph from your
-agent"** card:
-- status line: "MCP server available · graph analysed 3 min ago" / "no analysis yet";
-- buttons: **Add to this workspace** (writes/merges a `.mcp.json` entry, after a confirm, never
-  overwrites other servers), **Copy `claude mcp add` command**, **Copy config for Cursor /
-  Claude Desktop**; on VS Code with the provider API, a note that Copilot agent mode already sees
-  it.
+**DECIDED (Bela, 2026-10-06, M3): removed outright, no deprecation release.** The removal ships
+on its own, ahead of any MCP work: branch `termi/s214-chat-removal`, commit e9d8206. **What
+replaces Chat in the sidebar is session-262's Version Control view** (clickable PR graphs), not
+an MCP card. The removal leaves an empty, hidden `#pane-primary` slot above Saved Graphs for 262
+to fill.
+
+**MCP setup affordance (compact, my call):** a command, **CoGraph: Connect an AI Agent (MCP)…**.
+It sits in the command palette and also as a single icon in the sidebar's view title bar
+(`contributes.menus["view/title"]`, which is VS Code-native chrome, not webview content), so it
+never competes with the PR list. It opens a QuickPick:
+- **Claude Code, just me**, which copies a `claude mcp add` line (default `local` scope);
+- **Claude Code, whole team**, which merges an entry into `.mcp.json` after a confirm and never
+  overwrites other servers;
+- **Cursor / Claude Desktop**, which copies the JSON snippet.
+
+Each entry points at the stable bundled path (D2). On VS Code 1.101+ the QuickPick's first line
+says Copilot agent mode already sees the server, so no setup is needed there. The status ("graph
+analysed 3 min ago / no analysis yet") moves into the QuickPick's title. That is about 120 LOC in
+`src/mcp/setupCommand.ts`, with no webview code and nothing in `sidebarProvider.ts`.
 
 Saved conversations: **left on disk untouched** (`.cograph/chats/*.json`, gitignored). Nothing
-deletes user data. Once, if that folder exists, the sidebar shows "Chat was replaced by the
-CoGraph MCP server. Your old chats are still in `.cograph/chats/`." with a Dismiss. No viewer for
-old chats.
+deletes user data. Once per workspace, if that folder (or the legacy `chat.json`) exists, a VS Code
+notification says "Chat has been removed. Your saved conversations are still on disk in
+`.cograph/chats/`." It deliberately does not mention MCP, so the removal can land first. There is
+no viewer for old chats.
 
-Removed code (this plan names the files, so it counts as the instruction required by the hard
-constraints; still listed here for Bela to confirm):
+Removed code (done in e9d8206):
 - delete `src/webview/sidebar-chat.js`, `src/graphIntelligence/chatStore.ts`;
 - remove the `chat-*` message cases and chat HTML from `sidebarProvider.ts`,
   `runGraphIntelligence()` from `graphProvider.ts`, the `ChatStore` wiring in `extension.ts`;
@@ -231,7 +254,7 @@ plan (see "What exists today").
 
 ### D5. Install and trust story
 
-What the README and the sidebar card say:
+What the README and the setup command say:
 - **Local only.** The server is a local process on stdio. It reads `.cograph/graph-cache.json`,
   `.cograph/annotations/annotations.json` and, for `get_symbol` source slices, the workspace's
   source files. It opens no network connection, needs no API key, and never runs an LLM. It writes
@@ -240,25 +263,32 @@ What the README and the sidebar card say:
   root (no `..`, no symlink escape); source slices only come from files listed in the graph.
 - Snippets (checked against code.claude.com/docs/en/mcp, cursor.com/docs/context/mcp,
   modelcontextprotocol.io):
-  - Claude Code: `claude mcp add --scope project cograph -- npx -y cograph-mcp`. Everything after
-    `--` is passed to the server. `local` is the default scope and is stored in `~/.claude.json`;
-    `project` writes `.mcp.json` in the repo root; `user` applies globally. Without npm, point at
-    the extension-bundled path instead.
-  - Project `.mcp.json`: `{"mcpServers": {"cograph": {"command": "npx", "args": ["-y", "cograph-mcp"]}}}`.
-    `${VAR}` expansion is supported.
+  `<server>` below stands for the stable bundled path from D2,
+  `<globalStorage>/thraenbe.cograph/mcp/server.js`, which the setup command fills in.
+  - Claude Code: `claude mcp add cograph -- node <server> --workspace .`. Everything after `--`
+    is passed to the server. `local` is the default scope and is stored in `~/.claude.json`;
+    `project` writes `.mcp.json` in the repo root; `user` applies globally.
+  - Project `.mcp.json`:
+    `{"mcpServers": {"cograph": {"command": "node", "args": ["<server>", "--workspace", "."]}}}`.
+    `${VAR}` expansion is supported. Caveat: `<server>` is an absolute per-user path, so a
+    team-shared `.mcp.json` only works for teammates whose path matches. That is why the setup
+    command defaults to the `local` scope.
+  - `node` must be on PATH. Claude Code's native installer does not guarantee that, so the setup
+    command checks first and otherwise falls back to VS Code's own Node (`process.execPath` with
+    `ELECTRON_RUN_AS_NODE=1` in `env`).
   - Cursor (`.cursor/mcp.json`) uses the same `mcpServers` shape and can pass
     `--workspace ${workspaceFolder}`.
   - Claude Desktop (`claude_desktop_config.json`) uses the same shape, but needs an absolute
     `--workspace` path because it has no project cwd.
-  - Hint: `.mcp.json` is shared through git, so the sidebar "Add to this workspace" button asks
-    whether to write it (team-shared) or run the `local`-scope command (just me).
+  - The QuickPick (D4) offers the two Claude Code scopes as separate entries, so the user picks
+    "just me" (`local`) or "whole team" (`.mcp.json`) knowingly.
 
 ### D6. Licensing: flag only (PRODUCT: Bela decides)
 
 My view: **MIT repo.** The MCP server is the adoption wedge. It is how CoGraph gets into agent
 workflows that never open the graph view, and agents are the product thesis. Its code is a thin
 query layer over data the MIT extension already produces; putting it in a private repo would not
-protect much, but would block the `npx` path and community clients. If there is a premium angle,
+protect much, but would block a future npm path and community clients. If there is a premium angle,
 it is in heavier tools later (cross-repo graphs, history-aware impact, hosted team graphs), not
 in callers/callees. This is Bela's decision.
 
@@ -287,9 +317,10 @@ in callers/callees. This is Bela's decision.
 | 2 | **Queries**: find, get, bounded BFS callers/callees, impact by id/file/folder, overview. Pure functions over the index. `get_symbol`'s signature/docstring/source slice **imports `src/funcBrief.ts`** (owned by session-216, vscode-free per session-110's ruling); no slicer of our own. | `src/mcp/queries.ts`, `src/mcp/overview.ts` | ~350 | 1 d |
 | 3 | **Formatting**: text + structured output, truncation notes, footer. | `src/mcp/format.ts` | ~180 | 0.5 d |
 | 4 | **Server**: SDK stdio server, six tool definitions (zod schemas, descriptions written for an agent), argv parsing, stderr logging, error mapping. esbuild entry `dist/mcp/server.js`. | `src/mcp/server.ts`, `src/mcp/tools.ts`, `esbuild.js`, `package.json` | ~250 | 0.5 d |
-| 5 | **Extension integration**: guarded VS Code MCP provider registration; sidebar "Use CoGraph from your agent" card (status, write `.mcp.json` after confirm, copy commands); remove Chat (D4 list); one-time "your chats are still on disk" note; setting text; CHANGELOG (the removal entry says why: Chat returned empty answers on repos above ~300 functions because the graph no longer fit the CLI's Read limit; the MCP server replaces it) + README section. | `src/mcp/vscodeRegistration.ts`, `src/mcp/setupSnippets.ts`, new `src/webview/sidebar-agent.js`, `sidebarProvider.ts` (net shrink), `graphProvider.ts` (−1 method), `extension.ts`, `package.json`, docs | +~350 / −~1,100 | 1 d |
+| 0 | **Chat removal (DONE, own branch and PR, no MCP code):** delete `sidebar-chat.js` and `chatStore.ts`, the `chat-*` cases, `runGraphIntelligence()` and the `ChatStore` wiring; add an empty `#pane-primary` slot for session-262; one-time notice about the chats left on disk; CHANGELOG `[Unreleased] / Removed`; tests. | branch `termi/s214-chat-removal`, e9d8206 | +~150 / −~2,430 | done |
+| 5 | **Extension integration**: guarded VS Code MCP provider registration; stable copy of the bundle into `globalStorageUri` on activation; the **Connect an AI Agent (MCP)…** command with its view-title icon and QuickPick (D4); README section; CHANGELOG `Added`. | `src/mcp/vscodeRegistration.ts`, `src/mcp/setupCommand.ts`, `src/mcp/setupSnippets.ts`, `extension.ts`, `package.json` | ~300 | 1 d |
 | 6 | *(optional, separable)* **Headless re-analysis** `reanalyze=true`: vscode-free analyzer core out of `AnalyzerRunner` (ask owner first). | `src/analyzerCore.ts` (new), `analyzerRunner.ts` (delegates), `src/mcp/reanalyze.ts` | ~250 | 1 d |
-| 7 | *(PRODUCT gate)* **npm package** `cograph-mcp`: `package.json` with `bin`, publish workflow. | `mcp-package/` or a script | ~60 | 0.5 d + Bela's npm account |
+| 7 | *(BLOCKED: needs a name, M2)* **npm package**: `package.json` with `bin`, publish workflow. | `mcp-package/` or a script | ~60 | 0.5 d after a name exists |
 
 **Slice bounds (corrected 2026-09-29).** `funcBrief` sits on the shipped `src/sourceEditor.ts`
 (fs only). That module finds a function's end by indentation for Python and by brace counting
@@ -324,7 +355,7 @@ something we need (candidates: a caller-supplied `maxLines` cap, working from a 
 server has already confined to the workspace, not throwing on an unreadable file), we ask
 session-110 to have 216 widen it. We do not fork it.
 
-Total for 1–5: ~3.5 dev days, net −300 LOC across the repo. With 6 and 7: ~5 days.
+Total for 1–5: ~3.5 dev days (the Chat removal, step 0, is already done). With 6: ~4.5 days; 7 waits for a name.
 
 ## Risks
 
@@ -361,7 +392,7 @@ Total for 1–5: ~3.5 dev days, net −300 LOC across the repo. With 6 and 7: ~5
 - **Size test**: run every tool against the fmt cache in `~/cograph/test-projects` (local only,
   skipped on CI) and assert results stay under the byte budget; record timings.
 - **Extension tests**: registration is skipped when the API is missing (stub `vscode.lm`) and
-  called with the right definition when present; the sidebar card writes/merges `.mcp.json`
+  called with the right definition when present; the setup command writes/merges `.mcp.json`
   without clobbering other servers; chat message types are gone and no longer handled; the
   "old chats" note shows only when `.cograph/chats/` exists.
 - **Manual**: `claude mcp add` against this repo, ask Claude Code "what calls
@@ -374,7 +405,7 @@ Total for 1–5: ~3.5 dev days, net −300 LOC across the repo. With 6 and 7: ~5
 
 - `node dist/mcp/server.js --workspace <repo>` serves six read-only tools over stdio; every
   result is bounded, text-first and carries cache age / staleness.
-- Claude Code with the `.mcp.json` from the sidebar card answers caller/callee/impact questions
+- Claude Code with the config from the setup command answers caller/callee/impact questions
   about this repo from CoGraph's graph.
 - On VS Code versions with the MCP provider API, the server shows up with no config; on 1.75 the
   extension activates as before with no error.
@@ -394,9 +425,10 @@ Total for 1–5: ~3.5 dev days, net −300 LOC across the repo. With 6 and 7: ~5
 ## Open product questions (for Bela, via session-110)
 
 1. **Tool set**: the six in D1 (`find_symbol, get_symbol, callers, callees, impact, overview`)?
-2. **Where it runs**: both (standalone = product, VS Code registration = one-click)? And may we
-   **publish an npm package** (`cograph-mcp`) for the `npx` path, or bundled-in-extension only
-   for now?
-3. **Chat**: remove outright in 1.4.0 (my recommendation) or keep hidden for one release?
+2. **Where it runs**: both (standalone = product, VS Code registration = one-click)? The **npm
+   package is blocked on a name**, because `cograph` and `cograph-mcp` are taken on npm by another
+   "Cograph" project. Until a name exists, v1 ships the bundled path only.
+3. ~~Chat~~: **decided 2026-10-06**, removed outright; the Version Control view (session-262)
+   takes its place.
 4. **Licensing**: MCP server in the MIT repo (my view) or the private one?
 5. **Headless re-analysis** (step 6) in v1, or v1 = cache-only and 6 follows?

@@ -63,6 +63,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **"Show only this file" now removes the other folders**, the same way "Show only this
   folder" does. Only the file's own folder and the folders that contain it stay, in both
   engines; before, every other folder stayed on screen as an empty frame or box.
+- **The graph now draws only calls within one file, by default.** New setting
+  `cograph.display.sameFileEdgesOnly` (default on), also switchable per graph in the Settings
+  panel under Display, *Only calls within a file*. While it is on, these are **not drawn**:
+  every call between two different files (inside a folder and across folders, including
+  Shelf's cross-folder bundles), **every call into a library** (so Show Libraries shows
+  library nodes without their edges), and, **in a collapsed overview** where folders or files
+  are shown as glyphs, **all edges**, because each glyph stands for more than one file. Hover a
+  function to see its own hidden calls. The layout is identical with the setting on or off:
+  hidden calls still pull nodes together and still count for Show Orphans. Turn it off to
+  draw every call as before. The choice is saved with Save Layout.
 
 ### Removed
 - **Chat.** The sidebar Chat is gone. It handed the whole graph to the Claude Code / Codex

@@ -1414,3 +1414,11 @@ g.frame.drag-hover > .folder-bubble-shape { stroke-opacity: 0.9; }
   color: var(--vscode-errorForeground, #f48771);
   border-color: currentColor;
 }
+
+/* ── U1: only calls within a file (setting cograph.display.sameFileEdgesOnly) ──
+   Cross-file lines stay in the DOM (the layout uses them) but are not painted;
+   a hovered node's own lines (.cg-hl) and the Shelf hover lines stay visible. */
+#graph g.same-file-only line.xfile:not(.cg-hl),
+#graph g.same-file-only line.cross-bundle {
+  display: none;
+}

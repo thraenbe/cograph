@@ -326,6 +326,11 @@
           ],
           "default": "collapse",
           "description": "What a pull request opened from the Version Control view does with folders it does not change."
+        },
+        "cograph.display.sameFileEdgesOnly": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Draw only calls between functions **in the same file** (default). Hidden while on: every call between two different files (within a folder and across folders, including the cross-folder bundles in Shelf), every call into a library, and, in a collapsed overview where folders or files are shown as glyphs, all edges. Hover a function to see its own hidden calls. The layout is the same either way. Turn off to draw every call. Can also be switched per graph in the Settings panel (Display, *Only calls within a file*)."
         }
       }
     }

@@ -237,10 +237,11 @@ function mountVcsPane(doc, mount, post, wire) {
     const bits = [];
     if (state.opening === pr.number) { bits.push('opening…'); }
     if (pr.author) { bits.push(pr.author); }
-    if (pr.headRef) { bits.push(pr.baseRef ? `${pr.headRef} → ${pr.baseRef}` : pr.headRef); }
     bits.push(`${pr.changedFiles} file${pr.changedFiles === 1 ? '' : 's'}`);
     const ago = vcsAgo(pr.updatedAt, nowMs);
     if (ago) { bits.push(ago); }
+    // Branch names last: they are the long part, and the line is cut at the pane's edge.
+    if (pr.headRef) { bits.push(pr.baseRef ? `${pr.headRef} → ${pr.baseRef}` : pr.headRef); }
     meta.appendChild(doc.createTextNode(bits.join(' · ')));
     card.appendChild(meta);
 

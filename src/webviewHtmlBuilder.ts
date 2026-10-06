@@ -214,6 +214,7 @@ export function getWebviewHtml(
   const frameCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameCull.js'));
   const hoverCardUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverCard.js'));
   const funcSaveUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'funcSave.js'));
+  const prViewUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'prView.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
 
@@ -523,6 +524,8 @@ export function getWebviewHtml(
   ${timelineScriptTag}
   <script nonce="${nonce}" src="${hoverCardUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${funcSaveUri}?v=${nonce}"></script>
+  <!-- Pull-request view (Version Control pane): declarations only, called from main.js / fileClusters.js at message time. -->
+  <script nonce="${nonce}" src="${prViewUri}?v=${nonce}"></script>
 </body>
 </html>`;
 }

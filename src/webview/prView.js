@@ -7,8 +7,13 @@
 // instead of the working tree. Leaving puts back the expansion, detail depth
 // and frame rects that were on screen before.
 //
+// Language colours are switched off while a pull request is shown: the three
+// PR colours are the only ones that should carry meaning (TypeScript's pink
+// sits right next to "deleted" red), so untouched functions go neutral.
+//
 // state.prView = { number, name, title, headRef, baseRef, expand, counts,
-//                  snapshot, prevGitMode } | null — never saved with a layout.
+//                  snapshot, prevGitMode, prevLanguageMode } | null — never
+// saved with a layout.
 
 const PR_DELETED_COLOR = '#e5534b';
 
@@ -72,10 +77,17 @@ function prViewSnapshot() {
   };
 }
 
-function prViewSyncGitUi() {
+function prViewSyncColourUi() {
   if (typeof document === 'undefined') { return; }
   document.getElementById('btn-git-mode')?.classList.toggle('active', state.gitMode);
   if (typeof setGitLegendVisible === 'function') { setGitLegendVisible(state.gitMode); }
+  document.getElementById('btn-language-mode')?.classList.toggle('active', state.languageMode);
+  if (typeof setLangLegendVisible === 'function') { setLangLegendVisible(state.languageMode); }
+}
+
+/** Drop the frames' pack history so the next render packs this picture from scratch. */
+function prViewFreshPack() {
+  if (typeof usesFrames === 'function' && usesFrames() && typeof resetFrames === 'function') { resetFrames(); }
 }
 
 /** "Deleted" is grey for the working tree; a pull request shows it red. */
@@ -157,14 +169,17 @@ function prViewEnter(message) {
     // Going from one pull request to the next keeps what was there before the first.
     snapshot: previous ? previous.snapshot : prViewSnapshot(),
     prevGitMode: previous ? previous.prevGitMode : state.gitMode,
+    prevLanguageMode: previous ? previous.prevLanguageMode : state.languageMode,
   };
   if (message.fileGitStatus) { state.fileGitStatus = message.fileGitStatus; }
   state.gitMode = true;
-  prViewSyncGitUi();
+  state.languageMode = false;
+  prViewSyncColourUi();
   prViewPaintDeleted(true);
   prViewRenderBanner();
   if (state.structureTree) {
     state.expandedFolders = prViewExpansion(state.structureTree, state.prView.expand);
+    prViewFreshPack();
     prViewRerender();
   }
 }
@@ -175,7 +190,8 @@ function prViewLeave(message) {
   state.prView = null;
   if (message.fileGitStatus) { state.fileGitStatus = message.fileGitStatus; }
   state.gitMode = pv.prevGitMode;
-  prViewSyncGitUi();
+  state.languageMode = pv.prevLanguageMode;
+  prViewSyncColourUi();
   prViewPaintDeleted(false);
   prViewRenderBanner();
   if (!message.restore) {
@@ -183,6 +199,9 @@ function prViewLeave(message) {
     if (typeof applyGitColors === 'function') { applyGitColors(); }
     return;
   }
+  // A fresh pack, then the saved rects on top: frames grow in place and never shrink
+  // back on their own, so without this the old picture would come back in a wider root.
+  prViewFreshPack();
   const snap = pv.snapshot;
   if (snap) {
     state.detailDepth = snap.detailDepth;

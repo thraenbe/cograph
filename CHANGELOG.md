@@ -38,6 +38,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.cograph/chats/`, and CoGraph says so once. The AI Workflow Graph and Annotate Graph are
   unchanged, and so are all `cograph.graphIntelligence.*` settings.
 
+### Added
+- **Version Control: pull requests that open as a graph.** The sidebar's top pane lists the
+  repository's pull requests (number, title, author, branches, check status, files changed),
+  with an **Open | All** switch, a filter box once the list is long, and **Show more** for
+  repositories with hundreds of them. Click a pull request and the graph shows it: every
+  folder on a path to a changed file is opened, every other folder is closed, and the changed
+  files are coloured green (added), orange (modified) or red (deleted). **Leave** in the
+  banner, or **Leave pull request** in the sidebar, puts back the graph you had before -
+  scope, open folders, detail level and frame positions.
+  - The list comes from the GitHub CLI (`gh`) with your own sign-in; CoGraph stores no token.
+    Not a git repository, no remote, a remote that is not GitHub, `gh` missing or signed out,
+    no access and no connection each show as one readable line with a Retry.
+  - The graph is the one of **your current checkout**. A modified file is coloured function
+    by function only when your copy is byte-for-byte the pull request's version; otherwise
+    the file is coloured as a whole and the banner says so. Files the pull request adds or
+    removes that your checkout does not have, and files that are not source code, are
+    counted and listed in the sidebar rather than dropped silently.
+  - A pull-request view is not saved: it follows the pull request.
+  - New setting `cograph.pullRequests.unchangedFolders` (`collapse` | `hide`, default
+    `collapse`): keep untouched folders in the picture, closed, or take them out of the view
+    and list them under FILTERS.
+
 ## [1.3.0] - 2026-09-24
 
 The Shelf engine release: nested, non-overlapping folder frames with per-file slots,

@@ -40,10 +40,6 @@ export class GitService {
     this.override = override;
   }
 
-  hasOverride(): boolean {
-    return this.override !== null;
-  }
-
   parseGitStatus(workspaceRoot: string): Map<string, { unstaged: 'added'|'modified'|'deleted'|null; staged: 'added'|'modified'|'deleted'|null }> | null {
     try {
       const out = cp.execFileSync('git', ['status', '--porcelain', '-z'], {

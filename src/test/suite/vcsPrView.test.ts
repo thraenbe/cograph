@@ -180,7 +180,6 @@ suite('vcs — GitService override', () => {
     assert.strictEqual(status('w1'), null, 'no hunks: the file is coloured, its functions are not');
     assert.strictEqual(status('u1'), null);
     assert.deepStrictEqual(git.fileStatuses['/ws/whole.ts'], { unstaged: 'modified', staged: null });
-    assert.strictEqual(git.hasOverride(), true);
   });
 
   test('the async path honours it too, and clearing it goes back to git', async () => {
@@ -194,7 +193,6 @@ suite('vcs — GitService override', () => {
     git.parseGitStatus = () => { ran++; return null; };
     assert.strictEqual(git.applyGitStatuses(nodes, '/ws'), false);
     assert.strictEqual(ran, 1);
-    assert.strictEqual(git.hasOverride(), false);
   });
 });
 

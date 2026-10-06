@@ -595,6 +595,11 @@ window.addEventListener('message', (event) => {
     if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
     return;
   }
+  if (message.type === 'pr-view') {
+    // Pull-request view on / off (prView.js). Like `subgraph`, never persisted here.
+    if (typeof handlePrViewMessage === 'function') { handlePrViewMessage(message); }
+    return;
+  }
   if (message.type === 'graph') {
     state.gitAvailable = message.gitAvailable ?? false;
     state.fileGitStatus = message.fileGitStatus ?? {};

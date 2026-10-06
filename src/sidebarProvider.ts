@@ -8,6 +8,7 @@ import { ANNOTATION_CARD_CSS, ANNOTATION_CARD_SCRIPT } from './graphIntelligence
 import { readSubgraphField, normalize as normalizeScope } from './subgraphScope';
 import { scanStructure } from './structureScanner';
 import { buildPickerFolders, SUBGRAPH_PICKER_CSS, SUBGRAPH_PICKER_MARKUP, SUBGRAPH_PICKER_SCRIPT } from './subgraphPicker';
+import type { VcsSidebar } from './vcs/vcsSidebar';
 import { SAVED_LAYOUT_VERSION } from './graphProvider';
 import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
 
@@ -70,6 +71,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     private readonly _extensionUri: vscode.Uri,
     private readonly _graphController: GraphController,
     private readonly _workspaceState: vscode.Memento | null = null,
+    /** The Version Control pane's host side (src/vcs); it fills the primary pane. */
+    private readonly _vcs: VcsSidebar | null = null,
   ) {}
 
   /** The saved graph currently open in the panel, if any. */
@@ -96,13 +99,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this._view?.webview.postMessage({ type: 'annotate-status', status });
     });
 
+    this._vcs?.attach((m) => { void this._view?.webview.postMessage(m); });
+
     webviewView.onDidDispose(() => {
       this._view = undefined;
+      this._vcs?.attach(null);
       annotateSub?.dispose();
       this._graphController.abortIntelligence?.();
     });
 
     webviewView.webview.onDidReceiveMessage(async (msg) => {
+      if (await this._vcs?.handle(msg)) { return; }
       switch (msg.type) {
         case 'ready': {
           this._sendGraphList();
@@ -438,8 +445,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       .filter((x): x is SavedGraphMeta => x !== null);
   }
 
-  private _buildHtml(_webview: vscode.Webview): string {
+  private _buildHtml(webview: vscode.Webview): string {
     const nonce = crypto.randomBytes(16).toString('hex');
+    const vcsScriptUri = this._vcs
+      ? webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'src', 'webview', 'sidebar-vcs.js'))
+      : null;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -744,7 +754,7 @@ ${ANNOTATION_CARD_CSS}${SUBGRAPH_PICKER_CSS}
 </head>
 <body class="ai-disabled">
 
-  <!-- PRIMARY pane (top): an empty slot since Chat was removed; hidden while empty -->
+  <!-- PRIMARY pane (top): filled by sidebar-vcs.js (Version Control); hidden while empty -->
   <div class="pane pane--primary" id="pane-primary" hidden></div>
 
   <!-- Splitter between the primary pane (above) and Saved Graphs (below) -->
@@ -1029,6 +1039,7 @@ ${SUBGRAPH_PICKER_SCRIPT}
     // Signal ready so the extension sends the initial list
     vscode.postMessage({ type: 'ready' });
   </script>
+  ${vcsScriptUri ? `<script nonce="${nonce}" src="${vcsScriptUri}"></script>` : ''}
 </body>
 </html>`;
   }

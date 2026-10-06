@@ -103,6 +103,8 @@ function setDetailSlider(raw) {
 function setInitialDetailDepth() {
   const tree = state.structureTree;
   if (!tree) { return; }
+  // A pull-request view opens exactly the folders that lead to its changed files (prView.js).
+  if (typeof prViewInitialExpansion === 'function' && prViewInitialExpansion(tree)) { return; }
   const raw = (tree.totalFiles || 0) < 200 ? 1 : 0;
   state.detailDepth = raw;
   state.expandedFolders = expandToDetail(tree, raw);

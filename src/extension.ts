@@ -6,13 +6,34 @@ import { scanStructure } from './structureScanner';
 import { pickFolder } from './folderPicker';
 import { specForFolder } from './subgraphScope';
 import { flushCacheWrites } from './cacheStore';
+import { GhCliSource } from './vcs/ghCliSource';
+import { PrController } from './vcs/prController';
+import { VcsSidebar } from './vcs/vcsSidebar';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   void showChatRemovalNotice(workspaceRoot, context.workspaceState);
 
-  const sidebarProvider = new SidebarProvider(context.extensionUri, provider, context.workspaceState);
+  // Version Control pane: pull requests through the developer's own `gh` sign-in.
+  const vcsLog = vscode.window.createOutputChannel('CoGraph Version Control');
+  const prController = new PrController(new GhCliSource(), provider, {
+    workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    scanStructure,
+    unchangedFolders: () => vscode.workspace.getConfiguration('cograph')
+      .get<string>('pullRequests.unchangedFolders', 'collapse') === 'hide' ? 'hide' : 'collapse',
+    log: (line) => vcsLog.appendLine(line),
+  });
+  const vcsSidebar = new VcsSidebar(prController, {
+    openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)); },
+    openTerminal: (command) => {
+      const terminal = vscode.window.createTerminal('GitHub CLI');
+      terminal.show();
+      terminal.sendText(command, false); // typed, not run: the developer presses Enter
+    },
+  });
+
+  const sidebarProvider = new SidebarProvider(context.extensionUri, provider, context.workspaceState, vcsSidebar);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
   );
@@ -81,7 +102,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener, annotateCommand, visualizeFolderCommand);
+  context.subscriptions.push(vcsLog, command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener, annotateCommand, visualizeFolderCommand);
 }
 
 // VS Code awaits a returned promise on shutdown: persist a still-debounced graph cache.

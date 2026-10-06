@@ -141,11 +141,16 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
 
   // ── R3: arrowhead size. Markers live in <defs>; their on-screen size follows from the marker attributes:
   //    userSpaceOnUse → markerWidth × zoom, strokeWidth units → markerWidth × line stroke-width × zoom.
-  let maxMarkerPx = 0, maxMarkerId = '';
+  let maxMarkerPx = 0, maxMarkerId = '', markerLines = 0;
   if (svgEl) {
     const markerCache = new Map<string, { w: number; units: string }>();
     svgEl.querySelectorAll('line[marker-end], path[marker-end]').forEach((el) => {
       if (!shown(el)) { return; }
+      // U1 hides cross-file lines and bundles with a CSS class on the zoom root, not an inline style:
+      // an arrowhead nobody sees must not be judged (nor count as guarded).
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || (el.parentElement && getComputedStyle(el.parentElement).display === 'none')) { return; }
+      markerLines++;
       const ref = /url\(#([^)]+)\)/.exec(el.getAttribute('marker-end') || '');
       if (!ref) { return; }
       let mk = markerCache.get(ref[1]);
@@ -180,7 +185,7 @@ function snapshotInPage(opts: CollectOpts): Snapshot {
     nodes, frames, slots, edges, labels, boxes, labelsTruncated,
     domNodes: document.querySelectorAll('*').length,
     heapMB: mem ? +(mem.usedJSHeapSize / 1048576).toFixed(1) : null,
-    maxMarkerPx: +maxMarkerPx.toFixed(1), maxMarkerId, slotsOverName,
+    maxMarkerPx: +maxMarkerPx.toFixed(1), maxMarkerId, markerLines, slotsOverName,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

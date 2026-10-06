@@ -249,7 +249,7 @@ export function computeMetrics(raw: Snapshot, opts: ComputeOpts = {}): LayoutMet
     nodePxMedian: round(leg.nodePxMedian, 2), labelPxMedian: round(leg.labelPxMedian, 2), smallBoxShare: round(leg.smallBoxShare),
     folderOverlapRatio: round(folderOverlapRatio(raw.boxes ?? [])),
     domNodes: snap.domNodes, heapMB: snap.heapMB,
-    maxMarkerPx: raw.maxMarkerPx, maxMarkerId: raw.maxMarkerId, slotsOverName: raw.slotsOverName,
+    maxMarkerPx: raw.maxMarkerPx, maxMarkerId: raw.maxMarkerId, markerLines: raw.markerLines, slotsOverName: raw.slotsOverName,
   };
 }
 

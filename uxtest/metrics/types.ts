@@ -32,7 +32,7 @@ export interface Snapshot {
   domNodes: number;
   heapMB: number | null;
   /** largest on-screen arrowhead (marker) in px over all rendered lines, with the marker id it came from */
-  maxMarkerPx?: number; maxMarkerId?: string;
+  maxMarkerPx?: number; maxMarkerId?: string; markerLines?: number;
   /** frames whose first slot row intersects the frame's own name line (R4 reserves NAME_H for it) */
   slotsOverName?: number;
 }
@@ -69,6 +69,6 @@ export interface LayoutMetrics {
   folderOverlapRatio?: number;
   domNodes: number;
   heapMB: number | null;
-  maxMarkerPx?: number; maxMarkerId?: string;   // R3: bundle arrowheads must stay small at every zoom
+  maxMarkerPx?: number; maxMarkerId?: string; markerLines?: number;   // markerLines = visible lines with an arrowhead (0 = R3 guards nothing here). R3: bundle arrowheads must stay small at every zoom
   slotsOverName?: number;                       // R4: slot rows must not touch the folder name line
 }

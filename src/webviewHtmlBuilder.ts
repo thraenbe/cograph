@@ -522,10 +522,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${slotDragUri}?v=${nonce}"></script>
   ${timelineScriptTag}
   <script nonce="${nonce}" src="${hoverCardUri}?v=${nonce}"></script>
-<<<<<<< HEAD
-=======
   <script nonce="${nonce}" src="${funcSaveUri}?v=${nonce}"></script>
->>>>>>> de152b1 (fix(popup): a refused or unanswered save keeps the edit (func-source-saved reply))
 </body>
 </html>`;
 }

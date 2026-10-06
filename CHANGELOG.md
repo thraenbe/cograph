@@ -29,6 +29,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   char literals, comments and regexes, and handles multi-line signatures, decorators,
   declarations without a body, and Python triple-quoted strings, bracket continuations and
   low-indent comments.
+
+### Removed
+- **Chat.** The sidebar Chat is gone. It handed the whole graph to the Claude Code / Codex
+  CLI as one file, and above roughly 300 functions the CLI refused to read that file, so on
+  most real repositories Chat returned empty answers (measured on axios, requests, socket.io,
+  gson and CoGraph itself). Your saved conversations are not deleted: they stay in
+  `.cograph/chats/`, and CoGraph says so once. The AI Workflow Graph and Annotate Graph are
+  unchanged, and so are all `cograph.graphIntelligence.*` settings.
+
 ## [1.3.0] - 2026-09-24
 
 The Shelf engine release: nested, non-overlapping folder frames with per-file slots,

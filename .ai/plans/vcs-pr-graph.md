@@ -1,7 +1,8 @@
 # Task: Version Control view — pull requests that open as a scoped, coloured graph
 
 Planner: session-262, 2026-10-06. Base: `main` @ e7103a6 (`termi/s262`).
-Status: **plan sent; building the parts no open question blocks** (Bela: "plan and implement").
+Status: **step (a) implemented 2026-10-06** on `termi/s262` (see "Outcome" at the end). N2 (b) / (b′)
+and N4 are with Bela; N1, N5, N6 decided by session-110, N3 (MIT) by Bela.
 Brief: `.termi/briefs/vcs-pr-graph.md`. Decision behind it: M3 on the decision board, 2026-10-06.
 
 ## Problem
@@ -216,3 +217,37 @@ Manually: this repository's own PRs #68 / #69 in a real VS Code window.
 
 Reviewing (comments, approvals, merging), GitLab / Bitbucket / Gitea, a diff viewer, PR creation,
 (b) and (b′) until N2 is answered, the MCP server, the Chat removal, the hover card.
+
+## Outcome (2026-10-06)
+
+Decisions received: **N1** `gh` (session-110). **N3** MIT (Bela) — no licence boundary to design
+for. **N5** Open / All switch, Open first. **N6** the pane is titled "Version Control".
+**N4** stays a setting, default `collapse`, until Bela rules. **N2**: (a) shipped; (b′) and (b) not
+built. session-183 names (b), the structural diff between two refs, as a possible premium feature,
+so nothing here assumes it: the PR view only ever looks at the current checkout.
+
+Built as planned, with these differences:
+
+- **Language colours are switched off inside a PR view** (and put back on leaving). Seen in the
+  lab on this repository's PR #69: TypeScript's pink sits next to "deleted" red, and with every
+  untouched function brightly coloured the three PR colours did not read. Untouched functions are
+  now neutral.
+- **Frames are re-packed from scratch on entering and on leaving.** Frames grow in place and never
+  shrink, and the root frame is not part of a serialised layout, so restoring only the saved rects
+  brought the old picture back inside a wider root. Measured in the lab in both modes: expansion,
+  detail depth, every frame rect, colour modes and node count are identical before and after.
+- **Based on `termi/s214-chat-removal` and `fix/popup-save-stale-write`**, not on bare `main`, at
+  session-110's request; the pane fills 214's `#pane-primary` slot through `wireSection`. No mount
+  markup of my own was needed, so `sidebarProvider.ts` only gained the script tag and the message
+  hand-off.
+- `structureScanner.ts` gained `isAnalyzablePath()` (10 lines) to tell "a source file this checkout
+  does not have" from "not something the graph shows". Not in the planned file list.
+- The (b′) checkout action, the `deleted` slot stroke in `frameRender.js` / `folder.js`, and ending
+  a PR view when the AI Workflow Graph is opened (`showWorkflowGraph`, session-215's code) are not
+  done — each needs an owner's yes.
+
+Verified: full suite 1327 passing in VS Code 1.116, 78 of them new; host modules 95 % line coverage from the pure tests; the data path run against
+this repository's twelve open PRs through the real `gh`; the graph view and all four sidebar states
+looked at in a browser, dark and light. **Not** verified: a click-through in a real VS Code window,
+Windows and macOS, a repository whose workspace folder is below the git root (unit-tested only),
+GitHub Enterprise hosts.

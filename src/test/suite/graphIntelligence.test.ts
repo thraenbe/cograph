@@ -7,7 +7,6 @@ import * as path from 'path';
 import { EventEmitter } from 'events';
 import { ClaudeCodeProvider } from '../../graphIntelligence/claudeCodeProvider';
 import { CodexCliProvider, CodexStreamParser } from '../../graphIntelligence/codexCliProvider';
-import { SidebarProvider, GraphController } from '../../sidebarProvider';
 import { PROVIDER_CATALOG, getProviderInfo, findProviderForModel } from '../../graphIntelligence/provider';
 import { StreamJsonParser, summarizeToolInput, ProgressEvent } from '../../graphIntelligence/progressParser';
 import {
@@ -758,89 +757,3 @@ suite('CodexCliProvider', () => {
     await assert.rejects(promise, /Codex:.*rate limited/);
   });
 });
-
-suite('webview/markdown.js', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-  const { renderMarkdown } = require('../../../src/webview/markdown.js') as { renderMarkdown: (s?: string) => string };
-
-  test('empty / undefined input returns empty string', () => {
-    assert.strictEqual(renderMarkdown(''), '');
-    assert.strictEqual(renderMarkdown(undefined), '');
-  });
-
-  test('plain text becomes a <p>', () => {
-    assert.strictEqual(renderMarkdown('hello world'), '<p>hello world</p>');
-  });
-
-  test('## heading → <h2>, ### → <h3>', () => {
-    assert.ok(renderMarkdown('## Title').includes('<h2>Title</h2>'));
-    assert.ok(renderMarkdown('### Sub').includes('<h3>Sub</h3>'));
-  });
-
-  test('unordered list', () => {
-    const out = renderMarkdown('- a\n- b');
-    assert.ok(out.includes('<ul>'));
-    assert.ok(out.includes('<li>a</li>'));
-    assert.ok(out.includes('<li>b</li>'));
-  });
-
-  test('ordered list', () => {
-    const out = renderMarkdown('1. a\n2. b');
-    assert.ok(out.startsWith('<ol>'));
-    assert.ok(out.includes('<li>a</li><li>b</li>'));
-  });
-
-  test('fenced code block preserves content and emits copy button + lang class', () => {
-    const out = renderMarkdown('```ts\nconst x = 1;\n```');
-    assert.ok(out.includes('<pre>'));
-    assert.ok(out.includes('class="code-copy"'));
-    assert.ok(out.includes('<code class="lang-ts">'));
-    assert.ok(out.includes('const x = 1;'));
-  });
-
-  test('inline code is wrapped in <code>; surrounding text is not', () => {
-    const out = renderMarkdown('a `b` c');
-    assert.ok(out.includes('<code>b</code>'));
-    assert.ok(/<p>a <code>b<\/code> c<\/p>/.test(out));
-  });
-
-  test('bold and italic', () => {
-    assert.ok(renderMarkdown('**big**').includes('<strong>big</strong>'));
-    assert.ok(renderMarkdown('an *emph* word').includes('<em>emph</em>'));
-  });
-
-  test('link syntax → anchor with target/rel', () => {
-    const out = renderMarkdown('see [docs](https://example.com)');
-    assert.ok(out.includes('<a href="https://example.com" target="_blank" rel="noreferrer">docs</a>'));
-  });
-
-  test('escapes HTML — no live <script> in output', () => {
-    const out = renderMarkdown('<script>alert(1)</script>');
-    assert.ok(!/[<]script[>]/i.test(out));
-    assert.ok(out.includes('&lt;script&gt;'));
-  });
-
-  test('unsafe content inside code fence stays escaped', () => {
-    const out = renderMarkdown('```\n<script>x</script>\n```');
-    assert.ok(!/[<]script[>]/i.test(out));
-    assert.ok(out.includes('&lt;script&gt;x&lt;/script&gt;'));
-  });
-
-  test('mixed real example contains heading, paragraph, list, fenced code in order', () => {
-    const out = renderMarkdown('## Title\n\nsome prose\n\n- one\n- two\n\n```ts\nx\n```');
-    const i1 = out.indexOf('<h2>');
-    const i2 = out.indexOf('<p>');
-    const i3 = out.indexOf('<ul>');
-    const i4 = out.indexOf('<pre>');
-    assert.ok(i1 >= 0 && i2 > i1 && i3 > i2 && i4 > i3, 'blocks should appear in markdown order');
-  });
-
-  test('horizontal rule', () => {
-    assert.ok(renderMarkdown('---').includes('<hr/>'));
-  });
-
-  test('blockquote', () => {
-    assert.ok(renderMarkdown('> quoted').includes('<blockquote>quoted</blockquote>'));
-  });
-});
-

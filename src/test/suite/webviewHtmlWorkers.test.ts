@@ -31,6 +31,17 @@ suite('webview HTML: workers, CSP, vendored d3', () => {
   setup(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-html-')); });
   teardown(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
+  // A merge conflict resolved badly inside the HTML template literal still COMPILES — the
+  // markers are just text in a string — so neither tsc nor any behavioural test catches it, and
+  // the markers render into the graph page. This happened on fix/popup-save-stale-write.
+  test('the built page carries no merge conflict markers', () => {
+    fs.mkdirSync(path.join(dir, 'dist', 'webview'), { recursive: true });
+    const html = getWebviewHtml(fakeWebview(), vscode.Uri.file(dir));
+    for (const marker of ['<<<<<<<', '=======', '>>>>>>>']) {
+      assert.ok(!html.includes(marker), `built HTML contains a conflict marker: ${marker}`);
+    }
+  });
+
   test('bundled build: local d3, worker URI, CSP allows blob workers + own-origin fetch, no CDN', () => {
     fs.mkdirSync(path.join(dir, 'dist', 'webview'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'dist', 'webview', 'd3.min.js'), '');

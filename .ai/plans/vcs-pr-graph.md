@@ -242,11 +242,18 @@ Built as planned, with these differences:
   hand-off.
 - `structureScanner.ts` gained `isAnalyzablePath()` (10 lines) to tell "a source file this checkout
   does not have" from "not something the graph shows". Not in the planned file list.
-- The (b′) checkout action, the `deleted` slot stroke in `frameRender.js` / `folder.js`, and ending
-  a PR view when the AI Workflow Graph is opened (`showWorkflowGraph`, session-215's code) are not
-  done — each needs an owner's yes.
+- The (b′) checkout action is not built (N2, with Bela).
+- Added later the same day with the owners' yes, relayed by session-110:
+  - **session-215** — a Workflow Graph ends the PR view first, on both paths that draw one
+    (`showWorkflowGraph` and `generateWorkflow`), one line each just before `postGraphData`. In
+    `generateWorkflow` it sits after the reply is accepted, so a failed AI run leaves the PR view
+    exactly as it was. Not in `postGraphData` itself.
+  - **session-216** — a deleted file that is still in the checkout gets the deleted colour on its
+    slot (Shelf, `frameRender.js`) and its file circle (Global, `folder.js`). No third literal: the
+    colour is `gitDeletedColor()` in `colors.js`, the theme variable the function nodes already
+    read, so container and nodes agree and both follow the theme (and the PR view's red).
 
-Verified: full suite 1327 passing in VS Code 1.116, 78 of them new; host modules 95 % line coverage from the pure tests; the data path run against
+Verified: full suite 1333 passing in VS Code 1.116, 84 of them new; host modules 95 % line coverage from the pure tests; the data path run against
 this repository's twelve open PRs through the real `gh`; the graph view and all four sidebar states
 looked at in a browser, dark and light. **Not** verified: a click-through in a real VS Code window,
 Windows and macOS, a repository whose workspace folder is below the git root (unit-tested only),

@@ -1109,6 +1109,7 @@ export class GraphProvider {
     const normalized = normalizeWorkflowModel(result.graph);
     this.cachedGraph = normalized;
     this.cachedNodes = normalized.nodes.filter(n => !n.isLibrary);
+    if (this.prView) { this.leavePullRequest(this.prView.back.scope, false); } // only now: a failed run leaves the PR view as it was
     this.postGraphData(normalized, workspaceRoot);
     this.setPanelTitle('Workflow');
     return { graph: normalized, text: result.text, sessionId: result.sessionId };
@@ -1123,6 +1124,7 @@ export class GraphProvider {
     await this.waitForGraphReady();
     this.cachedGraph = graph;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
+    if (this.prView) { this.leavePullRequest(this.prView.back.scope, false); } // the workflow graph replaces the PR view
     this.postGraphData(graph, workspaceRoot);
     // Do not target the workflow file for "Save Layout" — a positions-only save
     // would drop the annotated graph. Saving becomes Save-As (a normal layout).

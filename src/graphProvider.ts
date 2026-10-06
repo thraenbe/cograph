@@ -25,6 +25,7 @@ import {
   filterGraph, filterFileStatuses, filterFiles, graphForFiles, buildSubgraphMessage, readSubgraphField,
 } from './subgraphScope';
 import type { Scope, ScopeSpec, ScopeSource } from './subgraphScope';
+import type { PrGraphView } from './vcs/prController';
 
 /**
  * Per-node annotations produced by the AI Workflow Graph generation. All fields
@@ -133,6 +134,9 @@ export class GraphProvider {
    * (the cache file is unscoped); only what is posted to the webview is filtered.
    */
   private scope: Scope = NO_SCOPE;
+  /** Set while a pull-request view (src/vcs) is on screen: what to go back to, and its webview message. */
+  private prView: { view: PrGraphView; back: { scope: Scope; title: string; savedGraphPath: string | undefined; dirty: boolean } } | undefined;
+  private readonly prListeners = new Set<(active: number | null) => void>();
   /** True while a background analysis (first full pass or cache reconcile) is still filling the graph. */
   private backgroundParsing = false;
   private readonly analysisIdleListeners = new Set<() => void>();
@@ -280,6 +284,7 @@ export class GraphProvider {
       this.intelController?.abort();
       this.currentSavedGraphPath = undefined;
       this.scope = NO_SCOPE;
+      if (this.prView) { this.leavePullRequest(NO_SCOPE, false); }
     });
 
     this.panel.webview.onDidReceiveMessage(async (message) => {
@@ -426,6 +431,10 @@ export class GraphProvider {
         // from the save-graph handler.
         await vscode.commands.executeCommand('cograph.savedGraphs.focus');
       } else if (message.type === 'save-graph') {
+        if (this.prView) {
+          vscode.window.showInformationMessage('CoGraph: A pull-request view is not saved — it follows the pull request. Leave it to save a layout.');
+          return;
+        }
         const isSaveAs = message.mode === 'save-as' || !this.currentSavedGraphPath;
         let targetPath: string;
         let name: string;
@@ -911,6 +920,7 @@ export class GraphProvider {
     this.readyGate.arm();
     // `subgraph` goes first so the webview's first frame build is already scoped (no flash of the whole project).
     this.readyGate.post(this.subgraphMessage(this.workspaceRoot()));
+    if (this.prView) { this.readyGate.post(this.prView.view.message); } // before `structure`: the first build opens the PR's folders
     for (const m of messages) { this.readyGate.post(this.scoped(m)); }
   }
 
@@ -1249,6 +1259,8 @@ export class GraphProvider {
    * a lazy parse for files the cache does not have yet).
    */
   setScope(next: Scope, parseTag?: string): void {
+    // Anything that replaces a pull-request view (a saved graph, "Only visualize folder") ends it first.
+    if (this.prView && next.source !== 'pr') { this.leavePullRequest(next, false); return; }
     const prev = this.scope;
     this.scope = next;
     const root = this.workspaceRoot();
@@ -1294,12 +1306,91 @@ export class GraphProvider {
 
   /** `subgraph-exit`: back to the whole project; like New Graph, without a reload. */
   private exitScope(): void {
+    if (this.prView) { this.exitPullRequest(); return; }
     if (!hasScope(this.scope)) { return; }
     this.setScope(NO_SCOPE);
     this.currentSavedGraphPath = undefined;
     this.isDirty = false;
     this.setPanelTitle('CoGraph');
     this._sidebar?.setCurrentGraph(null);
+  }
+
+  // ── Pull-request view (src/vcs) ───────────────────────────────────────────
+
+  activePullRequest(): number | null { return this.prView?.view.number ?? null; }
+
+  onPullRequestChange(listener: (active: number | null) => void): { dispose(): void } {
+    this.prListeners.add(listener);
+    return { dispose: () => this.prListeners.delete(listener) };
+  }
+
+  /**
+   * Show a pull request: its statuses replace the working tree's, its folders are
+   * opened, and the panel gets a transient 'pr' scope whose exit restores what was
+   * there before. Returns false when no panel could be opened.
+   */
+  showPullRequest(view: PrGraphView): boolean {
+    const back = this.prView?.back
+      ?? { scope: this.scope, title: this.getCleanTitle(), savedGraphPath: this.currentSavedGraphPath, dirty: this.isDirty };
+    const scope: Scope = { spec: view.spec, source: 'pr', name: view.name };
+    this.gitService.setOverride(view.override);
+    this.prView = { view, back };
+    if (!this.panel) {
+      this.scope = scope;
+      this.show(); // loadGraphHtml queues subgraph, pr-view, then structure / graph
+      if (!this.panel) { this.prView = undefined; this.gitService.setOverride(null); this.scope = NO_SCOPE; return false; }
+    } else {
+      this.panel.reveal();
+      // pr-view first: the webview snapshots the layout it will restore before the scope changes it.
+      this.panel.webview.postMessage(view.message);
+      this.gitService.applyGitStatuses(this.cachedGraph?.nodes ?? [], this.workspaceRoot());
+      this.setScope(scope);
+      this.postAllGitStatuses();
+    }
+    this.currentSavedGraphPath = undefined;
+    this.isDirty = false;
+    this.setPanelTitle(view.name);
+    this._sidebar?.setCurrentGraph(null);
+    for (const listener of [...this.prListeners]) { listener(view.number); }
+    return true;
+  }
+
+  /** Back to exactly what the panel showed before the pull request. */
+  exitPullRequest(): void {
+    const back = this.prView?.back;
+    if (!back) { return; }
+    this.leavePullRequest(back.scope, true);
+    if (!this.panel) { return; }
+    this.currentSavedGraphPath = back.savedGraphPath;
+    this.isDirty = back.dirty;
+    this.setPanelTitle(back.title);
+    this._sidebar?.setCurrentGraph(back.savedGraphPath ? { name: back.title, file: back.savedGraphPath } : null);
+  }
+
+  /** End the PR view and move to `next`; `restore` asks the webview to bring its snapshot back. */
+  private leavePullRequest(next: Scope, restore: boolean): void {
+    this.prView = undefined;
+    this.gitService.setOverride(null);
+    if (this.panel) {
+      const root = this.workspaceRoot();
+      this.gitService.applyGitStatuses(this.cachedGraph?.nodes ?? [], root);
+      this.setScope(next);
+      this.postAllGitStatuses();
+      this.panel.webview.postMessage({
+        type: 'pr-view', active: false, restore,
+        fileGitStatus: filterFileStatuses(this.gitService.fileStatuses, next.spec, root),
+      });
+    } else {
+      this.scope = next;
+    }
+    for (const listener of [...this.prListeners]) { listener(null); }
+  }
+
+  /** Push every cached node's (already applied) git status; resets the delta baseline. */
+  private postAllGitStatuses(): void {
+    if (!this.panel) { return; }
+    this.rememberSentGitStatus(this.cachedNodes);
+    this.panel.webview.postMessage(this.scopedGitUpdate(this.cachedNodes));
   }
 
   private scopeTitle(): string {

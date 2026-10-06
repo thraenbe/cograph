@@ -74,6 +74,17 @@ function isSkippedDir(name: string): boolean {
   return SKIP_DIR_NAMES.has(name) || name.startsWith('.') || name.startsWith('cmake-build-');
 }
 
+/**
+ * Would a file at this root-relative path be part of the structure if it existed?
+ * (A supported source extension, and no skipped directory on the way.)
+ */
+export function isAnalyzablePath(relPath: string): boolean {
+  const segs = splitSegments(relPath);
+  if (segs.length === 0) { return false; }
+  const name = segs[segs.length - 1];
+  return languageOf(name) !== null && !segs.slice(0, -1).some(isSkippedDir);
+}
+
 /** Collect every supported source file under `root` (parse-free). */
 function collectFiles(root: string): StructureFile[] {
   const files: StructureFile[] = [];

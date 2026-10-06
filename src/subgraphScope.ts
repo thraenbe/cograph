@@ -21,7 +21,8 @@ export interface ScopeSpec {
   exclude: string[];
 }
 
-export type ScopeSource = 'none' | 'folder' | 'subgraph';
+/** 'pr' is a pull-request view (src/vcs): transient, never written to a saved graph. */
+export type ScopeSource = 'none' | 'folder' | 'subgraph' | 'pr';
 
 export interface Scope {
   spec: ScopeSpec;

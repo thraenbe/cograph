@@ -98,9 +98,14 @@ test('demo', async () => {
     await waitForGraph(s.graphFrame, 120000, true);
     const g = await s.graphFrame(); if (!g) { throw new Error('no graph frame'); }
     const off = await (await g.frameElement()).boundingBox(); if (!off) { throw new Error('no graph iframe box'); }
+    // Fit like a user (double-click bare canvas) when bare canvas is reachable; otherwise the product's own
+    // fitToView(). Never skip silently: a skipped fit once left Global building off-screen for 3-4 s of the take.
     const fit = async (): Promise<void> => {
       const bg = await frameHittable(g, '#graph svg', 330);
-      if (bg) { await glide(bg.x, bg.y, 500); await page.mouse.dblclick(bg.x, bg.y); log(); }
+      if (bg) { await glide(bg.x, bg.y, 500); await page.mouse.dblclick(bg.x, bg.y); log(); return; }
+      const ok = await g.evaluate('typeof fitToView === "function" ? (fitToView(), true) : false');
+      if (!ok) { throw new Error('could not fit: no bare canvas and no fitToView()'); }
+      await hold(500);
     };
     /** Page point at the centre of the frame with the most functions (state geometry, not DOM titles). */
     const busiest = async (): Promise<{ x: number; y: number }> => {
@@ -143,11 +148,15 @@ test('demo', async () => {
       down = false; await page.mouse.up(); log();
       await hold(1000);
     }
+    // Fit before the switch: switching engines while zoomed in keeps the zoom, and Global then builds off-screen
+    // (measured on 1.4.0: 3-4 s of empty canvas until a fit). A user would fit first; so does the take.
+    await fit();
+    await hold(500);
 
     // 4. Global: the classic force layout, settled and fitted.
     mark('global');
     await click(...Object.values(await center(g, SEL.engineGlobal.css)) as [number, number], 800);
-    await hold(1500);
+    await hold(1200);
     await fit();
     // Rest the pointer on the controls panel (never on a node: no hover card in the last frames).
     await glide(...Object.values(await center(g, SEL.engineGlobal.css)) as [number, number], 500);

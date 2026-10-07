@@ -1,4 +1,5 @@
 import type { PrController } from './prController';
+import type { PrTree } from './prController';
 import type { PrViewCounts, PrViewFile } from './prView';
 import type { PrProblem, PrProblemKind, PrStateFilter, PullRequest } from './types';
 
@@ -9,6 +10,7 @@ const MAX_DETAIL_FILES = 300;
 
 export interface VcsDetail {
   number: number;
+  tree: PrTree;
   counts: PrViewCounts;
   files: PrViewFile[];
   /** More files exist than `files` lists. */
@@ -104,7 +106,7 @@ export class VcsSidebar {
         await this.load();
         break;
       case 'vcs-open':
-        await this.open(Number(msg.number));
+        await this.open(Number(msg.number), msg.tree === 'checkout' ? 'checkout' : undefined);
         break;
       case 'vcs-exit':
         this.controller.exit();
@@ -147,18 +149,18 @@ export class VcsSidebar {
     this.push();
   }
 
-  private async open(prNumber: number): Promise<void> {
+  private async open(prNumber: number, tree?: 'checkout'): Promise<void> {
     const pr = this.find(prNumber);
     if (!pr || this.opening !== null) { return; }
     this.opening = pr.number;
     this.openProblem = null;
     this.push();
-    const result = await this.controller.open(pr);
+    const result = await this.controller.open(pr, tree);
     this.opening = null;
     if (result.ok) {
       const { counts, files, truncated } = result.opened;
       this.detail = {
-        number: pr.number, counts,
+        number: pr.number, tree: result.opened.tree, counts,
         files: files.slice(0, MAX_DETAIL_FILES),
         filesCut: truncated || files.length > MAX_DETAIL_FILES,
       };

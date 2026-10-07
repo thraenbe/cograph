@@ -6,8 +6,9 @@ import { GitService } from '../../gitService';
 import { scanStructure } from '../../structureScanner';
 import { isAnalyzablePath } from '../../structureScanner';
 import { fileInScope } from '../../subgraphScope';
+import { HeadTreeError } from '../../vcs/engine/headTree';
 import { PrController, repoRootFrom } from '../../vcs/prController';
-import type { PrGraph, PrGraphView } from '../../vcs/prController';
+import type { MaterializeHead, PrGraph, PrGraphView, PrHeadGraph } from '../../vcs/prController';
 import { buildPrView, gitBlobSha, prViewName } from '../../vcs/prView';
 import { VcsSidebar } from '../../vcs/vcsSidebar';
 import type { VcsStateMessage } from '../../vcs/vcsSidebar';
@@ -140,10 +141,9 @@ suite('vcs — buildPrView', () => {
     assert.strictEqual(repoRootFrom(abs('src/server/db'), 'src/server/db/'), root);
   });
 
-  test('names and analyzable paths', () => {
-    assert.strictEqual(prViewName(PR), 'PR #69 · fix: a save can overwrite the wrong lines');
-    assert.strictEqual(prViewName({ ...PR, title: '' }), 'PR #69');
-    assert.ok(prViewName({ ...PR, title: 'x'.repeat(200) }).length < 64);
+  test('names say which tree, never the PR title; analyzable paths', () => {
+    assert.strictEqual(prViewName(PR, { kind: 'checkout' }), 'PR #69 · your checkout');
+    assert.strictEqual(prViewName(PR, { kind: 'head', sha: '23834be0123456789' }), 'PR #69 · head 23834be');
     assert.strictEqual(isAnalyzablePath('src/a.ts'), true);
     assert.strictEqual(isAnalyzablePath('src/a.d.ts'), false);
     assert.strictEqual(isAnalyzablePath('node_modules/x/a.js'), false);
@@ -210,6 +210,8 @@ class FakeGraph implements PrGraph {
     return true;
   }
   exitPullRequest(): void { this.set(null); }
+  isOpen(): boolean { return this.active !== null; }
+  close(): void { this.set(null); }
   activePullRequest(): number | null { return this.active; }
   onPullRequestChange(l: (a: number | null) => void) { this.listeners.add(l); return { dispose: () => this.listeners.delete(l) }; }
   set(n: number | null) { this.active = n; for (const l of this.listeners) { l(n); } }
@@ -253,7 +255,7 @@ suite('vcs — controller and sidebar host', () => {
       scanStructure,
       unchangedFolders: () => 'collapse',
       log: (l) => logs.push(l),
-      exec: async () => ({ code: 0, stdout: '\n', stderr: '', notFound: false }),
+      exec: async (_c, args) => ({ code: 0, stdout: args[1] === '--abbrev-ref' ? 'main\n' : '\n', stderr: '', notFound: false }),
     });
     sidebar = new VcsSidebar(controller, {
       openExternal: (u) => opened.push(u),
@@ -322,11 +324,11 @@ suite('vcs — controller and sidebar host', () => {
     await sidebar.handle({ type: 'vcs-open', number: 69 });
     assert.deepStrictEqual(source.filesCalls, [69]);
     const view = graph.shown[0];
-    assert.deepStrictEqual([view.number, view.name, view.spec.include], [69, prViewName(PR), ['.']]);
-    assert.deepStrictEqual([view.message.type, view.message.active, view.message.number], ['pr-view', true, 69]);
+    assert.deepStrictEqual([view.number, view.name, view.spec.include], [69, 'PR #69 · your checkout', ['.']]);
+    assert.deepStrictEqual([view.message.type, view.message.active, view.message.number, view.message.tree], ['pr-view', true, 69, { kind: 'checkout', branch: 'main' }]);
     assert.deepStrictEqual(Object.values(view.message.fileGitStatus), [{ unstaged: 'modified', staged: null }]);
     assert.ok(view.message.expand.includes(path.join(root, 'src')));
-    assert.deepStrictEqual([last().active, last().opening, last().detail?.number], [69, null, 69]);
+    assert.deepStrictEqual([last().active, last().opening, last().detail?.number, last().detail?.tree], [69, null, 69, { kind: 'checkout', branch: 'main' }]);
     assert.deepStrictEqual(last().detail?.counts, { total: 2, inGraph: 1, exact: 0, fileLevel: 1, missing: 0, other: 1 });
     assert.deepStrictEqual(last().detail?.files.map(f => f.place), ['graph', 'other']);
   });
@@ -378,5 +380,129 @@ suite('vcs — controller and sidebar host', () => {
     await sidebar.handle({ type: 'vcs-ready' });
     assert.strictEqual(states.length, 0);
     assert.strictEqual(sidebar.state().pullRequests.length, 2);
+  });
+});
+
+// ── The head path (N2 b): a second, read-only graph on the PR's own commit ──
+
+suite('vcs — controller: the pull request\'s own commit in a second panel', () => {
+  let root: string;
+  let storage: string;
+  let source: FakeSource;
+  let main: FakeGraph;
+  let heads: Array<{ root: string; title: string; graph: FakeGraph }>;
+  let states: VcsStateMessage[];
+  let progress: string[];
+  let materialize: MaterializeHead;
+  let sidebar: VcsSidebar;
+  const last = () => states[states.length - 1];
+  const SHA_A = 'a'.repeat(40), SHA_B = 'b'.repeat(40);
+
+  /** A fake materialisation: a directory with the PR head's version of src/main.ts and a new file. */
+  const fakeHead = (sha: string): MaterializeHead => async ({ storageDir, report }) => {
+    report('fetching'); report('copying');
+    const dir = path.join(storageDir, 'repo', sha);
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src', 'main.ts'), 'export function main() { return 2; }\n');
+    fs.writeFileSync(path.join(dir, 'src', 'fresh.ts'), 'export function fresh() {}\n');
+    fs.writeFileSync(path.join(dir, '.cograph-tree.json'), JSON.stringify({ sha, repoRoot: root, files: 2, bytes: 80, createdAt: 1, lastUsedAt: Date.now() }));
+    return { sha, dir };
+  };
+
+  setup(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-pr-head-ctl-'));
+    storage = path.join(root, 'storage');
+    fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'src', 'main.ts'), SOURCES['src/main.ts']);
+    source = new FakeSource();
+    source.filesResult = { ok: true, truncated: false, files: [
+      file('src/main.ts', 'modified', { hunks: [{ start: 1, end: 1, isNew: false }] }), file('src/fresh.ts', 'added'), file('src/gone.ts', 'deleted'),
+    ] };
+    main = new FakeGraph(); heads = []; states = []; progress = [];
+    materialize = fakeHead(SHA_A);
+    const controller = new PrController(source, main, {
+      workspaceRoot: () => root,
+      scanStructure,
+      unchangedFolders: () => 'collapse',
+      log: () => undefined,
+      exec: async (_c, args) => ({ code: 0, stdout: args[1] === '--abbrev-ref' ? 'main\n' : '\n', stderr: '', notFound: false }),
+      storageDir: storage,
+      createHeadGraph: (r, title) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph }); return graph as PrHeadGraph; },
+      progress: async (title, task) => { progress.push(title); return task((m) => progress.push(m), new AbortController().signal); },
+      materializeHead: (opts) => materialize(opts),
+      budget: { maxTrees: 1, maxBytes: 10 * 1024 * 1024 },
+    });
+    sidebar = new VcsSidebar(controller, { openExternal: () => undefined, openTerminal: () => undefined });
+    sidebar.attach((m) => states.push(m));
+  });
+  teardown(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  test('one click opens the PR\'s commit in its own panel: fetched behind a progress, analysed from the copy, named by its tree', async () => {
+    await sidebar.handle({ type: 'vcs-ready' });
+    await sidebar.handle({ type: 'vcs-open', number: 69 });
+    assert.deepStrictEqual(progress, ['Pull request #69', 'fetching', 'copying']);
+    assert.strictEqual(heads.length, 1);
+    const head = heads[0];
+    assert.strictEqual(head.root, path.join(storage, 'repo', SHA_A), 'the second provider\'s root is the copy');
+    assert.strictEqual(head.title, 'PR #69 · head aaaaaaa');
+    const view = head.graph.shown[0];
+    assert.deepStrictEqual([view.name, view.message.tree], ['PR #69 · head aaaaaaa', { kind: 'head', sha: SHA_A }]);
+    assert.deepStrictEqual(Object.keys(view.message.fileGitStatus).map(k => path.basename(k)).sort(), ['fresh.ts', 'main.ts']);
+    assert.ok(view.message.expand.every(p => p.startsWith(head.root)), 'folders to open are the copy\'s');
+    assert.strictEqual(main.shown.length, 0, 'the main panel is untouched');
+    const d = last().detail!;
+    assert.deepStrictEqual([d.tree, d.counts.inGraph, d.counts.missing, d.counts.exact], [{ kind: 'head', sha: SHA_A }, 2, 1, 2],
+      'main.ts and fresh.ts drawn (exact: the copy IS the head), gone.ts absent');
+    assert.strictEqual(last().active, 69);
+  });
+
+  test('the same commit reuses its panel; another commit closes it first; Leave closes the head panel, not the main graph', async () => {
+    await sidebar.handle({ type: 'vcs-ready' });
+    await sidebar.handle({ type: 'vcs-open', number: 69 });
+    await sidebar.handle({ type: 'vcs-open', number: 70 }); // same sha from the fake
+    assert.strictEqual(heads.length, 1, 'reused');
+    assert.deepStrictEqual([heads[0].graph.shown.length, last().active], [2, 70]);
+    materialize = fakeHead(SHA_B);
+    await sidebar.handle({ type: 'vcs-open', number: 69 });
+    assert.strictEqual(heads.length, 2);
+    assert.strictEqual(heads[0].graph.isOpen(), false, 'the old head panel was closed');
+    assert.strictEqual(heads[1].title, 'PR #69 · head bbbbbbb');
+    assert.ok(!fs.existsSync(path.join(storage, 'repo', SHA_A)), 'budget of 1: the old copy was evicted');
+    assert.ok(fs.existsSync(path.join(storage, 'repo', SHA_B)));
+    await sidebar.handle({ type: 'vcs-exit' });
+    assert.deepStrictEqual([heads[1].graph.isOpen(), last().active, last().detail], [false, null, null]);
+    assert.strictEqual(main.active, null);
+  });
+
+  test('closing the head panel from its tab tells the sidebar', async () => {
+    await sidebar.handle({ type: 'vcs-ready' });
+    await sidebar.handle({ type: 'vcs-open', number: 69 });
+    heads[0].graph.set(null);
+    assert.deepStrictEqual([last().active, last().detail], [null, null]);
+  });
+
+  test('when the head cannot be fetched the row says why and offers the checkout; cancelling offers nothing', async () => {
+    await sidebar.handle({ type: 'vcs-ready' });
+    materialize = async () => { throw new HeadTreeError('offline', 'The remote could not be reached. Check the connection and try again.', 'Could not resolve host'); };
+    await sidebar.handle({ type: 'vcs-open', number: 69 });
+    const problem = last().openProblem!.problem;
+    assert.deepStrictEqual([problem.kind, problem.fallback, problem.detail], ['head-unavailable', 'checkout', 'Could not resolve host']);
+    assert.strictEqual(heads.length, 0);
+    await sidebar.handle({ type: 'vcs-open', number: 69, tree: 'checkout' });
+    assert.strictEqual(main.shown.length, 1, 'the fallback is the checkout view on the main panel');
+    assert.deepStrictEqual(main.shown[0].message.tree, { kind: 'checkout', branch: 'main' });
+    assert.strictEqual(last().detail?.tree.kind, 'checkout');
+    await sidebar.handle({ type: 'vcs-exit' });
+    materialize = async () => { throw new HeadTreeError('cancelled', 'Cancelled.'); };
+    await sidebar.handle({ type: 'vcs-open', number: 70 });
+    assert.deepStrictEqual([last().openProblem!.problem.message, last().openProblem!.problem.fallback], ['Cancelled.', undefined]);
+  });
+
+  test('without storage or a head factory the click is the checkout view', async () => {
+    const controller = new PrController(source, main, { workspaceRoot: () => root, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
+      exec: async () => ({ code: 0, stdout: '', stderr: '', notFound: false }) });
+    assert.strictEqual(controller.headAvailable(), false);
+    const res = await controller.open(PR);
+    assert.ok(res.ok && res.opened.tree.kind === 'checkout');
   });
 });

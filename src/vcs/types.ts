@@ -66,6 +66,7 @@ export type PrProblemKind =
   | 'gh-unauthenticated'
   | 'no-access'
   | 'offline'
+  | 'head-unavailable'
   | 'error';
 
 export interface PrProblem {
@@ -74,6 +75,8 @@ export interface PrProblem {
   message: string;
   /** Short technical detail (first line of stderr), for the tooltip and the log. */
   detail?: string;
+  /** Another way to show the same pull request that would still work. */
+  fallback?: 'checkout';
 }
 
 export type PrListResult =

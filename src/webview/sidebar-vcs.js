@@ -96,7 +96,11 @@ function vcsMatches(pr, query) {
 /** The sentences under an open pull request: what of it the graph shows, and how. */
 function vcsDetailLines(detail) {
   const c = detail.counts;
+  const head = detail.tree && detail.tree.kind === 'head';
   const lines = [];
+  lines.push(head
+    ? { text: `Showing the pull request's own commit ${String(detail.tree.sha).slice(0, 7)}, read-only, in its own panel.`, cls: 'dim' }
+    : { text: `Showing your checkout${detail.tree && detail.tree.branch ? ` (${detail.tree.branch})` : ''}, coloured with the pull request's changes.`, cls: 'dim' });
   if (c.inGraph === 0) {
     lines.push({ text: `None of this pull request's ${c.total} file${c.total === 1 ? '' : 's'} is in the graph.`, cls: 'warn' });
   } else {
@@ -109,7 +113,9 @@ function vcsDetailLines(detail) {
     }
   }
   if (c.missing > 0) {
-    lines.push({ text: `${c.missing} not in this checkout (added or removed by the pull request).`, cls: 'dim' });
+    lines.push(head
+      ? { text: `${c.missing} removed by the pull request (not in its commit).`, cls: 'dim' }
+      : { text: `${c.missing} not in this checkout (added or removed by the pull request).`, cls: 'dim' });
   }
   if (c.other > 0) {
     lines.push({ text: `${c.other} not shown: the graph has source files only.`, cls: 'dim' });
@@ -204,7 +210,7 @@ function mountVcsPane(doc, mount, post, wire) {
         row.title = f.path;
         row.appendChild(el('span', 'st ' + f.status, VCS_STATUS_LETTER[f.status] || '?'));
         row.appendChild(el('span', 'p', f.path));
-        if (f.place === 'missing') { row.appendChild(el('span', 'why', 'not in checkout')); }
+        if (f.place === 'missing') { row.appendChild(el('span', 'why', detail.tree && detail.tree.kind === 'head' ? 'removed' : 'not in checkout')); }
         else if (f.place === 'other') { row.appendChild(el('span', 'why', 'not in graph')); }
         else if (!f.exact) { row.appendChild(el('span', 'why', 'whole file')); }
         files.appendChild(row);
@@ -250,6 +256,13 @@ function mountVcsPane(doc, mount, post, wire) {
       const line = el('div', 'vcs-line warn', p.message);
       if (p.detail) { line.title = p.detail; }
       card.appendChild(line);
+      if (p.fallback === 'checkout') {
+        const actions = el('div', 'vcs-actions');
+        actions.addEventListener('click', (e) => e.stopPropagation());
+        actions.appendChild(button('vcs-btn', 'Show in the current checkout instead', 'Colour your own checkout with this pull request\'s changes',
+          () => post({ type: 'vcs-open', number: pr.number, tree: 'checkout' })));
+        card.appendChild(actions);
+      }
     }
     if (state.active === pr.number) { card.appendChild(detailBlock(pr)); }
     return card;

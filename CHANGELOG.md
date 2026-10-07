@@ -50,11 +50,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The list comes from the GitHub CLI (`gh`) with your own sign-in; CoGraph stores no token.
     Not a git repository, no remote, a remote that is not GitHub, `gh` missing or signed out,
     no access and no connection each show as one readable line with a Retry.
-  - The graph is the one of **your current checkout**. A modified file is coloured function
-    by function only when your copy is byte-for-byte the pull request's version; otherwise
-    the file is coloured as a whole and the banner says so. Files the pull request adds or
-    removes that your checkout does not have, and files that are not source code, are
-    counted and listed in the sidebar rather than dropped silently.
+  - **The graph is the pull request's own commit.** CoGraph fetches the PR head into a
+    namespaced ref (`refs/cograph/pr/N`, your branches and index untouched), copies only its
+    source files under the extension's storage, and opens them in a second, read-only panel
+    titled `PR #69 · head 23834be`, with its own cache so the same head reopens instantly.
+    Every changed file is coloured function by function. Copies are kept within a budget of
+    6 trees / 400 MB; **CoGraph: Clear pull-request trees** empties it.
+  - When the head cannot be fetched (offline, no git, too large, no access) the row says why
+    and offers **Show in the current checkout instead**: your working tree, coloured with the
+    pull request's changes, in the main panel. There a modified file is coloured function by
+    function only when your copy is byte-for-byte the pull request's version; otherwise the
+    file is coloured as a whole. The banner and the panel title always say which tree you are
+    looking at: `the pull request's commit 23834be` or `your checkout (main)`.
+  - Files the pull request removes, and files that are not source code, are counted and
+    listed in the sidebar rather than dropped silently.
   - A pull-request view is not saved: it follows the pull request.
   - New setting `cograph.pullRequests.unchangedFolders` (`collapse` | `hide`, default
     `collapse`): keep untouched folders in the picture, closed, or take them out of the view

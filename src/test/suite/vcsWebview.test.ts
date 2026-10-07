@@ -89,6 +89,20 @@ suite('vcs — prView.js (graph webview)', () => {
     assert.strictEqual(banner.querySelector('.pr-sub')!.textContent, '1 of 3 files in the graph');
   });
 
+  test('the banner says which tree is on screen: the checkout, or the PR\'s own commit', () => {
+    const p = graphPage();
+    p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'checkout', branch: 'main' } });
+    let chip = p.doc.querySelector('#pr-view-banner .pr-tree')!;
+    assert.deepStrictEqual([chip.textContent, chip.className], ['your checkout (main)', 'pr-tree checkout']);
+    p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'head', sha: '23834be0123456789abcdef' } });
+    chip = p.doc.querySelector('#pr-view-banner .pr-tree')!;
+    assert.deepStrictEqual([chip.textContent, chip.className], ['the pull request\'s commit 23834be', 'pr-tree head']);
+    assert.ok((chip as HTMLElement).title.includes('read-only'));
+    p.w.handlePrViewMessage({ ...ENTER, tree: undefined });
+    assert.strictEqual(p.doc.querySelector('#pr-view-banner .pr-tree')!.textContent, 'your checkout', 'a message without a tree is the checkout');
+    assert.deepStrictEqual(prView.prViewTreeLabel({ kind: 'head', sha: 'abc', base: 'def' }).title.includes('compared with def'), true);
+  });
+
   test('the banner\'s Leave button asks the host through the existing subgraph-exit', () => {
     const p = graphPage();
     p.w.handlePrViewMessage(ENTER);
@@ -210,13 +224,19 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
     assert.strictEqual(sidebarVcs.vcsMatches(PR, 'webview'), false);
   });
 
-  test('detail lines say what is drawn, what is whole-file and what is left out', () => {
-    const lines = sidebarVcs.vcsDetailLines({ counts: { total: 13, inGraph: 9, exact: 7, fileLevel: 2, missing: 1, other: 3 }, filesCut: true });
-    assert.deepStrictEqual(lines.map((l: any) => l.cls), ['', 'warn', 'dim', 'dim', 'dim']);
-    assert.ok(lines[0].text.startsWith('9 of 13 files'));
-    assert.ok(lines[1].text.includes('whole file'));
-    const none = sidebarVcs.vcsDetailLines({ counts: { total: 1, inGraph: 0, exact: 0, fileLevel: 0, missing: 0, other: 1 } });
-    assert.deepStrictEqual([none[0].cls, none.length], ['warn', 2]);
+  test('detail lines say which tree, what is drawn, what is whole-file and what is left out', () => {
+    const checkout = { kind: 'checkout', branch: 'main' };
+    const lines = sidebarVcs.vcsDetailLines({ tree: checkout, counts: { total: 13, inGraph: 9, exact: 7, fileLevel: 2, missing: 1, other: 3 }, filesCut: true });
+    assert.deepStrictEqual(lines.map((l: any) => l.cls), ['dim', '', 'warn', 'dim', 'dim', 'dim']);
+    assert.strictEqual(lines[0].text, 'Showing your checkout (main), coloured with the pull request\'s changes.');
+    assert.ok(lines[1].text.startsWith('9 of 13 files'));
+    assert.ok(lines[2].text.includes('whole file'));
+    assert.ok(lines[3].text.includes('not in this checkout'));
+    const head = sidebarVcs.vcsDetailLines({ tree: { kind: 'head', sha: '23834be0123' }, counts: { total: 3, inGraph: 2, exact: 2, fileLevel: 0, missing: 1, other: 0 } });
+    assert.strictEqual(head[0].text, 'Showing the pull request\'s own commit 23834be, read-only, in its own panel.');
+    assert.ok(head[2].text.includes('removed by the pull request'));
+    const none = sidebarVcs.vcsDetailLines({ tree: checkout, counts: { total: 1, inGraph: 0, exact: 0, fileLevel: 0, missing: 0, other: 1 } });
+    assert.deepStrictEqual([none[1].cls, none.length], ['warn', 3]);
   });
 
   test('boot fills the empty primary pane, wires its header and announces itself', () => {
@@ -284,7 +304,7 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
     p.send(vcsState({
       active: 69,
       detail: {
-        number: 69, filesCut: false, counts: { total: 3, inGraph: 2, exact: 1, fileLevel: 1, missing: 0, other: 1 },
+        number: 69, tree: { kind: 'checkout', branch: 'main' }, filesCut: false, counts: { total: 3, inGraph: 2, exact: 1, fileLevel: 1, missing: 0, other: 1 },
         files: [
           { path: 'src/funcEnd.ts', status: 'added', place: 'graph', exact: true },
           { path: 'src/graphProvider.ts', status: 'modified', place: 'graph', exact: false },
@@ -293,7 +313,7 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
       },
     }));
     const card = p.q('.vcs-pr.active')!;
-    assert.ok(card.querySelector('.vcs-line')!.textContent!.startsWith('2 of 3 files'));
+    assert.ok(card.querySelectorAll('.vcs-line')[1].textContent!.startsWith('2 of 3 files'));
     assert.deepStrictEqual([...card.querySelectorAll('.vcs-file .st')].map(s => `${s.textContent}:${s.className}`), ['A:st added', 'M:st modified', 'M:st modified']);
     assert.deepStrictEqual([...card.querySelectorAll('.vcs-file .why')].map(s => s.textContent), ['whole file', 'not in graph']);
     const [leave, github] = [...card.querySelectorAll('.vcs-actions button')] as HTMLButtonElement[];
@@ -315,6 +335,16 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
     const p = sidebarPage();
     p.send(vcsState({ openProblem: { number: 69, problem: { kind: 'offline', message: 'GitHub could not be reached.' } } }));
     assert.strictEqual(p.q('.vcs-pr .vcs-line.warn')!.textContent, 'GitHub could not be reached.');
+    assert.strictEqual(p.q('.vcs-pr .vcs-actions'), null, 'no fallback offered for a list problem');
+  });
+
+  test('when the head cannot be fetched the card offers the checkout as a fallback, and nothing else re-opens', () => {
+    const p = sidebarPage();
+    p.send(vcsState({ openProblem: { number: 69, problem: { kind: 'head-unavailable', message: 'The remote could not be reached.', fallback: 'checkout' } } }));
+    const btn = p.q('.vcs-pr .vcs-actions button') as HTMLButtonElement;
+    assert.strictEqual(btn.textContent, 'Show in the current checkout instead');
+    btn.click();
+    assert.deepStrictEqual(p.posted.slice(1), [{ type: 'vcs-open', number: 69, tree: 'checkout' }]);
   });
 
   test('hostile PR text stays text', () => {

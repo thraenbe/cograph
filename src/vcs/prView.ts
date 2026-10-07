@@ -65,6 +65,8 @@ export interface PrViewInput {
   unchangedFolders: UnchangedFolders;
   /** Git blob id of the working file at this absolute path; null when it cannot be read. */
   blobShaOf: (absPath: string) => string | null;
+  /** The tree IS the pull request's head (a materialised copy): every file matches by construction. */
+  treeIsHead?: boolean;
 }
 
 /** The id git gives a blob with this content. */
@@ -115,7 +117,7 @@ export function buildPrView(input: PrViewInput): PrViewModel {
   for (const file of input.files) {
     const abs = absOf(repoRoot, file.path);
     if (holder.has(abs)) {
-      const same = file.blobSha !== null && input.blobShaOf(abs) === file.blobSha;
+      const same = input.treeIsHead === true || (file.blobSha !== null && input.blobShaOf(abs) === file.blobSha);
       files.push({ path: file.path, status: file.status, place: 'graph', exact: draw(abs, file.status, file, same) });
       continue;
     }
@@ -145,8 +147,11 @@ export function buildPrView(input: PrViewInput): PrViewModel {
   };
 }
 
-/** Panel / Folder-panel name of a PR view. */
-export function prViewName(pr: PullRequest): string {
-  const title = pr.title.length > 48 ? pr.title.slice(0, 47).trimEnd() + '…' : pr.title;
-  return title ? `PR #${pr.number} · ${title}` : `PR #${pr.number}`;
+/**
+ * Panel title / Folder-panel name of a PR view. It names the TREE, not the PR's
+ * title: whoever looks at the graph must know whether it is their checkout or
+ * the pull request's own commit.
+ */
+export function prViewName(pr: Pick<PullRequest, 'number'>, tree: { kind: 'checkout' } | { kind: 'head'; sha: string }): string {
+  return tree.kind === 'head' ? `PR #${pr.number} · head ${tree.sha.slice(0, 7)}` : `PR #${pr.number} · your checkout`;
 }

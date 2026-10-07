@@ -67,6 +67,7 @@ suite('GraphProvider — pull-request view', () => {
       override: { files: statuses, hunks: new Map([[fwd('src/server/api.ts'), [{ start: 1, end: 1, isNew: false }]]]) },
       message: {
         type: 'pr-view', active: true, number: n, name, title: 'a change', headRef: 'feat', baseRef: 'main',
+        tree: { kind: 'checkout', branch: 'main' },
         expand: [root, abs('src'), abs('src/server'), abs('tools')], fileGitStatus: Object.fromEntries(statuses),
         counts: { total: 2, inGraph: 2, exact: 2, fileLevel: 0, missing: 0, other: 0 },
       },
@@ -256,6 +257,93 @@ suite('GraphProvider — pull-request view', () => {
     sandbox.stub(vscode.workspace, 'workspaceFolders').value(undefined);
     assert.strictEqual(provider.showPullRequest(prView()), false);
     assert.deepStrictEqual([provider.activePullRequest(), provider.getScope()], [null, NO_SCOPE]);
+  });
+});
+
+suite('GraphProvider — a read-only provider on another root (the PR head panel)', () => {
+  let sandbox: sinon.SinonSandbox;
+  let workspace: string;
+  let headDir: string;
+  let panel: ReturnType<typeof makeFakePanel>;
+  let provider: GraphProvider;
+  let info: sinon.SinonStub;
+  let onSave: sinon.SinonStub;
+  let watcher: sinon.SinonStub;
+  const posted = (type?: string) => panel.webview.postMessage.getCalls().map((c: any) => c.args[0]).filter((m: any) => !type || m.type === type);
+  const onMessage = () => panel.webview.onDidReceiveMessage.firstCall.args[0];
+
+  setup(() => {
+    sandbox = sinon.createSandbox();
+    workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-ro-ws-'));
+    headDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-ro-head-'));
+    fs.mkdirSync(path.join(workspace, 'src')); fs.writeFileSync(path.join(workspace, 'src', 'ws.ts'), 'export function ws() {}\n');
+    fs.mkdirSync(path.join(headDir, 'src')); fs.writeFileSync(path.join(headDir, 'src', 'head.ts'), 'export function head() {}\n');
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: workspace } }]);
+    sandbox.stub(rawCp, 'execFileSync').returns('');
+    sandbox.stub(rawCp, 'spawn');
+    sandbox.stub(vscode.workspace, 'getConfiguration').callsFake((() => ({
+      get: (_k: string, d?: unknown) => d, has: () => false, inspect: () => undefined, update: async () => undefined,
+    })) as unknown as typeof vscode.workspace.getConfiguration);
+    info = sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
+    onSave = sandbox.stub(vscode.workspace, 'onDidSaveTextDocument').returns({ dispose: () => undefined } as any);
+    watcher = sandbox.stub(vscode.workspace, 'createFileSystemWatcher').returns({ onDidChange: () => undefined, onDidCreate: () => undefined, dispose: () => undefined } as any);
+    panel = makeFakePanel();
+    sandbox.stub(vscode.window, 'createWebviewPanel').returns(panel);
+    const ctx = { extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as unknown as vscode.ExtensionContext;
+    provider = new GraphProvider(ctx, { root: headDir, readOnly: true, title: 'PR #7 · head abc1234' });
+    const nodes = [{ id: 'n:head', name: 'head', file: path.join(headDir, 'src', 'head.ts'), line: 1 }];
+    writeCache(headDir, { nodes, edges: [], files: nodes.map(n => n.file) } as any, scanStructure(headDir));
+  });
+
+  teardown(() => {
+    panel._disposeCallback?.();
+    sandbox.restore();
+    fs.rmSync(workspace, { recursive: true, force: true });
+    fs.rmSync(headDir, { recursive: true, force: true });
+  });
+
+  test('it analyses its own root, not the workspace, and is titled by its tree', async () => {
+    provider.show();
+    onMessage()({ type: 'ready' });
+    await waitFor(() => posted('graph').length > 0);
+    assert.strictEqual((vscode.window.createWebviewPanel as sinon.SinonStub).firstCall.args[1], 'PR #7 · head abc1234');
+    assert.strictEqual(posted('structure')[0].tree.root, path.join(headDir, 'src'));
+    assert.deepStrictEqual(posted('graph')[0].data.nodes.map((n: any) => n.id), ['n:head']);
+    assert.strictEqual(posted('subgraph')[0].root, headDir);
+    assert.ok(fs.existsSync(path.join(headDir, '.cograph')), 'its cache lives under its own root');
+    assert.ok(!fs.existsSync(path.join(workspace, '.cograph')), 'and never under the workspace');
+  });
+
+  test('nothing listens to workspace saves or the index, and every write is refused with a reason', async () => {
+    provider.show();
+    onMessage()({ type: 'ready' });
+    await waitFor(() => posted('graph').length > 0);
+    assert.ok(onSave.notCalled, 'no save listener');
+    assert.ok(watcher.notCalled, 'no .git/index watcher');
+    const askName = sandbox.stub(vscode.window, 'showInputBox').resolves('x');
+    await onMessage()({ type: 'save-func-source', file: path.join(headDir, 'src', 'head.ts'), line: 1, newSource: 'export function head() { return 1; }', reqId: 5 });
+    const reply = posted('func-source-saved')[0];
+    assert.deepStrictEqual([reply.reqId, reply.ok], [5, false]);
+    assert.ok(reply.reason.includes('copy of a commit'));
+    assert.strictEqual(fs.readFileSync(path.join(headDir, 'src', 'head.ts'), 'utf8'), 'export function head() {}\n', 'untouched');
+    await onMessage()({ type: 'request-new-file', folderPath: path.join(headDir, 'src') });
+    await onMessage()({ type: 'request-rename-folder', folderPath: path.join(headDir, 'src') });
+    await onMessage()({ type: 'save-graph', mode: 'save-as', payload: { settings: {}, nodePositions: {} } });
+    assert.strictEqual(info.callCount, 3);
+    assert.ok(askName.notCalled, 'never asked for a name');
+    assert.deepStrictEqual(fs.readdirSync(path.join(headDir, 'src')), ['head.ts']);
+  });
+
+  test('leaving a scope goes back to the tree\'s title, not "CoGraph"; close() disposes the panel', async () => {
+    provider.show();
+    onMessage()({ type: 'ready' });
+    await waitFor(() => posted('graph').length > 0);
+    provider.showScoped(specForFolder('src'));
+    assert.strictEqual(panel.title, 'src · scoped');
+    onMessage()({ type: 'subgraph-exit' });
+    assert.strictEqual(panel.title, 'PR #7 · head abc1234');
+    provider.close();
+    assert.ok(panel.dispose.calledOnce);
   });
 });
 

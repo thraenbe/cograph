@@ -40,7 +40,8 @@
     "onCommand:cograph.saveGraphAs",
     "onView:cograph.savedGraphs",
     "onCommand:cograph.annotateGraph",
-    "onCommand:cograph.visualizeFolder"
+    "onCommand:cograph.visualizeFolder",
+    "onCommand:cograph.clearPullRequestTrees"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -94,6 +95,10 @@
       {
         "command": "cograph.visualizeFolder",
         "title": "CoGraph: Only visualize folder…"
+      },
+      {
+        "command": "cograph.clearPullRequestTrees",
+        "title": "CoGraph: Clear pull-request trees"
       }
     ],
     "keybindings": [

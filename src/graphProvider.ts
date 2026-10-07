@@ -142,7 +142,7 @@ export class GraphProvider {
   private readonly analysisIdleListeners = new Set<() => void>();
   /** AI folder/file summaries for the hover card; kept out of GraphData and graph-patch. */
   private readonly annotations = new AnnotationService({
-    getRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    getRoot: () => this.workspaceRoot() || undefined,
     getStructure: () => this.currentStructure,
     getGraph: () => this.cachedGraph,
     post: (msg) => { this.panel?.webview.postMessage(msg); },
@@ -171,8 +171,21 @@ export class GraphProvider {
     return this._outputChannel;
   }
 
-  constructor(context: vscode.ExtensionContext) {
+  /**
+   * A provider bound to a directory other than the workspace (a pull request's
+   * materialised head, src/vcs/engine): it analyses, caches and scopes under that
+   * root exactly as it would under the workspace, and writes nothing else —
+   * no source edits, no saved graphs, no re-parse on workspace saves.
+   */
+  private readonly rootOverride: string | undefined;
+  private readonly readOnly: boolean;
+  private readonly baseTitle: string;
+
+  constructor(context: vscode.ExtensionContext, opts: { root?: string; readOnly?: boolean; title?: string } = {}) {
     this.context = context;
+    this.rootOverride = opts.root;
+    this.readOnly = !!opts.readOnly;
+    this.baseTitle = opts.title ?? 'CoGraph';
     this.analyzerRunner = new AnalyzerRunner(
       context,
       (msg) => this.showError(msg),
@@ -196,7 +209,7 @@ export class GraphProvider {
   }
 
   show() {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) {
       vscode.window.showErrorMessage('CoGraph: No workspace folder open.');
       return;
@@ -209,7 +222,7 @@ export class GraphProvider {
 
     this.panel = vscode.window.createWebviewPanel(
       'cograph',
-      'CoGraph',
+      this.baseTitle,
       vscode.ViewColumn.Beside,
       {
         enableScripts: true,
@@ -229,7 +242,8 @@ export class GraphProvider {
       }, 300);
     };
 
-    const saveListener = vscode.workspace.onDidSaveTextDocument(doc => {
+    // A read-only provider shows a tree nobody edits: a workspace save must not re-analyse it.
+    const saveListener = this.readOnly ? { dispose: () => undefined } : vscode.workspace.onDidSaveTextDocument(doc => {
       if (vscode.workspace.getWorkspaceFolder(doc.uri)) {
         scheduleRefresh();
         if (doc.uri.fsPath.endsWith('.py') ||
@@ -259,11 +273,13 @@ export class GraphProvider {
       }
     });
 
-    const gitIndexWatcher = vscode.workspace.createFileSystemWatcher(
+    const gitIndexWatcher = this.readOnly ? { dispose: () => undefined } : vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(vscode.Uri.file(workspaceRoot), '.git/index')
     );
-    gitIndexWatcher.onDidChange(scheduleRefresh);
-    gitIndexWatcher.onDidCreate(scheduleRefresh);
+    if ('onDidChange' in gitIndexWatcher) {
+      gitIndexWatcher.onDidChange(scheduleRefresh);
+      gitIndexWatcher.onDidCreate(scheduleRefresh);
+    }
 
     this.panel.onDidDispose(() => {
       this.panel = undefined;
@@ -349,6 +365,10 @@ export class GraphProvider {
         }
       } else if (message.type === 'save-func-source') {
         const { file, line, newSource, original, reqId } = message;
+        if (this.readOnly) {
+          this.panel?.webview.postMessage({ type: 'func-source-saved', reqId, ok: false, reason: this.readOnlyReason() });
+          return;
+        }
         // The popup waits for this answer (funcSave.js) and keeps the edit on a refusal.
         const reply = (m: object) => this.panel?.webview.postMessage({ type: 'func-source-saved', reqId, ...m });
         try {
@@ -368,7 +388,9 @@ export class GraphProvider {
             reply({ ok: false, reason, current: found?.source, line: found?.line });
           }
         }
-      } else if (message.type === 'request-rename-folder') {
+      } else if (message.type === 'request-rename-folder' || message.type === 'request-new-file') {
+        if (this.readOnly) { vscode.window.showInformationMessage(`CoGraph: ${this.readOnlyReason()}`); return; }
+        if (message.type === 'request-new-file') { await this.createFileIn(workspaceRoot, String(message.folderPath ?? '')); return; }
         const { folderPath } = message;
         const newName = await vscode.window.showInputBox({
           prompt: 'Rename folder',
@@ -378,19 +400,6 @@ export class GraphProvider {
         if (newName?.trim() && newName !== path.basename(folderPath)) {
           const newFolderUri = vscode.Uri.file(path.join(path.dirname(folderPath), newName.trim()));
           await vscode.workspace.fs.rename(vscode.Uri.file(folderPath), newFolderUri);
-          this.analyzerRunner.scheduleReanalysis(workspaceRoot);
-        }
-      } else if (message.type === 'request-new-file') {
-        const { folderPath } = message;
-        const fileName = await vscode.window.showInputBox({
-          prompt: 'New file name',
-          placeHolder: 'e.g. utils.py',
-          validateInput: v => v.trim() ? null : 'Name cannot be empty',
-        });
-        if (fileName?.trim()) {
-          const fileUri = vscode.Uri.file(path.join(folderPath, fileName.trim()));
-          await vscode.workspace.fs.writeFile(fileUri, new Uint8Array());
-          await vscode.window.showTextDocument(fileUri);
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
       } else if (message.type === 'perf-report') {
@@ -431,6 +440,7 @@ export class GraphProvider {
         // from the save-graph handler.
         await vscode.commands.executeCommand('cograph.savedGraphs.focus');
       } else if (message.type === 'save-graph') {
+        if (this.readOnly) { vscode.window.showInformationMessage(`CoGraph: ${this.readOnlyReason()}`); return; }
         if (this.prView) {
           vscode.window.showInformationMessage('CoGraph: A pull-request view is not saved — it follows the pull request. Leave it to save a layout.');
           return;
@@ -691,7 +701,7 @@ export class GraphProvider {
    * per-node git-blame introduction timestamps once available.
    */
   openTimeline(savedGraphFile: string, name: string): void {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) {
       vscode.window.showErrorMessage('CoGraph: No workspace folder open.');
       return;
@@ -1062,9 +1072,35 @@ export class GraphProvider {
   private async navigateTo(file: string, line: number) {
     const doc = await vscode.workspace.openTextDocument(file);
     const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
+    // The materialised copy is not the user's code: an edit there would be lost and change nothing.
+    if (this.readOnly) { await vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession'); }
     const position = new vscode.Position(line - 1, 0);
     editor.selection = new vscode.Selection(position, position);
     editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+  }
+
+  /** The "New File" folder action (the body it had inline before read-only providers existed). */
+  private async createFileIn(workspaceRoot: string, folderPath: string): Promise<void> {
+    const fileName = await vscode.window.showInputBox({
+      prompt: 'New file name',
+      placeHolder: 'e.g. utils.py',
+      validateInput: v => v.trim() ? null : 'Name cannot be empty',
+    });
+    if (fileName?.trim()) {
+      const fileUri = vscode.Uri.file(path.join(folderPath, fileName.trim()));
+      await vscode.workspace.fs.writeFile(fileUri, new Uint8Array());
+      await vscode.window.showTextDocument(fileUri);
+      this.analyzerRunner.scheduleReanalysis(workspaceRoot);
+    }
+  }
+
+  private readOnlyReason(): string {
+    return `${this.baseTitle} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`;
+  }
+
+  /** Close the panel (a pull-request head panel is closed when another one opens). */
+  close(): void {
+    this.panel?.dispose();
   }
 
   // ── Graph Intelligence ────────────────────────────────────────────────────
@@ -1117,7 +1153,7 @@ export class GraphProvider {
 
   /** Render a previously-generated workflow graph (its own annotated nodes/edges). */
   async showWorkflowGraph(graph: GraphData, filePath: string, name: string): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) { throw new Error('No workspace folder open.'); }
     if (!this.panel) { this.show(); }
     if (!this.panel) { throw new Error('Failed to open graph panel.'); }
@@ -1141,7 +1177,7 @@ export class GraphProvider {
     sessionId: string | null,
     onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
   ): Promise<{ result: GraphIntelligenceResult; workspaceRoot: string }> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) { throw new Error('No workspace folder open.'); }
 
     if (!this.panel) { this.show(); }
@@ -1295,7 +1331,7 @@ export class GraphProvider {
     this.setScope(NO_SCOPE);
     this.currentSavedGraphPath = undefined;
     this.isDirty = false;
-    this.setPanelTitle('CoGraph');
+    this.setPanelTitle(this.baseTitle);
     this._sidebar?.setCurrentGraph(null);
   }
 
@@ -1380,11 +1416,12 @@ export class GraphProvider {
   private scopeTitle(): string {
     if (this.scope.name) { return this.scope.name; }
     if (this.scope.source === 'folder') { return `${path.basename(this.scope.spec.include[0] ?? '') || 'root'} · scoped`; }
-    return 'CoGraph';
+    return this.baseTitle;
   }
 
+  /** The directory this provider analyses: the workspace, or the root it was built for. */
   private workspaceRoot(): string {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    return this.rootOverride ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
   }
 
   private subgraphMessage(root: string) {

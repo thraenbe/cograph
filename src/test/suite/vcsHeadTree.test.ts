@@ -244,6 +244,8 @@ suite('vcs engine — headTree budget and failures', () => {
     assert.strictEqual(analyzerKeepsPath('dist/bundle.js'), false);
     assert.strictEqual(analyzerKeepsPath('out/a.cpp'), false);
     assert.strictEqual(analyzerKeepsPath('CMakeFiles/a.cpp'), false);
+    assert.strictEqual(analyzerKeepsPath('cmake-build-debug/a.cpp'), false, 'the C++ analyzer skips cmake-build-* too');
+    assert.strictEqual(analyzerKeepsPath('cmake-build-debug/a.ts'), true);
     assert.strictEqual(analyzerKeepsPath('pkg/__pycache__/a.py'), false);
     assert.strictEqual(analyzerKeepsPath('.github/a.py'), false);
     assert.strictEqual(analyzerKeepsPath('node_modules/x/a.js'), false);

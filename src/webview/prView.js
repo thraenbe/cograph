@@ -28,6 +28,12 @@ const PR_BANNER_CSS = `
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   }
   #pr-view-banner .pr-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #pr-view-banner .pr-tree {
+    flex: none; font-size: 11px; padding: 1px 7px; border-radius: 9px; white-space: nowrap;
+    border: 1px solid currentColor;
+  }
+  #pr-view-banner .pr-tree.head { color: #4caf50; }
+  #pr-view-banner .pr-tree.checkout { color: var(--vscode-editorWarning-foreground, #cca700); }
   #pr-view-banner .pr-sub { flex: none; color: var(--vscode-descriptionForeground, #999); white-space: nowrap; }
   #pr-view-banner .pr-sub.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
   #pr-view-banner button {
@@ -44,6 +50,16 @@ function prViewExpansion(tree, expand) {
   if (!tree || !tree.folders) { return out; }
   for (const p of (expand || [])) { if (tree.folders[p]) { out.add(p); } }
   return out;
+}
+
+/** The chip that says WHICH tree is on screen: the PR's own commit, or the user's checkout. */
+function prViewTreeLabel(tree) {
+  if (tree && tree.kind === 'head') {
+    const sha = String(tree.sha || '').slice(0, 7);
+    return { text: `the pull request's commit ${sha}`, cls: 'head', title: `This is the pull request's own code at ${tree.sha}${tree.base ? `, compared with ${String(tree.base).slice(0, 7)}` : ''}. It is read-only.` };
+  }
+  const branch = tree && tree.branch ? ` (${tree.branch})` : '';
+  return { text: `your checkout${branch}`, cls: 'checkout', title: 'This is the code in your working tree, coloured with what the pull request changes. Files the pull request adds or removes that your checkout does not have are listed in the sidebar.' };
 }
 
 /** One line for the banner: how much of the PR the graph shows, and how exactly. */
@@ -131,6 +147,11 @@ function prViewRenderBanner() {
   name.className = 'pr-name';
   name.textContent = pv.name || `PR #${pv.number}`;   // remote text: textContent only
   name.title = pv.headRef && pv.baseRef ? `${pv.title}\n${pv.headRef} → ${pv.baseRef}` : (pv.title || '');
+  const treeLabel = prViewTreeLabel(pv.tree);
+  const tree = document.createElement('span');
+  tree.className = 'pr-tree ' + treeLabel.cls;
+  tree.textContent = treeLabel.text;
+  tree.title = treeLabel.title;
   const summary = prViewSummary(pv.counts);
   const sub = document.createElement('span');
   sub.className = 'pr-sub' + (summary.warn ? ' warn' : '');
@@ -140,7 +161,7 @@ function prViewRenderBanner() {
   exit.textContent = 'Leave';
   exit.title = 'Back to the graph you had before';
   exit.addEventListener('click', () => vscode.postMessage({ type: 'subgraph-exit' }));
-  banner.append(name, sub, exit);
+  banner.append(name, tree, sub, exit);
 }
 
 function prViewRerender() {
@@ -166,6 +187,7 @@ function prViewEnter(message) {
     baseRef: message.baseRef || '',
     expand: Array.isArray(message.expand) ? message.expand : [],
     counts: message.counts || {},
+    tree: message.tree || { kind: 'checkout', branch: '' },
     // Going from one pull request to the next keeps what was there before the first.
     snapshot: previous ? previous.snapshot : prViewSnapshot(),
     prevGitMode: previous ? previous.prevGitMode : state.gitMode,
@@ -224,6 +246,6 @@ function handlePrViewMessage(message) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    handlePrViewMessage, prViewInitialExpansion, prViewExpansion, prViewSummary, PR_DELETED_COLOR,
+    handlePrViewMessage, prViewInitialExpansion, prViewExpansion, prViewSummary, prViewTreeLabel, PR_DELETED_COLOR,
   };
 }

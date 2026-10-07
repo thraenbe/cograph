@@ -236,7 +236,7 @@ smaller skip list:
 | TypeScript, JavaScript | `build/`, `target/`, `CMakeFiles/`, `cmake-build-*/` | — |
 | Python | `build/`, `target/`, `CMakeFiles/`, `cmake-build-*/` | `__pycache__/` (scanner shows `.py` there; analyzer skips it) |
 | Java | `CMakeFiles/`, `cmake-build-*/` | — |
-| C++ | `cmake-build-*/` | — |
+| C++ | — (`analyze_cpp.js` skips `cmake-build-*` too, lines 100-102: it matches the scanner exactly) | — |
 
 Consequence in the shipped product: a `.ts` file under `build/` has functions in the graph but no
 place in the Folder panel's tree, so it is not drawn in the drill-down, cannot be hidden, scoped or
@@ -245,7 +245,10 @@ Global graph. The reverse case (`__pycache__`) shows a file in the tree with no 
 arriving. One rule, in one place, used by both, would end it. Example to reproduce: `build/gen.ts`
 with one function; `analyze_ts.js <root>` lists it, `scanStructure(root)` does not.
 
-The PR head copy is unaffected (it copies by the analyzers' rule, `analyzerKeepsPath`).
+The PR head copy is unaffected (it copies by the analyzers' rule, `analyzerKeepsPath`). This is
+**F30**, owned by session-215, whose fix makes the scanner own one rule and the analyzers consume
+its file list; `analyzerKeepsPath` then becomes a call into that rule, and the head-vs-checkout
+regression test is the thing that will say when the two have drifted.
 
 ## Not in this plan
 

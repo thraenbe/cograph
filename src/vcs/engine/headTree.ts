@@ -104,7 +104,7 @@ export function analyzerKeepsPath(relPath: string): boolean {
   const language = dot < 0 ? null : EXT_LANGUAGE[name.slice(dot)];
   if (!language) { return false; }
   const skip = ANALYZER_SKIP[language];
-  return !segs.slice(0, -1).some(d => d.startsWith('.') || skip.has(d));
+  return !segs.slice(0, -1).some(d => d.startsWith('.') || skip.has(d) || (language === 'cpp' && d.startsWith('cmake-build-')));
 }
 
 /** Stable, path-safe key for a repository, so two checkouts of one repo share nothing by accident. */

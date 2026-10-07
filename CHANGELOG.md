@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **Chat.** The sidebar Chat is gone. It handed the whole graph to the Claude Code / Codex
+  CLI as one file, and above roughly 300 functions the CLI refused to read that file, so on
+  most real repositories Chat returned empty answers (measured on axios, requests, socket.io,
+  gson and CoGraph itself). Your saved conversations are not deleted: they stay in
+  `.cograph/chats/`, and CoGraph says so once. The AI Workflow Graph and Annotate Graph are
+  unchanged, and so are all `cograph.graphIntelligence.*` settings.
+
 ### Fixed
 - **Saving from the function popup no longer writes over the wrong lines.** A popup
   remembered the line its function started at when it opened, and Save wrote its text back
@@ -81,6 +89,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `collapse`): keep untouched folders in the picture, closed, or take them out of the view
     and list them under FILTERS.
 
+### Fixed
+- **"Show only this file" while zoomed in no longer leaves a blank canvas.** When a Hide,
+  Only show or subgraph change moves everything out of the current view, the view now fits
+  what is still shown, even after you zoomed or panned. As long as anything in scope is
+  still visible, your view is kept. The fit also covers only in-scope content, no longer
+  the positions of hidden nodes. Works in Shelf and Global.
+- **A failed AI Workflow Graph generation no longer replaces your graph.** On projects too
+  large for the AI CLI to read the request, the model returned an empty graph that was shown
+  and saved over your own; it is now rejected with an explanation and your graph is left
+  alone. On smaller projects only the returned annotations are merged onto your existing
+  graph, so function names, files and call edges are no longer lost.
+
+### Fixed
+- **Shelf draws the call lines inside a folder again.** Since the Shelf engine shipped, every
+  call line between functions of the same folder was created hidden: the visibility check
+  compared node objects with ids and never matched. Only the cross-folder bundles were
+  visible. (F27)
+- **Shelf zoom detail is re-applied after every re-render.** When you zoom far out, Shelf parks
+  the call lines, labels and function nodes it cannot show legibly. After a re-render (for
+  example a Detail change) it used to bring everything back at full detail and keep it there
+  until you zoomed across a threshold again. With in-frame lines now painted (F27), that
+  dropped panning at fit-to-view on fmt from 70 to 29 fps; with this fix the view stays light.
+  (F29)
+
+### Changed
+- **"Show only this file" now removes the other folders**, the same way "Show only this
+  folder" does. Only the file's own folder and the folders that contain it stay, in both
+  engines; before, every other folder stayed on screen as an empty frame or box.
+
+### Fixed
+- TypeScript/JavaScript: calls through `this` (`this.helper()`) now appear as edges. They were never detected before, so class-heavy code showed far fewer connections than it has (up to +42% internal edges on the test corpus). A `this` call links to the caller's own class or its base classes, never to an unrelated class that happens to share the method name.
+
+### Fixed
+- The graph and the Folder panel now always cover the same files. Build output (`build/`, `target/`, `CMakeFiles/`, `cmake-build-*/`, `__pycache__/`) is left out of both unless git tracks files there, so hand-written build scripts stay and generated copies go. Before, a Python package built in place (`pip wheel .`) showed every function twice, with calls linked into the copy, and the copies could not be hidden or scoped from the Folder panel. Folders that are not git repositories skip build output entirely.
 ## [1.3.0] - 2026-09-24
 
 The Shelf engine release: nested, non-overlapping folder frames with per-file slots,

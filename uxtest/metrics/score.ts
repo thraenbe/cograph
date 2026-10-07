@@ -20,11 +20,12 @@ export interface StepContext {
 
 export interface ScoreWeights {
   nodeOverlap: number; labelOverlap: number; crossings: number; edgeLenCv: number;
-  settleSeconds: number; containment: number; whitespace: number; legibility: number;
+  settleSeconds: number; containment: number; whitespace: number; legibility: number; folderSeparation: number;
 }
 
 export const DEFAULT_WEIGHTS: ScoreWeights = {
   nodeOverlap: 4, labelOverlap: 2, crossings: 1.5, edgeLenCv: 0.5, settleSeconds: 0.15, containment: 6, whitespace: 1, legibility: 3,
+  folderSeparation: 6, // merged folders destroy the map's structure (R1/R2); without this term compact Global layouts win unfairly
 };
 
 type Rule = (m: LayoutMetrics, c: StepContext) => Finding | null;
@@ -36,7 +37,11 @@ const RULES: Rule[] = [
     ? { rule: 'user-frame-overlap', severity: 'low', message: `${m.frameOverlapPairs} sibling frame pair(s) overlap after a user drag (the product allows dropping a folder onto another)` }
     : { rule: 'frame-overlap', severity: 'high', ref: 'R2/H1', message: `${m.frameOverlapPairs} sibling folder frame pair(s) overlap` }) : null,
   (m) => m.slotOverlapPairs > 0 ? { rule: 'slot-overlap', severity: 'high', ref: 'R2/H1', message: `${m.slotOverlapPairs} file slot pair(s) overlap inside a frame` } : null,
-  (m, c) => shelf(c) && m.nodesOutsideSlot > 0 ? { rule: 'node-outside-slot', severity: 'high', ref: 'B1', message: `${m.nodesOutsideSlot} node(s) centred outside their file slot` } : null,
+  // W5 (decided 2026-09-24): Shelf+Dynamic snaps a dragged node back into its slot on release, so after a user
+  // drag the rule stays a real finding there; Shelf+Static keeps a dropped node where it was dropped (by design).
+  (m, c) => shelf(c) && m.nodesOutsideSlot > 0 ? (c.birth === 'user-moved' && c.motion === 'static'
+    ? { rule: 'user-node-outside-slot', severity: 'low', ref: 'W5', message: `${m.nodesOutsideSlot} node(s) centred outside their file slot after a user drag (Static keeps a dropped node where dropped)` }
+    : { rule: 'node-outside-slot', severity: 'high', ref: c.birth === 'user-moved' ? 'B1/W5' : 'B1', message: `${m.nodesOutsideSlot} node(s) centred outside their file slot${c.birth === 'user-moved' ? ' after a user drag (Dynamic must snap it back on release)' : ''}` }) : null,
   (m, c) => shelf(c) && m.nodesOutsideFrame > 0 ? { rule: 'node-outside-frame', severity: 'high', ref: 'B1', message: `${m.nodesOutsideFrame} node(s) centred outside their folder frame` } : null,
   (m, c) => shelf(c) && m.nodesPinnedToWall > Math.max(3, 0.02 * m.nodes)
     ? { rule: 'nodes-pinned-to-wall', severity: 'medium', ref: 'B2', message: `${m.nodesPinnedToWall} node(s) resting on a slot wall` } : null,
@@ -50,6 +55,11 @@ const RULES: Rule[] = [
     ? { rule: 'label-clutter', severity: m.labelOverlapRatio > 0.6 ? 'medium' : 'low', ref: 'B6/R4', message: `${(m.labelOverlapRatio * 100).toFixed(0)} % of visible labels overlap another label` } : null,
   (m) => m.offscreenNodeRatio > 0.15
     ? { rule: 'graph-overflows-viewport', severity: 'low', ref: 'R1', message: `${(m.offscreenNodeRatio * 100).toFixed(0)} % of nodes are outside the viewport` } : null,
+  // An arrowhead is "giant" relative to the nodes it points at: > 20 px AND more than twice the median node
+  // radius at the same zoom (a fixed 9-unit marker at 10x zoom is 90 px next to 100 px nodes - fine).
+  (m) => (m.maxMarkerPx ?? 0) > 20 && (m.maxMarkerPx ?? 0) > 2 * Math.max(1, m.nodePxMedian ?? 0)
+    ? { rule: 'giant-arrowhead', severity: 'medium', ref: 'R3/F20', message: `an arrowhead (${m.maxMarkerId}) is ${m.maxMarkerPx} px on screen vs a median node radius of ${m.nodePxMedian ?? '?'} px` } : null,
+  (m, c) => shelf(c) && (m.slotsOverName ?? 0) > 0 ? { rule: 'slot-over-name', severity: 'high', ref: 'R4', message: `${m.slotsOverName} frame(s) whose slot row intersects the folder name line` } : null,
   (_m, c) => c.settled === false ? { rule: 'did-not-settle', severity: 'medium', ref: 'P3/H2', message: 'layout still moving at the settle timeout' } : null,
   (_m, c) => c.consoleErrors > 0 ? { rule: 'console-error', severity: 'high', message: `${c.consoleErrors} console/page error(s) during the step` } : null,
   (_m, c) => c.longFrames > 10 ? { rule: 'long-frames', severity: 'low', ref: 'P4', message: `${c.longFrames} frames over 50 ms during the step` } : null,
@@ -95,7 +105,8 @@ export function layoutScore(m: LayoutMetrics, settleMs: number | null, w: ScoreW
     + w.settleSeconds * Math.min(30, (settleMs ?? 30000) / 1000)
     + w.containment * Math.min(1, containment)
     + w.whitespace * whitespace
-    + w.legibility * legibilityPenalty(m);
+    + w.legibility * legibilityPenalty(m)
+    + w.folderSeparation * Math.min(1, (m.folderOverlapRatio ?? 0) * 2); // 50 % of the box area in conflict = worst case
   return +score.toFixed(4);
 }
 

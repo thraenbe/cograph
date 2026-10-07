@@ -7,7 +7,7 @@ import * as path from 'path';
 import { openLab } from '../lib/lab';
 import { loadConfig, selectedRepos } from '../lib/corpus';
 import { engines } from '../lib/matrix';
-import { fitToView, setSlider } from '../lib/actions';
+import { fitDirect, setSlider } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 import { layoutScore, QUALITY_WEIGHTS } from '../metrics/score';
 import { collectSnapshot } from '../metrics/collect';
@@ -21,7 +21,7 @@ interface Space {
   seed: number; samples: number; mode: 'lhs' | 'grid'; repos: string[]; detail: number; settleTimeoutMs: number; motionGraceMs: number;
   engines: Record<string, { params: SelName[]; ranges?: Record<string, [number, number]>; unlimitedShare?: Record<string, number>;
     /** explicit regression tuples per repo, e.g. the F12 runaway values on zod */
-    extra?: Record<string, Array<{ label: string; values: Record<string, number> }>> }>;
+    extra?: Record<string, Array<{ label: string; rank?: boolean; values: Record<string, number> }>> }>;
 }
 const spaceFile = process.env.UXTEST_SWEEP_SPACE ?? path.join(REPO_ROOT, 'uxtest', 'sweep', 'spaces', 'default.json');
 const space = JSON.parse(fs.readFileSync(spaceFile, 'utf8')) as Space;
@@ -33,9 +33,13 @@ for (const repo of repos) {
     const def = space.engines[engine];
     if (!def) { continue; }
     const design = buildSamples(def.params, nSamples, space.seed, space.mode);
-    const extras: Sample[] = (def.extra?.[repo] ?? []).map((e, i) => ({ index: 900 + i, unit: {}, explicit: e.values, label: e.label }));
+    const extras: Sample[] = [...(def.extra?.['*'] ?? []), ...(def.extra?.[repo] ?? [])]
+      .map((e, i) => ({ index: 900 + i, unit: {}, explicit: e.values, label: e.label, ranked: e.rank === true }));
     for (const sample of [...design, ...extras]) {
       test(`sweep · ${repo} · ${engine} · #${sample.index}`, async ({ browser }) => {
+        // Resumable: UXTEST_SWEEP_RESUME=1 (--resume) skips samples that already have a sample.json in this run id.
+        const doneFile = path.join(REPO_ROOT, 'uxtest', 'artifacts', process.env.UXTEST_RUN_ID ?? '', path.basename(repo), `sweep-${String(sample.index).padStart(2, '0')}-${engine}-dynamic`, 'sample.json');
+        test.skip(process.env.UXTEST_SWEEP_RESUME === '1' && fs.existsSync(doneFile), 'already sampled in this run');
         const lab = await openLab({ repo, engine, motion: 'dynamic', scenario: `sweep-${String(sample.index).padStart(2, '0')}`,
           browser, video: process.env.UXTEST_SWEEP_VIDEO === '1', keepSnapshots: false });
         const { page, ux } = lab;
@@ -47,7 +51,7 @@ for (const repo of repos) {
           await ux.step('Full detail, fitted', async () => {
             const cur = Number(await page.locator(SEL.detailSlider.css).inputValue());
             if (Math.abs(cur - space.detail) > 0.005) { await setSlider(page, 'detailSlider', space.detail); }
-            await fitToView(page);
+            await fitDirect(page);
           }, { stillTimeoutMs: space.settleTimeoutMs, metrics: false });
           const beforeForces = await collectSnapshot(page, { maxLabels: 10 });
           const apply = await ux.step(sample.label ? `Regression tuple: ${sample.label}` : sample.unit ? `Apply forces (sample ${sample.index})` : 'Defaults (baseline)', async () => {
@@ -68,13 +72,15 @@ for (const repo of repos) {
             }
           }, { stillTimeoutMs: space.settleTimeoutMs, expectMotionMs: space.motionGraceMs, armBefore: true });
           const moved = ux.lastSnapshot ? maxDisplacement(beforeForces, ux.lastSnapshot) : { moved: 0, max: 0 };
-          const end = await ux.step('End state (fitted)', async () => { await fitToView(page); });
+          const end = await ux.step('End state (fitted)', async () => { await fitDirect(page); });
           expect(end.metrics, 'end-state metrics').toBeTruthy();
           const metrics = end.metrics!;
           const settleMs = apply.still ? apply.still.ms : null;
           const maxAbsCoord = Math.round((ux.lastSnapshot?.nodes ?? []).reduce((m, n) => Math.max(m, Math.abs(n.x), Math.abs(n.y)), 0));
-          const record: SweepSample = { repo, engine, index: sample.index, baseline: sample.unit === null, label: sample.label, maxAbsCoord, values, dropped,
-            settleMs, settled: apply.still?.settled ?? false, movedNodes: moved.moved, maxMovePx: moved.max, metrics, score: layoutScore(metrics, 0, QUALITY_WEIGHTS),
+          const strayInput = lab.host.log.filter(l => ['get-func-source', 'navigate'].includes(l.message.type)).length;
+          expect(strayInput, 'the sweep must not click into the graph').toBe(0);
+          const record: SweepSample = { repo, engine, index: sample.index, baseline: sample.unit === null, label: sample.label, ranked: sample.ranked, maxAbsCoord, values, dropped,
+            settleMs, settleTicks: apply.still?.simTicks ?? null, settled: apply.still?.settled ?? false, movedNodes: moved.moved, maxMovePx: moved.max, metrics, score: layoutScore(metrics, 0, QUALITY_WEIGHTS),
             screenshot: path.relative(path.dirname(path.dirname(lab.outDir)), path.join(lab.outDir, end.screenshot ?? '')) };
           fs.writeFileSync(path.join(lab.outDir, 'sample.json'), JSON.stringify(record, null, 2));
         } finally { await lab.close(); }

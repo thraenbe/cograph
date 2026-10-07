@@ -5,7 +5,7 @@ import { mulberry32 } from '../metrics/compute';
 
 /** unit = null → product defaults (baseline). `explicit` = literal slider values (regression tuples such as F12),
  *  which may name ANY mapped slider, also ones outside the swept parameter list. */
-export interface Sample { index: number; unit: Record<string, number> | null; explicit?: Record<string, number>; label?: string }
+export interface Sample { index: number; unit: Record<string, number> | null; explicit?: Record<string, number>; label?: string; ranked?: boolean }
 
 /** Latin hypercube: each parameter's n strata are each hit exactly once. */
 export function latinHypercube(params: string[], n: number, seed: number): Array<Record<string, number>> {

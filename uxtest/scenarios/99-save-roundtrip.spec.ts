@@ -3,7 +3,9 @@
 import { expect } from '@playwright/test';
 import { scenario } from '../lib/scenario';
 import { openLab } from '../lib/lab';
-import { clickSel, dragBy, fitToView, locateFrame, setSlider } from '../lib/actions';
+import { clickSel, dragFrame, fitToView, judgeFrameDrag, locateFrame, setSlider, toggleSwitch } from '../lib/actions';
+import { SkipStep } from '../lib/step';
+import { SEL } from '../selectors';
 import { v1Payload } from '../lib/fixtures';
 import { maxDisplacement } from '../metrics/compute';
 
@@ -14,14 +16,22 @@ scenario('save-roundtrip', { perMotion: false }, async (lab, combo) => {
     await fitToView(page);
     await page.waitForTimeout(700);
     const f = await locateFrame(page, 'smallest');
-    await dragBy(page, f.title, 60, 45);
+    judgeFrameDrag(await dragFrame(page, f, 60, 45));
   }, { userMoved: true });
   const arranged = ux.lastSnapshot;
+  // U1: the save carries sameFileEdgesOnly. Saved at the NON-default (off) so the restore proves it was read back.
+  const sameFile = await page.locator(SEL.toggleSameFileEdges.css).count() > 0;
+  await ux.step('Turn "Only calls within a file" off before saving (U1)', async () => {
+    if (!sameFile) { throw new SkipStep('no #toggle-same-file-edges on this branch (before U1)'); }
+    expect(await toggleSwitch(page, 'toggleSameFileEdges')).toBe(false);
+    await page.mouse.click(640, 790); // close the gear panel
+  }, { metrics: false });
   await ux.step('Save layout', async () => {
     await clickSel(page, 'saveGraph');
     await expect.poll(() => host.saved.length).toBe(1);
   }, { metrics: false });
   const payload = (host.saved[0].payload ?? host.saved[0]) as Record<string, unknown>;
+  if (sameFile) { expect((payload.settings as Record<string, unknown> | undefined)?.sameFileEdgesOnly, 'payload.settings.sameFileEdgesOnly').toBe(false); }
 
   // A fresh panel, as after closing and reopening CoGraph, then "load saved graph".
   const again = await openLab({ ...combo, repo, scenario: 'save-roundtrip-restore', browser: page.context().browser() ?? undefined });
@@ -39,12 +49,21 @@ scenario('save-roundtrip', { perMotion: false }, async (lab, combo) => {
       }
     }
     await again.ux.step('Fit the restored layout', async () => { await fitToView(again.page); });
+    await again.ux.step('Restored panel keeps the saved "Only calls within a file" = off (U1)', async () => {
+      if (!sameFile) { throw new SkipStep('no #toggle-same-file-edges on this branch (before U1)'); }
+      expect(await again.page.locator(SEL.toggleSameFileEdges.css).isChecked(), 'toggle after restore').toBe(false);
+      expect(await again.page.locator(SEL.sameFileRoot.css).count(), 'g.same-file-only after restore').toBe(0);
+    }, { metrics: false });
 
     await again.ux.step('Load a legacy v1 payload (positions only)', async () => {
       const pos = (again.ux.lastSnapshot?.nodes ?? []).filter(n => n.kind === 'fn').map(n => ({ id: n.id, x: n.x + 15, y: n.y + 10 }));
       await again.post({ type: 'graph-loaded', payload: v1Payload(pos) });
     });
     await again.ux.step('Fit after the v1 migration', async () => { await fitToView(again.page); });
+    await again.ux.step('A save without the key (v1) keeps the current setting (U1)', async () => {
+      if (!sameFile) { throw new SkipStep('no #toggle-same-file-edges on this branch (before U1)'); }
+      expect(await again.page.locator(SEL.toggleSameFileEdges.css).isChecked(), 'unchanged by a payload without sameFileEdgesOnly').toBe(false);
+    }, { metrics: false });
   } finally {
     const run = await again.close();
     expect(run.steps.filter(s => s.status === 'failed')).toEqual([]);

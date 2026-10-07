@@ -12,6 +12,7 @@ import {
 } from '../../vcs/engine/headTree';
 import type { HeadTreeDeps, TreeMarker } from '../../vcs/engine/headTree';
 import { analyzeTreeCached, relPath } from '../../vcs/engine/treeAnalysis';
+import { isAnalyzablePath, scanStructure } from '../../structureScanner';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -164,7 +165,7 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     walk(tree.dir);
     assert.deepStrictEqual(copied.filter(p => !p.startsWith('.')).sort(),
       ['build/gen.ts', 'cpp/lib.h', 'cpp/main.cpp', 'java/App.java', 'py/tool.py', 'src/app.ts', 'src/new.ts', 'src/util.ts'],
-      'the PR head: new.ts present, page.js gone, no README / package.json / d.ts; build/gen.ts stays because the TS analyzer parses it');
+      'the PR head: new.ts present, page.js gone, no README / package.json / d.ts; build/gen.ts stays because the commit tracks it');
     assert.strictEqual(tree.files, 8);
     assert.ok(tree.bytes > 0);
     assert.strictEqual(fs.readFileSync(path.join(tree.dir, 'src/util.ts'), 'utf8').includes('extra()'), true, 'the head\'s content, not the checkout\'s');
@@ -217,6 +218,11 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     const full = path.join(root, 'full-checkout');
     sh(root, ['clone', '--quiet', repos.origin, full]);
     sh(full, ['checkout', '--quiet', sha]);
+    // The product path first: the structure scan (git-aware since F30) feeds the analyzers. The checkout
+    // is a repository; the copy is not, and declares the commit's files instead - the two must agree.
+    const scanRel = (root: string) => scanStructure(root).files.map(f => relPath(root, f.path)).sort();
+    assert.deepStrictEqual(scanRel(tree.dir), scanRel(full), 'the scanner sees the copy exactly as a checkout of that commit');
+    assert.ok(scanRel(tree.dir).includes('build/gen.ts'), 'tracked build output is part of the project on both sides');
     const fromCopy = runAnalyzers(tree.dir);
     const fromFull = runAnalyzers(full);
     assert.ok(fromCopy.languages.length >= 4, `analyzers ran: ${fromCopy.languages.join(', ')}`);
@@ -227,7 +233,7 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     assert.deepStrictEqual(a.nodes, b.nodes, 'every function of the full checkout, and no other');
     assert.deepStrictEqual(a.edges, b.edges, 'every call edge of the full checkout, and no other');
     assert.ok(a.edges.some(e => e.includes('src/util.ts::helper') && e.includes('::extra')), 'the head\'s new call is there');
-    assert.ok(a.nodes.some(n => n.startsWith('build/gen.ts')), 'what the analyzers walk in a checkout, they walk in the copy');
+    assert.strictEqual(a.nodes.some(n => n.startsWith('build/gen.ts')), b.nodes.some(n => n.startsWith('build/gen.ts')), 'a standalone analyzer walk treats build/ the same on both sides');
   });
 
   test('a tree remembers the refs that brought it; eviction deletes a ref only while it still points at that commit', async () => {
@@ -309,8 +315,8 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     const analyzer = async (dir: string) => { seen.push(dir); return { nodes: [{ id: 'x', name: 'x', file: path.join(dir, 'src', 'app.ts'), line: 1 }], edges: [] }; };
     const analyzed = await analyzeTreeCached(tree.dir, analyzer, sha);
     assert.deepStrictEqual([seen, analyzed.cached], [[tree.dir], false]);
-    assert.deepStrictEqual([analyzed.root, analyzed.sha, analyzed.tree.totalFiles, analyzed.graph.nodes.length], [tree.dir, sha, 7, 1],
-      'the structure tree skips build/, as it does in the workspace');
+    assert.deepStrictEqual([analyzed.root, analyzed.sha, analyzed.tree.totalFiles, analyzed.graph.nodes.length], [tree.dir, sha, 8, 1],
+      'the structure tree of the copy counts tracked build/ output, as a checkout\'s would');
     const again = await analyzeTreeCached(tree.dir, analyzer, sha);
     assert.deepStrictEqual([seen.length, again.cached, again.graph.nodes.length], [1, true, 1], 'the second time is a read');
     assert.strictEqual(relPath(tree.dir, path.join(tree.dir, 'src', 'a.ts')), 'src/a.ts');
@@ -334,22 +340,15 @@ suite('vcs engine — headTree budget and failures', () => {
   setup(() => { storage = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-budget-')); });
   teardown(() => fs.rmSync(storage, { recursive: true, force: true }));
 
-  test('the copy rule is each analyzer\'s own walk, not the structure scanner\'s stricter one', () => {
+  test('the copy rule is the project\'s own (F30): git tracks every file of a commit, so build output in it counts', () => {
     assert.strictEqual(analyzerKeepsPath('src/a.ts'), true);
-    assert.strictEqual(analyzerKeepsPath('build/gen.ts'), true, 'the TS analyzer walks build/');
-    assert.strictEqual(analyzerKeepsPath('build/App.java'), false, 'the Java analyzer does not');
-    assert.strictEqual(analyzerKeepsPath('target/x.py'), true);
-    assert.strictEqual(analyzerKeepsPath('dist/bundle.js'), false);
-    assert.strictEqual(analyzerKeepsPath('out/a.cpp'), false);
-    assert.strictEqual(analyzerKeepsPath('CMakeFiles/a.cpp'), false);
-    assert.strictEqual(analyzerKeepsPath('cmake-build-debug/a.cpp'), false, 'the C++ analyzer skips cmake-build-* too');
-    assert.strictEqual(analyzerKeepsPath('cmake-build-debug/a.ts'), true);
-    assert.strictEqual(analyzerKeepsPath('pkg/__pycache__/a.py'), false);
-    assert.strictEqual(analyzerKeepsPath('.github/a.py'), false);
-    assert.strictEqual(analyzerKeepsPath('node_modules/x/a.js'), false);
-    assert.strictEqual(analyzerKeepsPath('types/a.d.ts'), false);
-    assert.strictEqual(analyzerKeepsPath('README.md'), false);
-    assert.strictEqual(analyzerKeepsPath(''), false);
+    for (const tracked of ['build/gen.ts', 'build/App.java', 'target/x.py', 'CMakeFiles/a.cpp', 'cmake-build-debug/a.cpp', 'pkg/__pycache__/a.py']) {
+      assert.strictEqual(analyzerKeepsPath(tracked), true, `${tracked}: an artefact dir the commit tracks files in`);
+    }
+    for (const never of ['dist/bundle.js', 'out/a.cpp', 'node_modules/x/a.js', '.github/a.py', 'types/a.d.ts', 'README.md', '']) {
+      assert.strictEqual(analyzerKeepsPath(never), false, `${never}: never part of a project`);
+    }
+    assert.strictEqual(analyzerKeepsPath, isAnalyzablePath, 'one rule, not a copy of it');
   });
 
   test('repository keys are stable across separators and case, and short', () => {

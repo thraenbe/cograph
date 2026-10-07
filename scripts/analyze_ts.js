@@ -12,13 +12,13 @@
 'use strict';
 
 const path = require('path');
-const { createNarrower, withStats } = require('./narrowCalls.js');
+const { createNarrower, withStats, resolveThisCall } = require('./narrowCalls.js');
 const fs   = require('fs');
 // Bare specifier so esbuild can inline it into the packaged bundle (dev runs
 // resolve it from the repo's node_modules via normal module resolution).
 const ts   = require('typescript');
 
-const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist']);
+const { isSkippedDirName } = require('./skipDirs.js');
 
 function collectTsFiles(root) {
   const results = [];
@@ -28,7 +28,7 @@ function collectTsFiles(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIP_DIR_NAMES.has(entry.name) && !entry.name.startsWith('.')) walk(full);
+        if (!isSkippedDirName(entry.name)) walk(full);
       } else if (entry.isFile() && !entry.name.endsWith('.d.ts') &&
                  (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
         results.push(full);
@@ -209,15 +209,20 @@ function collectCalls(files, definitions, root) {
           if (ts.isCallExpression(node)) {
             const callee = node.expression;
             let calleeName = null;
+            let viaThis = false;
             if (ts.isIdentifier(callee)) {
               calleeName = callee.text;
             } else if (ts.isPropertyAccessExpression(callee) &&
-                       ts.isIdentifier(callee.expression) &&
-                       callee.expression.text === 'this') {
+                       callee.expression.kind === ts.SyntaxKind.ThisKeyword) {
+              // `this` is a ThisKeyword token, never an Identifier.
               calleeName = callee.name.text;
+              viaThis = true;
             }
             if (calleeName && nameToIds[calleeName]) {
-              for (const calleeId of narrower.narrow(nameToIds[calleeName], filepath)) {
+              const targets = viaThis
+                ? resolveThisCall(nameToIds[calleeName], definitions[callerId], definitions, narrower.narrow, filepath)
+                : narrower.narrow(nameToIds[calleeName], filepath);
+              for (const calleeId of targets) {
                 const key = `${callerId}|${calleeId}`;
                 if (!seenEdges.has(key) && callerId !== calleeId) {
                   seenEdges.add(key);

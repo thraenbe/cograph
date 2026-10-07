@@ -6,7 +6,14 @@ import { clickNode, dragBy, fitToView, locateFrame, openSettings, toggleSwitch, 
 import { SkipStep } from '../lib/step';
 import { SEL } from '../selectors';
 
+/** file + line of the popup opened last (its get-func-source request). */
+function lastPopupTarget(host: { posted(t: string): Record<string, unknown>[] }): { file: string; line: number } {
+  const m = host.posted('get-func-source').at(-1);
+  return { file: String(m?.file ?? ''), line: Number(m?.line ?? 1) };
+}
+
 scenario('popups', { perMotion: false }, async ({ page, ux, host, post }) => {
+  let shownBeforeSave: string | null = null;
   await ux.step('Zoom into a folder', async () => {
     await fitToView(page);
     await page.waitForTimeout(700);
@@ -40,11 +47,53 @@ scenario('popups', { perMotion: false }, async ({ page, ux, host, post }) => {
     const ta = page.locator('.func-card .func-source-textarea').first();
     await expect(ta).not.toHaveValue('', { timeout: 5000 });
     if (await ta.evaluate(el => (el as HTMLTextAreaElement).readOnly)) { throw new SkipStep('source not editable (synthetic repo has no files on disk)'); }
+    const t = lastPopupTarget(host);
+    shownBeforeSave = host.sources.read(t.file, t.line);
     await ta.click();
     await page.keyboard.press('Control+End');
     await page.keyboard.type('\n# edited by uxtest', { delay: 15 });
     await page.keyboard.press('Control+s');
     await expect.poll(() => host.posted('save-func-source').length).toBe(1);
+  }, { metrics: false });
+
+  // PR #69: the save carries what the popup showed, the host answers func-source-saved, ok closes the popup.
+  await ux.step('Save carries the shown original and is confirmed (popup closes)', async () => {
+    const save = host.posted('save-func-source').at(-1);
+    if (!save) { throw new SkipStep('no save was posted (the edit step was skipped)'); }
+    if (save.reqId === undefined) { throw new SkipStep('no func-source-saved round trip on this branch (before PR #69)'); }
+    expect(save.original, 'save-func-source.original = the text the popup showed').toBe(shownBeforeSave);
+    await expect(page.locator('.func-card')).toHaveCount(0, { timeout: 3000 });
+  }, { metrics: false });
+
+  await ux.step('A save over a changed file is refused, keeps the edit; Reload from file, then save', async () => {
+    if (host.posted('save-func-source').at(-1)?.reqId === undefined) { throw new SkipStep('no func-source-saved round trip on this branch (before PR #69)'); }
+    await clickNode(page, { kind: 'fn' });
+    const ta = page.locator('.func-card .func-source-textarea').first();
+    await expect(ta).not.toHaveValue('', { timeout: 5000 });
+    const t = lastPopupTarget(host);
+    await ta.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n# refused by uxtest', { delay: 15 });
+    const edited = await ta.inputValue();
+    // "On disk" a line appears ABOVE the function: works for one-line functions too, and Reload must find it one line down.
+    host.sources.externalEdit(t.file, l => { l.splice(t.line - 1, 0, ''); return l; });
+    await page.keyboard.press('Control+s');
+    await expect(page.locator(SEL.funcSaveError.css)).toBeVisible({ timeout: 3000 });
+    await expect(page.locator(SEL.funcSaveReason.css)).toContainText('Not saved');
+    expect(await ta.inputValue(), 'the refused edit is still in the popup').toBe(edited);
+    expect(await ta.evaluate(el => (el as HTMLTextAreaElement).readOnly), 'editable again after the refusal').toBe(false);
+    const reload = page.locator(SEL.funcSaveReload.css);
+    await reload.click();
+    await expect(reload).toHaveClass(/armed/);
+    await reload.click();
+    await expect(ta).toHaveValue(host.sources.read(t.file, t.line + 1));
+    await expect(page.locator(SEL.funcSaveError.css)).toHaveCount(0);
+    await ta.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n# after reload by uxtest', { delay: 15 }); // Save is only enabled for a changed text
+    await page.keyboard.press('Control+s');
+    await expect(page.locator('.func-card')).toHaveCount(0, { timeout: 3000 });
+    expect(host.sources.text(t.file), 'the retry after Reload saved') // a trailing comment may lie past the scanned function end.toContain('# after reload by uxtest');
   }, { metrics: false });
 
   await ux.step('Close the popup (button, or Escape when saving already closed it)', async () => {

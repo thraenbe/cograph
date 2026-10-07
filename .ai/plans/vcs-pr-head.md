@@ -366,6 +366,19 @@ Not fixed, written down: `createTreeAnalyzer` relies on the runner reaching a si
 today), case-sensitive path comparison in `prDocumentFile`, `marker.bytes` not counting the
 analysis cache written later.
 
+## Merge with version_1.4.0 (2026-10-07) — F30 landed, and the copy follows it
+
+F30 made the structure scanner the one rule for what is in the project (`projectScope.ts`:
+always-skipped dirs never; build-output dirs only where git tracks files; every analyzer takes
+the scanner's file list). The copy rule is now that rule: `analyzerKeepsPath === isAnalyzablePath`,
+which keeps a build-output file because every file of a commit is tracked by definition. But a
+copy has no `.git`, and F30 says "without git, every artefact dir is skipped" — so the scanner in
+the copy would have dropped the tracked `build/` files a checkout shows, a phantom removal in the
+diff. The copy therefore declares the commit's files in `.cograph-tracked`, and `gitLsFiles`
+reads a declaration first (a copy must never borrow the tracking of a repository it happens to sit
+inside), then git. The regression test now also compares `scanStructure(copy)` with
+`scanStructure(checkout)` — the product path — and asserts `build/gen.ts` is in both.
+
 ## Not in this plan
 
 Ghost nodes for removed functions, workspace annotations mapped onto the head, a vscode-free

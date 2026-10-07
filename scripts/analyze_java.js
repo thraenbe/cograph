@@ -20,7 +20,7 @@ const fs   = require('fs');
 const { parse, BaseJavaCstVisitorWithDefaults } = require('java-parser');
 const { createNarrower, withStats } = require('./narrowCalls.js');
 
-const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build']);
+const { isSkippedDirName } = require('./skipDirs.js');
 
 // ── Parse cache (single-parse optimisation) ───────────────────────────────────
 // collectDefinitions and collectCalls each need the CST of every file. Parsing
@@ -76,7 +76,7 @@ function collectJavaFiles(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIP_DIR_NAMES.has(entry.name) && !entry.name.startsWith('.')) walk(full);
+        if (!isSkippedDirName(entry.name)) walk(full);
       } else if (entry.isFile() && entry.name.endsWith('.java')) {
         results.push(full);
       }

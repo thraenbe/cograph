@@ -75,6 +75,13 @@ function stubFastBackoff(sandbox: sinon.SinonSandbox, realSetTimeout: typeof set
     realSetTimeout(fn, ms && (RETRY_BACKOFF_MS as number[]).includes(ms) ? 0 : (ms as number)));
 }
 
+/**
+ * Every runner a test creates. Tests start `runner.run(...)` without awaiting the
+ * whole retry loop, so teardown must killAll() them — otherwise a still-retrying
+ * runner from one test spawns onto the next test's fresh spawn stub.
+ */
+const liveRunners: AnalyzerRunner[] = [];
+
 function makeRunner(sandbox: sinon.SinonSandbox, extensionPath = '/fake/ext') {
   const context = { extensionPath, extensionUri: vscode.Uri.file(extensionPath) } as unknown as vscode.ExtensionContext;
   const showError = sandbox.stub();
@@ -85,6 +92,7 @@ function makeRunner(sandbox: sinon.SinonSandbox, extensionPath = '/fake/ext') {
   const onResult = sandbox.stub().callsFake((stdout: string, root: string, meta: AnalyzerRunMeta) =>
     resolveResult({ stdout, root, meta }));
   const runner = new AnalyzerRunner(context, showError as any, onResult as any, log as any, onRetry as any);
+  liveRunners.push(runner);
   return { runner, showError, log, onRetry, onResult, result };
 }
 
@@ -102,6 +110,7 @@ suite('AnalyzerRunner', () => {
   });
 
   teardown(() => {
+    for (const r of liveRunners.splice(0)) { r.killAll(); }
     sandbox.restore();
   });
 
@@ -308,6 +317,7 @@ suite('AnalyzerRunner', () => {
     const got = new Promise<{ graph: any; root: string; meta: AnalyzerRunMeta }>(resolve => {
       const runner = new AnalyzerRunner(context, sandbox.stub() as any, onResult as any, sandbox.stub() as any,
         sandbox.stub() as any, (graph, root, meta) => resolve({ graph, root, meta }));
+      liveRunners.push(runner);
       runner.run('/ws');
     });
     const r = await got;

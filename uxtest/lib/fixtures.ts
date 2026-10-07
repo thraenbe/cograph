@@ -73,3 +73,17 @@ export function annotationsFixture(repo: AnalyzedRepo): AnnotationsFixture & { f
     stale: [staleRel],
   };
 }
+
+/** round3 W4: a scope that includes the biggest top-level folder (by function count) and nothing else. */
+export function scopeFixture(repo: AnalyzedRepo): { name: string | null; root: string; include: string[]; exclude: string[]; excludedTop: string[] } {
+  const root = posix(repo.root);
+  const byTop = new Map<string, number>();
+  for (const n of fns(repo)) {
+    const rel = relTo(root, n.file as string);
+    const top = rel.includes('/') ? rel.slice(0, rel.indexOf('/')) : '.';
+    byTop.set(top, (byTop.get(top) ?? 0) + 1);
+  }
+  const tops = [...byTop.entries()].filter(([t]) => t !== '.').sort((a, b) => b[1] - a[1]).map(([t]) => t);
+  const include = tops.length ? [tops[0]] : ['.'];
+  return { name: 'uxtest-scope', root, include, exclude: [], excludedTop: tops.slice(1) };
+}

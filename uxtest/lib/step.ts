@@ -39,12 +39,14 @@ export interface StepOpts { settle?: boolean; metrics?: boolean; stillTimeoutMs?
 /** How the layout of `cur` was born, given the previous snapshot and its birth (see LayoutBirth). */
 export function layoutBirth(prev: Snapshot | null, prevBirth: LayoutBirth, cur: Snapshot, userMoved: boolean): LayoutBirth {
   if (userMoved) { return 'user-moved'; }
-  if (!prev) { return 'grid'; }
+  if (!prev) { return prevBirth; } // first snapshot: keep what the scenario declared (a restored picture may carry a user drag)
   const repacked = prev.engine !== cur.engine || prev.viewMode !== cur.viewMode || prev.nodes.length !== cur.nodes.length
     || Math.abs(median(prev.nodes.map(n => n.r)) - median(cur.nodes.map(n => n.r))) > 0.01;
   if (repacked) { return 'grid'; }                                   // engine switch, Detail change, Node Size re-pack
   if (prev.motion === 'dynamic' && cur.motion === 'static') { return 'frozen'; } // explicit freeze
-  if (cur.motion === 'dynamic') { return 'grid'; }                    // a later freeze decides
+  // Dynamic keeps a user drop where it landed (pinned): the user-made picture persists until something re-packs.
+  // A Static → Dynamic toggle re-runs the layout, so that one counts as a new grid.
+  if (cur.motion === 'dynamic') { return prev.motion === 'dynamic' && prevBirth === 'user-moved' ? 'user-moved' : 'grid'; }
   return prevBirth;
 }
 
@@ -108,7 +110,7 @@ export class StepRecorder {
       await action();
     } catch (err) {
       if (err instanceof SkipStep) { rec.status = 'skipped'; rec.note = err.message; }
-      else if (err instanceof StepFinding) { reported = err.finding; rec.note = err.message; }
+      else if (err instanceof StepFinding) { reported = err.finding; rec.note = rec.note ? `${rec.note} | ${err.message}` : err.message; } // keep what the body noted before it judged
       else { rec.status = 'failed'; rec.note = String((err as Error).message ?? err); failure = err; }
     }
     try { await this.measure(rec, base, opts, armed); }

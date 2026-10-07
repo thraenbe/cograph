@@ -171,4 +171,65 @@ suite('GraphProvider.generateWorkflow (AI gate + provider path)', () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+  test('empty reply (request too big to read) → rejects, user graph untouched, nothing posted', async () => {
+    const { tmp, provider, fakePanel } = await setupEnabled();
+    try {
+      provider.setProviderFactoryForTesting((() => ({
+        run: sinon.stub().resolves({ graph: { nodes: [], edges: [] }, text: "I couldn't read the request", sessionId: null }),
+      })) as any);
+      const before = fakePanel.webview.postMessage.callCount;
+
+      await assert.rejects(() => provider.generateWorkflow('claude-code'), /no workflow model.*too large.*graph was not changed/);
+
+      assert.strictEqual((provider as any).cachedGraph.nodes[0].id, 'cached', 'cached graph kept');
+      const posted = fakePanel.webview.postMessage.getCalls().slice(before).map(c => c.args[0]);
+      assert.ok(!posted.some(m => m?.type === 'graph'), 'no graph posted over the user\'s view');
+      assert.notStrictEqual((fakePanel as any).title, 'Workflow');
+    } finally {
+      disposePanel(fakePanel);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('graph unloaded during the call → own "not loaded" error, not blamed on the AI, nothing posted', async () => {
+    const { tmp, provider, fakePanel } = await setupEnabled();
+    try {
+      const valid = { nodes: [{ id: 'cached', workflow: { stage: 0 } }], edges: [] };
+      provider.setProviderFactoryForTesting((() => ({
+        run: sinon.stub().callsFake(async () => {
+          (provider as any).cachedGraph = undefined; // e.g. the panel was closed mid-call
+          return { graph: valid, text: 'ok', sessionId: null };
+        }),
+      })) as any);
+      const before = fakePanel.webview.postMessage.callCount;
+
+      await assert.rejects(() => provider.generateWorkflow('claude-code'),
+        (err: Error) => /not loaded/.test(err.message) && !/no workflow model/.test(err.message));
+      const posted = fakePanel.webview.postMessage.getCalls().slice(before).map(c => c.args[0]);
+      assert.ok(!posted.some(m => m?.type === 'graph'), 'nothing posted');
+    } finally {
+      disposePanel(fakePanel);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('stripped reply (id + workflow only) → annotations merged onto the original nodes', async () => {
+    const { tmp, provider, fakePanel } = await setupEnabled();
+    try {
+      const stripped = { nodes: [{ id: 'cached', workflow: { stage: 1, tier: 'backend', cluster: 'core', clusterName: 'Core' } }], edges: [] };
+      provider.setProviderFactoryForTesting((() => ({
+        run: sinon.stub().resolves({ graph: stripped, text: 'ok', sessionId: null }),
+      })) as any);
+
+      const result = await provider.generateWorkflow('claude-code');
+
+      const node = result.graph.nodes.find(n => n.id === 'cached')!;
+      assert.strictEqual(node.name, 'a', 'name survives the echo');
+      assert.strictEqual(node.file, path.join(tmp, 'src', 'a.ts'), 'file survives the echo');
+      assert.strictEqual(node.workflow?.cluster, 'core', 'annotation applied');
+    } finally {
+      disposePanel(fakePanel);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

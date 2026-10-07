@@ -19,6 +19,20 @@ function pathUnder(path, prefix) {
     || path.startsWith(prefix + '\\');
 }
 
+/** Directory part of a file path ('' for a bare name), either separator. */
+function scopeFileDir(file) {
+  const i = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'));
+  return i > 0 ? file.slice(0, i) : '';
+}
+
+/** U5: with Only show FILE, the only folders left are the file's own folder and its
+ *  ancestors, so the other folders vanish entirely, as with Only show FOLDER. */
+function onlyFileKeepsFolder(path, onlyShowFile) {
+  if (!onlyShowFile) { return true; }
+  const dir = scopeFileDir(onlyShowFile);
+  return !dir || pathUnder(dir, path);   // no folder known: remove nothing
+}
+
 /** Snapshot the structural filters from state-shaped input. `subgraph` is
  *  W4's {include:Set, exclude:Set} (absolute tree paths) or null. */
 function buildScope(st) {
@@ -40,7 +54,8 @@ function scopeActive(sc) {
 
 /** FRAME rule: may folder `path` keep its frame (Shelf) / box (Global)?
  *  Hidden subtrees vanish. With an Only folder, its ANCESTORS stay — they
- *  are the containers the shown subtree lives in. A subgraph keeps a folder
+ *  are the containers the shown subtree lives in. With an Only file, only
+ *  the file's folder and its ancestors stay (U5). A subgraph keeps a folder
  *  that intersects an include (inside it, or an ancestor of it) and is not
  *  carved out by an exclude. */
 function frameFolderVisible(path, sc) {
@@ -50,6 +65,7 @@ function frameFolderVisible(path, sc) {
   if (sc.onlyShowFolder
     && !pathUnder(path, sc.onlyShowFolder)
     && !pathUnder(sc.onlyShowFolder, path)) { return false; }
+  if (!onlyFileKeepsFolder(path, sc.onlyShowFile)) { return false; }
   if (sc.subgraph) {
     let touches = false;
     for (const inc of sc.subgraph.include) {
@@ -79,6 +95,7 @@ function memberInScope(d, sc) {
     if (sc.onlyShowFolder
       && !pathUnder(p, sc.onlyShowFolder)
       && !pathUnder(sc.onlyShowFolder, p)) { return false; }
+    if (!onlyFileKeepsFolder(p, sc.onlyShowFile)) { return false; }
     if (sc.subgraph) {
       let touches = false;
       for (const inc of sc.subgraph.include) {
@@ -178,6 +195,6 @@ function linksInScope(links, byId, sc) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { pathUnder, buildScope, scopeActive, frameFolderVisible, memberInScope,
+  module.exports = { pathUnder, buildScope, scopeActive, frameFolderVisible, memberInScope, onlyFileKeepsFolder,
     mapSubgraphMessage, excludedTopFolders, linksInScope };
 }

@@ -23,3 +23,8 @@ uxtest/.cache/
 uxtest/artifacts/
 uxtest/test-results/
 /test-results/
+
+# c8 coverage output. 20 files under coverage/tmp/ were committed by accident in 7decb35;
+# they are build artefacts with pids and timestamps in their names, and a routine `c8`
+# cleanup deletes them, which shows up as a dirty tree nobody caused.
+coverage/

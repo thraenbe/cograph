@@ -165,15 +165,15 @@ function renderFrameLayout(allLinks, visibleSet) {
   ]);
   const reshelve = __fr.scopeSig !== undefined && __fr.scopeSig !== scopeSig;
   __fr.scopeSig = scopeSig;
-  if (reshelve && !state.userZoomed && !state._frameInteracting
-    && typeof setTimeout === 'function') {
+  if (reshelve && !state._frameInteracting && typeof setTimeout === 'function') {
     // A scope change that SHRINKS the layout leaves the view hanging over
     // empty space (growth is already covered by shouldRefit). Re-fit once
-    // after the re-pack glide — never when the user owns the viewport (F2).
+    // after the re-pack glide. A user-owned viewport (F2) is kept unless the
+    // re-pack moved everything out of it (F26: Only show while zoomed in).
     if (__fr.scopeRefit) { clearTimeout(__fr.scopeRefit); }
     __fr.scopeRefit = setTimeout(() => {
       __fr.scopeRefit = null;
-      if (!state.userZoomed && !state._frameInteracting) { fitToView(); }
+      if (typeof refitAfterScope === 'function') { refitAfterScope(); }
     }, 230);
   }
   const members = collectMembers(state.currentNodes, tree, settings.nodeSize, allow);
@@ -849,7 +849,12 @@ function applyFrameCulling() {
   if (!state.frames || !usesFrames() || !__cull.dom || typeof viewportRect !== 'function') { return; }
   if (typeof svg === 'undefined' || typeof d3 === 'undefined') { return; }   // DOM-less unit tests
   const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
-  if (__cull.frameSelFor !== __fr.frameSel) {       // re-render: fresh, attached, full-detail <g>s
+  // A re-render hands us fresh, attached, FULL-detail <g>s. The zoom LOD may
+  // still want layers parked, and nothing else changed (same zoom, same
+  // visible frames), so the LOD must be re-applied here (F29: it stayed at full
+  // detail until the zoom crossed a threshold the other way).
+  const freshDom = __cull.frameSelFor !== __fr.frameSel;
+  if (freshDom) {
     __cull.frameSelFor = __fr.frameSel;
     __cull.culler.reset();
     __cull.stale.clear();
@@ -878,7 +883,7 @@ function applyFrameCulling() {
     __cull.stale.delete(path);
     tickFrame(path);                                // chrome + positions may both be stale
   }
-  if (wantChanged || hidden.length || shown.length) {
+  if (freshDom || wantChanged || hidden.length || shown.length) {
     for (const path of __cull.dom.paths()) {
       if (__cull.culler.isVisible(path)) { __cull.dom.applyLod(path, __cull.want); }
     }

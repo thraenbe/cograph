@@ -16,7 +16,9 @@ import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type E
 import type { SidebarProvider } from './sidebarProvider';
 import { createProvider, getProviderInfo } from './graphIntelligence/provider';
 import type { GraphIntelligenceProvider, GraphIntelligenceResult } from './graphIntelligence/provider';
-import { buildWorkflowPrompt, normalizeWorkflowModel } from './graphIntelligence/workflowPrompt';
+import {
+  buildWorkflowPrompt, normalizeWorkflowModel, validateWorkflowModel, mergeWorkflowAnnotations,
+} from './graphIntelligence/workflowPrompt';
 import { AnnotationService } from './graphIntelligence/annotationService';
 import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
 import type { RunResult } from './graphIntelligence/annotationRunner';
@@ -1157,7 +1159,18 @@ export class GraphProvider {
       throw new Error('AI features are off — enable them in CoGraph settings to generate the Workflow Graph.');
     }
     const { result, workspaceRoot } = await this.invokeProvider(buildWorkflowPrompt(), providerId, null, onProgress);
-    const normalized = normalizeWorkflowModel(result.graph);
+    const base = this.cachedGraph;
+    if (!base) { throw new Error('the project graph is not loaded yet.'); }
+    // Never let a failed or partial reply replace the user's graph: it only adds annotations.
+    const check = validateWorkflowModel(result.graph);
+    if (!check.ok) {
+      const kb = Math.round(JSON.stringify(base).length / 1024);
+      this.outputChannel.appendLine(`Workflow rejected: ${check.errors.join('; ')}. Request graph ~${kb} KB; `
+        + `the CLI's Read tool refuses files over 256KB, the likely cause. Model said: ${result.text.slice(0, 500)}`);
+      throw new Error('the AI returned no workflow model, most likely because the project is too large for the '
+        + 'AI CLI to read the request. Your graph was not changed; see the CoGraph output for details.');
+    }
+    const normalized = normalizeWorkflowModel(mergeWorkflowAnnotations(base, result.graph));
     this.cachedGraph = normalized;
     this.cachedNodes = normalized.nodes.filter(n => !n.isLibrary);
     if (this.prView) { this.leavePullRequest(this.prView.back.scope, false); } // only now: a failed run leaves the PR view as it was

@@ -1,0 +1,213 @@
+{
+ "seed": 7,
+ "samples": 0,
+ "mode": "lhs",
+ "repos": [
+  "click",
+  "express",
+  "zod"
+ ],
+ "detail": 1,
+ "settleTimeoutMs": 90000,
+ "motionGraceMs": 10000,
+ "engines": {
+  "global": {
+   "params": [
+    "forceCenter",
+    "forceRepel",
+    "forceLink",
+    "forceFileCluster",
+    "forceLinkDistance",
+    "forceVelocityDecay",
+    "forceCollidePad",
+    "forceRepelRange"
+   ],
+   "extra": {
+    "*": [
+     {
+      "label": "A = sweep sample 10",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.08,
+       "forceRepel": 447,
+       "forceLink": 0.3,
+       "forceFileCluster": 0.36,
+       "forceLinkDistance": 100,
+       "forceVelocityDecay": 0.75,
+       "forceCollidePad": 4,
+       "forceRepelRange": 850
+      }
+     },
+     {
+      "label": "A, link 1",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.08,
+       "forceRepel": 447,
+       "forceLink": 1,
+       "forceFileCluster": 0.36,
+       "forceLinkDistance": 100,
+       "forceVelocityDecay": 0.75,
+       "forceCollidePad": 4,
+       "forceRepelRange": 850
+      }
+     },
+     {
+      "label": "A-min: center+repel+fileCluster+range",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.08,
+       "forceRepel": 447,
+       "forceLink": 1,
+       "forceFileCluster": 0.36,
+       "forceLinkDistance": 40,
+       "forceVelocityDecay": 0.3,
+       "forceCollidePad": 1.5,
+       "forceRepelRange": 850
+      }
+     },
+     {
+      "label": "center 0.08 + range 850 only",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.08,
+       "forceRepel": 250,
+       "forceLink": 1,
+       "forceFileCluster": 0.2,
+       "forceLinkDistance": 40,
+       "forceVelocityDecay": 0.3,
+       "forceCollidePad": 1.5,
+       "forceRepelRange": 850
+      }
+     },
+     {
+      "label": "range 850 only",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.025,
+       "forceRepel": 250,
+       "forceLink": 1,
+       "forceFileCluster": 0.2,
+       "forceLinkDistance": 40,
+       "forceVelocityDecay": 0.3,
+       "forceCollidePad": 1.5,
+       "forceRepelRange": 850
+      }
+     },
+     {
+      "label": "center 0.08 only",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.08,
+       "forceRepel": 250,
+       "forceLink": 1,
+       "forceFileCluster": 0.2,
+       "forceLinkDistance": 40,
+       "forceVelocityDecay": 0.3,
+       "forceCollidePad": 1.5,
+       "forceRepelRange": 2000
+      }
+     },
+     {
+      "label": "A, range 500",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.08,
+       "forceRepel": 447,
+       "forceLink": 0.3,
+       "forceFileCluster": 0.36,
+       "forceLinkDistance": 100,
+       "forceVelocityDecay": 0.75,
+       "forceCollidePad": 4,
+       "forceRepelRange": 500
+      }
+     },
+     {
+      "label": "A, range 1200",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.08,
+       "forceRepel": 447,
+       "forceLink": 0.3,
+       "forceFileCluster": 0.36,
+       "forceLinkDistance": 100,
+       "forceVelocityDecay": 0.75,
+       "forceCollidePad": 4,
+       "forceRepelRange": 1200
+      }
+     },
+     {
+      "label": "A, range unlimited",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.08,
+       "forceRepel": 447,
+       "forceLink": 0.3,
+       "forceFileCluster": 0.36,
+       "forceLinkDistance": 100,
+       "forceVelocityDecay": 0.75,
+       "forceCollidePad": 4,
+       "forceRepelRange": 2000
+      }
+     },
+     {
+      "label": "A, center 0.12",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.12,
+       "forceRepel": 447,
+       "forceLink": 0.3,
+       "forceFileCluster": 0.36,
+       "forceLinkDistance": 100,
+       "forceVelocityDecay": 0.75,
+       "forceCollidePad": 4,
+       "forceRepelRange": 850
+      }
+     },
+     {
+      "label": "sample 18",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.055,
+       "forceRepel": 816,
+       "forceLink": 4.8,
+       "forceFileCluster": 0.96,
+       "forceLinkDistance": 39,
+       "forceVelocityDecay": 0.55,
+       "forceCollidePad": 7,
+       "forceRepelRange": 350
+      }
+     },
+     {
+      "label": "sample 19 (top-ranked, merged to the eye)",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.245,
+       "forceRepel": 657,
+       "forceLink": 2.9,
+       "forceFileCluster": 0.18,
+       "forceLinkDistance": 67,
+       "forceVelocityDecay": 0.61,
+       "forceCollidePad": 2,
+       "forceRepelRange": 1200
+      }
+     },
+     {
+      "label": "sample 13 (top-ranked, merged to the eye)",
+      "rank": true,
+      "values": {
+       "forceCenter": 0.145,
+       "forceRepel": 71,
+       "forceLink": 2.7,
+       "forceFileCluster": 0.15,
+       "forceLinkDistance": 117,
+       "forceVelocityDecay": 0.1,
+       "forceCollidePad": 1,
+       "forceRepelRange": 950
+      }
+     }
+    ]
+   }
+  }
+ }
+}

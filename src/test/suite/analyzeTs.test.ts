@@ -361,8 +361,6 @@ suite('collectCalls', () => {
   });
 
   test('direct local call between two functions → edge created', () => {
-    // this.method() calls currently not resolved (this is ThisExpression, not Identifier).
-    // Test a plain local call instead, which is the supported case.
     const file = path.join(tmpDir, 'localCall.ts');
     fs.writeFileSync(file, [
       'function helper() { return 1; }',
@@ -378,5 +376,56 @@ suite('collectCalls', () => {
       edges.some((e: any) => e.source === runId && e.target === helperId),
       'run() → helper() edge should exist'
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// this.method() resolution (TS): `this` is a ThisKeyword token, not an Identifier,
+// so this branch was dead until 2026-10. Receiver-aware like analyze_cpp.js.
+// ---------------------------------------------------------------------------
+
+suite('this.method() calls (TS)', () => {
+  let tmpDir: string;
+  setup(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-this-')); });
+  teardown(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  function graphOf(files: Record<string, string[]>) {
+    const paths = Object.entries(files).map(([name, lines]) => {
+      const p = path.join(tmpDir, name); fs.writeFileSync(p, lines.join('\n')); return p;
+    });
+    const defs = collectDefinitions(paths);
+    const { edges } = collectCalls(paths, defs, tmpDir);
+    const list = Object.values(defs) as any[];
+    const id = (cls: string | undefined, name: string) =>
+      list.find((d: any) => d.name === name && d.className === cls)?.id;
+    const has = (a?: string, b?: string) => !!a && !!b && edges.some((e: any) => e.source === a && e.target === b);
+    return { edges, id, has };
+  }
+
+  test('this.helper() inside a class → edge to the same class\'s method', () => {
+    const g = graphOf({ 'a.ts': ['class Runner {', '  run() { this.helper(); }', '  helper() { return 1; }', '}'] });
+    assert.ok(g.has(g.id('Runner', 'run'), g.id('Runner', 'helper')));
+  });
+
+  test('two classes share a method name → only the caller\'s own class is linked', () => {
+    const g = graphOf({
+      'a.ts': ['class A {', '  run() { this.send(); }', '  send() {}', '}'],
+      'b.ts': ['class B {', '  send() {}', '}'],
+    });
+    assert.ok(g.has(g.id('A', 'run'), g.id('A', 'send')), 'own send linked');
+    assert.ok(!g.has(g.id('A', 'run'), g.id('B', 'send')), 'other class\'s send not linked');
+  });
+
+  test('method inherited from a base class in another file → linked', () => {
+    const g = graphOf({
+      'base.ts': ['class Base {', '  log() {}', '}'],
+      'child.ts': ['class Child extends Base {', '  run() { this.log(); }', '}'],
+    });
+    assert.ok(g.has(g.id('Child', 'run'), g.id('Base', 'log')));
+  });
+
+  test('this.x() where nothing named x exists → no edge', () => {
+    const g = graphOf({ 'a.ts': ['class A {', '  run() { this.missing(); }', '}'] });
+    assert.strictEqual(g.edges.filter((e: any) => e.source === g.id('A', 'run')).length, 0);
   });
 });

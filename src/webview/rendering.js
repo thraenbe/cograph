@@ -262,16 +262,19 @@ function fitToView() {
   const xs = state.currentNodes.map(n => n.x).filter(v => v != null && isFinite(v));
   const ys = state.currentNodes.map(n => n.y).filter(v => v != null && isFinite(v));
   if (!xs.length) return;
-  const svgEl = svg.node();
-  const W = svgEl.clientWidth || window.innerWidth;
-  const H = svgEl.clientHeight || window.innerHeight;
-  const pad = 60;
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
   let maxR = 0;
   for (const n of state.currentNodes) {
     if (n.x != null && isFinite(n.x)) { maxR = Math.max(maxR, nodeRadius(n)); }
   }
+  fitToRect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), maxR);
+}
+
+/** Animate the view onto a graph-space rect (maxR: largest node radius inside it). */
+function fitToRect(minX, minY, maxX, maxY, maxR) {
+  const svgEl = svg.node();
+  const W = svgEl.clientWidth || window.innerWidth;
+  const H = svgEl.clientHeight || window.innerHeight;
+  const pad = 60;
   const scale = (typeof fitScale === 'function')
     ? fitScale(maxX - minX, maxY - minY, W, H, maxR, pad)
     : Math.min((W - pad * 2) / (maxX - minX || 1), (H - pad * 2) / (maxY - minY || 1), 4);
@@ -550,8 +553,12 @@ function renderLinks(allLinks, visibleSet, parent = linkG) {
         t.remove();
       }
     })
-    .style('display', d => (visibleSet.has(d.source) && visibleSet.has(d.target)) ? null : 'none');
+    // F27: Shelf hands links whose ends are already node objects (stampLinkRefs);
+    // testing the object against the id set hid every in-frame line.
+    .style('display', d => (visibleSet.has(linkEndId(d.source)) && visibleSet.has(linkEndId(d.target))) ? null : 'none');
 }
+
+function linkEndId(e) { return (e !== null && typeof e === 'object') ? e.id : e; }
 
 function renderNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
   return parent.selectAll('circle.regular-node')

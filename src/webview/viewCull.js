@@ -93,6 +93,28 @@ function gestureBudget(counts, budget) {
   };
 }
 
+/**
+ * Absolute rects of every file slot in a frame layout. Slots exist only for
+ * in-scope files (Hide / Only show / subgraph drop the rest at build time),
+ * so this is "what there is to see". `originOf(f)` = frames.js innerOrigin.
+ */
+function slotRects(frames, originOf) {
+  const out = [];
+  for (const f of (frames && frames.byPath ? frames.byPath.values() : [])) {
+    if (!f.slots || !f.slots.size || !f.abs || !f.contentPos) { continue; }
+    const io = originOf(f);
+    for (const s of f.slots.values()) {
+      out.push({ x: io.x + f.contentPos.x + s.x, y: io.y + f.contentPos.y + s.y, w: s.w, h: s.h });
+    }
+  }
+  return out;
+}
+
+/** True when there IS content and none of it touches the view (F26: blank canvas). */
+function viewMissesAll(rects, view) {
+  return rects.length > 0 && !rects.some(r => rectsTouch(r, view));
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { viewportRect, rectsTouch, createFrameCuller, createLod, gestureBudget };
+  module.exports = { viewportRect, rectsTouch, createFrameCuller, createLod, gestureBudget, slotRects, viewMissesAll };
 }

@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { isAnalyzablePath } from '../../structureScanner';
 import type { Exec, ExecResult } from '../ghCliSource';
 
 /**
@@ -83,39 +84,17 @@ export interface MaterializedTree {
   reused: boolean;
 }
 
-// What each analyzer's own walk parses (scripts/analyze*.{js,py}). The structure
-// scanner is stricter (it also skips build/, target/ for every language), so a
-// copy made by ITS rule would miss functions the workspace graph has — and a
-// diff would report them as removed. The regression test in vcsHeadTree.test.ts
-// compares a copy with a full checkout and fails if this table drifts.
-const ANALYZER_SKIP: Record<string, Set<string>> = {
-  typescript: new Set(['node_modules', 'out', 'dist']),
-  javascript: new Set(['node_modules', 'out', 'dist']),
-  python: new Set(['node_modules', 'out', 'dist', '__pycache__']),
-  java: new Set(['node_modules', 'out', 'dist', 'target', 'build']),
-  cpp: new Set(['node_modules', 'out', 'dist', 'target', 'build', 'CMakeFiles']),
-};
-const EXT_LANGUAGE: Record<string, string> = {
-  '.py': 'python',
-  '.ts': 'typescript', '.tsx': 'typescript',
-  '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
-  '.java': 'java',
-  '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp', '.c++': 'cpp',
-  '.hpp': 'cpp', '.hh': 'cpp', '.hxx': 'cpp', '.h++': 'cpp', '.h': 'cpp',
-};
+/**
+ * Which files of a commit to copy: the project's own rule (projectScope / F30, through
+ * `isAnalyzablePath`). Every file in a commit is tracked by git by definition, so a
+ * build-output directory counts here exactly as it does in a checkout where git tracks
+ * it. The regression test in vcsHeadTree.test.ts compares a copy with a full checkout
+ * of the same commit — structure scan and analyzers — and fails if the two ever differ.
+ */
+export const analyzerKeepsPath = isAnalyzablePath;
 
-/** Would one of the analyzers parse this repository-relative POSIX path? The copy rule. */
-export function analyzerKeepsPath(relPath: string): boolean {
-  const segs = relPath.split('/').filter(Boolean);
-  if (segs.length === 0) { return false; }
-  const name = segs[segs.length - 1];
-  if (name.endsWith('.d.ts')) { return false; }
-  const dot = name.lastIndexOf('.');
-  const language = dot < 0 ? null : EXT_LANGUAGE[name.slice(dot)];
-  if (!language) { return false; }
-  const skip = ANALYZER_SKIP[language];
-  return !segs.slice(0, -1).some(d => d.startsWith('.') || skip.has(d) || (language === 'cpp' && d.startsWith('cmake-build-')));
-}
+/** Declared tracked files of a copy (no `.git` there): what projectScope reads instead of `git ls-files`. */
+export const TRACKED_LIST = '.cograph-tracked';
 
 /** Stable, path-safe key for a repository, so two checkouts of one repo share nothing by accident. */
 export function repoKey(repoRoot: string): string {
@@ -228,8 +207,8 @@ function mergeRefs(have: TreeRef[] | undefined, add: TreeRef[]): TreeRef[] {
 }
 
 const LOCK = '.cograph-tree.lock';
-/** The analysis cache a provider writes under the copy, and the lock, are not part of the copy. */
-const NOT_CONTENT = new Set([MARKER, LOCK, '.cograph']);
+/** The marker, the lock, the tracked list and the analysis cache are not part of the copy. */
+const NOT_CONTENT = new Set([MARKER, LOCK, TRACKED_LIST, '.cograph']);
 
 /**
  * A panel showing a tree holds a lock on it: the pid of its VS Code window.
@@ -357,6 +336,9 @@ export async function materializeCommit(deps: HeadTreeDeps, sha: string, refs: T
       if (out.code !== 0) { throwFor(out, `Commit ${sha.slice(0, 7)}`); }
     }
     if (deps.signal?.aborted) { throw new HeadTreeError('cancelled', 'Cancelled.'); }
+    // The copy has no .git: it declares what the commit tracks, so the scanner's git-aware rule
+    // (build output only where tracked) sees the commit exactly as a checkout of it would.
+    fs.writeFileSync(path.join(dir, TRACKED_LIST), files.join('\0'), 'utf8');
   } catch (err) {
     fs.rmSync(dir, { recursive: true, force: true });
     throw err;

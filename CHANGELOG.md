@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CoGraph as an MCP server for your AI agent.** Claude Code, Cursor, Claude Desktop and VS Code
+  agent mode can now ask CoGraph's call graph directly, through six read-only tools:
+  `find_symbol`, `get_symbol`, `callers`, `callees`, `impact` ("what breaks if I change this",
+  with the tests and entry points it reaches) and `overview` (folder tree with AI summaries,
+  entry points, hot spots). Results are compact text, capped in size, and say how fresh the
+  analysis is. The server is local: it reads `.cograph/` and your source files, opens no
+  network connection and needs no API key. Set it up with **CoGraph: Connect an AI Agent
+  (MCP)…** (also the plug icon in the CoGraph sidebar); on VS Code 1.101+ agent mode finds it
+  with no setup. It answers from the last analysis, so open the project in CoGraph once.
+
 ### Removed
 - **Chat.** The sidebar Chat is gone. It handed the whole graph to the Claude Code / Codex
   CLI as one file, and above roughly 300 functions the CLI refused to read that file, so on

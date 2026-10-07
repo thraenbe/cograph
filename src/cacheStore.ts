@@ -14,9 +14,9 @@ const SCHEMA_VERSION = 1;
 const CACHE_DIR = '.cograph';
 const CACHE_FILE = 'graph-cache.json';
 
-type Manifest = Record<string, number>; // absPath → mtimeMs
+export type Manifest = Record<string, number>; // absPath → mtimeMs
 
-interface CacheFile {
+export interface CacheFile {
   schemaVersion: number;
   savedAt: string;
   manifest: Manifest;
@@ -33,7 +33,7 @@ export interface CacheLoadResult {
   removed: string[];
 }
 
-function cachePath(root: string): string {
+export function cachePath(root: string): string {
   return path.join(root, CACHE_DIR, CACHE_FILE);
 }
 
@@ -45,13 +45,8 @@ function buildManifest(structure: StructureTree): Manifest {
   return manifest;
 }
 
-/**
- * Load the cache and diff it against the current on-disk structure. Returns null
- * on miss / corruption / schema mismatch. When `valid` is false, the cached
- * graph is still returned (for an instant paint) alongside the changed/removed
- * file lists so the caller can reconcile incrementally.
- */
-export function loadCache(root: string, structure: StructureTree): CacheLoadResult | null {
+/** Parse the cache file; null on miss / corruption / schema mismatch. Never throws. */
+export function readCacheFile(root: string): CacheFile | null {
   let parsed: CacheFile;
   try {
     parsed = JSON.parse(fs.readFileSync(cachePath(root), 'utf8'));
@@ -61,10 +56,12 @@ export function loadCache(root: string, structure: StructureTree): CacheLoadResu
   if (!parsed || parsed.schemaVersion !== SCHEMA_VERSION || !parsed.graph || !parsed.manifest) {
     return null;
   }
+  return parsed;
+}
 
+/** Files that are new/changed or gone, comparing a cached manifest with the disk now. */
+export function diffManifest(old: Manifest, structure: StructureTree): { changed: string[]; removed: string[] } {
   const current = buildManifest(structure);
-  const old = parsed.manifest;
-
   const changed: string[] = [];
   for (const p of Object.keys(current)) {
     if (old[p] === undefined || old[p] !== current[p]) { changed.push(p); }
@@ -73,7 +70,19 @@ export function loadCache(root: string, structure: StructureTree): CacheLoadResu
   for (const p of Object.keys(old)) {
     if (current[p] === undefined) { removed.push(p); }
   }
+  return { changed, removed };
+}
 
+/**
+ * Load the cache and diff it against the current on-disk structure. Returns null
+ * on miss / corruption / schema mismatch. When `valid` is false, the cached
+ * graph is still returned (for an instant paint) alongside the changed/removed
+ * file lists so the caller can reconcile incrementally.
+ */
+export function loadCache(root: string, structure: StructureTree): CacheLoadResult | null {
+  const parsed = readCacheFile(root);
+  if (!parsed) { return null; }
+  const { changed, removed } = diffManifest(parsed.manifest, structure);
   return { graph: parsed.graph, valid: changed.length === 0 && removed.length === 0, changed, removed };
 }
 

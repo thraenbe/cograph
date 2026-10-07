@@ -110,12 +110,12 @@ test('demo', async () => {
     /** Page point at the centre of the frame with the most functions (state geometry, not DOM titles). */
     const busiest = async (): Promise<{ x: number; y: number }> => {
       const p = await g.evaluate(`(() => {
+        const want = ${JSON.stringify(process.env.UXTEST_DEMO_FRAME ?? '')};
         let best = null, bestN = -1;
-        for (const f of state.frames.byPath.values()) {
-          if (f.kind === 'root' || !f.abs || f.path.split('/').some(seg => ['test', 'tests', 'docs', 'examples'].includes(seg))) { continue; }
+        if (want) { for (const f of state.frames.byPath.values()) { if (f.abs && f.path.endsWith(want)) { best = f; bestN = 1; break; } } }
+        if (!best) for (const f of state.frames.byPath.values()) { if (f.kind === 'root' || !f.abs || f.path.split('/').some(seg => ['test', 'tests', 'docs', 'examples'].includes(seg))) { continue; }
           const n = (state.currentNodes || []).filter(x => x._frame === f.path).length;
-          if (n > bestN) { bestN = n; best = f; }
-        }
+          if (n > bestN) { bestN = n; best = f; } }
         const t = d3.zoomTransform(svg.node()), r = svg.node().getBoundingClientRect();
         return best ? { x: r.left + t.x + (best.abs.x + best.abs.w / 2) * t.k, y: r.top + t.y + (best.abs.y + best.abs.h / 2) * t.k } : null;
       })()`) as { x: number; y: number } | null;
@@ -123,17 +123,61 @@ test('demo', async () => {
       return { x: off.x + p.x, y: off.y + p.y };
     };
     await page.waitForTimeout(400);
+    // Repos over 200 files open as one collapsed root: the Detail slider, dragged on camera, opens the folders.
+    const visible = await g.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as number;
+    if (visible < 5) {
+      mark('detail');
+      const sl = await g.locator(SEL.detailSlider.css).boundingBox(); if (!sl) { throw new Error('no detail slider'); }
+      const y = sl.y + sl.height / 2;   // boundingBox() of a frame locator is already in page coordinates
+      await glide(sl.x + 3, y, 700); down = true; await page.mouse.down(); log();
+      await glide(sl.x + sl.width - 2, y, 900); down = false; await page.mouse.up(); log();
+      await hold(900);
+    }
     await fit();
     await hold(1300);
 
     // 2. Shelf + Static: from the overview into the busiest folder's call structure.
     mark('shelf static');
-    for (let i = 0; i < 8; i++) {
+    const fill = (): Promise<number> => g.evaluate(`(() => {
+      const want = ${JSON.stringify(process.env.UXTEST_DEMO_FRAME ?? '')};
+      const f = want ? [...state.frames.byPath.values()].find(x => x.abs && x.path.endsWith(want)) : null;
+      if (!f) { return 1; }
+      const k = d3.zoomTransform(svg.node()).k, r = svg.node().getBoundingClientRect();
+      return Math.max(f.abs.w * k / r.width, f.abs.h * k / r.height);
+    })()`) as Promise<number>;
+    if (process.env.UXTEST_DEMO_FRAME) {
+      const present = await g.evaluate(`[...state.frames.byPath.values()].some(x => x.abs && x.path.endsWith(${JSON.stringify(process.env.UXTEST_DEMO_FRAME)}))`);
+      if (!present) { throw new Error(`UXTEST_DEMO_FRAME ${process.env.UXTEST_DEMO_FRAME} is not a frame on screen`); }   // never zoom at nothing
+    }
+    for (let i = 0; i < 16; i++) {
+      if (process.env.UXTEST_DEMO_FRAME ? await fill() >= 0.85 : i >= 8) { break; }
       const p = await busiest();
-      await glide(p.x, p.y, i === 0 ? 700 : 120);
+      await glide(p.x, p.y, i === 0 ? 600 : 70);
       await page.mouse.wheel(0, -120); log(); await page.waitForTimeout(100);
     }
-    await hold(2000);
+    await hold(1200);
+    // The hover beat (F28: names only on hover; 216's card adds signature + code): rest on the folder's
+    // best-connected visible function long enough to read, then leave it so the card closes before Dynamic.
+    const hub = await g.evaluate(`(() => {
+      const want = ${JSON.stringify(process.env.UXTEST_DEMO_FRAME ?? '')};
+      const deg = new Map();
+      // Shelf keeps no global link list in currentLinks: count from the graph data itself.
+      for (const l of ((state.graphData && state.graphData.edges) || state.currentLinks || [])) { for (const e of [l.source, l.target]) { const id = e && e.id !== undefined ? e.id : e; deg.set(id, (deg.get(id) || 0) + 1); } }
+      let best = null, bd = -1;
+      for (const el of document.querySelectorAll('#graph circle.regular-node')) {
+        const d = el.__data__; if (!d || (want && !String(d._frame || '').endsWith(want))) { continue; }
+        const r = el.getBoundingClientRect(); if (r.width < 2 || r.left < 330 || r.right > innerWidth - 20 || r.top < 60 || r.bottom > innerHeight - 40) { continue; }
+        const n = deg.get(d.id) || 0; if (n > bd) { bd = n; best = { x: r.left + r.width / 2, y: r.top + r.height / 2, name: d.label || d.name || String(d.id).split('::')[1] || d.id, degree: n }; }
+      }
+      return best;
+    })()`) as { x: number; y: number; name: string; degree: number } | null;
+    if (hub) {
+      mark(`hover ${hub.name} (${hub.degree} calls)`);
+      await glide(off.x + hub.x, off.y + hub.y, 800);
+      await hold(3200);
+      await glide(off.x + hub.x + 40, Math.max(off.y + 70, off.y + hub.y - 160), 500);   // off the node: the card closes
+      await hold(500);
+    } else { await hold(800); }
 
     // 3. Shelf + Dynamic, still zoomed in: the slots reflow, a node dragged out snaps back.
     mark('shelf dynamic');

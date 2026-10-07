@@ -18,7 +18,7 @@ const fs   = require('fs');
 // resolve it from the repo's node_modules via normal module resolution).
 const ts   = require('typescript');
 
-const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist']);
+const { isSkippedDirName } = require('./skipDirs.js');
 
 function collectTsFiles(root) {
   const results = [];
@@ -28,7 +28,7 @@ function collectTsFiles(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIP_DIR_NAMES.has(entry.name) && !entry.name.startsWith('.')) walk(full);
+        if (!isSkippedDirName(entry.name)) walk(full);
       } else if (entry.isFile() && !entry.name.endsWith('.d.ts') &&
                  (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
         results.push(full);

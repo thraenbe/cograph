@@ -69,6 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - TypeScript/JavaScript: calls through `this` (`this.helper()`) now appear as edges. They were never detected before, so class-heavy code showed far fewer connections than it has (up to +42% internal edges on the test corpus). A `this` call links to the caller's own class or its base classes, never to an unrelated class that happens to share the method name.
+
+### Fixed
+- The graph and the Folder panel now always cover the same files. Build output (`build/`, `target/`, `CMakeFiles/`, `cmake-build-*/`, `__pycache__/`) is left out of both unless git tracks files there, so hand-written build scripts stay and generated copies go. Before, a Python package built in place (`pip wheel .`) showed every function twice, with calls linked into the copy, and the copies could not be hidden or scoped from the Folder panel. Folders that are not git repositories skip build output entirely.
 ## [1.3.0] - 2026-09-24
 
 The Shelf engine release: nested, non-overlapping folder frames with per-file slots,

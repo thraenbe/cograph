@@ -86,7 +86,7 @@ function clearTreeCache() {
   treeCache.clear();
 }
 
-const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build', 'CMakeFiles']);
+const { isSkippedDirName } = require('./skipDirs.js');
 const CPP_EXTS = new Set(['.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hh', '.hxx', '.h++', '.h']);
 
 function collectCppFiles(root) {
@@ -97,9 +97,7 @@ function collectCppFiles(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name.startsWith('.')) continue;
-        if (SKIP_DIR_NAMES.has(entry.name)) continue;
-        if (entry.name.startsWith('cmake-build-')) continue;
+        if (isSkippedDirName(entry.name)) continue;
         walk(full);
       } else if (entry.isFile()) {
         const ext = path.extname(entry.name).toLowerCase();
@@ -585,7 +583,7 @@ function explicitFileList() {
   let raw;
   try { raw = fs.readFileSync(process.argv[i + 1], 'utf8'); } catch { return []; }
   return raw.split('\n').map(s => s.trim()).filter(Boolean)
-    .filter(f => CPP_EXTS.has(path.extname(f)));
+    .filter(f => CPP_EXTS.has(path.extname(f).toLowerCase()));
 }
 
 async function main() {

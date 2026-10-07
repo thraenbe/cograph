@@ -1,0 +1,6 @@
+{
+  "_comment": "One source of truth for what is NOT part of a project (F30). Read by src/projectScope.ts and every scripts/analyze_* walk. alwaysSkip: never analyzed (vendored deps, compiled output, committed bundles). artefact: build output; the extension keeps git-tracked files inside them (hand-written build scripts), a standalone analyzer walk skips them entirely. Directories starting with '.' are always skipped.",
+  "alwaysSkip": ["node_modules", "out", "dist"],
+  "artefact": ["build", "target", "CMakeFiles", "__pycache__"],
+  "artefactPrefixes": ["cmake-build-"]
+}

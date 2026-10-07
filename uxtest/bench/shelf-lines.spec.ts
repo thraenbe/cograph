@@ -13,7 +13,7 @@ import * as path from 'path';
 import type { CDPSession, Page } from '@playwright/test';
 import { scenario } from '../lib/scenario';
 import { drainFps, type FpsWindow } from '../lib/fps';
-import { fitToView, locateFrame, setSlider } from '../lib/actions';
+import { fitToView, setSlider } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 
 interface Lines { inFrameDom: number; inFramePainted: number; layersAttached: number; bundlesPainted: number; k: number }
@@ -124,11 +124,30 @@ scenario('shelf-lines', { only: { engine: 'shelf' }, largeOk: true, expandFirst:
   // UXTEST_BENCH_FRAME=<path suffix>: aim the working view at that folder (e.g. the one with the most in-frame
   // calls) instead of the largest frame. Re-aims while zooming: a deep zoom from a tiny fit k drifts off target.
   const target = process.env.UXTEST_BENCH_FRAME;
+  // Aim from STATE geometry (f.abs, graph space), not the DOM: culled or LOD-detached frames have no grabbable
+  // <g> (django once had 0 frame groups attached at fit), and a nested target folder may not be drawn as a title.
+  const aim = (): Promise<{ x: number; y: number; path: string } | null> => page.evaluate(`(() => {
+    const suffix = ${JSON.stringify(target ?? null)};
+    const fr = typeof state !== 'undefined' && state.frames ? state.frames.byPath : null;   // top-level let: not on globalThis
+    const svgEl = document.querySelector('#graph svg');
+    if (!fr || !svgEl) { return null; }
+    let best = null;
+    for (const f of fr.values()) {
+      if (f.kind === 'root' || !f.abs) { continue; }
+      if (suffix) { if (f.path.replace(/\\\\/g, '/').endsWith(suffix)) { best = f; break; } }
+      else if (!best || f.abs.w * f.abs.h > best.abs.w * best.abs.h) { best = f; }
+    }
+    if (!best) { return null; }
+    const t = d3.zoomTransform(svgEl), r = svgEl.getBoundingClientRect();
+    return { x: r.left + t.x + (best.abs.x + best.abs.w / 2) * t.k, y: r.top + t.y + (best.abs.y + best.abs.h / 2) * t.k, path: best.path };
+  })()`) as Promise<{ x: number; y: number; path: string } | null>;
   const zoomTo = async (want: number): Promise<void> => {
     for (let i = 0; i < 200 && await k() < want; i++) {
       if (i % 10 === 0) {
-        const f = await locateFrame(page, 'largest', target);
-        await page.mouse.move(f.rect.x + f.rect.w / 2, f.rect.y + f.rect.h / 2);
+        const p = await aim();
+        if (!p) { throw new Error(`no frame to aim at${target ? ` (suffix ${target})` : ''}`); }
+        out.aimedAt = p.path;
+        await page.mouse.move(Math.max(5, Math.min(1275, p.x)), Math.max(5, Math.min(795, p.y)));
       }
       await page.mouse.wheel(0, -60); await page.waitForTimeout(40);
     }
@@ -146,7 +165,9 @@ scenario('shelf-lines', { only: { engine: 'shelf' }, largeOk: true, expandFirst:
   ];
   for (const [view, enter] of views) {
     const res: Record<string, unknown> = {};
-    await ux.step(`${view}: enter view`, enter, { metrics: false });
+    const entered = await ux.step(`${view}: enter view`, enter, { metrics: false });
+    // A view that was not entered must not be measured as if it had been (it would be the previous view, mislabelled).
+    if (entered.status !== 'ok') { throw new Error(`${view}: view not entered (${entered.status}): ${entered.note ?? ''}`); }
     res.lines = await page.evaluate(linesInPage);
     res.wantAtRest = await page.evaluate('typeof __cull !== "undefined" ? { ...__cull.want } : null');
     const p = await ux.step(`${view}: pan (mouse drag)`, async () => { res.pan = await pan(page, cdp); }, { metrics: false, settle: false });

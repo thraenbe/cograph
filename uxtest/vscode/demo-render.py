@@ -19,6 +19,10 @@ ap.add_argument('--width', type=int, default=1440, help='mp4 width')
 ap.add_argument('--trim-start', type=float, default=0.0)
 ap.add_argument('--trim-end', type=float, default=0.0)
 ap.add_argument('--out', default=None)
+ap.add_argument('--crop169', action='store_true', help='centre-crop the frame to 16:9 (the window manager may clamp the window to 16:10)')
+ap.add_argument('--gif-cut', nargs=2, type=float, metavar=('START', 'DUR'), default=None, help='GIF only: the highlight cut, seconds into the take')
+ap.add_argument('--pin-colors', default='255,150,0;79,167,78;229,83,75',
+                help='colours that must survive the GIF palette (legend: modified orange, new green, deleted red); "" for none')
 a = ap.parse_args()
 
 take = json.load(open(os.path.join(a.take, 'take.json')))
@@ -66,12 +70,22 @@ for i in range(n):
 out = a.out or a.take
 mp4 = os.path.join(out, 'demo.mp4'); gif = os.path.join(out, 'demo.gif'); pal = os.path.join(tmp, 'pal.png')
 run = lambda *c: subprocess.run(c, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+crop = 'crop=iw:trunc(iw*9/16/2)*2:0:(ih-iw*9/16)/2,' if a.crop169 else ''
 run('ffmpeg', '-y', '-framerate', str(FPS), '-i', os.path.join(tmp, '%05d.png'),
-    '-vf', f'scale={a.width}:-2:flags=lanczos', '-c:v', 'libx264', '-preset', 'slow', '-crf', str(a.crf),
+    '-vf', f'{crop}scale={a.width}:-2:flags=lanczos', '-c:v', 'libx264', '-preset', 'slow', '-crf', str(a.crf),
     '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', mp4)
 vf = f'fps={a.gif_fps},scale={a.gif_width}:-1:flags=lanczos'
-run('ffmpeg', '-y', '-i', mp4, '-vf', f'{vf},palettegen=max_colors={a.gif_colors}:stats_mode=diff', pal)
-run('ffmpeg', '-y', '-i', mp4, '-i', pal, '-lavfi', f'{vf}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle', gif)
+cut = ['-ss', str(a.gif_cut[0]), '-t', str(a.gif_cut[1])] if a.gif_cut else []
+# Small, rare colours (the legend dots) lose the vote in palettegen and come out grey: build the palette with room
+# to spare, then write those colours into the last entries so they are always available to paletteuse.
+pins = [tuple(int(v) for v in c.split(',')) for c in a.pin_colors.split(';') if c.strip()]
+run('ffmpeg', '-y', *cut, '-i', mp4, '-vf', f'{vf},palettegen=max_colors={a.gif_colors - len(pins)}:stats_mode=diff', pal)
+if pins:
+    pim = Image.open(pal).convert('RGB'); px = pim.load(); W = pim.width
+    for k, c in enumerate(pins):
+        i = a.gif_colors - len(pins) + k; px[i % W, i // W] = c
+    pim.save(pal)
+run('ffmpeg', '-y', *cut, '-i', mp4, '-i', pal, '-lavfi', f'{vf}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle', gif)
 shutil.rmtree(tmp)
 mb = lambda p: os.path.getsize(p) / 1048576
 print(json.dumps({'duration_s': round(n / FPS, 1), 'source_frames': len(frames), 'mp4': mp4, 'mp4_MiB': round(mb(mp4), 2),

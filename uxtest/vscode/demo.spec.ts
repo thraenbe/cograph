@@ -147,11 +147,11 @@ test('demo', async () => {
     // 4. Global: the classic force layout, settled and fitted.
     mark('global');
     await click(...Object.values(await center(g, SEL.engineGlobal.css)) as [number, number], 800);
-    await hold(2300);
+    await hold(1500);
     await fit();
     // Rest the pointer on the controls panel (never on a node: no hover card in the last frames).
     await glide(...Object.values(await center(g, SEL.engineGlobal.css)) as [number, number], 500);
-    await hold(1600);
+    await hold(1300);
     mark('end');
     await cdp.send('Page.stopScreencast');
     await page.waitForTimeout(400);

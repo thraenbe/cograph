@@ -207,6 +207,46 @@ base cannot be fetched, with the banner saying so, not as the design.
    `PR #69 · in your checkout (branch …)` so a graph is never of uncertain origin. No setting, no
    choice up front.
 
+## Step 1 outcome (2026-10-07) — why the source-only copy generalises
+
+**The analyzers never resolve modules.** `analyze_ts.js` / `analyze_js.js` call `createSourceFile`
+per file and never `createProgram`; calls are linked by name against the definitions collected from
+the walked files (`collectCalls(files, definitions)`). So `tsconfig.json` (`paths`, project
+references), `package.json` workspaces and `node_modules` cannot change the graph: there is no
+resolution step for them to feed. Python parses each file's AST with no `sys.path`; Java and C++
+read each file with no classpath or `#include` following. A copy that holds every file an analyzer
+would walk therefore analyses identically to the full checkout — the only way to get a different
+graph is to copy a different set of files, which is what the regression test guards.
+
+Measured, copy vs full checkout at HEAD, nodes and edges, zero differences either way: this
+repository (1 639 / 2 500); excalidraw, `tsconfig` `paths` + `package.json` workspaces (3 091 /
+6 597, 652 files, 7.3 MB, 70 ms to copy); nest, monorepo (4 347 / 4 049); flask (1 623 / 1 184);
+gson (3 601 / 3 926); fmt (5 171 / 11 555).
+
+## Finding for session-110 (not mine to fix): the structure scanner and the analyzers disagree about what is in the project
+
+Found by step 1's regression test on its first run: a copy made by the structure scanner's rule
+(`isAnalyzablePath`) lacked `build/gen.ts`, which the full checkout's analysis contained. The
+scanner (`structureScanner.ts`) skips `node_modules`, `out`, `dist`, `target`, `build`,
+`CMakeFiles`, `cmake-build-*` and dot-directories for **every** language. Each analyzer has its own,
+smaller skip list:
+
+| Language | Analyzer walks but the scanner does not | Scanner shows but the analyzer does not |
+|---|---|---|
+| TypeScript, JavaScript | `build/`, `target/`, `CMakeFiles/`, `cmake-build-*/` | — |
+| Python | `build/`, `target/`, `CMakeFiles/`, `cmake-build-*/` | `__pycache__/` (scanner shows `.py` there; analyzer skips it) |
+| Java | `CMakeFiles/`, `cmake-build-*/` | — |
+| C++ | `cmake-build-*/` | — |
+
+Consequence in the shipped product: a `.ts` file under `build/` has functions in the graph but no
+place in the Folder panel's tree, so it is not drawn in the drill-down, cannot be hidden, scoped or
+included in a subgraph (all expressed in scanner terms), and its nodes only appear in the flat
+Global graph. The reverse case (`__pycache__`) shows a file in the tree with no functions ever
+arriving. One rule, in one place, used by both, would end it. Example to reproduce: `build/gen.ts`
+with one function; `analyze_ts.js <root>` lists it, `scanStructure(root)` does not.
+
+The PR head copy is unaffected (it copies by the analyzers' rule, `analyzerKeepsPath`).
+
 ## Not in this plan
 
 Ghost nodes for removed functions, workspace annotations mapped onto the head, a vscode-free

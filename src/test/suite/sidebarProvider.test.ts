@@ -115,7 +115,9 @@ suite('SidebarProvider', () => {
       assert.strictEqual((webview.options as any).enableScripts, true, 'scripts must be enabled');
       assert.ok(webview.html.length > 0, 'html should be set');
       assert.ok(webview.html.includes('Saved Graphs'), 'html should include Saved Graphs section header');
-      assert.ok(webview.html.includes('Chat'), 'html should include Chat section header');
+      assert.ok(webview.html.includes('id="pane-primary" hidden'), 'empty primary slot present and hidden');
+      assert.ok(!webview.html.includes('sidebar-chat.js'), 'chat script no longer loaded');
+      assert.ok(!webview.html.includes('id="chat-'), 'no chat markup left');
       assert.ok(webview.html.includes('id="btn-new-graph"'), 'html should include new-graph button');
       assert.ok(webview.html.includes('id="search"'), 'html should include search input');
       assert.ok(webview.html.includes('id="graph-list"'), 'html should include graph-list container');
@@ -724,12 +726,10 @@ suite('SidebarProvider', () => {
       assert.ok(webview.html.includes('.card-glyph {'), 'glyph style present');
     });
 
-    test('HTML contains the consent overlay and Enable button (gated by default)', () => {
+    test('HTML starts gated and locks the workflow card (the chat overlay is gone)', () => {
       const { webview } = setup2();
       assert.ok(webview.html.includes('<body class="ai-disabled">'), 'body starts gated');
-      assert.ok(webview.html.includes('id="chat-gate"'), 'chat gate overlay present');
-      assert.ok(webview.html.includes('id="btn-enable-ai"'), 'enable button present');
-      assert.ok(webview.html.includes('Enable AI Features'), 'enable button label present');
+      assert.ok(!webview.html.includes('id="chat-gate"'), 'chat gate overlay removed with Chat');
       assert.ok(webview.html.includes('workflow-card locked'), 'locked workflow card markup present');
       assert.ok(webview.html.includes("type: 'open-ai-settings'"), 'open-ai-settings action wired');
     });
@@ -748,35 +748,18 @@ suite('SidebarProvider', () => {
       assert.strictEqual(msg.enabled, false);
     });
 
-    test('chat-send while disabled → does not run intelligence and opens settings', async () => {
-      stubAiEnabled(sandbox, false);
+    test('chat-* messages from a stale webview are ignored (Chat was removed)', async () => {
       const execStub = sandbox.stub(vscode.commands, 'executeCommand').resolves();
-      const runGraphIntelligence = sinon.stub().resolves({ text: 'x' });
-      // A chat store makes appendSystem observable (it early-returns without one).
-      const chatStore = { append: sinon.stub(), getActiveKey: () => 'k', load: () => [] };
-      const provider = new SidebarProvider(
-        vscode.Uri.file('/fake/ext'),
-        makeFakeController({ runGraphIntelligence }),
-        chatStore as any,
-      );
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
       const fake = makeFakeWebviewView();
       provider.resolveWebviewView(fake.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
 
-      await fake.received[0]({ type: 'chat-send', prompt: 'hi' });
+      for (const type of ['chat-send', 'chat-new-session', 'chat-pick-graph', 'chat-model-change', 'chat-open-settings']) {
+        await fake.received[0]({ type, prompt: 'hi' });
+      }
 
-      assert.ok(runGraphIntelligence.notCalled, 'AI must not run while disabled');
-      assert.ok(
-        execStub.calledWith('workbench.action.openSettings', 'cograph.graphIntelligence'),
-        'should open AI settings',
-      );
-      const posted = fake.webview.postMessage.getCalls().map((c: sinon.SinonSpyCall) => c.args[0]);
-      const status = posted.find((m: any) => m.type === 'chat-status');
-      assert.ok(status && status.stage === 'idle', 'chat spinner reset to idle');
-      const restore = posted.find((m: any) => m.type === 'chat-input-restore');
-      assert.ok(restore && restore.text === 'hi', 'typed prompt restored to the input');
-      const sys = posted.find((m: any) =>
-        m.type === 'chat-append' && m.message?.role === 'system' && /AI features are off/.test(m.message.text));
-      assert.ok(sys, 'system explainer appended to the chat');
+      assert.ok(fake.webview.postMessage.notCalled, 'nothing is posted back');
+      assert.ok(execStub.notCalled, 'no command (settings, picker) is run');
     });
 
     test('workflow-generate while disabled → does not call controller and opens settings', async () => {

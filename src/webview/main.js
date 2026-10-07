@@ -286,6 +286,7 @@ function applyFiltersNow() {
   if (!state.svgNodes || !state.svgLinks || !state.svgLabels) return;
   const __t0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
   const visibleSet = getVisibleNodeIds();
+  if (typeof applyFnNames === 'function') { applyFnNames(); }   // F28: a filter shows every match's name
   if (__filterApplier) {
     __filterApplier.apply({
       nodes: [state.svgNodes, state.svgCloudNodes, state.svgLabels, state.svgLibNodes, state.svgLibLabels],

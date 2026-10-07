@@ -78,6 +78,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   function to see its own hidden calls. The layout is identical with the setting on or off:
   hidden calls still pull nodes together and still count for Show Orphans. Turn it off to
   draw every call as before. The choice is saved with Save Layout.
+- **Only the function you point at shows its name.** Function names are no longer drawn at
+  rest; resting the pointer on a function shows its name at once (its hover card follows after
+  about half a second). A dragged function and a function whose source popup is open keep their
+  names, and while the filter box has text every function still shown keeps its name, so
+  search results stay readable. Folder titles, file names, collapsed folder and file names,
+  Class overlay names and library groupings are unchanged. Before, function names overlapped
+  into unreadable text at every zoom (F28).
 
 ### Removed
 - **Chat.** The sidebar Chat is gone. It handed the whole graph to the Claude Code / Codex

@@ -270,7 +270,8 @@ export class GhCliSource implements PullRequestSource {
     const bad: PrProblem = { kind: 'error', message: 'That is not a file of this pull request.' };
     if (!/^[0-9a-f]{7,40}$/.test(ref)) { return { ok: false, problem: bad }; }
     const segs = relPath.split('/');
-    if (!relPath || relPath.length > 1024 || segs.some(s => !s || s === '.' || s === '..' || /[\\?#&\x00-\x1f]/.test(s))) { return { ok: false, problem: bad }; }
+    const unsafe = (s: string) => !s || s === '.' || s === '..' || /[\\?#&]/.test(s) || [...s].some(c => c.charCodeAt(0) < 0x20);
+    if (!relPath || relPath.length > 1024 || segs.some(unsafe)) { return { ok: false, problem: bad }; }
     const encoded = segs.map(encodeURIComponent).join('/');
     const res = await this.exec('gh', ['api', `repos/{owner}/{repo}/contents/${encoded}?ref=${ref}`], root);
     if (res.code !== 0) { return { ok: false, problem: classifyGhFailure(res, null) }; }

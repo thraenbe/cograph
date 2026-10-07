@@ -154,9 +154,12 @@ function throwFor(res: ExecResult, what: string): never {
   throw new HeadTreeError('fetch-failed', `${what} could not be fetched.`, detail || `git exited with ${res.code}`);
 }
 
+/** Run git under the cancellation signal: never starts after a cancel, the child is killed on one, and a cancel is never mistaken for a git failure. */
 async function git(deps: HeadTreeDeps, args: string[], opts?: { env?: Record<string, string>; stdin?: string; timeoutMs?: number }): Promise<ExecResult> {
   if (deps.signal?.aborted) { throw new HeadTreeError('cancelled', 'Cancelled.'); }
-  return deps.exec('git', args, deps.repoRoot, opts);
+  const res = await deps.exec('git', args, deps.repoRoot, { ...opts, ...(deps.signal ? { signal: deps.signal } : {}) });
+  if (deps.signal?.aborted) { throw new HeadTreeError('cancelled', 'Cancelled.'); }
+  return res;
 }
 
 /** The refs that bring a PR head: the one git fetched it into, valued at the head itself. */

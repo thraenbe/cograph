@@ -20,6 +20,8 @@ export interface ExecOptions {
   /** Written to the child's stdin, which is then closed. */
   stdin?: string;
   timeoutMs?: number;
+  /** Kills the child when aborted; the result then has a null code. */
+  signal?: AbortSignal;
 }
 
 export type Exec = (command: string, args: string[], cwd: string, opts?: ExecOptions) => Promise<ExecResult>;
@@ -45,6 +47,7 @@ export const defaultExec: Exec = (command, args, cwd, opts = {}) => new Promise(
     cwd, timeout: opts.timeoutMs ?? TIMEOUT_MS, encoding: 'utf8', maxBuffer: MAX_BUFFER,
     shell: process.platform === 'win32',
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
+    ...(opts.signal ? { signal: opts.signal } : {}),
   }, (err, stdout, stderr) => {
     const e = err as (NodeJS.ErrnoException & { code?: number | string }) | null;
     resolve({

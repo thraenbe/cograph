@@ -573,6 +573,66 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
     assert.ok(heads[0].graph.shown[0].override.files.size > 0, 'coloured from the PR\'s files');
   });
 
+  test('a cancel during the head analysis: no panel, "Cancelled.", the whole copy kept, no cache written', async () => {
+    let abort: AbortController | null = null;
+    const controller = new PrController(source, main, {
+      workspaceRoot: () => root, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
+      exec: async () => ({ code: 0, stdout: '\n', stderr: '', notFound: false }),
+      storageDir: storage,
+      createHeadGraph: (r, title) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph }); return graph as PrHeadGraph; },
+      progress: async (title, task) => { abort = new AbortController(); return task(() => undefined, abort.signal); },
+      materializeHead: (opts) => materialize(opts),
+      analyzer: (_dir, signal) => new Promise((_resolve, reject) => {
+        // The user presses Cancel while the analyzers run; the VS Code analyzer rejects with a plain Error.
+        signal?.addEventListener('abort', () => reject(new Error('Cancelled.')));
+        abort!.abort();
+      }),
+    });
+    const res = await controller.open(PR);
+    assert.deepStrictEqual(res, { ok: false, problem: { kind: 'error', message: 'Cancelled.' } });
+    assert.strictEqual(heads.length, 0, 'no panel');
+    const dir = path.join(storage, 'repo', SHA_A);
+    assert.ok(fs.existsSync(path.join(dir, '.cograph-tree.json')), 'the finished copy stays: it is whole and reusable');
+    assert.ok(!fs.existsSync(path.join(dir, '.cograph')), 'no analysis cache was written');
+  });
+
+  test('a cancel during the base analysis ends the whole open — it is not mistaken for a missing base', async () => {
+    let abort: AbortController | null = null;
+    let calls = 0;
+    const controller = new PrController(source, main, {
+      workspaceRoot: () => root, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
+      exec: async () => ({ code: 0, stdout: '\n', stderr: '', notFound: false }),
+      storageDir: storage,
+      createHeadGraph: (r, title) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph }); return graph as PrHeadGraph; },
+      progress: async (title, task) => { abort = new AbortController(); return task(() => undefined, abort.signal); },
+      materializeHead: (opts) => materialize(opts),
+      materializeBase: async ({ storageDir }) => { const dir = path.join(storageDir, 'repo', 'c'.repeat(40)); fs.mkdirSync(dir, { recursive: true }); return { sha: 'c'.repeat(40), dir }; },
+      analyzer: (_dir, signal) => new Promise((resolve, reject) => {
+        if (++calls === 1) { resolve({ nodes: [], edges: [] }); return; }   // the head analyses fine
+        signal?.addEventListener('abort', () => reject(new Error('Cancelled.')));
+        abort!.abort();                                                     // the user cancels during the base
+      }),
+    });
+    const res = await controller.open(PR);
+    assert.deepStrictEqual(res, { ok: false, problem: { kind: 'error', message: 'Cancelled.' } });
+    assert.strictEqual(heads.length, 0, 'the head was NOT shown with file-list colours');
+  });
+
+  test('an analyzer failure mid-way: no panel, a readable error, the copy kept for next time', async () => {
+    const controller = new PrController(source, main, {
+      workspaceRoot: () => root, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
+      exec: async () => ({ code: 0, stdout: '\n', stderr: '', notFound: false }),
+      storageDir: storage,
+      createHeadGraph: (r, title) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph }); return graph as PrHeadGraph; },
+      materializeHead: (opts) => materialize(opts),
+      analyzer: async () => { throw new Error('Analyzer exited with code 1'); },
+    });
+    const res = await controller.open(PR);
+    assert.deepStrictEqual([res.ok, !res.ok && res.problem.kind, !res.ok && res.problem.detail], [false, 'error', 'Analyzer exited with code 1']);
+    assert.strictEqual(heads.length, 0);
+    assert.ok(fs.existsSync(path.join(storage, 'repo', SHA_A, '.cograph-tree.json')));
+  });
+
   test('without storage or a head factory the click is the checkout view', async () => {
     const controller = new PrController(source, main, { workspaceRoot: () => root, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
       exec: async () => ({ code: 0, stdout: '', stderr: '', notFound: false }) });

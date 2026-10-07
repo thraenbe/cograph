@@ -251,8 +251,10 @@ export class PrController {
     const repoRoot = await this.repoRoot(root);
     const progress = this.deps.progress ?? directProgress;
     let materialised: { sha: string; dir: string; diff: StructuralDiff | null; baseSha?: string };
+    let cancelled = false;
     try {
       materialised = await progress(`Pull request #${pr.number}`, async (report, signal) => {
+        signal.addEventListener('abort', () => { cancelled = true; });
         const common = { repoRoot, storageDir, exec: this.exec, log: this.deps.log, report, signal };
         const head = await (this.deps.materializeHead ?? materializeHeadWithGit)({ ...common, prNumber: pr.number });
         if (!this.deps.analyzer) { return { ...head, diff: null }; }
@@ -262,9 +264,14 @@ export class PrController {
         return { ...head, diff: base ? diffGraphs(base, headTree) : null, baseSha: base?.sha };
       });
     } catch (err) {
+      // A cancel anywhere — fetch, copy, either analysis — ends the open with nothing shown; a
+      // complete copy stays (it is whole and reusable), an unfinished one was already removed.
+      if (cancelled || (err instanceof HeadTreeError && err.kind === 'cancelled')) {
+        this.deps.log(`[vcs] head of #${pr.number}: cancelled`);
+        return { ok: false, problem: { kind: 'error', message: 'Cancelled.' } };
+      }
       if (err instanceof HeadTreeError) {
         this.deps.log(`[vcs] head of #${pr.number} unavailable (${err.kind}): ${err.detail ?? err.message}`);
-        if (err.kind === 'cancelled') { return { ok: false, problem: { kind: 'error', message: 'Cancelled.' } }; }
         return { ok: false, problem: { kind: 'head-unavailable', message: err.message, detail: err.detail, fallback: 'checkout' } };
       }
       throw err;
@@ -313,7 +320,8 @@ export class PrController {
       this.pendingBaseDir = base.dir;
       return analysed;
     } catch (err) {
-      if (err instanceof HeadTreeError && err.kind === 'cancelled') { throw err; }
+      // A cancel is the user's, not the base's: it ends the whole open.
+      if (common.signal.aborted || (err instanceof HeadTreeError && err.kind === 'cancelled')) { throw err; }
       this.deps.log(`[vcs] base of #${pr.number} unavailable, colouring from the PR's file list: ${(err as Error).message}`);
       return null;
     }

@@ -244,6 +244,41 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     assert.strictEqual(sh(repos.work, ['for-each-ref', 'refs/cograph/']), '');
   });
 
+  test('a cancel mid-copy leaves no directory, no marker and no temporary index; the next open copies afresh', async () => {
+    const sha = await fetchPullRequestHead(deps, 1);
+    const ac = new AbortController();
+    // Cancel while checkout-index runs: the real git is used, the signal flips during the call.
+    const exec: Exec = (cmd, args, cwd, opts) => {
+      if (args[0] === 'checkout-index') { ac.abort(); }
+      return defaultExec(cmd, args, cwd, opts);
+    };
+    await assert.rejects(materializeCommit({ ...deps, exec, signal: ac.signal }, sha), (e: HeadTreeError) => e.kind === 'cancelled');
+    const dir = treeDir(deps, sha);
+    assert.ok(!fs.existsSync(dir), 'the half copy is gone');
+    assert.deepStrictEqual(listTrees(storage), [], 'nothing counts against the budget');
+    assert.strictEqual(fs.readdirSync(path.dirname(dir)).filter(n => n.startsWith('.index-')).length, 0);
+    const whole = await materializeCommit(deps, sha);
+    assert.deepStrictEqual([whole.reused, whole.files], [false, 8], 'made again, from scratch');
+  });
+
+  test('a git failure mid-copy is cleaned up the same way and named', async () => {
+    const sha = await fetchPullRequestHead(deps, 1);
+    const exec: Exec = async (cmd, args, cwd, opts) => args[0] === 'checkout-index'
+      ? { code: 128, stdout: '', stderr: 'fatal: disk full', notFound: false }
+      : defaultExec(cmd, args, cwd, opts);
+    await assert.rejects(materializeCommit({ ...deps, exec }, sha), (e: HeadTreeError) => e.kind === 'fetch-failed' && e.detail === 'fatal: disk full');
+    assert.ok(!fs.existsSync(treeDir(deps, sha)));
+    assert.deepStrictEqual(listTrees(storage), []);
+  });
+
+  test('a cancel is never reported as a git failure, and git is not started after it', async () => {
+    const ac = new AbortController();
+    const started: string[] = [];
+    const exec: Exec = async (_c, args) => { started.push(args[0]); ac.abort(); return { code: 128, stdout: '', stderr: 'fatal: killed', notFound: false }; };
+    await assert.rejects(fetchPullRequestHead({ ...deps, exec, signal: ac.signal }, 1), (e: HeadTreeError) => e.kind === 'cancelled');
+    assert.deepStrictEqual(started, ['fetch'], 'rev-parse never ran');
+  });
+
   test('analyzeTree gives the structure tree and the graph of a directory through the injected analyzer', async () => {
     const sha = await fetchPullRequestHead(deps, 1);
     const tree = await materializeCommit(deps, sha);

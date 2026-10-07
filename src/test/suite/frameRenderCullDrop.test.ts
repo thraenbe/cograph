@@ -117,6 +117,32 @@ suite('frameRender: frame moves re-run culling (drop pushes a culled sibling on 
     assert.strictEqual(attached('/r/p/a'), true);
   });
 
+  test('F29: after a re-render the zoom LOD is re-applied (parked layers stay parked at the same zoom)', () => {
+    // zoomed far out: links, labels and nodes are all below their thresholds
+    g.svg.node().__zoom = g.d3.zoomIdentity.scale(0.2);
+    const withLinks = (path: string) => {
+      const grp = fr.__frState.frameSel.get(path);
+      grp.append('g').attr('class', 'f-links').append('line');
+      return grp;
+    };
+    withLinks('/r/p/a');
+    fr.applyFrameCulling();
+    const linksOf = () => dom.window.document.querySelector('g.frame[data-path="/r/p/a"] > g.f-links');
+    assert.strictEqual(linksOf(), null, 'precondition: links parked at k 0.2');
+
+    // re-render (e.g. a Detail change): fresh <g>s at FULL detail, zoom unchanged
+    g.frameG.selectAll('*').remove();
+    fr.__frState.frameSel = new Map();
+    for (const path of ['/r', '/r/p', '/r/p/a', '/r/p/far']) {
+      fr.__frState.frameSel.set(path, g.frameG.append('g').attr('class', 'frame').attr('data-path', path));
+    }
+    withLinks('/r/p/a');
+    assert.ok(linksOf(), 'fresh render starts at full detail');
+    fr.applyFrameCulling();
+    assert.strictEqual(linksOf(), null, 'and the LOD parks them again at the same zoom');
+    delete g.svg.node().__zoom;
+  });
+
   test('DOM-less callers (frameDrag.test world) are still safe', () => {
     g.svg = undefined; g.d3 = undefined; g.linkG = undefined;
     assert.doesNotThrow(() => fr.onFrameMoveSettled());

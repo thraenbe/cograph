@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call line between functions of the same folder was created hidden: the visibility check
   compared node objects with ids and never matched. Only the cross-folder bundles were
   visible. (F27)
+- **Shelf zoom detail is re-applied after every re-render.** When you zoom far out, Shelf parks
+  the call lines, labels and function nodes it cannot show legibly. After a re-render (for
+  example a Detail change) it used to bring everything back at full detail and keep it there
+  until you zoomed across a threshold again. With in-frame lines now painted (F27), that
+  dropped panning at fit-to-view on fmt from 70 to 29 fps; with this fix the view stays light.
+  (F29)
 
 ## [1.3.0] - 2026-09-24
 

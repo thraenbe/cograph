@@ -451,8 +451,9 @@ Deviations from the plan:
 1. **Text only, no `structuredContent`/`outputSchema`.** The spec says structured output SHOULD
    also be serialised into a text block, which would double every result for clients that all
    read the text anyway. This can be added later without breaking anything.
-2. **Source slices go through `src/mcp/sourceSlice.ts`**, an adapter over the end-finders already
-   shipped in `sourceEditor.ts`. Its result shape is the subset of session-216's
+2. **Source slices go through `src/mcp/sourceSlice.ts`.** It was an adapter over `sourceEditor.ts`; after the
+   rebase onto `version_1.4.0` it calls session-216's `funcEnd.ts` `scanFuncEnd` directly, whose `closed` flag
+   makes `eof` mean "no end found". Its result shape is the subset of session-216's
    `FuncBriefResult` that we use, so swapping in `readFuncSlice` once PR #69 lands is a one-file
    change. The adapter deliberately applies **no** next-symbol fallback. From outside the scanner,
    "the function ends at EOF" and "detection never closed" look the same, so cutting at the next

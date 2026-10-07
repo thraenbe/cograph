@@ -1,8 +1,8 @@
 # CoGraph as a local MCP server for any agent (find_symbol, get_symbol, callers, callees, impact, overview)
 
-Branch `termi/s214` = `main` (1fc1156) + the Chat removal (PR #70: `e9d8206`, `8787ec5`, merged in
-as `6dddabd`) + `dca6e2b` (MCP server) + plan docs (`.ai/plans/mcp.md`). **Merge #70 first.** After
-that, this PR adds only `dca6e2b` and the plan docs. No new settings. No change to any existing
+Branch `feat/mcp-server` (= `termi/s214`), rebased onto `version_1.4.0`, which already carries the
+Chat removal (#70) and `funcEnd.ts` (#69). This PR adds the MCP server, the slice fix on top of
+`funcEnd.ts`, and the plan docs. No new settings. No change to any existing
 API, setting or command. The engine floor stays at `^1.75.0`. Decisions M1 (the six tools), M4
 (MIT, this repo) and M5 (follow-up release: no npm, no headless re-analysis in v1) are Bela's.
 
@@ -58,9 +58,11 @@ Extension side:
    12-day-old cache sliced the wrong code: the lines had moved. When the file's mtime differs from
    the analysis manifest, the source header now says "this file changed since the analysis, so
    the line numbers may have shifted and this slice may not be the function". Separately, the slice
-   is always labelled best-effort with its exact range and how it ended (`end detected`,
-   `TRUNCATED at maxLines`, `reached end of file`), because a `}` inside a string can end a brace
-   scan early.
+   is always labelled best-effort with its exact range and how it ended: `end detected`,
+   `TRUNCATED at maxLines`, or `end NOT found before the end of the file`. The scanner now skips
+   strings and comments, since `funcEnd.ts` from #69 is in the base, but it is still a heuristic
+   (C++ preprocessor branches, for one). So the label stays, and the agent is told to read the
+   file at that range before editing.
 3. **Class-less ids resolve.** An agent that guesses `src/graphProvider.ts::invokeProvider` for
    what is really `…::GraphProvider.invokeProvider` gets the method instead of "not found". A
    drifted `:<line>` suffix resolves to the nearest line. A bare name that is ambiguous returns
@@ -75,12 +77,12 @@ Extension side:
    exact staleness diff the extension uses, instead of a second copy of that logic.
    `loadCache()` is now those two calls, and its existing tests pass unchanged.
 6. **The source slice goes through a seam, `src/mcp/sourceSlice.ts`.** It returns the subset of
-   session-216's `FuncBriefResult` that we use. Until PR #69 (which carries `funcEnd.ts`) lands,
-   it adapts the end-finders already shipped in `sourceEditor.ts`, with **no** next-symbol
-   fallback. From outside the scanner, "ends at EOF" and "never closed" are indistinguishable, and
-   cutting at the next symbol would truncate every function containing a nested one (399 in click
-   alone). After #69, a follow-up swaps in `readFuncSlice` and passes `nextStartLine`, which
-   `funcBrief` applies only when its own scan reaches EOF unclosed.
+   session-216's `FuncBriefResult` that we use. It calls `funcEnd.ts`'s `scanFuncEnd` (from #69,
+   now in the base; it is the scanner `funcBrief` builds on), whose `closed` flag separates a
+   real end from an unclosed scan, so `eof` means "no end found". There is **no** next-symbol
+   fallback: cutting at the next symbol would truncate every function containing a nested one
+   (399 in click alone). When `funcBrief.ts` lands, a follow-up swaps in `readFuncSlice` and
+   passes `nextStartLine`, which `funcBrief` applies only when its own scan reaches EOF unclosed.
 7. **The activation event is `onMcpCollection:cograph`.** The docs do not name it. I verified it
    in VS Code's source: `mcpConfiguration.ts` `activationEventsGenerator` derives it from the
    `mcpServerDefinitionProviders` contribution. It is also listed explicitly in
@@ -116,7 +118,7 @@ characters in 5 ms.
 
 ## Verification
 
-- Full suite on this branch: **1 243 passing, 0 failing** (Linux, real VS Code host).
+- Full suite on this branch, rebased on `version_1.4.0`: **1 307 passing, 0 failing** (Linux, real VS Code host).
 - 31 new tests in three suites:
   - `mcpCore`: index, ids, resolution, reload on cache/annotation change, throttled staleness,
     queries, overview.
@@ -145,7 +147,7 @@ characters in 5 ms.
 
 ## Follow-ups (not in this PR)
 
-- Swap `sourceSlice.ts` to `funcBrief.readFuncSlice` once #69 lands, and pass `nextStartLine`.
+- Swap `sourceSlice.ts` to `funcBrief.readFuncSlice` once `funcBrief.ts` lands (it is on session-216's branch), and pass `nextStartLine`.
 - Step 6, headless re-analysis, and step 7, an npm package, are deferred by M5. The npm package
   is also blocked on a name: `cograph` and `cograph-mcp` are taken by another project.
 

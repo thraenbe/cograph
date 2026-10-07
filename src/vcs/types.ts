@@ -77,6 +77,8 @@ export interface PrProblem {
   detail?: string;
   /** Another way to show the same pull request that would still work. */
   fallback?: 'checkout';
+  /** The command a fix button types into a terminal (e.g. `gh auth login --hostname ghe.example.com`). */
+  command?: string;
 }
 
 export type PrListResult =

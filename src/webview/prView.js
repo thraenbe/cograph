@@ -11,36 +11,44 @@
 // PR colours are the only ones that should carry meaning (TypeScript's pink
 // sits right next to "deleted" red), so untouched functions go neutral.
 //
-// state.prView = { number, name, title, headRef, baseRef, expand, counts,
-//                  snapshot, prevGitMode, prevLanguageMode } | null — never
-// saved with a layout.
+// state.prView = { number, name, title, headRef, baseRef, tree, diff, readOnly,
+//                  expand, counts, snapshot, prevGitMode, prevLanguageMode } | null —
+// never saved with a layout. `readOnly` is true for the PR's own commit: the
+// function popups then take no edits (the host would refuse the save anyway,
+// and a refused save must not leave an edited textarea behind).
 
 const PR_DELETED_COLOR = '#e5534b';
 
 const PR_BANNER_CSS = `
+  /* The banner sits to the right of the left toolbar (#top-left-controls: left 10px, width
+     190px) and left of the settings gear, and shrinks with the panel: a PR always opens
+     BESIDE the main graph, so a ~560 px panel is the normal width, not an edge case. The
+     summary gives way first (it is in the sidebar too), then the chip, then the name; Leave
+     never does, so the user can always leave. */
   #pr-view-banner {
-    position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 150;
-    display: flex; align-items: center; gap: 10px; max-width: min(720px, 70vw);
-    padding: 5px 6px 5px 12px; border-radius: 6px; font-size: 12px;
+    position: fixed; top: 10px; left: 212px; right: 56px; z-index: 150;
+    display: flex; align-items: center; gap: 8px; min-width: 0;
+    padding: 5px 6px 5px 10px; border-radius: 6px; font-size: 12px;
     color: var(--vscode-foreground);
     background: var(--vscode-editorWidget-background, #252526);
     border: 1px solid var(--vscode-focusBorder, #007fd4);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   }
-  #pr-view-banner .pr-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #pr-view-banner .pr-name { flex: 0 1 auto; min-width: 100px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* The tree chip is structural, never a status colour: in this panel green, orange and
      red mean added, modified and deleted, and nothing else may borrow them. */
   #pr-view-banner .pr-tree {
-    flex: none; font-size: 11px; padding: 1px 8px; border-radius: 9px; white-space: nowrap;
+    flex: 0 3 auto; min-width: 48px; overflow: hidden; text-overflow: ellipsis;
+    font-size: 11px; padding: 1px 8px; border-radius: 9px; white-space: nowrap;
     color: var(--vscode-badge-foreground, #fff); background: var(--vscode-badge-background, #4d4d4d);
   }
   #pr-view-banner .pr-tree::before { margin-right: 4px; }
   #pr-view-banner .pr-tree.head::before { content: '⎇'; }
   #pr-view-banner .pr-tree.checkout::before { content: '⌂'; }
-  #pr-view-banner .pr-sub { flex: none; color: var(--vscode-descriptionForeground, #999); white-space: nowrap; }
+  #pr-view-banner .pr-sub { flex: 1 1 0; min-width: 0; color: var(--vscode-descriptionForeground, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #pr-view-banner .pr-sub.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
   #pr-view-banner button {
-    flex: none; font: inherit; font-size: 11px; padding: 2px 9px; border-radius: 3px; cursor: pointer;
+    flex: none; margin-left: auto; font: inherit; font-size: 11px; padding: 2px 9px; border-radius: 3px; cursor: pointer;
     color: var(--vscode-button-foreground, #fff); background: var(--vscode-button-background, #0e639c);
     border: none;
   }
@@ -59,9 +67,9 @@ function prViewExpansion(tree, expand) {
 function prViewTreeLabel(tree) {
   if (tree && tree.kind === 'head') {
     const sha = String(tree.sha || '').slice(0, 7);
-    return { text: `the pull request's commit ${sha}`, cls: 'head', title: `This is the pull request's own code at ${tree.sha}${tree.base ? `, compared with ${String(tree.base).slice(0, 7)}` : ''}. It is read-only.` };
+    return { text: `PR commit ${sha}`, cls: 'head', title: `This is the pull request's own code at ${tree.sha}${tree.base ? `, compared with ${String(tree.base).slice(0, 7)}` : ''}. It is read-only.` };
   }
-  const branch = tree && tree.branch ? ` (${tree.branch})` : '';
+  const branch = tree && tree.branch ? ` · ${tree.branch}` : '';
   return { text: `your checkout${branch}`, cls: 'checkout', title: 'This is the code in your working tree, coloured with what the pull request changes. Files the pull request adds or removes that your checkout does not have are listed in the sidebar.' };
 }
 
@@ -133,6 +141,16 @@ function prViewPaintDeleted(on) {
   }
 }
 
+/** Popups already open take the panel's read-only state; new ones get it when their source arrives (main.js). */
+function prViewLockPopups(locked) {
+  if (!state.funcPopups) { return; }
+  for (const inst of state.funcPopups.values()) {
+    if (!inst || !inst.textarea || inst.originalSource === null) { continue; } // an errored popup stays as it is
+    inst.textarea.readOnly = locked;
+    inst.textarea.title = locked ? 'This is a copy of a commit, not your working tree. Edit the file in your checkout.' : '';
+  }
+}
+
 function prViewRenderBanner() {
   if (typeof document === 'undefined') { return; }
   let banner = document.getElementById('pr-view-banner');
@@ -196,6 +214,7 @@ function prViewEnter(message) {
     counts: message.counts || {},
     tree: message.tree || { kind: 'checkout', branch: '' },
     diff: message.diff || null,
+    readOnly: !!(message.tree && message.tree.kind === 'head'),
     // Going from one pull request to the next keeps what was there before the first.
     snapshot: previous ? previous.snapshot : prViewSnapshot(),
     prevGitMode: previous ? previous.prevGitMode : state.gitMode,
@@ -205,6 +224,7 @@ function prViewEnter(message) {
   state.gitMode = true;
   state.languageMode = false;
   prViewSyncColourUi();
+  prViewLockPopups(state.prView.readOnly);
   prViewPaintDeleted(true);
   prViewRenderBanner();
   if (state.structureTree) {
@@ -222,6 +242,7 @@ function prViewLeave(message) {
   state.gitMode = pv.prevGitMode;
   state.languageMode = pv.prevLanguageMode;
   prViewSyncColourUi();
+  prViewLockPopups(false);
   prViewPaintDeleted(false);
   prViewRenderBanner();
   if (!message.restore) {

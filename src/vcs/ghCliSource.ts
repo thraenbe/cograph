@@ -104,10 +104,13 @@ export function classifyGhFailure(res: ExecResult, host: string | null): PrProbl
     };
   }
   if (/gh auth login|not logged in|HTTP 401|Bad credentials|authentication (token|failed)|gh auth refresh/i.test(text)) {
+    // GitHub Enterprise signs in per host; github.com is gh's default.
+    const command = host && host !== 'github.com' ? `gh auth login --hostname ${host}` : 'gh auth login';
     return {
       kind: 'gh-unauthenticated',
-      message: 'The GitHub CLI is not signed in. Run "gh auth login" in a terminal, then refresh.',
+      message: `The GitHub CLI is not signed in. Run "${command}" in a terminal, then refresh.`,
       detail,
+      command,
     };
   }
   if (/Could not resolve to a Repository|HTTP 404|HTTP 403|SAML/i.test(text) && !/rate limit/i.test(text)) {

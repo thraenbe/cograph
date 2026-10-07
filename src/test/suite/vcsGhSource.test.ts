@@ -131,6 +131,10 @@ suite('vcs — every gh failure is a named situation', () => {
 
   test('not signed in, no access, offline, and the rest', () => {
     assert.strictEqual(kind(fail('To get started with GitHub CLI, please run:  gh auth login')), 'gh-unauthenticated');
+    assert.strictEqual(classifyGhFailure(fail('HTTP 401: Bad credentials'), 'github.com').command, 'gh auth login');
+    const ghe = classifyGhFailure(fail('HTTP 401: Bad credentials'), 'ghe.corp.example');
+    assert.strictEqual(ghe.command, 'gh auth login --hostname ghe.corp.example', 'Enterprise signs in per host');
+    assert.ok(ghe.message.includes('--hostname ghe.corp.example'));
     assert.strictEqual(kind(fail('HTTP 401: Bad credentials (https://api.github.com/graphql)')), 'gh-unauthenticated');
     assert.strictEqual(kind(fail("GraphQL: Could not resolve to a Repository with the name 'acme/secret'. (repository)")), 'no-access');
     assert.strictEqual(kind(fail('gh: Not Found (HTTP 404)')), 'no-access');

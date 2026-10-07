@@ -13,6 +13,7 @@ import { VcsSidebar } from './vcs/vcsSidebar';
 import { clearRepoRefs, clearTrees, evictTrees } from './vcs/engine/headTree';
 import { defaultExec } from './vcs/ghCliSource';
 import { createTreeAnalyzer } from './vcs/headAnalyzer';
+import { prDocumentUri, registerPrDocuments } from './vcs/prDocuments';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
@@ -36,7 +37,9 @@ export function activate(context: vscode.ExtensionContext) {
     log: (line) => vcsLog.appendLine(line),
     storageDir: treeStorage,
     // The PR's own commit gets a provider of its own: same engine, another root, nothing writable.
-    createHeadGraph: treeStorage ? (root, title) => new GraphProvider(context, { root, readOnly: true, title }) : undefined,
+    createHeadGraph: treeStorage
+      ? (root, title) => new GraphProvider(context, { root, readOnly: true, title, readOnlyUri: (file) => prDocumentUri(root, title, file) })
+      : undefined,
     analyzer: createTreeAnalyzer(context, (line) => vcsLog.appendLine(line)),
     progress: (title, task) => Promise.resolve(vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title, cancellable: true },
@@ -47,13 +50,15 @@ export function activate(context: vscode.ExtensionContext) {
       },
     )),
   });
+  if (treeStorage) { context.subscriptions.push(registerPrDocuments(treeStorage)); }
   const clearTreesCommand = vscode.commands.registerCommand('cograph.clearPullRequestTrees', async () => {
     try {
       const log = (l: string) => vcsLog.appendLine(l);
-      const bytes = treeStorage ? await clearTrees(treeStorage, defaultExec, log) : 0;
+      const cleared = treeStorage ? await clearTrees(treeStorage, defaultExec, log) : { trees: 0, bytes: 0 };
       // Trees gone, and every refs/cograph/* ref of this repository with them: nothing keeps the fetched objects alive.
       const refs = workspaceRoot ? await clearRepoRefs(workspaceRoot, defaultExec) : [];
-      vscode.window.showInformationMessage(`CoGraph: Pull-request trees cleared (${(bytes / (1024 * 1024)).toFixed(1)} MB, ${refs.length} ref${refs.length === 1 ? '' : 's'}).`);
+      const n = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+      vscode.window.showInformationMessage(`CoGraph: Pull-request trees cleared — ${n(cleared.trees, 'tree')}, ${(cleared.bytes / (1024 * 1024)).toFixed(1)} MB, ${n(refs.length, 'ref')}.`);
     } catch (err) {
       vscode.window.showErrorMessage(`CoGraph: Could not clear pull-request trees — ${(err as Error).message}`);
     }

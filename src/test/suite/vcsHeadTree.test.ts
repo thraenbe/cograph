@@ -172,6 +172,28 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     assert.strictEqual(fs.readdirSync(path.dirname(tree.dir)).filter(n => n.startsWith('.index-')).length, 0, 'the temporary index is gone');
   });
 
+  test('a copy that was written to is never reused: an editor save into the tree discards it', async () => {
+    const sha = await fetchPullRequestHead(deps, 1);
+    const first = await materializeCommit({ ...deps, now: () => 1000 }, sha);
+    // The analysis cache the panel writes under the copy is not a modification.
+    fs.mkdirSync(path.join(first.dir, '.cograph'), { recursive: true });
+    fs.writeFileSync(path.join(first.dir, '.cograph', 'cache.json'), '{}');
+    assert.strictEqual((await materializeCommit(deps, sha)).reused, true);
+    // Someone saved into the copy, as if it were their file.
+    const edited = path.join(first.dir, 'src', 'util.ts');
+    fs.writeFileSync(edited, fs.readFileSync(edited, 'utf8') + '\nexport function sneaked() {}\n');
+    const again = await materializeCommit({ ...deps, now: () => 3000 }, sha);
+    assert.strictEqual(again.reused, false, 'discarded and copied afresh');
+    assert.ok(!fs.readFileSync(edited, 'utf8').includes('sneaked'), 'the edit is gone from the copy');
+    assert.ok(!fs.existsSync(path.join(first.dir, '.cograph')), 'and so is the cache built on it');
+    assert.ok(log.some(l => l.includes('was modified since it was copied')));
+    // A marker from before fingerprints never passes either.
+    const marker = JSON.parse(fs.readFileSync(path.join(first.dir, '.cograph-tree.json'), 'utf8'));
+    delete marker.fingerprint;
+    fs.writeFileSync(path.join(first.dir, '.cograph-tree.json'), JSON.stringify(marker));
+    assert.strictEqual((await materializeCommit(deps, sha)).reused, false);
+  });
+
   test('a second request reuses the copy; a copy without its marker is made again', async () => {
     const sha = await fetchPullRequestHead(deps, 1);
     const first = await materializeCommit({ ...deps, now: () => 1000 }, sha);
@@ -239,8 +261,8 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
   test('clearing the store deletes the trees and the refs they were fetched through', async () => {
     const head = await fetchPullRequestHead(deps, 1);
     await materializeCommit(deps, head, pullRequestRefs(1, head));
-    const bytes = await clearTrees(storage, defaultExec);
-    assert.ok(bytes > 0 && !fs.existsSync(storage));
+    const cleared = await clearTrees(storage, defaultExec);
+    assert.ok(cleared.trees === 1 && cleared.bytes > 0 && !fs.existsSync(storage));
     assert.strictEqual(sh(repos.work, ['for-each-ref', 'refs/cograph/']), '');
   });
 
@@ -351,7 +373,7 @@ suite('vcs engine — headTree budget and failures', () => {
     assert.deepStrictEqual(listTrees(path.join(storage, 'nope')), []);
     assert.deepStrictEqual(await evictTrees(path.join(storage, 'nope')), []);
     fakeTree('f'.repeat(40), 50, 1);
-    assert.strictEqual(await clearTrees(storage), 50);
+    assert.deepStrictEqual(await clearTrees(storage), { trees: 1, bytes: 50 });
     assert.ok(!fs.existsSync(storage));
   });
 

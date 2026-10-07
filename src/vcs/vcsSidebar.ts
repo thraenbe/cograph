@@ -48,9 +48,9 @@ export interface VcsSidebarDeps {
 }
 
 /** The "fix it" button of a problem row; kinds without an entry only offer Retry. */
-const FIXES: Partial<Record<PrProblemKind, { label: string; run: (deps: VcsSidebarDeps) => void }>> = {
+const FIXES: Partial<Record<PrProblemKind, { label: string; run: (deps: VcsSidebarDeps, problem: PrProblem) => void }>> = {
   'gh-missing': { label: 'Get the GitHub CLI', run: (deps) => deps.openExternal('https://cli.github.com/') },
-  'gh-unauthenticated': { label: 'Sign in…', run: (deps) => deps.openTerminal('gh auth login') },
+  'gh-unauthenticated': { label: 'Sign in…', run: (deps, problem) => deps.openTerminal(problem.command ?? 'gh auth login') },
 };
 
 /**
@@ -119,7 +119,7 @@ export class VcsSidebar {
         break;
       }
       case 'vcs-fix':
-        if (this.problem) { FIXES[this.problem.kind]?.run(this.deps); }
+        if (this.problem) { FIXES[this.problem.kind]?.run(this.deps, this.problem); }
         break;
     }
     return true;

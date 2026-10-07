@@ -180,12 +180,15 @@ export class GraphProvider {
   private readonly rootOverride: string | undefined;
   private readonly readOnly: boolean;
   private readonly baseTitle: string;
+  /** How a read-only provider opens a file: as a document of a read-only scheme (src/vcs/prDocuments). */
+  private readonly readOnlyUri: ((file: string) => vscode.Uri) | undefined;
 
-  constructor(context: vscode.ExtensionContext, opts: { root?: string; readOnly?: boolean; title?: string } = {}) {
+  constructor(context: vscode.ExtensionContext, opts: { root?: string; readOnly?: boolean; title?: string; readOnlyUri?: (file: string) => vscode.Uri } = {}) {
     this.context = context;
     this.rootOverride = opts.root;
     this.readOnly = !!opts.readOnly;
     this.baseTitle = opts.title ?? 'CoGraph';
+    this.readOnlyUri = opts.readOnlyUri;
     this.analyzerRunner = new AnalyzerRunner(
       context,
       (msg) => this.showError(msg),
@@ -409,7 +412,7 @@ export class GraphProvider {
         // Structured webview diagnostics (e.g. simulation workers falling back).
         this.outputChannel.appendLine(`[webview] ${JSON.stringify(message.entry)}`);
       } else if (message.type === 'dirty-state') {
-        this.setDirty(!!message.dirty);
+        if (!this.readOnly) { this.setDirty(!!message.dirty); } // a read-only view is never "unsaved"
       } else if (message.type === 'retry-analysis') {
         // Triggered from the empty-state Retry button: re-run as a fresh initial
         // load (with backoff) so a transient/unready failure can recover.
@@ -1070,10 +1073,12 @@ export class GraphProvider {
   }
 
   private async navigateTo(file: string, line: number) {
-    const doc = await vscode.workspace.openTextDocument(file);
+    // A read-only provider's files open as read-only documents, by construction — never as the
+    // writable file on disk, which would look exactly like the user's own.
+    const doc = this.readOnly && this.readOnlyUri
+      ? await vscode.workspace.openTextDocument(this.readOnlyUri(file))
+      : await vscode.workspace.openTextDocument(file);
     const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
-    // The materialised copy is not the user's code: an edit there would be lost and change nothing.
-    if (this.readOnly) { await vscode.commands.executeCommand('workbench.action.files.setActiveEditorReadonlyInSession'); }
     const position = new vscode.Position(line - 1, 0);
     editor.selection = new vscode.Selection(position, position);
     editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);

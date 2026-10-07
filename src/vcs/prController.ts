@@ -252,11 +252,13 @@ export class PrController {
     const progress = this.deps.progress ?? directProgress;
     let materialised: { sha: string; dir: string; diff: StructuralDiff | null; baseSha?: string };
     let cancelled = false;
+    let copied = false; // a finished copy survives a later cancel: it is whole, and reused next time
     try {
       materialised = await progress(`Pull request #${pr.number}`, async (report, signal) => {
         signal.addEventListener('abort', () => { cancelled = true; });
         const common = { repoRoot, storageDir, exec: this.exec, log: this.deps.log, report, signal };
         const head = await (this.deps.materializeHead ?? materializeHeadWithGit)({ ...common, prNumber: pr.number });
+        copied = true;
         if (!this.deps.analyzer) { return { ...head, diff: null }; }
         report('analysing the pull request…');
         const headTree = await analyzeTreeCached(head.dir, this.deps.analyzer, head.sha, signal);
@@ -267,8 +269,8 @@ export class PrController {
       // A cancel anywhere — fetch, copy, either analysis — ends the open with nothing shown; a
       // complete copy stays (it is whole and reusable), an unfinished one was already removed.
       if (cancelled || (err instanceof HeadTreeError && err.kind === 'cancelled')) {
-        this.deps.log(`[vcs] head of #${pr.number}: cancelled`);
-        return { ok: false, problem: { kind: 'error', message: 'Cancelled.' } };
+        this.deps.log(`[vcs] head of #${pr.number}: cancelled${copied ? ' (copy kept)' : ''}`);
+        return { ok: false, problem: { kind: 'error', message: copied ? 'Cancelled. The copied files are kept, so the next open is faster.' : 'Cancelled.' } };
       }
       if (err instanceof HeadTreeError) {
         this.deps.log(`[vcs] head of #${pr.number} unavailable (${err.kind}): ${err.detail ?? err.message}`);

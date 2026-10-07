@@ -10,6 +10,7 @@ import { scanStructure } from '../../structureScanner';
 import { writeCache } from '../../cacheStore';
 import { NO_SCOPE, specForFolder } from '../../subgraphScope';
 import type { PrGraphView } from '../../vcs/prController';
+import { PR_DOCUMENT_SCHEME, prDocumentFile, prDocumentUri, registerPrDocuments } from '../../vcs/prDocuments';
 import type { VcsSidebar } from '../../vcs/vcsSidebar';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -332,6 +333,28 @@ suite('GraphProvider — a read-only provider on another root (the PR head panel
     assert.strictEqual(info.callCount, 3);
     assert.ok(askName.notCalled, 'never asked for a name');
     assert.deepStrictEqual(fs.readdirSync(path.join(headDir, 'src')), ['head.ts']);
+  });
+
+  test('navigate opens the copy\'s file as a read-only document of its own scheme, never the file on disk', async () => {
+    const opened: vscode.Uri[] = [];
+    sandbox.stub(vscode.workspace, 'openTextDocument').callsFake((async (u: vscode.Uri) => { opened.push(u); return { uri: u } as any; }) as any);
+    sandbox.stub(vscode.window, 'showTextDocument').resolves({ selection: null, revealRange: () => undefined } as any);
+    const ro = new GraphProvider({ extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as unknown as vscode.ExtensionContext,
+      { root: headDir, readOnly: true, title: 'PR #7 · head abc1234', readOnlyUri: (file) => prDocumentUri(headDir, 'PR #7 · head abc1234', file) });
+    ro.show();
+    onMessage()({ type: 'ready' });
+    await waitFor(() => posted('graph').length > 0);
+    await onMessage()({ type: 'navigate', file: path.join(headDir, 'src', 'head.ts'), line: 1 });
+    assert.strictEqual(opened.length, 1);
+    const uri = opened[0];
+    assert.strictEqual(uri.scheme, PR_DOCUMENT_SCHEME, 'not file:// — read-only by construction');
+    assert.strictEqual(uri.path, '/PR #7 · head abc1234/src/head.ts', 'the tab\'s hover and description name the panel');
+    assert.strictEqual(prDocumentFile(uri, headDir), path.join(headDir, 'src', 'head.ts'));
+    assert.strictEqual(prDocumentFile(uri, workspace), null, 'a document is served only from under the copies');
+    assert.strictEqual(prDocumentFile(vscode.Uri.parse(`${PR_DOCUMENT_SCHEME}:/x/y.ts?file=${encodeURIComponent(path.join(headDir, '..', 'escape.ts'))}`), headDir), null);
+    const reg = registerPrDocuments(headDir);
+    reg.dispose();
+    ro.close();
   });
 
   test('leaving a scope goes back to the tree\'s title, not "CoGraph"; close() disposes the panel', async () => {

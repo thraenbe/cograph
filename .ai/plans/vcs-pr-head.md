@@ -283,6 +283,32 @@ during normal use, reclaims them. Nothing under `refs/heads`, no worktree entrie
 written. The only trace of an evicted PR is in the reflog-free `refs/cograph` namespace, which is
 empty for it.
 
+## After session-181's click-through (2026-10-07)
+
+- **B, data integrity.** A copy's files now open as documents of the `cograph-pr` scheme through
+  a `TextDocumentContentProvider`: read-only by construction (lock on the tab, no edit accepted,
+  no click or command makes them writable), served only from under the copies' storage, with the
+  panel title in the URI path so the tab's hover and description read `PR #69 · head 23834be`.
+  The earlier `setActiveEditorReadonlyInSession` was a race on whichever editor was active and is
+  gone. And the question that mattered: **yes, a save into the copy would have been reused** —
+  reuse only checked for a marker, and the analysis cache is keyed by mtime, so an edited copy
+  would have been re-analysed into a "PR head" graph that was not the head. Every copy now
+  carries a fingerprint (path, size, mtime of every file) in its marker; a copy whose fingerprint
+  no longer matches is discarded and copied afresh, and a marker without one never passes. The
+  copy is not made unwritable on disk: `fs.rm` on a read-only file is unreliable on Windows, and
+  the two measures above cover both ways in (CoGraph's own navigation, and anyone else's editor).
+- **A, layout.** The banner is anchored right of the left toolbar and left of the settings gear,
+  and shrinks with the panel: the summary gives way first, then the chip, then the name; Leave
+  never does. Measured in the lab at 561 px (the default split): name `PR #69 · head 238…`, chip
+  `⎇ PR com…`, Leave at 450–498, gear at 521, nothing clipped, nothing over the Engine row.
+- **C.** The function popups of a head panel take no edits (textarea read-only, with the reason as
+  tooltip), and a read-only panel never shows a dirty dot.
+- **Cancel wording.** A cancel after the copy says "Cancelled. The copied files are kept, so the
+  next open is faster." Correction to the earlier answer: a cancel during the *base* analysis keeps
+  **two** copies, head and base. Clear now reports trees, MB and refs.
+- **GitHub Enterprise.** The sign-in message and the Sign in… button use
+  `gh auth login --hostname <host>` when the remote is not github.com.
+
 ## Not in this plan
 
 Ghost nodes for removed functions, workspace annotations mapped onto the head, a vscode-free

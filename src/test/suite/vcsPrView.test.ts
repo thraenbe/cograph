@@ -293,11 +293,11 @@ suite('vcs — controller and sidebar host', () => {
   });
 
   test('a problem is a state with its fix label, and the fix runs the injected side effect only', async () => {
-    source.listResult = { ok: false, problem: { kind: 'gh-unauthenticated', message: 'Sign in.' } };
+    source.listResult = { ok: false, problem: { kind: 'gh-unauthenticated', message: 'Sign in.', command: 'gh auth login --hostname ghe.corp' } };
     await sidebar.handle({ type: 'vcs-ready' });
     assert.deepStrictEqual([last().problem?.kind, last().fixLabel, last().pullRequests.length], ['gh-unauthenticated', 'Sign in…', 0]);
     await sidebar.handle({ type: 'vcs-fix' });
-    assert.deepStrictEqual(typed, ['gh auth login']);
+    assert.deepStrictEqual(typed, ['gh auth login --hostname ghe.corp'], 'the fix types the host-aware command');
     source.listResult = { ok: false, problem: { kind: 'gh-missing', message: 'Install.' } };
     await sidebar.handle({ type: 'vcs-refresh' });
     await sidebar.handle({ type: 'vcs-fix' });
@@ -496,7 +496,7 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
     await sidebar.handle({ type: 'vcs-exit' });
     materialize = async () => { throw new HeadTreeError('cancelled', 'Cancelled.'); };
     await sidebar.handle({ type: 'vcs-open', number: 70 });
-    assert.deepStrictEqual([last().openProblem!.problem.message, last().openProblem!.problem.fallback], ['Cancelled.', undefined]);
+    assert.deepStrictEqual([last().openProblem!.problem.message, last().openProblem!.problem.fallback], ['Cancelled.', undefined], 'nothing was copied: nothing kept');
   });
 
   test('with an analyzer and a base: colours come from the structural diff, the sidebar gets removed functions with callers', async () => {
@@ -589,7 +589,7 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
       }),
     });
     const res = await controller.open(PR);
-    assert.deepStrictEqual(res, { ok: false, problem: { kind: 'error', message: 'Cancelled.' } });
+    assert.deepStrictEqual(res, { ok: false, problem: { kind: 'error', message: 'Cancelled. The copied files are kept, so the next open is faster.' } });
     assert.strictEqual(heads.length, 0, 'no panel');
     const dir = path.join(storage, 'repo', SHA_A);
     assert.ok(fs.existsSync(path.join(dir, '.cograph-tree.json')), 'the finished copy stays: it is whole and reusable');
@@ -614,8 +614,9 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
       }),
     });
     const res = await controller.open(PR);
-    assert.deepStrictEqual(res, { ok: false, problem: { kind: 'error', message: 'Cancelled.' } });
+    assert.deepStrictEqual(res, { ok: false, problem: { kind: 'error', message: 'Cancelled. The copied files are kept, so the next open is faster.' } });
     assert.strictEqual(heads.length, 0, 'the head was NOT shown with file-list colours');
+    assert.ok(fs.existsSync(path.join(storage, 'repo', 'c'.repeat(40))), 'two copies stay: head and base');
   });
 
   test('an analyzer failure mid-way: no panel, a readable error, the copy kept for next time', async () => {

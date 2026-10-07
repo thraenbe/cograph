@@ -66,6 +66,13 @@ export interface TreeMarker {
   createdAt: number;
   lastUsedAt: number;
   refs?: TreeRef[];
+  /**
+   * Fingerprint of every copied file (path, size, mtime) taken right after the
+   * copy. A tree whose fingerprint no longer matches was written to by someone —
+   * an editor save into the copy — and is discarded, never reused: a copy of a
+   * commit that is not that commit any more must not be shown as its head.
+   */
+  fingerprint?: string;
 }
 
 export interface MaterializedTree {
@@ -221,6 +228,35 @@ function mergeRefs(have: TreeRef[] | undefined, add: TreeRef[]): TreeRef[] {
   return [...out.values()];
 }
 
+/** The analysis cache a provider writes under the copy is not part of the copy. */
+const NOT_CONTENT = new Set([MARKER, '.cograph']);
+
+/** sha1 over (relative path, size, mtime) of every file in the tree, in a fixed order. */
+export function fingerprintTree(dir: string): string {
+  const entries: string[] = [];
+  const walk = (d: string, rel: string) => {
+    let list: fs.Dirent[];
+    try { list = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of list) {
+      if (!rel && NOT_CONTENT.has(e.name)) { continue; }
+      const p = path.join(d, e.name);
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { walk(p, r); }
+      else if (e.isFile()) {
+        try { const st = fs.statSync(p); entries.push(`${r}\0${st.size}\0${Math.floor(st.mtimeMs)}`); } catch { entries.push(`${r}\0?`); }
+      }
+    }
+  };
+  walk(dir, '');
+  entries.sort();
+  return crypto.createHash('sha1').update(entries.join('\n')).digest('hex');
+}
+
+/** True when the copy still holds exactly what was copied. A marker without a fingerprint never passes. */
+export function treeIntact(dir: string, marker: TreeMarker): boolean {
+  return !!marker.fingerprint && fingerprintTree(dir) === marker.fingerprint;
+}
+
 function readMarker(dir: string): TreeMarker | null {
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(dir, MARKER), 'utf8')) as Partial<TreeMarker>;
@@ -265,11 +301,12 @@ export async function materializeCommit(deps: HeadTreeDeps, sha: string, refs: T
   const dir = treeDir(deps, sha);
   const now = deps.now?.() ?? Date.now();
   const existing = readMarker(dir);
-  if (existing) {
+  if (existing && treeIntact(dir, existing)) {
     writeMarker(dir, { ...existing, lastUsedAt: now, refs: mergeRefs(existing.refs, refs) });
     deps.log?.(`[vcs] tree ${sha.slice(0, 7)} reused (${existing.files} files)`);
     return { dir, sha, files: existing.files, bytes: existing.bytes, reused: true };
   }
+  if (existing) { deps.log?.(`[vcs] tree ${sha.slice(0, 7)} was modified since it was copied: discarded, copying afresh`); }
 
   const files = await listFiles(deps, sha);
   if (files.length > MAX_TREE_FILES) {
@@ -298,7 +335,10 @@ export async function materializeCommit(deps: HeadTreeDeps, sha: string, refs: T
     fs.rmSync(indexFile, { force: true });
   }
   const bytes = dirBytes(dir);
-  writeMarker(dir, { sha, repoRoot: deps.repoRoot, files: files.length, bytes, createdAt: now, lastUsedAt: now, refs: mergeRefs([], refs) });
+  writeMarker(dir, {
+    sha, repoRoot: deps.repoRoot, files: files.length, bytes, createdAt: now, lastUsedAt: now,
+    refs: mergeRefs([], refs), fingerprint: fingerprintTree(dir),
+  });
   deps.log?.(`[vcs] tree ${sha.slice(0, 7)} materialised: ${files.length} files, ${Math.round(bytes / 1024)} KB`);
   return { dir, sha, files: files.length, bytes, reused: false };
 }
@@ -377,13 +417,13 @@ export async function evictTrees(storageDir: string, budget: TreeBudget = DEFAUL
   return removed;
 }
 
-/** Remove every tree and, with an `exec`, the refs each was fetched through (the "clear" command). Returns bytes freed. */
-export async function clearTrees(storageDir: string, exec?: Exec, log?: (line: string) => void): Promise<number> {
+/** Remove every tree and, with an `exec`, the refs each was fetched through (the "clear" command). */
+export async function clearTrees(storageDir: string, exec?: Exec, log?: (line: string) => void): Promise<{ trees: number; bytes: number }> {
   const trees = listTrees(storageDir);
   const bytes = trees.reduce((n, t) => n + t.marker.bytes, 0);
   if (exec) { for (const t of trees) { await dropTreeRefs(t.marker, exec, log); } }
   fs.rmSync(storageDir, { recursive: true, force: true });
-  return bytes;
+  return { trees: trees.length, bytes };
 }
 
 /** Delete every `refs/cograph/*` ref of a repository (what "clear" leaves nothing of). Returns the names deleted. */

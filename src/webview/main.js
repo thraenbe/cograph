@@ -585,6 +585,8 @@ window.addEventListener('message', (event) => {
       inst.textarea.value = message.source;
       inst.textarea.readOnly = false;
       inst.originalSource = message.source;
+      // A pull request's own commit is shown read-only (prView.js): its popups never take edits.
+      if (typeof prViewLockPopups === 'function') { prViewLockPopups(!!(state.prView && state.prView.readOnly)); }
     }
     updateFuncHighlight(inst);
     updateSaveBtn(inst);
@@ -597,6 +599,11 @@ window.addEventListener('message', (event) => {
     state.scopePending = new Set();
     if (typeof applyStructuralFilters === 'function') { applyStructuralFilters(); }
     if (typeof updateFolderPanel === 'function') { updateFolderPanel(); }
+    return;
+  }
+  if (message.type === 'pr-view') {
+    // Pull-request view on / off (prView.js). Like `subgraph`, never persisted here.
+    if (typeof handlePrViewMessage === 'function') { handlePrViewMessage(message); }
     return;
   }
   if (message.type === 'graph') {

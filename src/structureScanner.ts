@@ -1,4 +1,4 @@
-import { walkProjectFiles, gitLsFiles, type GitLister } from './projectScope';
+import { walkProjectFiles, gitLsFiles, isAlwaysSkippedDir, type GitLister } from './projectScope';
 
 /**
  * Cheap, parse-free directory scan that powers the instant file-cluster skeleton.
@@ -69,6 +69,19 @@ function languageOf(name: string): StructureLanguage | null {
   if (exact) { return exact; }
   // The C++ analyzer matches extensions case-insensitively (.CPP, .H); the others do not.
   return EXT_LANGUAGE[ext.toLowerCase()] === 'cpp' ? 'cpp' : null;
+}
+
+/**
+ * Would a file at this root-relative path be part of the project if git tracked it there?
+ * The same rule as the walk (projectScope, F30): a supported source extension and no
+ * always-skipped directory on the way. A build-output directory counts, because the
+ * question is asked about files git tracks — a pull request's files, or a commit's.
+ */
+export function isAnalyzablePath(relPath: string): boolean {
+  const segs = splitSegments(relPath);
+  if (segs.length === 0) { return false; }
+  const name = segs[segs.length - 1];
+  return languageOf(name) !== null && !segs.slice(0, -1).some(isAlwaysSkippedDir);
 }
 
 /** Every supported source file of the project under `root` (parse-free), by projectScope's rule. */

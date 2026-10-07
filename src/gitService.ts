@@ -16,11 +16,29 @@ interface GraphNode {
   libraryName?: string;
 }
 
-type FileStatus = { unstaged: 'added'|'modified'|'deleted'|null; staged: 'added'|'modified'|'deleted'|null };
+export type FileStatus = { unstaged: 'added'|'modified'|'deleted'|null; staged: 'added'|'modified'|'deleted'|null };
+export type LineHunk = { start: number; end: number; isNew: boolean };
+
+/**
+ * Statuses that replace the working tree's while set (a pull-request view): both
+ * maps are keyed by forward-slash absolute path, like `fileStatuses`. A file with
+ * a status but no hunks is coloured as a whole; its functions stay neutral.
+ */
+export interface GitStatusOverride {
+  files: Map<string, FileStatus>;
+  hunks: Map<string, LineHunk[]>;
+}
 
 export class GitService {
   /** File-level git status from the most recent applyGitStatuses() call, keyed by forward-slash absolute path. */
   fileStatuses: Record<string, FileStatus> = {};
+
+  private override: GitStatusOverride | null = null;
+
+  /** While an override is set, applyGitStatuses* annotate from it and never run git. */
+  setOverride(override: GitStatusOverride | null): void {
+    this.override = override;
+  }
 
   parseGitStatus(workspaceRoot: string): Map<string, { unstaged: 'added'|'modified'|'deleted'|null; staged: 'added'|'modified'|'deleted'|null }> | null {
     try {
@@ -167,6 +185,10 @@ export class GitService {
   }
 
   applyGitStatuses(nodes: GraphNode[], workspaceRoot: string): boolean {
+    if (this.override) {
+      this.annotateNodes(nodes, this.override.files, this.override.hunks, new Map());
+      return true;
+    }
     const gitMap = this.parseGitStatus(workspaceRoot);
     if (gitMap === null) { this.fileStatuses = {}; return false; }
     this.annotateNodes(nodes, gitMap,
@@ -179,6 +201,7 @@ export class GitService {
    * the three git subprocesses run in parallel off the extension-host thread.
    */
   async applyGitStatusesAsync(nodes: GraphNode[], workspaceRoot: string): Promise<boolean> {
+    if (this.override) { return this.applyGitStatuses(nodes, workspaceRoot); }
     const run = (args: string[]): Promise<string> => new Promise((resolve, reject) => {
       cp.execFile('git', args, {
         cwd: workspaceRoot, timeout: 5000, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
@@ -196,6 +219,8 @@ export class GitService {
       run(['diff', '--unified=0']).catch(() => ''),
       run(['diff', '--unified=0', '--cached']).catch(() => ''),
     ]);
+    // An override set while git was running wins: its statuses must not be painted over.
+    if (this.override) { return this.applyGitStatuses(nodes, workspaceRoot); }
     this.annotateNodes(nodes, this.parseStatusOutput(statusOut, workspaceRoot),
       this.parseDiffOutput(unstaged, workspaceRoot), this.parseDiffOutput(staged, workspaceRoot));
     return true;

@@ -27,6 +27,7 @@ import {
   filterGraph, filterFileStatuses, filterFiles, graphForFiles, buildSubgraphMessage, readSubgraphField,
 } from './subgraphScope';
 import type { Scope, ScopeSpec, ScopeSource } from './subgraphScope';
+import type { PrGraphView } from './vcs/prController';
 
 /**
  * Per-node annotations produced by the AI Workflow Graph generation. All fields
@@ -135,12 +136,15 @@ export class GraphProvider {
    * (the cache file is unscoped); only what is posted to the webview is filtered.
    */
   private scope: Scope = NO_SCOPE;
+  /** Set while a pull-request view (src/vcs) is on screen: what to go back to, and its webview message. */
+  private prView: { view: PrGraphView; back: { scope: Scope; title: string; savedGraphPath: string | undefined; dirty: boolean } } | undefined;
+  private readonly prListeners = new Set<(active: number | null) => void>();
   /** True while a background analysis (first full pass or cache reconcile) is still filling the graph. */
   private backgroundParsing = false;
   private readonly analysisIdleListeners = new Set<() => void>();
   /** AI folder/file summaries for the hover card; kept out of GraphData and graph-patch. */
   private readonly annotations = new AnnotationService({
-    getRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    getRoot: () => this.workspaceRoot() || undefined,
     getStructure: () => this.currentStructure,
     getGraph: () => this.cachedGraph,
     post: (msg) => { this.panel?.webview.postMessage(msg); },
@@ -169,8 +173,34 @@ export class GraphProvider {
     return this._outputChannel;
   }
 
-  constructor(context: vscode.ExtensionContext) {
+  /**
+   * A provider bound to a directory other than the workspace (a pull request's
+   * materialised head, src/vcs/engine): it analyses, caches and scopes under that
+   * root exactly as it would under the workspace, and writes nothing else —
+   * no source edits, no saved graphs, no re-parse on workspace saves.
+   */
+  private readonly rootOverride: string | undefined;
+  private readonly readOnly: boolean;
+  private readonly baseTitle: string;
+  /** How a read-only provider opens a file: as a document of a read-only scheme (src/vcs/prDocuments). */
+  private readonly readOnlyUri: ((file: string) => vscode.Uri) | undefined;
+  /** A panel that exists for one pull request: leaving the PR view closes it, there is nothing to go back to. */
+  private readonly closeOnLeave: boolean;
+  /** Why a read-only provider refuses a write — the caller knows what the panel shows. */
+  private readonly readOnlyWhy: string | undefined;
+
+  constructor(context: vscode.ExtensionContext, opts: {
+    root?: string; readOnly?: boolean; title?: string; readOnlyUri?: (file: string) => vscode.Uri; closeOnLeave?: boolean;
+    readOnlyReason?: string; outputChannel?: vscode.OutputChannel;
+  } = {}) {
     this.context = context;
+    this.rootOverride = opts.root;
+    this.readOnly = !!opts.readOnly;
+    this.baseTitle = opts.title ?? 'CoGraph';
+    this.readOnlyUri = opts.readOnlyUri;
+    this.closeOnLeave = !!opts.closeOnLeave;
+    this.readOnlyWhy = opts.readOnlyReason;
+    this._outputChannel = opts.outputChannel; // shared by every pull-request panel: not one "CoGraph" channel per PR
     this.analyzerRunner = new AnalyzerRunner(
       context,
       (msg) => this.showError(msg),
@@ -194,7 +224,7 @@ export class GraphProvider {
   }
 
   show() {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) {
       vscode.window.showErrorMessage('CoGraph: No workspace folder open.');
       return;
@@ -207,7 +237,7 @@ export class GraphProvider {
 
     this.panel = vscode.window.createWebviewPanel(
       'cograph',
-      'CoGraph',
+      this.baseTitle,
       vscode.ViewColumn.Beside,
       {
         enableScripts: true,
@@ -227,7 +257,8 @@ export class GraphProvider {
       }, 300);
     };
 
-    const saveListener = vscode.workspace.onDidSaveTextDocument(doc => {
+    // A read-only provider shows a tree nobody edits: a workspace save must not re-analyse it.
+    const saveListener = this.readOnly ? { dispose: () => undefined } : vscode.workspace.onDidSaveTextDocument(doc => {
       if (vscode.workspace.getWorkspaceFolder(doc.uri)) {
         scheduleRefresh();
         if (doc.uri.fsPath.endsWith('.py') ||
@@ -257,11 +288,13 @@ export class GraphProvider {
       }
     });
 
-    const gitIndexWatcher = vscode.workspace.createFileSystemWatcher(
+    const gitIndexWatcher = this.readOnly ? { dispose: () => undefined } : vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(vscode.Uri.file(workspaceRoot), '.git/index')
     );
-    gitIndexWatcher.onDidChange(scheduleRefresh);
-    gitIndexWatcher.onDidCreate(scheduleRefresh);
+    if ('onDidChange' in gitIndexWatcher) {
+      gitIndexWatcher.onDidChange(scheduleRefresh);
+      gitIndexWatcher.onDidCreate(scheduleRefresh);
+    }
 
     this.panel.onDidDispose(() => {
       this.panel = undefined;
@@ -282,6 +315,7 @@ export class GraphProvider {
       this.intelController?.abort();
       this.currentSavedGraphPath = undefined;
       this.scope = NO_SCOPE;
+      if (this.prView) { this.leavePullRequest(NO_SCOPE, false); }
     });
 
     this.panel.webview.onDidReceiveMessage(async (message) => {
@@ -346,6 +380,10 @@ export class GraphProvider {
         }
       } else if (message.type === 'save-func-source') {
         const { file, line, newSource, original, reqId } = message;
+        if (this.readOnly) {
+          this.panel?.webview.postMessage({ type: 'func-source-saved', reqId, ok: false, reason: this.readOnlyReason() });
+          return;
+        }
         // The popup waits for this answer (funcSave.js) and keeps the edit on a refusal.
         const reply = (m: object) => this.panel?.webview.postMessage({ type: 'func-source-saved', reqId, ...m });
         try {
@@ -365,7 +403,9 @@ export class GraphProvider {
             reply({ ok: false, reason, current: found?.source, line: found?.line });
           }
         }
-      } else if (message.type === 'request-rename-folder') {
+      } else if (message.type === 'request-rename-folder' || message.type === 'request-new-file') {
+        if (this.readOnly) { vscode.window.showInformationMessage(`CoGraph: ${this.readOnlyReason()}`); return; }
+        if (message.type === 'request-new-file') { await this.createFileIn(workspaceRoot, String(message.folderPath ?? '')); return; }
         const { folderPath } = message;
         const newName = await vscode.window.showInputBox({
           prompt: 'Rename folder',
@@ -377,19 +417,6 @@ export class GraphProvider {
           await vscode.workspace.fs.rename(vscode.Uri.file(folderPath), newFolderUri);
           this.analyzerRunner.scheduleReanalysis(workspaceRoot);
         }
-      } else if (message.type === 'request-new-file') {
-        const { folderPath } = message;
-        const fileName = await vscode.window.showInputBox({
-          prompt: 'New file name',
-          placeHolder: 'e.g. utils.py',
-          validateInput: v => v.trim() ? null : 'Name cannot be empty',
-        });
-        if (fileName?.trim()) {
-          const fileUri = vscode.Uri.file(path.join(folderPath, fileName.trim()));
-          await vscode.workspace.fs.writeFile(fileUri, new Uint8Array());
-          await vscode.window.showTextDocument(fileUri);
-          this.analyzerRunner.scheduleReanalysis(workspaceRoot);
-        }
       } else if (message.type === 'perf-report') {
         // Local-only instrumentation (cograph.debug.perfLog) — see src/webview/perf.js.
         this.outputChannel.appendLine(`[perf] ${JSON.stringify(message.report)}`);
@@ -397,7 +424,7 @@ export class GraphProvider {
         // Structured webview diagnostics (e.g. simulation workers falling back).
         this.outputChannel.appendLine(`[webview] ${JSON.stringify(message.entry)}`);
       } else if (message.type === 'dirty-state') {
-        this.setDirty(!!message.dirty);
+        if (!this.readOnly) { this.setDirty(!!message.dirty); } // a read-only view is never "unsaved"
       } else if (message.type === 'retry-analysis') {
         // Triggered from the empty-state Retry button: re-run as a fresh initial
         // load (with backoff) so a transient/unready failure can recover.
@@ -428,6 +455,11 @@ export class GraphProvider {
         // from the save-graph handler.
         await vscode.commands.executeCommand('cograph.savedGraphs.focus');
       } else if (message.type === 'save-graph') {
+        if (this.readOnly) { vscode.window.showInformationMessage(`CoGraph: ${this.readOnlyReason()}`); return; }
+        if (this.prView) {
+          vscode.window.showInformationMessage('CoGraph: A pull-request view is not saved — it follows the pull request. Leave it to save a layout.');
+          return;
+        }
         const isSaveAs = message.mode === 'save-as' || !this.currentSavedGraphPath;
         let targetPath: string;
         let name: string;
@@ -684,7 +716,7 @@ export class GraphProvider {
    * per-node git-blame introduction timestamps once available.
    */
   openTimeline(savedGraphFile: string, name: string): void {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) {
       vscode.window.showErrorMessage('CoGraph: No workspace folder open.');
       return;
@@ -912,6 +944,7 @@ export class GraphProvider {
     this.readyGate.arm();
     // `subgraph` goes first so the webview's first frame build is already scoped (no flash of the whole project).
     this.readyGate.post(this.subgraphMessage(this.workspaceRoot()));
+    if (this.prView) { this.readyGate.post(this.prView.view.message); } // before `structure`: the first build opens the PR's folders
     for (const m of messages) { this.readyGate.post(this.scoped(m)); }
   }
 
@@ -1052,11 +1085,39 @@ export class GraphProvider {
   }
 
   private async navigateTo(file: string, line: number) {
-    const doc = await vscode.workspace.openTextDocument(file);
+    // A read-only provider's files open as read-only documents, by construction — never as the
+    // writable file on disk, which would look exactly like the user's own.
+    const doc = this.readOnly && this.readOnlyUri
+      ? await vscode.workspace.openTextDocument(this.readOnlyUri(file))
+      : await vscode.workspace.openTextDocument(file);
     const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
     const position = new vscode.Position(line - 1, 0);
     editor.selection = new vscode.Selection(position, position);
     editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+  }
+
+  /** The "New File" folder action (the body it had inline before read-only providers existed). */
+  private async createFileIn(workspaceRoot: string, folderPath: string): Promise<void> {
+    const fileName = await vscode.window.showInputBox({
+      prompt: 'New file name',
+      placeHolder: 'e.g. utils.py',
+      validateInput: v => v.trim() ? null : 'Name cannot be empty',
+    });
+    if (fileName?.trim()) {
+      const fileUri = vscode.Uri.file(path.join(folderPath, fileName.trim()));
+      await vscode.workspace.fs.writeFile(fileUri, new Uint8Array());
+      await vscode.window.showTextDocument(fileUri);
+      this.analyzerRunner.scheduleReanalysis(workspaceRoot);
+    }
+  }
+
+  private readOnlyReason(): string {
+    return this.readOnlyWhy ?? `${this.baseTitle} is read-only.`;
+  }
+
+  /** Close the panel (a pull-request head panel is closed when another one opens). */
+  close(): void {
+    this.panel?.dispose();
   }
 
   // ── Graph Intelligence ────────────────────────────────────────────────────
@@ -1112,6 +1173,7 @@ export class GraphProvider {
     const normalized = normalizeWorkflowModel(mergeWorkflowAnnotations(base, result.graph));
     this.cachedGraph = normalized;
     this.cachedNodes = normalized.nodes.filter(n => !n.isLibrary);
+    if (this.prView) { this.leavePullRequest(this.prView.back.scope, false); } // only now: a failed run leaves the PR view as it was
     this.postGraphData(normalized, workspaceRoot);
     this.setPanelTitle('Workflow');
     return { graph: normalized, text: result.text, sessionId: result.sessionId };
@@ -1119,13 +1181,14 @@ export class GraphProvider {
 
   /** Render a previously-generated workflow graph (its own annotated nodes/edges). */
   async showWorkflowGraph(graph: GraphData, filePath: string, name: string): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) { throw new Error('No workspace folder open.'); }
     if (!this.panel) { this.show(); }
     if (!this.panel) { throw new Error('Failed to open graph panel.'); }
     await this.waitForGraphReady();
     this.cachedGraph = graph;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
+    if (this.prView) { this.leavePullRequest(this.prView.back.scope, false); } // the workflow graph replaces the PR view
     this.postGraphData(graph, workspaceRoot);
     // Do not target the workflow file for "Save Layout" — a positions-only save
     // would drop the annotated graph. Saving becomes Save-As (a normal layout).
@@ -1142,7 +1205,7 @@ export class GraphProvider {
     sessionId: string | null,
     onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
   ): Promise<{ result: GraphIntelligenceResult; workspaceRoot: string }> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.workspaceRoot();
     if (!workspaceRoot) { throw new Error('No workspace folder open.'); }
 
     if (!this.panel) { this.show(); }
@@ -1244,6 +1307,8 @@ export class GraphProvider {
    * a lazy parse for files the cache does not have yet).
    */
   setScope(next: Scope, parseTag?: string): void {
+    // Anything that replaces a pull-request view (a saved graph, "Only visualize folder") ends it first.
+    if (this.prView && next.source !== 'pr') { this.leavePullRequest(next, false); return; }
     const prev = this.scope;
     this.scope = next;
     const root = this.workspaceRoot();
@@ -1289,22 +1354,105 @@ export class GraphProvider {
 
   /** `subgraph-exit`: back to the whole project; like New Graph, without a reload. */
   private exitScope(): void {
+    if (this.prView) { this.exitPullRequest(); return; }
     if (!hasScope(this.scope)) { return; }
     this.setScope(NO_SCOPE);
     this.currentSavedGraphPath = undefined;
     this.isDirty = false;
-    this.setPanelTitle('CoGraph');
+    this.setPanelTitle(this.baseTitle);
     this._sidebar?.setCurrentGraph(null);
+  }
+
+  // ── Pull-request view (src/vcs) ───────────────────────────────────────────
+
+  activePullRequest(): number | null { return this.prView?.view.number ?? null; }
+
+  onPullRequestChange(listener: (active: number | null) => void): { dispose(): void } {
+    this.prListeners.add(listener);
+    return { dispose: () => this.prListeners.delete(listener) };
+  }
+
+  /**
+   * Show a pull request: its statuses replace the working tree's, its folders are
+   * opened, and the panel gets a transient 'pr' scope whose exit restores what was
+   * there before. Returns false when no panel could be opened.
+   */
+  showPullRequest(view: PrGraphView): boolean {
+    const back = this.prView?.back
+      ?? { scope: this.scope, title: this.getCleanTitle(), savedGraphPath: this.currentSavedGraphPath, dirty: this.isDirty };
+    const scope: Scope = { spec: view.spec, source: 'pr', name: view.name };
+    // The webview takes read-only from the host: the panel decides, not the kind of tree.
+    view = { ...view, message: { ...view.message, readOnly: this.readOnly } };
+    this.gitService.setOverride(view.override);
+    this.prView = { view, back };
+    if (!this.panel) {
+      this.scope = scope;
+      this.show(); // loadGraphHtml queues subgraph, pr-view, then structure / graph
+      if (!this.panel) { this.prView = undefined; this.gitService.setOverride(null); this.scope = NO_SCOPE; return false; }
+    } else {
+      this.panel.reveal();
+      // pr-view first: the webview snapshots the layout it will restore before the scope changes it.
+      this.panel.webview.postMessage(view.message);
+      this.gitService.applyGitStatuses(this.cachedGraph?.nodes ?? [], this.workspaceRoot());
+      this.setScope(scope);
+      this.postAllGitStatuses();
+    }
+    this.currentSavedGraphPath = undefined;
+    this.isDirty = false;
+    this.setPanelTitle(view.name);
+    this._sidebar?.setCurrentGraph(null);
+    for (const listener of [...this.prListeners]) { listener(view.number); }
+    return true;
+  }
+
+  /** Back to exactly what the panel showed before the pull request — or, for a panel that is the pull request, close it. */
+  exitPullRequest(): void {
+    const back = this.prView?.back;
+    if (!back) { return; }
+    if (this.closeOnLeave) { this.panel?.dispose(); return; } // onDidDispose ends the PR view and tells the listeners
+    this.leavePullRequest(back.scope, true);
+    if (!this.panel) { return; }
+    this.currentSavedGraphPath = back.savedGraphPath;
+    this.isDirty = back.dirty;
+    this.setPanelTitle(back.title);
+    this._sidebar?.setCurrentGraph(back.savedGraphPath ? { name: back.title, file: back.savedGraphPath } : null);
+  }
+
+  /** End the PR view and move to `next`; `restore` asks the webview to bring its snapshot back. */
+  private leavePullRequest(next: Scope, restore: boolean): void {
+    this.prView = undefined;
+    this.gitService.setOverride(null);
+    if (this.panel) {
+      const root = this.workspaceRoot();
+      this.gitService.applyGitStatuses(this.cachedGraph?.nodes ?? [], root);
+      this.setScope(next);
+      this.postAllGitStatuses();
+      this.panel.webview.postMessage({
+        type: 'pr-view', active: false, restore,
+        fileGitStatus: filterFileStatuses(this.gitService.fileStatuses, next.spec, root),
+      });
+    } else {
+      this.scope = next;
+    }
+    for (const listener of [...this.prListeners]) { listener(null); }
+  }
+
+  /** Push every cached node's (already applied) git status; resets the delta baseline. */
+  private postAllGitStatuses(): void {
+    if (!this.panel) { return; }
+    this.rememberSentGitStatus(this.cachedNodes);
+    this.panel.webview.postMessage(this.scopedGitUpdate(this.cachedNodes));
   }
 
   private scopeTitle(): string {
     if (this.scope.name) { return this.scope.name; }
     if (this.scope.source === 'folder') { return `${path.basename(this.scope.spec.include[0] ?? '') || 'root'} · scoped`; }
-    return 'CoGraph';
+    return this.baseTitle;
   }
 
+  /** The directory this provider analyses: the workspace, or the root it was built for. */
   private workspaceRoot(): string {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    return this.rootOverride ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
   }
 
   private subgraphMessage(root: string) {

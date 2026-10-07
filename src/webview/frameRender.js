@@ -1297,6 +1297,7 @@ function renderFrameSlots(f, sub) {
       const st = fgs ? (fgs.unstaged ?? fgs.staged) : null;
       if (st === 'added') { color = '#4caf50'; changed = true; }
       else if (st === 'modified') { color = '#ff9800'; changed = true; }
+      else if (st === 'deleted' && typeof gitDeletedColor === 'function') { color = gitDeletedColor(); changed = true; }
     }
     grp.select('.file-slot-shape')
       .attr('x', d.x).attr('y', d.y).attr('width', d.w).attr('height', d.h)

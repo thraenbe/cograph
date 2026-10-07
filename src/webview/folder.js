@@ -340,6 +340,7 @@ function tickFileCircles(vis, onlyFiles) {
       const s = fgs ? (fgs.unstaged ?? fgs.staged) : null;
       if (s === 'added')    { displayColor = '#4caf50'; fileChanged = true; }
       else if (s === 'modified') { displayColor = '#ff9800'; fileChanged = true; }
+      else if (s === 'deleted')  { displayColor = gitDeletedColor(); fileChanged = true; }   // global from colors.js
     }
     const strokeWidth = fileChanged ? 12 : 1.5;
     const points = d.nodes
@@ -805,7 +806,7 @@ function hideContextMenu() {
 // ── Module export guard (for Node.js tests) ───────────────────────────────────
 if (typeof module !== 'undefined') {
   module.exports = {
-    tickFolderOverlay, groupByFile, buildFolderTree, computeFolderHues,
+    tickFolderOverlay, tickFileCircles, groupByFile, buildFolderTree, computeFolderHues,
     folderFillColor, folderStrokeColor, folderTitlebarColor,
     renderFileCircles, renderFolderBubbles, createFileClusterForce,
     createFolderSeparationForce, createFileDrag, createFolderDrag, createFolderResizeDrag,

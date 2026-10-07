@@ -48,6 +48,7 @@ toolbar to toggle overlays.
 - **Save Layout** — persist node positions to `.cograph/<name>.json`; reopen the same graph and pick up where you left off.
 - **Subgraphs** — visualize part of the project. **CoGraph: Only visualize folder…** (command palette) opens one folder and its subfolders; **⊂ Create new Subgraph** in the sidebar opens an explorer-like picker to choose several folders and saves them as a subgraph next to your layouts. Folders left out stay listed under FILTERS in the Folder panel, where one click brings them in; Save keeps the scope with the layout.
 - **Open Chat** — focus the Cograph activity-bar view with the active graph already selected.
+- **Version Control** — the sidebar lists the repository's pull requests (through the GitHub CLI and your own sign-in). Click one and CoGraph fetches the pull request's own commit and opens it in a read-only panel: every folder that leads to a changed file is open, the rest are closed, and the changed files are green (added), orange (modified) or red (deleted). The panel title and banner say which tree you are looking at; when the head cannot be fetched you can show the pull request in your current checkout instead.
 - **Hover card** — rest the pointer on a folder or file to see its path, size and languages, plus its AI summary once generated.
 - **Hide what you do not need** — right-click a folder or a file for **Hide** or **Show only this one**: it leaves the layout entirely and the remaining folders close the gap. Every hide is listed under **FILTERS** in the Folder panel and is reversible one by one or with **Show all**, and hides are saved with the layout.
 - **Forces box** — the left toolbar shows only the forces the current engine uses, with a **show more forces** expander for the advanced ones. Under Static motion it explains that forces are off instead of showing dead sliders.
@@ -97,6 +98,7 @@ On VS Code 1.101 and later, agent mode (Copilot) sees CoGraph without any setup.
 - **TypeScript / JavaScript projects:** Node.js — no additional configuration needed
 - **Java projects:** no extra runtime — the analyzer ships with a pure-JS parser
 - **C++ projects:** no extra runtime — the analyzer ships with a tree-sitter WebAssembly grammar
+- **Pull requests in the sidebar (optional):** the [GitHub CLI](https://cli.github.com/) (`gh`), signed in with `gh auth login`
 
 ## Usage
 

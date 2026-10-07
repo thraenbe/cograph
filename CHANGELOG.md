@@ -49,6 +49,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declarations without a body, and Python triple-quoted strings, bracket continuations and
   low-indent comments.
 
+### Removed
+- **Chat.** The sidebar Chat is gone. It handed the whole graph to the Claude Code / Codex
+  CLI as one file, and above roughly 300 functions the CLI refused to read that file, so on
+  most real repositories Chat returned empty answers (measured on axios, requests, socket.io,
+  gson and CoGraph itself). Your saved conversations are not deleted: they stay in
+  `.cograph/chats/`, and CoGraph says so once. The AI Workflow Graph and Annotate Graph are
+  unchanged, and so are all `cograph.graphIntelligence.*` settings.
+
+### Added
+- **Version Control: pull requests that open as a graph.** The sidebar's top pane lists the
+  repository's pull requests (number, title, author, branches, check status, files changed),
+  with an **Open | All** switch, a filter box once the list is long, and **Show more** for
+  repositories with hundreds of them. Click a pull request and the graph shows it: every
+  folder on a path to a changed file is opened, every other folder is closed, and the changed
+  files are coloured green (added), orange (modified) or red (deleted). **Leave** in the
+  banner, or **Leave pull request** in the sidebar, puts back the graph you had before -
+  scope, open folders, detail level and frame positions.
+  - The list comes from the GitHub CLI (`gh`) with your own sign-in; CoGraph stores no token.
+    Not a git repository, no remote, a remote that is not GitHub, `gh` missing or signed out,
+    no access and no connection each show as one readable line with a Retry.
+  - **The graph is the pull request's own commit.** CoGraph fetches the PR head into a
+    namespaced ref (`refs/cograph/pr/N`, your branches and index untouched), copies only its
+    source files under the extension's storage, and opens them in a second, read-only panel
+    titled `PR #69 · head 23834be`, with its own cache so the same head reopens instantly.
+    Copies are kept within a budget of 6 trees / 400 MB; **CoGraph: Clear pull-request trees**
+    empties it.
+  - **Colours come from a structural diff against the merge base**, not from line numbers:
+    CoGraph fetches the base branch, finds the merge base (what GitHub diffs against), analyses
+    both trees and compares function by function — a function is "changed" when its source
+    text differs, "added" when the base lacks it. The banner says `+35 ~13 −0 functions ·
+    31 callers affected`; the sidebar lists the functions the pull request removes together
+    with who called them in the base (they have no node in the head, so this list is the only
+    place they appear), and counts the call edges that appear and vanish. Both analyses are
+    cached under their copies, so the same pull request reopens in the time of the two fetches.
+    When the base cannot be fetched the head is still shown, coloured from the pull request's
+    file list, and the sidebar says so.
+  - When the head cannot be fetched (offline, no git, too large, no access) the row says why
+    and offers **Show in the current checkout instead**: your working tree, coloured with the
+    pull request's changes, in a panel of its own as well — clicking a pull request always
+    opens a new panel and never takes over your graph; **Leave** closes it. There a modified
+    file is coloured function by function only when your copy is byte-for-byte the pull
+    request's version; otherwise the file is coloured as a whole, and the banner says so. The
+    banner and the panel title always say which tree you are looking at: `PR commit 23834be`
+    or `your checkout · main`.
+  - Files the pull request removes, and files that are not source code, are counted and
+    listed in the sidebar rather than dropped silently.
+  - A pull-request view is not saved: it follows the pull request.
+  - New setting `cograph.pullRequests.unchangedFolders` (`collapse` | `hide`, default
+    `collapse`): keep untouched folders in the picture, closed, or take them out of the view
+    and list them under FILTERS.
+
 ### Fixed
 - **"Show only this file" while zoomed in no longer leaves a blank canvas.** When a Hide,
   Only show or subgraph change moves everything out of the current view, the view now fits

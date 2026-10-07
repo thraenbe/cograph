@@ -41,6 +41,7 @@
     "onView:cograph.savedGraphs",
     "onCommand:cograph.annotateGraph",
     "onCommand:cograph.visualizeFolder",
+    "onCommand:cograph.clearPullRequestTrees",
     "onCommand:cograph.connectAgent",
     "onMcpCollection:cograph"
   ],
@@ -96,6 +97,10 @@
       {
         "command": "cograph.visualizeFolder",
         "title": "CoGraph: Only visualize folder…"
+      },
+      {
+        "command": "cograph.clearPullRequestTrees",
+        "title": "CoGraph: Clear pull-request trees"
       },
       {
         "command": "cograph.connectAgent",
@@ -308,6 +313,19 @@
           "default": 2,
           "minimum": 0.05,
           "description": "Spend cap (USD) for one whole Annotate Graph run. The run stops before the next batch once this is reached and keeps what is done. Not enforceable with Codex, which reports no cost."
+        },
+        "cograph.pullRequests.unchangedFolders": {
+          "type": "string",
+          "enum": [
+            "collapse",
+            "hide"
+          ],
+          "enumDescriptions": [
+            "Collapse: folders the pull request does not touch stay in the graph, closed.",
+            "Hide: only the folders that contain changed files are shown; the rest are listed under Filters."
+          ],
+          "default": "collapse",
+          "description": "What a pull request opened from the Version Control view does with folders it does not change."
         }
       }
     }

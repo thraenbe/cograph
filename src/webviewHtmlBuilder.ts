@@ -389,7 +389,6 @@ export function getWebviewHtml(
       <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
     </div>
     <div id="panel-actions" class="tl-panel">
-      <button id="btn-open-chat" class="tl-btn" title="Open chat with this graph selected">Open Chat</button>
       <button id="btn-save-graph" class="tl-btn" title="Save graph layout">Save Layout</button>
     </div>
   </div>

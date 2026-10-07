@@ -449,11 +449,6 @@ export class GraphProvider {
       } else if (message.type === 'get-annotations') {
         // The hover card asks once it has loaded, so this can never race `graph`/`structure`.
         this.annotations.refresh();
-      } else if (message.type === 'open-chat') {
-        // Focuses the Cograph activity-bar view. The current graph context is
-        // already up-to-date — setCurrentGraph is invoked from loadGraph and
-        // from the save-graph handler.
-        await vscode.commands.executeCommand('cograph.savedGraphs.focus');
       } else if (message.type === 'save-graph') {
         if (this.readOnly) { vscode.window.showInformationMessage(`CoGraph: ${this.readOnlyReason()}`); return; }
         if (this.prView) {

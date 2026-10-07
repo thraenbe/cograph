@@ -81,7 +81,6 @@ export const SEL = {
   forceRepelRange: { css: '#slider-repel-range', optional: true, note: 'ux 7b539b5: Global only, 100-2000 px, slider max = unlimited (shown as ∞, default)' },
 
   // actions
-  openChat: { css: '#btn-open-chat' },
   saveGraph: { css: '#btn-save-graph' },
 
   // settings (gear) panel

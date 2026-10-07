@@ -72,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.cograph/chats/`, and CoGraph says so once. The AI Workflow Graph and Annotate Graph are
   unchanged, and so are all `cograph.graphIntelligence.*` settings.
 
+- **The "Open Chat" button** in the graph view. With Chat gone it only focused the CoGraph
+  sidebar, which the activity-bar icon already does.
 ### Fixed
 - **Saving from the function popup no longer writes over the wrong lines.** A popup
   remembered the line its function started at when it opened, and Save wrote its text back

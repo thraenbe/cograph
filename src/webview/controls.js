@@ -532,10 +532,6 @@ document.getElementById('btn-save-graph')?.addEventListener('click', () => {
   });
 });
 
-document.getElementById('btn-open-chat')?.addEventListener('click', () => {
-  vscode.postMessage({ type: 'open-chat' });
-});
-
 window.addEventListener('message', (event) => {
   const msg = event.data;
   if (msg && msg.type === 'save-request') {

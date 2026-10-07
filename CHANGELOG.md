@@ -58,6 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New setting `cograph.pullRequests.unchangedFolders` (`collapse` | `hide`, default
     `collapse`): keep untouched folders in the picture, closed, or take them out of the view
     and list them under FILTERS.
+- **Hover a function to see its definition.** Rest the pointer on a function for about half a
+  second and a card shows its signature, its docstring or doc comment, who calls it and what it
+  calls, and the first 8 lines of its code. Clicking still opens the editable source popup as
+  before, and the card stays away while that popup is open. Moving across functions does not
+  open cards, and each function's source is read only once (until the graph changes).
 
 ### Changed
 - **"Show only this file" now removes the other folders**, the same way "Show only this

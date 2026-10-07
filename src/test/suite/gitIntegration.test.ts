@@ -507,6 +507,26 @@ suite('Message Handling', () => {
     assert.ok(!msg.error, 'error should not be set');
   });
 
+  test('get-func-source with maxLines (hover peek) → funcBrief fields, no colorize; errors as a value', () => {
+    const { fakePanel } = setupProvider();
+    const filePath = path.join(tmpDir, 'peek.py');
+    fs.writeFileSync(filePath, 'def hello(name):\n    """Greet someone."""\n' + Array.from({ length: 20 }, (_, i) => `    x${i} = ${i}`).join('\n') + '\n');
+    fakePanel.sendMessage({ type: 'get-func-source', file: filePath, line: 1, maxLines: 8, reqId: 'hc-1' });
+    const msg = fakePanel.webview.postMessage.firstCall.args[0];
+    assert.strictEqual(msg.type, 'func-source');
+    assert.strictEqual(msg.reqId, 'hc-1');
+    assert.strictEqual(msg.signature, 'def hello(name)');
+    assert.strictEqual(msg.doc, 'Greet someone.');
+    assert.strictEqual(msg.body.split('\n').length, 8);
+    assert.strictEqual(msg.totalLines, 23);
+    assert.strictEqual(msg.endReason, 'maxLines');
+    assert.strictEqual(msg.colorizedHtml, undefined, 'the card highlights itself');
+    fakePanel.sendMessage({ type: 'get-func-source', file: path.join(tmpDir, 'gone.py'), line: 1, maxLines: 8, reqId: 'hc-2' });
+    const err = fakePanel.webview.postMessage.secondCall.args[0];
+    assert.strictEqual(err.reqId, 'hc-2');
+    assert.ok(/could not read/.test(err.error));
+  });
+
   test('get-func-source for non-existent file → posts func-source with error', () => {
     const { fakePanel } = setupProvider();
 

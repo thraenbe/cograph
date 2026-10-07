@@ -217,6 +217,7 @@ export function getWebviewHtml(
   const prViewUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'prView.js'));
 
   const scopeFitUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'scopeFit.js'));
+  const funcCardUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'funcCard.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
 
@@ -534,6 +535,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${prViewUri}?v=${nonce}"></script>
 
   <script nonce="${nonce}" src="${scopeFitUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${funcCardUri}?v=${nonce}"></script>
 </body>
 </html>`;
 }

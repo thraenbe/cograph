@@ -12,6 +12,7 @@ import { loadCache, scheduleCacheWrite, type CacheLoadResult } from './cacheStor
 import { WebviewReadyGate } from './webviewReadyGate';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource, relocateFuncSource } from './sourceEditor';
+import { readFuncSlice } from './funcBrief';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
 import type { SidebarProvider } from './sidebarProvider';
 import { createProvider, getProviderInfo } from './graphIntelligence/provider';
@@ -348,6 +349,14 @@ export class GraphProvider {
           .then(description => {
             this.panel?.webview.postMessage({ type: 'lib-description', description, reqId });
           });
+      } else if (message.type === 'get-func-source' && typeof message.maxLines === 'number') {
+        // Hover card peek (U3): signature, doc and the first body lines via funcBrief, no colorize.
+        const { file, line, reqId, maxLines } = message;
+        const r = readFuncSlice(file, (p) => fs.readFileSync(p, 'utf8'), { startLine: line, maxLines: Math.max(1, Math.min(80, maxLines)) });
+        this.panel?.webview.postMessage(r.ok
+          ? { type: 'func-source', reqId, source: r.source, signature: r.signature, doc: r.doc, body: r.body,
+            endLine: r.endLine, totalLines: r.totalLines, endReason: r.endReason }
+          : { type: 'func-source', reqId, source: '', error: r.error });
       } else if (message.type === 'get-func-source') {
         const { file, line, reqId } = message;
         try {

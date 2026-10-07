@@ -65,8 +65,12 @@ function prViewTreeLabel(tree) {
   return { text: `your checkout${branch}`, cls: 'checkout', title: 'This is the code in your working tree, coloured with what the pull request changes. Files the pull request adds or removes that your checkout does not have are listed in the sidebar.' };
 }
 
-/** One line for the banner: how much of the PR the graph shows, and how exactly. */
-function prViewSummary(counts) {
+/** One line for the banner: the structural diff when there is one, else how much of the PR the graph shows. */
+function prViewSummary(counts, diff) {
+  if (diff) {
+    const bits = [`+${diff.added || 0}`, `~${diff.changed || 0}`, `−${diff.removed || 0}`];
+    return { text: `${bits.join(' ')} functions · ${diff.callersAffected || 0} caller${diff.callersAffected === 1 ? '' : 's'} affected`, warn: false };
+  }
   const c = counts || {};
   const total = c.total || 0;
   if (!c.inGraph) {
@@ -155,7 +159,7 @@ function prViewRenderBanner() {
   tree.className = 'pr-tree ' + treeLabel.cls;
   tree.textContent = treeLabel.text;
   tree.title = treeLabel.title;
-  const summary = prViewSummary(pv.counts);
+  const summary = prViewSummary(pv.counts, pv.diff);
   const sub = document.createElement('span');
   sub.className = 'pr-sub' + (summary.warn ? ' warn' : '');
   sub.textContent = summary.text;
@@ -191,6 +195,7 @@ function prViewEnter(message) {
     expand: Array.isArray(message.expand) ? message.expand : [],
     counts: message.counts || {},
     tree: message.tree || { kind: 'checkout', branch: '' },
+    diff: message.diff || null,
     // Going from one pull request to the next keeps what was there before the first.
     snapshot: previous ? previous.snapshot : prViewSnapshot(),
     prevGitMode: previous ? previous.prevGitMode : state.gitMode,

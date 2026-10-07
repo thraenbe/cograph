@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { loadCache, writeCache } from '../../cacheStore';
 import type { GraphData } from '../../graphProvider';
 import { scanStructure } from '../../structureScanner';
 import type { StructureTree } from '../../structureScanner';
@@ -25,6 +26,20 @@ export async function analyzeTree(root: string, analyzer: TreeAnalyzer, sha?: st
   const tree = scanStructure(root);
   const graph = await analyzer(root, signal);
   return { root, sha, tree, graph };
+}
+
+/**
+ * Like analyzeTree, through the graph's own cache file under `<root>/.cograph`:
+ * a materialised commit never changes, so its second analysis is a read. The
+ * same file is what a GraphProvider opened on that root paints from.
+ */
+export async function analyzeTreeCached(root: string, analyzer: TreeAnalyzer, sha?: string, signal?: AbortSignal): Promise<AnalyzedTree & { cached: boolean }> {
+  const tree = scanStructure(root);
+  const hit = loadCache(root, tree);
+  if (hit?.valid) { return { root, sha, tree, graph: hit.graph, cached: true }; }
+  const graph = await analyzer(root, signal);
+  writeCache(root, graph, tree);
+  return { root, sha, tree, graph, cached: false };
 }
 
 /** Repository-relative POSIX path of an absolute path under `root`; null outside it. */

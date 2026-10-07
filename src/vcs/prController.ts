@@ -3,8 +3,13 @@ import * as path from 'path';
 import type { FileStatus, GitStatusOverride } from '../gitService';
 import type { StructureTree } from '../structureScanner';
 import type { ScopeSpec } from '../subgraphScope';
-import { DEFAULT_BUDGET, HeadTreeError, evictTrees, fetchPullRequestHead, githubRemote, materializeCommit } from './engine/headTree';
+import { statusesFromDiff } from './engine/diffStatuses';
+import { diffGraphs } from './engine/graphDiff';
+import type { StructuralDiff } from './engine/graphDiff';
+import { DEFAULT_BUDGET, HeadTreeError, evictTrees, fetchBranch, fetchPullRequestHead, githubRemote, materializeCommit, mergeBase } from './engine/headTree';
 import type { TreeBudget } from './engine/headTree';
+import { analyzeTreeCached } from './engine/treeAnalysis';
+import type { AnalyzedTree, TreeAnalyzer } from './engine/treeAnalysis';
 import { defaultExec } from './ghCliSource';
 import type { Exec } from './ghCliSource';
 import { buildPrView, gitBlobSha, prViewName } from './prView';
@@ -26,6 +31,8 @@ export interface PrViewMessage {
   headRef: string;
   baseRef: string;
   tree: PrTree;
+  /** Present when the colours come from the structural diff against the merge base. */
+  diff?: StructuralDiff['summary'];
   /** Structure-tree folder paths to open; everything else is closed. */
   expand: string[];
   /** The PR's file statuses, keyed like `fileGitStatus` everywhere else. */
@@ -76,7 +83,26 @@ export interface PrControllerDeps {
   budget?: TreeBudget;
   /** Fetch + copy a PR head (the engine by default; tests hand in a directory of their own). */
   materializeHead?: MaterializeHead;
+  /** Fetch the base branch, find the merge base with the head, copy it (the engine by default). */
+  materializeBase?: MaterializeBase;
+  /** Analyses a directory; without it the head is coloured from the PR's file list, not a diff. */
+  analyzer?: TreeAnalyzer;
 }
+
+export type MaterializeBase = (opts: {
+  repoRoot: string; storageDir: string; baseRef: string; headSha: string; exec: Exec; log: (line: string) => void;
+  report: (message: string) => void; signal: AbortSignal;
+}) => Promise<{ sha: string; dir: string }>;
+
+export const materializeBaseWithGit: MaterializeBase = async ({ repoRoot, storageDir, baseRef, headSha, exec, log, report, signal }) => {
+  const treeDeps = { repoRoot, storageDir, exec, log, signal };
+  report('fetching its base…');
+  const remote = await githubRemote(treeDeps);
+  const tip = await fetchBranch(treeDeps, baseRef, remote);
+  const sha = await mergeBase(treeDeps, headSha, tip);
+  const copied = await materializeCommit(treeDeps, sha);
+  return { sha, dir: copied.dir };
+};
 
 export type MaterializeHead = (opts: {
   repoRoot: string; storageDir: string; prNumber: number; exec: Exec; log: (line: string) => void;
@@ -93,6 +119,17 @@ export const materializeHeadWithGit: MaterializeHead = async ({ repoRoot, storag
   return { sha, dir: copied.dir };
 };
 
+/** What the sidebar shows of the structural diff. */
+export interface PrDiffDetail {
+  summary: StructuralDiff['summary'];
+  base: string;
+  /** Functions the PR removes, with who called them in the base (the list is cut at MAX_REMOVED). */
+  removed: Array<{ key: string; callers: string[] }>;
+  removedCut: boolean;
+}
+
+export const MAX_REMOVED = 50;
+
 export interface PrOpened {
   number: number;
   tree: PrTree;
@@ -100,6 +137,7 @@ export interface PrOpened {
   files: PrViewFile[];
   /** The source stopped before the PR's last file. */
   truncated: boolean;
+  diff?: PrDiffDetail;
 }
 
 export type PrOpenResult = { ok: true; opened: PrOpened } | { ok: false; problem: PrProblem };
@@ -130,7 +168,7 @@ export class PrController {
   private readonly blobShaOf: (absPath: string) => string | null;
   private readonly listeners = new Set<(active: number | null) => void>();
   /** The head panel on screen, if any. */
-  private head: { number: number; sha: string; dir: string; graph: PrHeadGraph; sub: { dispose(): void } } | null = null;
+  private head: { number: number; sha: string; dir: string; baseDir?: string; graph: PrHeadGraph; sub: { dispose(): void } } | null = null;
 
   constructor(
     private readonly source: PullRequestSource,
@@ -212,12 +250,17 @@ export class PrController {
     const storageDir = this.deps.storageDir as string;
     const repoRoot = await this.repoRoot(root);
     const progress = this.deps.progress ?? directProgress;
-    let materialised: { sha: string; dir: string };
+    let materialised: { sha: string; dir: string; diff: StructuralDiff | null; baseSha?: string };
     try {
-      materialised = await progress(`Pull request #${pr.number}`, (report, signal) =>
-        (this.deps.materializeHead ?? materializeHeadWithGit)({
-          repoRoot, storageDir, prNumber: pr.number, exec: this.exec, log: this.deps.log, report, signal,
-        }));
+      materialised = await progress(`Pull request #${pr.number}`, async (report, signal) => {
+        const common = { repoRoot, storageDir, exec: this.exec, log: this.deps.log, report, signal };
+        const head = await (this.deps.materializeHead ?? materializeHeadWithGit)({ ...common, prNumber: pr.number });
+        if (!this.deps.analyzer) { return { ...head, diff: null }; }
+        report('analysing the pull request…');
+        const headTree = await analyzeTreeCached(head.dir, this.deps.analyzer, head.sha, signal);
+        const base = await this.baseTree(pr, head.sha, common);
+        return { ...head, diff: base ? diffGraphs(base, headTree) : null, baseSha: base?.sha };
+      });
     } catch (err) {
       if (err instanceof HeadTreeError) {
         this.deps.log(`[vcs] head of #${pr.number} unavailable (${err.kind}): ${err.detail ?? err.message}`);
@@ -228,41 +271,79 @@ export class PrController {
     }
     const fetched = await this.source.files(root, pr.number);
     if (!fetched.ok) { return fetched; }
-    const tree: PrTree = { kind: 'head', sha: materialised.sha };
+    const { diff, baseSha } = materialised;
+    const tree: PrTree = { kind: 'head', sha: materialised.sha, ...(baseSha ? { base: baseSha } : {}) };
     const view = buildPrView({
       pr, files: fetched.files, tree: this.deps.scanStructure(materialised.dir), workspaceRoot: materialised.dir,
       repoRoot: materialised.dir, unchangedFolders: this.deps.unchangedFolders(), blobShaOf: readBlobSha, treeIsHead: true,
     });
+    // With a diff, the colours come from it: one hunk per added / changed function, nothing from patches.
+    if (diff) { view.override = statusesFromDiff(diff, materialised.dir); }
     const headGraph = this.headGraphFor(pr, materialised);
     // After the switch: a head panel that was just closed no longer protects its copy.
-    try { evictTrees(storageDir, this.deps.budget ?? DEFAULT_BUDGET, [materialised.dir]); } catch (err) { this.deps.log(`[vcs] eviction failed: ${(err as Error).message}`); }
-    const shown = headGraph.showPullRequest(this.graphView(pr, tree, view));
+    const protect = [materialised.dir, ...(this.head?.baseDir ? [this.head.baseDir] : [])];
+    try { evictTrees(storageDir, this.deps.budget ?? DEFAULT_BUDGET, protect); } catch (err) { this.deps.log(`[vcs] eviction failed: ${(err as Error).message}`); }
+    const shown = headGraph.showPullRequest(this.graphView(pr, tree, view, diff?.summary));
     if (!shown) { return { ok: false, problem: NO_WORKSPACE }; }
-    this.logCounts(pr, `head ${materialised.sha.slice(0, 7)}`, view.counts);
+    this.logCounts(pr, `head ${materialised.sha.slice(0, 7)}${diff ? ` vs base ${baseSha?.slice(0, 7)}: +${diff.summary.added} ~${diff.summary.changed} -${diff.summary.removed} functions` : ''}`, view.counts);
     this.emit();
-    return { ok: true, opened: { number: pr.number, tree, counts: view.counts, files: view.files, truncated: fetched.truncated } };
+    const removed = diff ? diff.impact.filter(i => i.kind === 'removed') : [];
+    return {
+      ok: true,
+      opened: {
+        number: pr.number, tree, counts: view.counts, files: view.files, truncated: fetched.truncated,
+        ...(diff && baseSha ? { diff: {
+          summary: diff.summary, base: baseSha,
+          removed: removed.slice(0, MAX_REMOVED).map(i => ({ key: i.key, callers: i.callers })),
+          removedCut: removed.length > MAX_REMOVED,
+        } } : {}),
+      },
+    };
   }
+
+  /** The merge base, materialised and analysed; null (logged) when it cannot be had — the head is still shown. */
+  private async baseTree(pr: PullRequest, headSha: string, common: {
+    repoRoot: string; storageDir: string; exec: Exec; log: (line: string) => void; report: (m: string) => void; signal: AbortSignal;
+  }): Promise<AnalyzedTree | null> {
+    if (!pr.baseRef) { return null; }
+    try {
+      const base = await (this.deps.materializeBase ?? materializeBaseWithGit)({ ...common, baseRef: pr.baseRef, headSha });
+      common.report('analysing the base…');
+      const analysed = await analyzeTreeCached(base.dir, this.deps.analyzer as TreeAnalyzer, base.sha, common.signal);
+      this.pendingBaseDir = base.dir;
+      return analysed;
+    } catch (err) {
+      if (err instanceof HeadTreeError && err.kind === 'cancelled') { throw err; }
+      this.deps.log(`[vcs] base of #${pr.number} unavailable, colouring from the PR's file list: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  private pendingBaseDir: string | undefined;
 
   /** One head panel at a time: the same commit's panel is reused, any other is closed first. */
   private headGraphFor(pr: PullRequest, m: { sha: string; dir: string }): PrHeadGraph {
+    const baseDir = this.pendingBaseDir;
+    this.pendingBaseDir = undefined;
     if (this.head && this.head.sha === m.sha && this.head.graph.isOpen()) {
       this.head.number = pr.number;
+      this.head.baseDir = baseDir;
       return this.head.graph;
     }
     if (this.head) { this.head.sub.dispose(); this.head.graph.close(); }
     const graph = (this.deps.createHeadGraph as NonNullable<PrControllerDeps['createHeadGraph']>)(m.dir, `PR #${pr.number} · head ${m.sha.slice(0, 7)}`);
     const sub = graph.onPullRequestChange(() => this.emit());
-    this.head = { number: pr.number, sha: m.sha, dir: m.dir, graph, sub };
+    this.head = { number: pr.number, sha: m.sha, dir: m.dir, baseDir, graph, sub };
     return graph;
   }
 
-  private graphView(pr: PullRequest, tree: PrTree, view: ReturnType<typeof buildPrView>): PrGraphView {
+  private graphView(pr: PullRequest, tree: PrTree, view: ReturnType<typeof buildPrView>, diff?: StructuralDiff['summary']): PrGraphView {
     const name = prViewName(pr, tree);
     return {
       number: pr.number, name, spec: view.spec, override: view.override,
       message: {
         type: 'pr-view', active: true, number: pr.number, name, title: pr.title, headRef: pr.headRef, baseRef: pr.baseRef,
-        tree, expand: view.expand, fileGitStatus: Object.fromEntries(view.override.files), counts: view.counts,
+        tree, ...(diff ? { diff } : {}), expand: view.expand, fileGitStatus: Object.fromEntries(view.override.files), counts: view.counts,
       },
     };
   }

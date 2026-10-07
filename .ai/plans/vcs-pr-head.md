@@ -250,6 +250,23 @@ The PR head copy is unaffected (it copies by the analyzers' rule, `analyzerKeeps
 its file list; `analyzerKeepsPath` then becomes a call into that rule, and the head-vs-checkout
 regression test is the thing that will say when the two have drifted.
 
+## Outcome (2026-10-07) — steps 1–4 built
+
+Built as designed. Measured on PR #69 of this repository, real `gh`, git and analyzers: first open
+6.0 s (fetch the head 1.3 s, copy 236 files, analyse 1.2 s, fetch the base 1.4 s, analyse 1.4 s,
+diff), second open 3.3 s (both analyses from the copies' caches; the two fetches stay, a PR head
+moves). Diff of #69 against its merge base 1fc1156: 35 functions added, 13 changed, 0 removed, 56
+call edges added, 10 removed, 31 callers affected — the changed list names `GraphProvider.
+saveFuncSource` and `sourceEditor.getFuncSource`, which is what that PR did.
+
+Full suite in VS Code 1.116: 1 368 passing. Not verified: a click-through in a real VS Code window
+(session-181), Windows and macOS (CI), a GitHub Enterprise host, a fork PR whose base repository
+is not the fetch remote.
+
+Review notes for the engine boundary: `src/vcs/engine/*` imports `fs`, `path`, `crypto`, the
+`cacheStore` and `structureScanner` modules (both vscode-free) and types; `headAnalyzer.ts` and
+`extension.ts` are the only files that know about `AnalyzerRunner` and `vscode.window.withProgress`.
+
 ## Not in this plan
 
 Ghost nodes for removed functions, workspace annotations mapped onto the head, a vscode-free

@@ -1,5 +1,5 @@
 import type { PrController } from './prController';
-import type { PrTree } from './prController';
+import type { PrDiffDetail, PrTree } from './prController';
 import type { PrViewCounts, PrViewFile } from './prView';
 import type { PrProblem, PrProblemKind, PrStateFilter, PullRequest } from './types';
 
@@ -11,6 +11,7 @@ const MAX_DETAIL_FILES = 300;
 export interface VcsDetail {
   number: number;
   tree: PrTree;
+  diff?: PrDiffDetail;
   counts: PrViewCounts;
   files: PrViewFile[];
   /** More files exist than `files` lists. */
@@ -161,6 +162,7 @@ export class VcsSidebar {
       const { counts, files, truncated } = result.opened;
       this.detail = {
         number: pr.number, tree: result.opened.tree, counts,
+        ...(result.opened.diff ? { diff: result.opened.diff } : {}),
         files: files.slice(0, MAX_DETAIL_FILES),
         filesCut: truncated || files.length > MAX_DETAIL_FILES,
       };

@@ -11,6 +11,7 @@ import { GhCliSource } from './vcs/ghCliSource';
 import { PrController } from './vcs/prController';
 import { VcsSidebar } from './vcs/vcsSidebar';
 import { clearTrees, evictTrees } from './vcs/engine/headTree';
+import { createTreeAnalyzer } from './vcs/headAnalyzer';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
@@ -34,6 +35,7 @@ export function activate(context: vscode.ExtensionContext) {
     storageDir: treeStorage,
     // The PR's own commit gets a provider of its own: same engine, another root, nothing writable.
     createHeadGraph: treeStorage ? (root, title) => new GraphProvider(context, { root, readOnly: true, title }) : undefined,
+    analyzer: createTreeAnalyzer(context, (line) => vcsLog.appendLine(line)),
     progress: (title, task) => Promise.resolve(vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title, cancellable: true },
       (p, token) => {

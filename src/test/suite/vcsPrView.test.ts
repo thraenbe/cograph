@@ -402,6 +402,7 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
   const fakeHead = (sha: string): MaterializeHead => async ({ storageDir, report }) => {
     report('fetching'); report('copying');
     const dir = path.join(storageDir, 'repo', sha);
+    if (fs.existsSync(path.join(dir, '.cograph-tree.json'))) { return { sha, dir }; } // reused, like the engine
     fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'src', 'main.ts'), 'export function main() { return 2; }\n');
     fs.writeFileSync(path.join(dir, 'src', 'fresh.ts'), 'export function fresh() {}\n');
@@ -496,6 +497,80 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
     materialize = async () => { throw new HeadTreeError('cancelled', 'Cancelled.'); };
     await sidebar.handle({ type: 'vcs-open', number: 70 });
     assert.deepStrictEqual([last().openProblem!.problem.message, last().openProblem!.problem.fallback], ['Cancelled.', undefined]);
+  });
+
+  test('with an analyzer and a base: colours come from the structural diff, the sidebar gets removed functions with callers', async () => {
+    // Graphs by directory: the head has main() changed and fresh() added; the base also had gone(), called by main.
+    const graphOf = (dir: string) => {
+      const n = (file: string, name: string, line: number) => ({ id: `${path.join(dir, file)}::${name}::${line}`, name, file: path.join(dir, file), line });
+      const isHead = dir.includes(SHA_A) || dir.includes(SHA_B);
+      const main = n('src/main.ts', 'main', 1);
+      return isHead
+        ? { nodes: [main, n('src/fresh.ts', 'fresh', 1)], edges: [{ source: main.id, target: n('src/fresh.ts', 'fresh', 1).id }], files: [main.file, path.join(dir, 'src/fresh.ts')] }
+        : { nodes: [main, n('src/gone.ts', 'gone', 1)], edges: [{ source: main.id, target: n('src/gone.ts', 'gone', 1).id }], files: [main.file, path.join(dir, 'src/gone.ts')] };
+    };
+    const analysed: string[] = [];
+    const controller = new PrController(source, main, {
+      workspaceRoot: () => root, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
+      exec: async () => ({ code: 0, stdout: '\n', stderr: '', notFound: false }),
+      storageDir: storage,
+      createHeadGraph: (r, title) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph }); return graph as PrHeadGraph; },
+      progress: async (title, task) => { progress.push(title); return task((m) => progress.push(m), new AbortController().signal); },
+      materializeHead: (opts) => materialize(opts),
+      materializeBase: async ({ storageDir, report, baseRef, headSha }) => {
+        report(`base ${baseRef} of ${headSha.slice(0, 7)}`);
+        const dir = path.join(storageDir, 'repo', 'c'.repeat(40));
+        if (fs.existsSync(path.join(dir, 'src'))) { return { sha: 'c'.repeat(40), dir }; }
+        fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'main.ts'), 'export function main() { return gone(); }\n');
+        fs.writeFileSync(path.join(dir, 'src', 'gone.ts'), 'export function gone() {}\n');
+        return { sha: 'c'.repeat(40), dir };
+      },
+      analyzer: async (dir) => { analysed.push(path.basename(dir)); return graphOf(dir) as any; },
+    });
+    const sb = new VcsSidebar(controller, { openExternal: () => undefined, openTerminal: () => undefined });
+    const seen: VcsStateMessage[] = [];
+    sb.attach((m) => seen.push(m));
+    await sb.handle({ type: 'vcs-ready' });
+    await sb.handle({ type: 'vcs-open', number: 69 });
+    assert.deepStrictEqual(progress, ['Pull request #69', 'fetching', 'copying', 'analysing the pull request…', 'base main of aaaaaaa', 'analysing the base…']);
+    assert.deepStrictEqual(analysed, [SHA_A, 'c'.repeat(40)]);
+    const view = heads[0].graph.shown[0];
+    assert.deepStrictEqual(view.message.tree, { kind: 'head', sha: SHA_A, base: 'c'.repeat(40) });
+    assert.deepStrictEqual(view.message.diff, { added: 1, removed: 1, changed: 1, moved: 0, edgesAdded: 1, edgesRemoved: 1, callersAffected: 1 });
+    const fwd = (rel: string) => path.join(heads[0].root, ...rel.split('/')).replace(/\\/g, '/');
+    assert.deepStrictEqual(Object.fromEntries(view.override.files), {
+      [fwd('src/main.ts')]: { unstaged: 'modified', staged: null },
+      [fwd('src/fresh.ts')]: { unstaged: 'added', staged: null },
+    }, 'colours from the diff: main changed, fresh new');
+    assert.deepStrictEqual(view.override.hunks.get(fwd('src/main.ts')), [{ start: 1, end: 1, isNew: false }]);
+    const detail = seen[seen.length - 1].detail!;
+    assert.deepStrictEqual(detail.diff, {
+      summary: view.message.diff, base: 'c'.repeat(40),
+      removed: [{ key: 'src/gone.ts::gone', callers: ['src/main.ts::main'] }], removedCut: false,
+    });
+    assert.ok(fs.existsSync(path.join(heads[0].root, '.cograph')), 'the head analysis was cached under the copy for the panel to paint from');
+    // The same head again: both analyses come from the cache, nothing is analysed twice.
+    analysed.length = 0;
+    await sb.handle({ type: 'vcs-open', number: 69 });
+    assert.deepStrictEqual(analysed, []);
+  });
+
+  test('when the base cannot be fetched the head is still shown, coloured from the file list, and says so', async () => {
+    const controller = new PrController(source, main, {
+      workspaceRoot: () => root, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
+      exec: async () => ({ code: 0, stdout: '\n', stderr: '', notFound: false }),
+      storageDir: storage,
+      createHeadGraph: (r, title) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph }); return graph as PrHeadGraph; },
+      materializeHead: (opts) => materialize(opts),
+      materializeBase: async () => { throw new HeadTreeError('offline', 'The remote could not be reached.'); },
+      analyzer: async () => ({ nodes: [], edges: [] }),
+    });
+    const res = await controller.open(PR);
+    assert.ok(res.ok);
+    assert.deepStrictEqual([res.opened.tree, res.opened.diff], [{ kind: 'head', sha: SHA_A }, undefined]);
+    assert.strictEqual(heads[0].graph.shown[0].message.diff, undefined);
+    assert.ok(heads[0].graph.shown[0].override.files.size > 0, 'coloured from the PR\'s files');
   });
 
   test('without storage or a head factory the click is the checkout view', async () => {

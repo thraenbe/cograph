@@ -121,6 +121,15 @@ function vcsDetailLines(detail) {
     lines.push({ text: `${c.other} not shown: the graph has source files only.`, cls: 'dim' });
   }
   if (detail.filesCut) { lines.push({ text: 'The file list is cut short.', cls: 'dim' }); }
+  if (detail.diff) {
+    const s = detail.diff.summary;
+    lines.push({
+      text: `Against the merge base ${String(detail.diff.base).slice(0, 7)}: ${s.added} function${s.added === 1 ? '' : 's'} added, ${s.changed} changed, ${s.removed} removed · ${s.edgesAdded} call${s.edgesAdded === 1 ? '' : 's'} added, ${s.edgesRemoved} removed · ${s.callersAffected} caller${s.callersAffected === 1 ? '' : 's'} affected.`,
+      cls: '',
+    });
+  } else if (detail.tree && detail.tree.kind === 'head') {
+    lines.push({ text: 'The base could not be fetched: coloured from the pull request\'s file list, not a structural diff.', cls: 'warn' });
+  }
   return lines;
 }
 
@@ -203,6 +212,20 @@ function mountVcsPane(doc, mount, post, wire) {
       actions.appendChild(button('vcs-btn', 'Open on GitHub', pr.url, () => post({ type: 'vcs-browse', number: pr.number })));
     }
     box.appendChild(actions);
+    if (detail && detail.diff && detail.diff.removed.length) {
+      // Removed functions have no node in the head: this list is the only place they appear.
+      const removed = el('div', 'vcs-files');
+      removed.appendChild(el('div', 'vcs-line dim', `Removed function${detail.diff.removed.length === 1 ? '' : 's'}${detail.diff.removedCut ? ' (first ' + detail.diff.removed.length + ')' : ''}:`));
+      for (const r of detail.diff.removed) {
+        const row = el('div', 'vcs-file');
+        row.title = r.callers.length ? `Called in the base by:\n${r.callers.join('\n')}` : 'Nothing called it in the base.';
+        row.appendChild(el('span', 'st deleted', 'D'));
+        row.appendChild(el('span', 'p', r.key));
+        row.appendChild(el('span', 'why', r.callers.length ? `${r.callers.length} caller${r.callers.length === 1 ? '' : 's'}` : 'no callers'));
+        removed.appendChild(row);
+      }
+      box.appendChild(removed);
+    }
     if (detail && detail.files.length) {
       const files = el('div', 'vcs-files');
       for (const f of detail.files) {

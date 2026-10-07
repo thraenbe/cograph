@@ -71,6 +71,9 @@ suite('vcs — prView.js (graph webview)', () => {
     const whole = prView.prViewSummary({ total: 13, inGraph: 9, fileLevel: 2 });
     assert.ok(whole.warn && whole.text.includes('2 coloured as whole files'));
     assert.deepStrictEqual(prView.prViewSummary({ total: 1, inGraph: 0 }), { text: 'none of its 1 file is in the graph', warn: true });
+    assert.deepStrictEqual(prView.prViewSummary({ total: 1, inGraph: 0 }, { added: 35, changed: 13, removed: 0, callersAffected: 31 }),
+      { text: '+35 ~13 −0 functions · 31 callers affected', warn: false }, 'a diff outranks the file count');
+    assert.ok(prView.prViewSummary({}, { added: 1, changed: 0, removed: 0, callersAffected: 1 }).text.endsWith('1 caller affected'));
   });
 
   test('entering opens exactly the PR\'s folders, turns git colours on, paints deleted red and shows the banner', () => {
@@ -239,6 +242,11 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
     assert.ok(head[2].text.includes('removed by the pull request'));
     const none = sidebarVcs.vcsDetailLines({ tree: checkout, counts: { total: 1, inGraph: 0, exact: 0, fileLevel: 0, missing: 0, other: 1 } });
     assert.deepStrictEqual([none[1].cls, none.length], ['warn', 3]);
+    const noBase = sidebarVcs.vcsDetailLines({ tree: { kind: 'head', sha: 'abc' }, counts: { total: 1, inGraph: 1, exact: 1, fileLevel: 0, missing: 0, other: 0 } });
+    assert.ok(noBase[noBase.length - 1].text.startsWith('The base could not be fetched') && noBase[noBase.length - 1].cls === 'warn');
+    const withDiff = sidebarVcs.vcsDetailLines({ tree: { kind: 'head', sha: 'abc' }, counts: { total: 1, inGraph: 1, exact: 1, fileLevel: 0, missing: 0, other: 0 },
+      diff: { base: '1fc1156abc', summary: { added: 35, removed: 1, changed: 13, moved: 63, edgesAdded: 56, edgesRemoved: 10, callersAffected: 31 }, removed: [], removedCut: false } });
+    assert.strictEqual(withDiff[withDiff.length - 1].text, 'Against the merge base 1fc1156: 35 functions added, 13 changed, 1 removed · 56 calls added, 10 removed · 31 callers affected.');
   });
 
   test('boot fills the empty primary pane, wires its header and announces itself', () => {
@@ -321,6 +329,23 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
     const [leave, github] = [...card.querySelectorAll('.vcs-actions button')] as HTMLButtonElement[];
     leave.click(); github.click();
     assert.deepStrictEqual(p.posted.slice(1), [{ type: 'vcs-exit' }, { type: 'vcs-browse', number: 69 }], 'neither click re-opens the PR');
+  });
+
+  test('removed functions are listed with their callers — the only place they can appear', () => {
+    const p = sidebarPage();
+    p.send(vcsState({
+      active: 69,
+      detail: {
+        number: 69, tree: { kind: 'head', sha: 'abc1234' }, filesCut: false, counts: { total: 1, inGraph: 1, exact: 1, fileLevel: 0, missing: 0, other: 0 }, files: [],
+        diff: { base: 'def', summary: { added: 0, removed: 2, changed: 0, moved: 0, edgesAdded: 0, edgesRemoved: 1, callersAffected: 1 },
+          removed: [{ key: 'src/util.ts::old', callers: ['src/app.ts::main'] }, { key: 'src/gone.ts::gone', callers: [] }], removedCut: true },
+      },
+    }));
+    const rows = p.all('.vcs-pr.active .vcs-file');
+    assert.deepStrictEqual(rows.map(r => [r.querySelector('.p')!.textContent, r.querySelector('.why')!.textContent]),
+      [['src/util.ts::old', '1 caller'], ['src/gone.ts::gone', 'no callers']]);
+    assert.ok(rows[0].title.includes('src/app.ts::main'));
+    assert.ok(p.all('.vcs-pr.active .vcs-line').some(l => l.textContent!.startsWith('Removed functions (first 2)')));
   });
 
   test('while a PR is opening, cards are busy and further clicks do nothing', () => {

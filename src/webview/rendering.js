@@ -553,8 +553,12 @@ function renderLinks(allLinks, visibleSet, parent = linkG) {
         t.remove();
       }
     })
-    .style('display', d => (visibleSet.has(d.source) && visibleSet.has(d.target)) ? null : 'none');
+    // F27: Shelf hands links whose ends are already node objects (stampLinkRefs);
+    // testing the object against the id set hid every in-frame line.
+    .style('display', d => (visibleSet.has(linkEndId(d.source)) && visibleSet.has(linkEndId(d.target))) ? null : 'none');
 }
+
+function linkEndId(e) { return (e !== null && typeof e === 'object') ? e.id : e; }
 
 function renderNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
   return parent.selectAll('circle.regular-node')

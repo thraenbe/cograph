@@ -230,6 +230,9 @@ class FakeSource implements PullRequestSource {
     return this.listResult;
   }
   async files(_root: string, n: number) { this.filesCalls.push(n); return this.filesResult; }
+  textCalls: Array<[string, string]> = [];
+  textResult: { ok: true; text: string } | { ok: false; problem: { kind: 'error'; message: string } } = { ok: true, text: 'export function fresh() {}\n' };
+  async fileText(_root: string, relPath: string, ref: string) { this.textCalls.push([relPath, ref]); return this.textResult; }
 }
 
 suite('vcs — controller and sidebar host', () => {
@@ -390,7 +393,7 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
   let storage: string;
   let source: FakeSource;
   let main: FakeGraph;
-  let heads: Array<{ root: string; title: string; graph: FakeGraph; kind?: string }>;
+  let heads: Array<{ root: string; title: string; graph: FakeGraph; kind?: string; editorLabel?: string }>;
   let states: VcsStateMessage[];
   let progress: string[];
   let materialize: MaterializeHead;
@@ -428,7 +431,7 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
       log: () => undefined,
       exec: async (_c, args) => ({ code: 0, stdout: args[1] === '--abbrev-ref' ? 'main\n' : '\n', stderr: '', notFound: false }),
       storageDir: storage,
-      createHeadGraph: (r, title, kind) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph, kind }); return graph as PrHeadGraph; },
+      createHeadGraph: (r, title, kind, editorLabel) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph, kind, editorLabel }); return graph as PrHeadGraph; },
       progress: async (title, task) => { progress.push(title); return task((m) => progress.push(m), new AbortController().signal); },
       materializeHead: (opts) => materialize(opts),
       budget: { maxTrees: 1, maxBytes: 10 * 1024 * 1024 },
@@ -635,6 +638,37 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
     assert.deepStrictEqual([res.ok, !res.ok && res.problem.kind, !res.ok && res.problem.detail], [false, 'error', 'Analyzer exited with code 1']);
     assert.strictEqual(heads.length, 0);
     assert.ok(fs.existsSync(path.join(storage, 'repo', SHA_A, '.cograph-tree.json')));
+  });
+
+  test('the editor label says where an opened file comes from: the copy, or the checkout "(not PR #N)"', async () => {
+    await sidebar.handle({ type: 'vcs-ready' });
+    await sidebar.handle({ type: 'vcs-open', number: 69 });
+    await sidebar.handle({ type: 'vcs-open', number: 70, tree: 'checkout' });
+    assert.deepStrictEqual(heads.map(h => h.editorLabel), ['PR #69 · head aaaaaaa', 'your checkout · main (not PR #70)']);
+  });
+
+  test('a file the checkout lacks: the PR\'s own version is fetched at the head commit and shown read-only, only for a listed file', async () => {
+    const shown: Array<[string, string, string]> = [];
+    const controller = new PrController(source, main, {
+      workspaceRoot: () => root, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
+      exec: async (_c, args) => ({ code: 0, stdout: args[1] === '--abbrev-ref' ? 'main\n' : '\n', stderr: '', notFound: false }),
+      createHeadGraph: (r, title, kind, editorLabel) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph, kind, editorLabel }); return graph as PrHeadGraph; },
+      showText: async (label, rel, text) => { shown.push([label, rel, text]); },
+    });
+    const sb = new VcsSidebar(controller, { openExternal: () => undefined, openTerminal: () => undefined });
+    const seen: VcsStateMessage[] = [];
+    sb.attach((m) => seen.push(m));
+    await sb.handle({ type: 'vcs-ready' });
+    await sb.handle({ type: 'vcs-open', number: 69, tree: 'checkout' });
+    await sb.handle({ type: 'vcs-open-file', number: 69, path: 'src/fresh.ts' });
+    assert.deepStrictEqual(source.textCalls, [['src/fresh.ts', 'abc']], 'fetched at the PR\'s head commit');
+    assert.deepStrictEqual(shown, [['PR #69 · head abc', 'src/fresh.ts', 'export function fresh() {}\n']]);
+    await sb.handle({ type: 'vcs-open-file', number: 69, path: '../../etc/passwd' });
+    await sb.handle({ type: 'vcs-open-file', number: 69, path: 'src/not-in-the-pr.ts' });
+    assert.strictEqual(source.textCalls.length, 1, 'a path the PR\'s own list does not name is never fetched');
+    source.textResult = { ok: false, problem: { kind: 'error', message: 'GitHub did not return that file.' } };
+    await sb.handle({ type: 'vcs-open-file', number: 69, path: 'src/fresh.ts' });
+    assert.strictEqual(seen[seen.length - 1].openProblem?.problem.message, 'GitHub did not return that file.');
   });
 
   test('a head panel followed by the checkout fallback: one PR panel at a time, each kind named', async () => {

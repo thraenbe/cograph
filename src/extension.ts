@@ -13,7 +13,7 @@ import { VcsSidebar } from './vcs/vcsSidebar';
 import { clearRepoRefs, clearTrees, evictTrees } from './vcs/engine/headTree';
 import { defaultExec } from './vcs/ghCliSource';
 import { createTreeAnalyzer } from './vcs/headAnalyzer';
-import { prDocumentUri, registerPrDocuments } from './vcs/prDocuments';
+import { prDocumentUri, registerPrDocuments, showPrText } from './vcs/prDocuments';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
@@ -40,10 +40,12 @@ export function activate(context: vscode.ExtensionContext) {
     // A pull request always gets a panel of its own; the user's graph is never taken over. A head
     // panel roots the copy and opens files read-only; a checkout panel roots the workspace and
     // opens the user's real files, but takes no edits itself (a PR view is transient).
-    createHeadGraph: (root, title, kind) => new GraphProvider(context, {
-      root, readOnly: true, title, closeOnLeave: true,
-      ...(kind === 'head' ? { readOnlyUri: (file: string) => prDocumentUri(root, title, file) } : {}),
+    // Both kinds open files as read-only documents labelled with where they come from — the copy, or
+    // the checkout "(not PR #N)" — so no file is ever mistaken for the PR's version or for one to edit.
+    createHeadGraph: (root, title, _kind, editorLabel) => new GraphProvider(context, {
+      root, readOnly: true, title, closeOnLeave: true, readOnlyUri: (file: string) => prDocumentUri(root, editorLabel, file),
     }),
+    showText: showPrText,
     analyzer: createTreeAnalyzer(context, (line) => vcsLog.appendLine(line)),
     progress: (title, task) => Promise.resolve(vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title, cancellable: true },
@@ -54,7 +56,7 @@ export function activate(context: vscode.ExtensionContext) {
       },
     )),
   });
-  if (treeStorage) { context.subscriptions.push(registerPrDocuments(treeStorage)); }
+  context.subscriptions.push(registerPrDocuments([...(treeStorage ? [treeStorage] : []), ...(workspaceRoot ? [workspaceRoot] : [])]));
   const clearTreesCommand = vscode.commands.registerCommand('cograph.clearPullRequestTrees', async () => {
     try {
       const log = (l: string) => vcsLog.appendLine(l);

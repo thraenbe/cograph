@@ -83,7 +83,9 @@ export interface PrControllerDeps {
    * takes over the user's graph. 'head' roots a materialised copy, 'checkout' the workspace.
    * Without it the checkout view falls back to the main panel (hosts without global storage).
    */
-  createHeadGraph?: (root: string, title: string, kind: PrTree['kind']) => PrHeadGraph;
+  createHeadGraph?: (root: string, title: string, kind: PrTree['kind'], editorLabel: string) => PrHeadGraph;
+  /** Show text as a read-only document labelled `<label>/<relPath>` (the PR's version of a file the checkout lacks). */
+  showText?: (label: string, relPath: string, text: string) => Promise<void>;
   progress?: ProgressRunner;
   budget?: TreeBudget;
   /** Fetch + copy a PR head (the engine by default; tests hand in a directory of their own). */
@@ -250,8 +252,11 @@ export class PrController {
       pr, files: fetched.files, tree: this.deps.scanStructure(root), workspaceRoot: root,
       repoRoot: await this.repoRoot(root), unchangedFolders: this.deps.unchangedFolders(), blobShaOf: this.blobShaOf,
     });
-    // Its own panel, like the head: the user's graph is never taken over by a pull request.
-    const graph = this.ownPanels() ? this.panelFor(pr, { sha: 'checkout', dir: root }, 'checkout') : this.graph;
+    // Its own panel, like the head: the user's graph is never taken over by a pull request. Files it
+    // opens are labelled as the checkout's, not the PR's: this panel's colours say what the PR
+    // changes, but the file on disk may not hold that change at all.
+    const editorLabel = `your checkout${tree.branch ? ` · ${tree.branch}` : ''} (not PR #${pr.number})`;
+    const graph = this.ownPanels() ? this.panelFor(pr, { sha: 'checkout', dir: root }, 'checkout', editorLabel) : this.graph;
     const shown = graph.showPullRequest(this.graphView(pr, tree, view));
     if (!shown) { return { ok: false, problem: NO_WORKSPACE }; }
     this.logCounts(pr, 'checkout', view.counts);
@@ -301,7 +306,7 @@ export class PrController {
     });
     // With a diff, the colours come from it: one hunk per added / changed function, nothing from patches.
     if (diff) { view.override = statusesFromDiff(diff, materialised.dir); }
-    const headGraph = this.panelFor(pr, materialised, 'head');
+    const headGraph = this.panelFor(pr, materialised, 'head', prViewName(pr, tree));
     // After the switch: a head panel that was just closed no longer protects its copy.
     const protect = [materialised.dir, ...(this.head?.baseDir ? [this.head.baseDir] : [])];
     try { await evictTrees(storageDir, this.deps.budget ?? DEFAULT_BUDGET, protect, this.exec, this.deps.log); } catch (err) { this.deps.log(`[vcs] eviction failed: ${(err as Error).message}`); }
@@ -345,7 +350,7 @@ export class PrController {
   private pendingBaseDir: string | undefined;
 
   /** One pull-request panel at a time: the same tree's panel is reused, any other is closed first. */
-  private panelFor(pr: PullRequest, m: { sha: string; dir: string }, kind: PrTree['kind']): PrHeadGraph {
+  private panelFor(pr: PullRequest, m: { sha: string; dir: string }, kind: PrTree['kind'], editorLabel: string): PrHeadGraph {
     const baseDir = this.pendingBaseDir;
     this.pendingBaseDir = undefined;
     if (this.head && this.head.sha === m.sha && this.head.graph.isOpen()) {
@@ -355,7 +360,7 @@ export class PrController {
     }
     if (this.head) { this.head.sub.dispose(); this.head.graph.close(); }
     const title = prViewName(pr, kind === 'head' ? { kind, sha: m.sha } : { kind: 'checkout' });
-    const graph = (this.deps.createHeadGraph as NonNullable<PrControllerDeps['createHeadGraph']>)(m.dir, title, kind);
+    const graph = (this.deps.createHeadGraph as NonNullable<PrControllerDeps['createHeadGraph']>)(m.dir, title, kind, editorLabel);
     const sub = graph.onPullRequestChange(() => this.emit());
     this.head = { number: pr.number, sha: m.sha, dir: m.dir, baseDir, graph, sub };
     return graph;
@@ -374,6 +379,21 @@ export class PrController {
 
   private logCounts(pr: PullRequest, where: string, c: PrViewCounts): void {
     this.deps.log(`[vcs] PR #${pr.number} in ${where}: ${c.inGraph}/${c.total} files in graph, ${c.exact} exact, ${c.missing} absent, ${c.other} not shown`);
+  }
+
+  /** The PR's own version of one of its files, read-only (for a file the checkout does not have). */
+  async openPrFile(pr: PullRequest, relPath: string): Promise<PrProblem | null> {
+    const root = this.deps.workspaceRoot();
+    if (!root) { return NO_WORKSPACE; }
+    if (!pr.headOid) { return { kind: 'error', message: 'The pull request\'s head commit is not known.' }; }
+    try {
+      const res = await this.source.fileText(root, relPath, pr.headOid);
+      if (!res.ok) { return res.problem; }
+      await this.deps.showText?.(prViewName(pr, { kind: 'head', sha: pr.headOid }), relPath, res.text);
+      return null;
+    } catch (err) {
+      return this.unexpected(`file ${relPath} of #${pr.number}`, err);
+    }
   }
 
   /** Leave: close the pull-request panel when one is open, otherwise end a checkout view on the main panel. */

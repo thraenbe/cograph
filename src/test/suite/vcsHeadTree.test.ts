@@ -357,13 +357,18 @@ suite('vcs engine — headTree budget and failures', () => {
 
   test('eviction drops the least recently used until count and bytes fit, keeps protected trees, sweeps leftovers', async () => {
     const dirs = ['a', 'b', 'c', 'd'].map((n, i) => fakeTree(n.repeat(40), 100, i + 1)); // a is the oldest
+    const old = new Date(Date.now() - 60 * 60 * 1000);                              // an hour old: a leftover, not a copy in progress
     fs.mkdirSync(path.join(storage, key, 'e'.repeat(40)));                          // half-written: no marker
+    fs.utimesSync(path.join(storage, key, 'e'.repeat(40)), old, old);
     fs.writeFileSync(path.join(storage, key, '.index-stale'), '');
+    fs.utimesSync(path.join(storage, key, '.index-stale'), old, old);
+    fs.mkdirSync(path.join(storage, key, 'f'.repeat(40)));                          // marker-less but fresh: a copy in progress
     const removed = await evictTrees(storage, { maxTrees: 2, maxBytes: 1000 }, [dirs[0]]);
     assert.deepStrictEqual(removed.map(t => t.marker.sha[0]), ['b', 'c'], 'oldest first, the protected one skipped');
     assert.deepStrictEqual(listTrees(storage).map(t => t.marker.sha[0]).sort(), ['a', 'd']);
     assert.ok(!fs.existsSync(path.join(storage, key, 'e'.repeat(40))));
     assert.ok(!fs.existsSync(path.join(storage, key, '.index-stale')));
+    assert.ok(fs.existsSync(path.join(storage, key, 'f'.repeat(40))), 'a copy that may be in progress is left alone');
     const byBytes = await evictTrees(storage, { maxTrees: 10, maxBytes: 150 });
     assert.deepStrictEqual(byBytes.map(t => t.marker.sha[0]), ['a'], 'now the byte limit bites');
   });

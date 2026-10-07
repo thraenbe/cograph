@@ -94,9 +94,13 @@ export interface PrListOptions {
   limit: number;
 }
 
+export type PrTextResult = { ok: true; text: string } | { ok: false; problem: PrProblem };
+
 export interface PullRequestSource {
   /** Short id for logs, e.g. 'gh'. */
   readonly id: string;
   list(root: string, opts: PrListOptions): Promise<PrListResult>;
   files(root: string, prNumber: number): Promise<PrFilesResult>;
+  /** The text of one file at a commit (a PR's version of a file the checkout lacks). */
+  fileText(root: string, relPath: string, ref: string): Promise<PrTextResult>;
 }

@@ -105,7 +105,9 @@ suite('vcs — prView.js (graph webview)', () => {
     p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'head', sha: '23834be0123456789abcdef' } });
     chip = p.doc.querySelector('#pr-view-banner .pr-tree')!;
     assert.deepStrictEqual([chip.textContent, chip.className], ['PR commit 23834be', 'pr-tree head']);
-    assert.ok((chip as HTMLElement).title.includes('read-only'));
+    assert.ok((chip as HTMLElement).title.includes('read-only copies'));
+    p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'checkout', branch: 'main' } });
+    assert.ok((p.doc.querySelector('#pr-view-banner .pr-tree') as HTMLElement).title.includes('your own and editable'), 'the editability difference is said on both sides');
     const css = PR_VIEW_SRC.slice(PR_VIEW_SRC.indexOf('.pr-tree {'), PR_VIEW_SRC.indexOf('.pr-tree::before'));
     assert.ok(!/#4caf50|#ff9800|#e5534b|editorWarning/i.test(css), 'the chip never borrows a status colour');
     p.w.handlePrViewMessage({ ...ENTER, tree: undefined });
@@ -373,6 +375,22 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
       [['src/util.ts::old', '1 caller'], ['src/gone.ts::gone', 'no callers']]);
     assert.ok(rows[0].title.includes('src/app.ts::main'));
     assert.ok(p.all('.vcs-pr.active .vcs-line').some(l => l.textContent!.startsWith('Removed functions (first 2)')));
+  });
+
+  test('a file the checkout lacks offers the PR\'s version; a removed file in a head panel offers nothing', () => {
+    const p = sidebarPage();
+    const counts = { total: 2, inGraph: 0, exact: 0, fileLevel: 0, missing: 2, other: 0 };
+    p.send(vcsState({ active: 69, detail: { number: 69, tree: { kind: 'checkout', branch: 'main' }, filesCut: false, counts,
+      files: [{ path: 'src/new.ts', status: 'added', place: 'missing', exact: false }, { path: 'src/gone.ts', status: 'deleted', place: 'missing', exact: false }] } }));
+    const buttons = p.all('.vcs-file .vcs-mini') as HTMLButtonElement[];
+    assert.strictEqual(buttons.length, 1, 'only the added file has a PR version worth opening');
+    buttons[0].click();
+    assert.deepStrictEqual(p.posted[1], { type: 'vcs-open-file', number: 69, path: 'src/new.ts' });
+    assert.strictEqual(p.all('.vcs-file .why')[0].textContent, 'not in checkout');
+    p.send(vcsState({ active: 69, detail: { number: 69, tree: { kind: 'head', sha: 'abc' }, filesCut: false, counts,
+      files: [{ path: 'src/gone.ts', status: 'deleted', place: 'missing', exact: false }] } }));
+    assert.strictEqual(p.q('.vcs-file .vcs-mini'), null);
+    assert.strictEqual(p.q('.vcs-file .why')!.textContent, 'removed');
   });
 
   test('while a PR is opening, cards are busy and further clicks do nothing', () => {

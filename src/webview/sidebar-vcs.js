@@ -63,6 +63,7 @@ const VCS_CSS = `
   .vcs-file .p { overflow: hidden; text-overflow: ellipsis; }
   .vcs-file.off { color: var(--vscode-descriptionForeground, #888); }
   .vcs-file .why { flex: none; margin-left: auto; font-style: italic; }
+  .vcs-file .vcs-mini { flex: none; margin-left: auto; font-size: 10px; padding: 0 6px; line-height: 16px; }
   .vcs-note { font-size: 11px; color: var(--vscode-descriptionForeground, #888); text-align: center; padding: 10px 4px; line-height: 1.45; }
   .vcs-note .vcs-actions { justify-content: center; }
   .vcs-foot { margin-top: 8px; font-size: 10px; color: var(--vscode-descriptionForeground, #888); display: flex; gap: 8px; align-items: center; }
@@ -233,7 +234,11 @@ function mountVcsPane(doc, mount, post, wire) {
         row.title = f.path;
         row.appendChild(el('span', 'st ' + f.status, VCS_STATUS_LETTER[f.status] || '?'));
         row.appendChild(el('span', 'p', f.path));
-        if (f.place === 'missing') { row.appendChild(el('span', 'why', detail.tree && detail.tree.kind === 'head' ? 'removed' : 'not in checkout')); }
+        if (f.place === 'missing' && !(detail.tree && detail.tree.kind === 'head') && f.status !== 'deleted') {
+          // The checkout lacks it, so no slot can open it: the PR's own version, from GitHub, read-only.
+          row.appendChild(button('vcs-btn vcs-mini', 'view PR version', 'Open the pull request\'s version of this file, read-only',
+            () => post({ type: 'vcs-open-file', number: pr.number, path: f.path })));
+        } else if (f.place === 'missing') { row.appendChild(el('span', 'why', detail.tree && detail.tree.kind === 'head' ? 'removed' : 'not in checkout')); }
         else if (f.place === 'other') { row.appendChild(el('span', 'why', 'not in graph')); }
         else if (!f.exact) { row.appendChild(el('span', 'why', 'whole file')); }
         files.appendChild(row);

@@ -76,10 +76,11 @@ function prViewExpansion(tree, expand) {
 function prViewTreeLabel(tree) {
   if (tree && tree.kind === 'head') {
     const sha = String(tree.sha || '').slice(0, 7);
-    return { text: `PR commit ${sha}`, cls: 'head', title: `This is the pull request's own code at ${tree.sha}${tree.base ? `, compared with ${String(tree.base).slice(0, 7)}` : ''}. It is read-only.` };
+    return { text: `PR commit ${sha}`, cls: 'head', title: `This is the pull request's own code at ${tree.sha}${tree.base ? `, compared with ${String(tree.base).slice(0, 7)}` : ''}. Files you open from here are read-only copies of that commit.` };
   }
   const branch = tree && tree.branch ? ` · ${tree.branch}` : '';
-  return { text: `your checkout${branch}`, cls: 'checkout', title: 'This is the code in your working tree, coloured with what the pull request changes. Files the pull request adds or removes that your checkout does not have are listed in the sidebar.' };
+  // The two panels look alike; this is where the difference that matters is said: what a double-click opens.
+  return { text: `your checkout${branch}`, cls: 'checkout', title: 'This is the code in your working tree, coloured with what the pull request changes. Files you open from here are your own and editable. Files the pull request adds or removes that your checkout does not have are listed in the sidebar.' };
 }
 
 /** One line for the banner: the structural diff when there is one, else how much of the PR the graph shows. */

@@ -121,6 +121,15 @@ export class VcsSidebar {
       case 'vcs-fix':
         if (this.problem) { FIXES[this.problem.kind]?.run(this.deps, this.problem); }
         break;
+      case 'vcs-open-file': {
+        // Only a path the open pull request's own file list names; the webview chooses, never spells.
+        const pr = this.find(Number(msg.number));
+        const file = this.detail?.number === pr?.number ? this.detail?.files.find(f => f.path === msg.path) : undefined;
+        if (!pr || !file) { break; }
+        const problem = await this.controller.openPrFile(pr, file.path);
+        if (problem) { this.openProblem = { number: pr.number, problem }; this.push(); }
+        break;
+      }
     }
     return true;
   }

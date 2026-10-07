@@ -1104,8 +1104,11 @@ export class GraphProvider {
     }
   }
 
+  /** Why a write is refused: a head panel shows a copy, a checkout panel shows the real tree but is a transient view. */
   private readOnlyReason(): string {
-    return `${this.baseTitle} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`;
+    return this.readOnlyUri
+      ? `${this.baseTitle} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`
+      : `${this.baseTitle} is a pull-request view and takes no edits — open the file (double-click) and edit it there.`;
   }
 
   /** Close the panel (a pull-request head panel is closed when another one opens). */

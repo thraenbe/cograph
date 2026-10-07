@@ -1,7 +1,7 @@
 import * as cp from 'child_process';
 import { parsePatchHunks } from './prPatch';
 import type {
-  PrChecks, PrFile, PrFileStatus, PrFilesResult, PrListOptions, PrListResult, PrProblem, PrState,
+  PrChecks, PrFile, PrFileStatus, PrFilesResult, PrListOptions, PrListResult, PrProblem, PrState, PrTextResult,
   PullRequest, PullRequestSource,
 } from './types';
 
@@ -262,6 +262,25 @@ export class GhCliSource implements PullRequestSource {
     }
     const all = (Array.isArray(rows) ? rows : []).map(toPullRequest).filter((p): p is PullRequest => p !== null);
     return { ok: true, pullRequests: all.slice(0, limit), truncated: all.length > limit };
+  }
+
+  /** `repos/{owner}/{repo}/contents/<path>?ref=<sha>`: the only values on the command line are a vetted path and a sha. */
+  async fileText(root: string, relPath: string, ref: string): Promise<PrTextResult> {
+    const bad: PrProblem = { kind: 'error', message: 'That is not a file of this pull request.' };
+    if (!/^[0-9a-f]{7,40}$/.test(ref)) { return { ok: false, problem: bad }; }
+    const segs = relPath.split('/');
+    if (!relPath || relPath.length > 1024 || segs.some(s => !s || s === '.' || s === '..' || /[\\?#%&\x00-\x1f]/.test(s))) { return { ok: false, problem: bad }; }
+    const encoded = segs.map(encodeURIComponent).join('/');
+    const res = await this.exec('gh', ['api', `repos/{owner}/{repo}/contents/${encoded}?ref=${ref}`], root);
+    if (res.code !== 0) { return { ok: false, problem: classifyGhFailure(res, null) }; }
+    try {
+      const body = JSON.parse(res.stdout) as { content?: unknown; encoding?: unknown; type?: unknown };
+      if (body.type !== 'file' || typeof body.content !== 'string') { return { ok: false, problem: { kind: 'error', message: 'GitHub did not return that file.' } } ; }
+      const text = body.encoding === 'base64' ? Buffer.from(body.content, 'base64').toString('utf8') : String(body.content);
+      return { ok: true, text };
+    } catch (err) {
+      return { ok: false, problem: { kind: 'error', message: 'GitHub did not return that file.', detail: (err as Error).message } };
+    }
   }
 
   async files(root: string, prNumber: number): Promise<PrFilesResult> {

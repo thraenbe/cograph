@@ -222,6 +222,22 @@ suite('vcs — GhCliSource', () => {
     assert.deepStrictEqual(calls[0].args, ['api', '--paginate', 'repos/{owner}/{repo}/pulls/69/files?per_page=100']);
   });
 
+  test('fileText: a vetted path and a sha reach the command line; base64 is decoded; bad input never runs gh', async () => {
+    const body = JSON.stringify({ type: 'file', encoding: 'base64', content: Buffer.from('export function x() {}\n').toString('base64') });
+    const { exec, calls } = fakeExec({ 'gh api': ok(body) });
+    const src = new GhCliSource(exec);
+    for (const [p, ref] of [['../x.ts', 'abc1234'], ['src/../x.ts', 'abc1234'], ['/etc/passwd', 'abc1234'], ['src/x.ts', 'HEAD; rm'], ['src/a?b.ts', 'abc1234'], ['', 'abc1234']]) {
+      const r = await src.fileText('/ws', p, ref);
+      assert.strictEqual(r.ok, false, `rejected ${p} @ ${ref}`);
+    }
+    assert.strictEqual(calls.length, 0);
+    const r = await src.fileText('/ws', 'src/some dir/x.ts', '23834bed9fcf43c45b1214d6ee7e5c0d8aba6a18');
+    assert.deepStrictEqual(r, { ok: true, text: 'export function x() {}\n' });
+    assert.deepStrictEqual(calls[0].args, ['api', 'repos/{owner}/{repo}/contents/src/some%20dir/x.ts?ref=23834bed9fcf43c45b1214d6ee7e5c0d8aba6a18']);
+    const dir = new GhCliSource(fakeExec({ 'gh api': ok(JSON.stringify([{ type: 'file' }])) }).exec);
+    assert.strictEqual((await dir.fileText('/ws', 'src', 'abc1234')).ok, false, 'a directory listing is not a file');
+  });
+
   test('files: a failure is classified like any other', async () => {
     const { exec } = fakeExec({ 'gh api': fail('gh: Not Found (HTTP 404)') });
     const res = await new GhCliSource(exec).files('/ws', 7);

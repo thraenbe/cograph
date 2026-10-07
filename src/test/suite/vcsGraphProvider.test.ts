@@ -291,7 +291,8 @@ suite('GraphProvider — a read-only provider on another root (the PR head panel
     panel = makeFakePanel();
     sandbox.stub(vscode.window, 'createWebviewPanel').returns(panel);
     const ctx = { extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as unknown as vscode.ExtensionContext;
-    provider = new GraphProvider(ctx, { root: headDir, readOnly: true, title: 'PR #7 · head abc1234' });
+    // As extension.ts builds a head panel: a read-only root AND the read-only document scheme.
+    provider = new GraphProvider(ctx, { root: headDir, readOnly: true, title: 'PR #7 · head abc1234', readOnlyUri: (file) => prDocumentUri(headDir, 'PR #7 · head abc1234', file) });
     const nodes = [{ id: 'n:head', name: 'head', file: path.join(headDir, 'src', 'head.ts'), line: 1 }];
     writeCache(headDir, { nodes, edges: [], files: nodes.map(n => n.file) } as any, scanStructure(headDir));
   });
@@ -349,10 +350,10 @@ suite('GraphProvider — a read-only provider on another root (the PR head panel
     const uri = opened[0];
     assert.strictEqual(uri.scheme, PR_DOCUMENT_SCHEME, 'not file:// — read-only by construction');
     assert.strictEqual(uri.path, '/PR #7 · head abc1234/src/head.ts', 'the tab\'s hover and description name the panel');
-    assert.strictEqual(prDocumentFile(uri, headDir), path.join(headDir, 'src', 'head.ts'));
-    assert.strictEqual(prDocumentFile(uri, workspace), null, 'a document is served only from under the copies');
-    assert.strictEqual(prDocumentFile(vscode.Uri.parse(`${PR_DOCUMENT_SCHEME}:/x/y.ts?file=${encodeURIComponent(path.join(headDir, '..', 'escape.ts'))}`), headDir), null);
-    const reg = registerPrDocuments(headDir);
+    assert.strictEqual(prDocumentFile(uri, [headDir]), path.join(headDir, 'src', 'head.ts'));
+    assert.strictEqual(prDocumentFile(uri, [workspace]), null, 'a document is served only from under the registered roots');
+    assert.strictEqual(prDocumentFile(vscode.Uri.parse(`${PR_DOCUMENT_SCHEME}:/x/y.ts?file=${encodeURIComponent(path.join(headDir, '..', 'escape.ts'))}`), [headDir]), null);
+    const reg = registerPrDocuments([headDir]);
     reg.dispose();
     ro.close();
   });
@@ -375,6 +376,37 @@ suite('GraphProvider — a read-only provider on another root (the PR head panel
     assert.ok(panel.dispose.calledOnce, 'the panel is closed');
     panel._disposeCallback();                // what VS Code does next
     assert.deepStrictEqual([own.isOpen(), own.activePullRequest(), changes], [false, null, [7, null]]);
+  });
+
+  test('a read-only panel on the WORKSPACE (the checkout view) refuses with a sentence that does not call it a copy', async () => {
+    const ctx = { extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as unknown as vscode.ExtensionContext;
+    const nodes = [{ id: 'n:ws', name: 'ws', file: path.join(workspace, 'src', 'ws.ts'), line: 1 }];
+    writeCache(workspace, { nodes, edges: [], files: nodes.map(n => n.file) } as any, scanStructure(workspace));
+    const co = new GraphProvider(ctx, { root: workspace, readOnly: true, title: 'PR #7 · your checkout', closeOnLeave: true });
+    co.show();
+    onMessage()({ type: 'ready' });
+    await waitFor(() => posted('graph').length > 0);
+    await onMessage()({ type: 'save-func-source', file: path.join(workspace, 'src', 'ws.ts'), line: 1, newSource: 'x', reqId: 1 });
+    const reason: string = posted('func-source-saved')[0].reason;
+    assert.ok(reason.includes('pull-request view') && reason.includes('double-click'), reason);
+    assert.ok(!reason.includes('copy of a commit'), 'the checkout is not a copy');
+    const opened: unknown[] = [];
+    sandbox.stub(vscode.workspace, 'openTextDocument').callsFake((async (u: unknown) => { opened.push(u); return { uri: u } as any; }) as any);
+    sandbox.stub(vscode.window, 'showTextDocument').resolves({ selection: null, revealRange: () => undefined } as any);
+    await onMessage()({ type: 'navigate', file: path.join(workspace, 'src', 'ws.ts'), line: 1 });
+    assert.strictEqual(opened[0], path.join(workspace, 'src', 'ws.ts'), 'without a labelled scheme: the file itself');
+    // As extension.ts builds it: the checkout panel labels what it opens as the checkout's, not the PR's.
+    const labelled = new GraphProvider(ctx, { root: workspace, readOnly: true, title: 'PR #7 · your checkout', closeOnLeave: true,
+      readOnlyUri: (file) => prDocumentUri(workspace, 'your checkout · main (not PR #7)', file) });
+    labelled.show();
+    const second = panel.webview.onDidReceiveMessage.lastCall.args[0];
+    second({ type: 'ready' });
+    await waitFor(() => opened.length >= 1 && posted('graph').length >= 2);
+    await second({ type: 'navigate', file: path.join(workspace, 'src', 'ws.ts'), line: 1 });
+    const u = opened[opened.length - 1] as vscode.Uri;
+    assert.deepStrictEqual([u.scheme, u.path], [PR_DOCUMENT_SCHEME, '/your checkout · main (not PR #7)/src/ws.ts']);
+    assert.strictEqual(prDocumentFile(u, [workspace]), path.join(workspace, 'src', 'ws.ts'));
+    labelled.close();
   });
 
   test('leaving a scope goes back to the tree\'s title, not "CoGraph"; close() disposes the panel', async () => {

@@ -383,6 +383,9 @@ export async function dropTreeRefs(marker: TreeMarker, exec: Exec, log?: (line: 
  * Returns what was removed. Leftovers without a marker (a crashed copy) go too.
  * With an `exec`, each evicted tree's refs go with it.
  */
+/** A marker-less directory younger than this is a copy in progress, not a leftover. */
+const SWEEP_MIN_AGE_MS = 10 * 60 * 1000;
+
 export async function evictTrees(storageDir: string, budget: TreeBudget = DEFAULT_BUDGET, protect: string[] = [], exec?: Exec, log?: (line: string) => void): Promise<StoredTree[]> {
   const keep = new Set(protect.map(p => path.resolve(p)));
   const trees = listTrees(storageDir).sort((a, b) => a.marker.lastUsedAt - b.marker.lastUsedAt);
@@ -408,7 +411,10 @@ export async function evictTrees(storageDir: string, budget: TreeBudget = DEFAUL
     for (const name of entries) {
       const dir = path.join(repoDir, name);
       if (keep.has(path.resolve(dir))) { continue; }
-      if (name.startsWith('.index-') || (fs.statSync(dir).isDirectory() && !readMarker(dir))) {
+      let st: fs.Stats;
+      try { st = fs.statSync(dir); } catch { continue; }
+      const stale = Date.now() - st.mtimeMs > SWEEP_MIN_AGE_MS;
+      if ((name.startsWith('.index-') || (st.isDirectory() && !readMarker(dir))) && stale) {
         fs.rmSync(dir, { recursive: true, force: true });
       }
     }

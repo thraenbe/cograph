@@ -180,7 +180,19 @@ def _method_name(node: ast.expr) -> str | None:
     return node.attr
 
 
-SKIP_DIR_NAMES = frozenset({'node_modules', 'out', 'dist', '__pycache__'})
+def _load_skip_dirs():
+    """The standalone-walk side of the project rule (F30), from skipDirs.json next to this file.
+    The extension passes the structure scanner's file list (--files) instead of relying on it."""
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'skipDirs.json'), encoding='utf-8') as fh:
+        cfg = json.load(fh)
+    return frozenset(cfg['alwaysSkip']) | frozenset(cfg['artefact']), tuple(cfg['artefactPrefixes'])
+
+
+SKIP_DIR_NAMES, SKIP_DIR_PREFIXES = _load_skip_dirs()
+
+
+def _is_skipped_dir(name: str) -> bool:
+    return name.startswith('.') or name in SKIP_DIR_NAMES or name.startswith(SKIP_DIR_PREFIXES)
 
 
 # Subset mode: when set (via `--files <listpath>`), parse only these files
@@ -196,7 +208,7 @@ def _walk_py_files(root: str):
                 yield filepath
         return
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if not d.startswith('.') and d not in SKIP_DIR_NAMES]
+        dirnames[:] = [d for d in dirnames if not _is_skipped_dir(d)]
         for filename in filenames:
             if filename.endswith('.py'):
                 yield os.path.join(dirpath, filename)

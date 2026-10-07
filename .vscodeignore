@@ -20,6 +20,7 @@ out/**
 scripts/**
 !scripts/analyze.py
 !scripts/describe_lib.py
+!scripts/skipDirs.json
 
 # All runtime dependencies are inlined by esbuild.
 node_modules/**

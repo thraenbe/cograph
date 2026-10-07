@@ -19,7 +19,7 @@ const fs   = require('fs');
 // resolve it from the repo's node_modules via normal module resolution).
 const ts   = require('typescript');
 
-const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist']);
+const { isSkippedDirName } = require('./skipDirs.js');
 const JS_EXTENSIONS  = new Set(['.js', '.jsx', '.mjs', '.cjs']);
 
 function collectJsFiles(root) {
@@ -30,7 +30,7 @@ function collectJsFiles(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIP_DIR_NAMES.has(entry.name) && !entry.name.startsWith('.')) walk(full);
+        if (!isSkippedDirName(entry.name)) walk(full);
       } else if (entry.isFile() && JS_EXTENSIONS.has(path.extname(entry.name))) {
         results.push(full);
       }

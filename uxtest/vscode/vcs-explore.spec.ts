@@ -130,6 +130,89 @@ test('vcs-explore', async () => {
     const openMs = Date.now() - t0;
     await page.waitForTimeout(3000);
     await shot('pr 69 open', { openMs, phases });
+    if (STAGE === 8) {
+      // ── Stage 8 (8cbefba): a PR always opens its own panel, the checkout fallback too; the main panel is never touched. ──
+      const step = async (what: string, fn: () => Promise<Record<string, unknown>>): Promise<void> => {
+        try { await shot(what, await fn()); } catch (err) { await shot(`${what} FAILED`, { error: String(err).slice(0, 400) }); }
+      };
+      const mainFrame = async (): Promise<Frame | null> => {
+        for (const f of page.frames()) {
+          if (!f.url().startsWith('vscode-webview://')) { continue; }
+          const ok = await f.evaluate(() => !!document.querySelector('#graph') && !document.getElementById('pr-view-banner') && !!document.querySelector('#top-left-controls')).catch(() => false);
+          if (ok) { return f; }
+        }
+        return null;
+      };
+      /** Everything that would change if the main panel were repurposed: layout, scope, expansion, colours, PR state. */
+      const fingerprint = async (): Promise<unknown> => {
+        const f = await mainFrame(); if (!f) { return null; }
+        return f.evaluate(`(() => {
+          let h = 0; for (const n of (state.currentNodes || [])) { h = (h * 31 + Math.round((n.x || 0) * 10) * 7 + Math.round((n.y || 0) * 10)) | 0; }
+          const t = d3.zoomTransform(svg.node());
+          return { nodes: (state.currentNodes || []).length, graphNodes: ((state.graphData || {}).nodes || []).length, posHash: h,
+            expanded: [...(state.expandedFolders || [])].length, zoom: [Math.round(t.x), Math.round(t.y), +t.k.toFixed(4)],
+            git: JSON.stringify(state.fileGitStatus || {}).length, prView: !!state.prView, banner: !!document.getElementById('pr-view-banner'),
+            subgraph: JSON.stringify(state.subgraph || state.scope || null).slice(0, 80) };
+        })()`);
+      };
+      const firstTab = async (): Promise<string> => page.evaluate(() => (document.querySelector('.tabs-container .tab')?.getAttribute('aria-label') || '').trim());
+      const f0 = await fingerprint(); const tab0 = await firstTab();
+      await side.getByRole('button', { name: 'Leave pull request' }).click().catch(() => undefined); await page.waitForTimeout(1500);
+      await step('offline: open #73 in the checkout fallback', async () => {
+        const before = await fingerprint();
+        execFileSync('git', ['config', 'core.sshCommand', '/bin/false'], { cwd: s.workspace });
+        await runCommand(page, 'CoGraph: Clear pull-request trees'); await page.waitForTimeout(1500);
+        await runCommand(page, 'Notifications: Clear All Notifications').catch(() => undefined);
+        await side.locator('.vcs-pr[data-number="73"]').click(); await page.waitForTimeout(6000);
+        await side.getByRole('button', { name: 'Show in the current checkout instead' }).click(); await page.waitForTimeout(5000);
+        execFileSync('git', ['config', '--unset', 'core.sshCommand'], { cwd: s.workspace });
+        const after = await fingerprint();
+        return { tabs: (await chrome(page) as { tabs: string[] }).tabs, firstTabBefore: tab0, firstTabAfter: await firstTab(),
+          mainBefore: before, mainAfter: after, mainUnchanged: JSON.stringify(before) === JSON.stringify(after), mainAtStart: f0 };
+      });
+      // The asymmetry: in the CHECKOUT panel a slot opens the REAL file.
+      await step('checkout panel: double-click a slot, type', async () => {
+        const f = await prFrame(page); if (!f) { throw new Error('no checkout PR panel'); }
+        for (let i = 0; i < 12 && !(await frameHittable(f, '#graph g.file-slot .file-slot-shape', 230)); i++) {
+          const c = await frameHittable(f, '#graph g.frame .folder-bubble-shape', 230);
+          if (c) { await page.mouse.move(c.x, c.y); await page.mouse.wheel(0, -300); await page.waitForTimeout(250); }
+        }
+        const slot = await frameHittable(f, '#graph g.file-slot .file-slot-shape', 230); if (!slot) { throw new Error('no slot'); }
+        await page.mouse.dblclick(slot.x, slot.y); await page.waitForTimeout(2500);
+        await page.keyboard.type('x'); await page.waitForTimeout(700);
+        const t = await page.evaluate(() => { const g = document.querySelector('.editor-group-container.active'); const tab = g?.querySelector('.tab.active');
+          return { label: tab?.getAttribute('aria-label') || '', dirty: !!tab?.classList.contains('dirty'), overlay: (g?.querySelector('.monaco-editor-overlaymessage')?.textContent || '').trim(),
+            crumbs: [...(g?.querySelectorAll('.breadcrumbs-control .monaco-breadcrumb-item') || [])].map(e => (e.textContent || '').trim()).join(' > ').slice(0, 160) }; });
+        await shot('checkout panel: editor right after typing', { editor: t });
+        await page.keyboard.press('Control+z');
+        await runCommand(page, 'View: Revert and Close Editor').catch(() => undefined); await page.waitForTimeout(800);
+        return { editor: t };
+      });
+      await step('leave the checkout panel', async () => {
+        const before = await fingerprint();
+        await side.getByRole('button', { name: 'Leave pull request' }).click(); await page.waitForTimeout(2000);
+        const after = await fingerprint();
+        return { tabs: (await chrome(page) as { tabs: string[] }).tabs, firstTab: await firstTab(), mainUnchanged: JSON.stringify(before) === JSON.stringify(after), mainVsStart: JSON.stringify(after) === JSON.stringify(f0), main: after };
+      });
+      // For contrast: the HEAD panel's copy (online).
+      await step('head panel: double-click a slot, type (contrast)', async () => {
+        await side.locator('.vcs-pr[data-number="69"]').click();
+        for (let i = 0; i < 120; i++) { if ((await chrome(page) as { tabs: string[] }).tabs.some(t => t.includes('PR #69'))) { break; } await page.waitForTimeout(250); }
+        await page.waitForTimeout(2000);
+        const f = await prFrame(page); if (!f) { throw new Error('no head panel'); }
+        for (let i = 0; i < 12 && !(await frameHittable(f, '#graph g.file-slot .file-slot-shape', 230)); i++) {
+          const c = await frameHittable(f, '#graph g.frame .folder-bubble-shape', 230);
+          if (c) { await page.mouse.move(c.x, c.y); await page.mouse.wheel(0, -300); await page.waitForTimeout(250); }
+        }
+        const slot = await frameHittable(f, '#graph g.file-slot .file-slot-shape', 230); if (!slot) { throw new Error('no slot'); }
+        await page.mouse.dblclick(slot.x, slot.y); await page.waitForTimeout(2500);
+        await page.keyboard.type('x'); await page.waitForTimeout(700);
+        const t = await page.evaluate(() => { const g = document.querySelector('.editor-group-container.active'); const tab = g?.querySelector('.tab.active');
+          return { label: tab?.getAttribute('aria-label') || '', dirty: !!tab?.classList.contains('dirty'), overlay: (g?.querySelector('.monaco-editor-overlaymessage')?.textContent || '').trim() }; });
+        return { editor: t };
+      });
+      return;
+    }
     if (STAGE === 7) {
       // ── Stage 7 (494c3dd): A at the widths the feature produces, normal + offline; C tooltip on a popup opened AFTER entering. ──
       const step = async (what: string, fn: () => Promise<Record<string, unknown>>): Promise<void> => {

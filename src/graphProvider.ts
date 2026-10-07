@@ -182,13 +182,18 @@ export class GraphProvider {
   private readonly baseTitle: string;
   /** How a read-only provider opens a file: as a document of a read-only scheme (src/vcs/prDocuments). */
   private readonly readOnlyUri: ((file: string) => vscode.Uri) | undefined;
+  /** A panel that exists for one pull request: leaving the PR view closes it, there is nothing to go back to. */
+  private readonly closeOnLeave: boolean;
 
-  constructor(context: vscode.ExtensionContext, opts: { root?: string; readOnly?: boolean; title?: string; readOnlyUri?: (file: string) => vscode.Uri } = {}) {
+  constructor(context: vscode.ExtensionContext, opts: {
+    root?: string; readOnly?: boolean; title?: string; readOnlyUri?: (file: string) => vscode.Uri; closeOnLeave?: boolean;
+  } = {}) {
     this.context = context;
     this.rootOverride = opts.root;
     this.readOnly = !!opts.readOnly;
     this.baseTitle = opts.title ?? 'CoGraph';
     this.readOnlyUri = opts.readOnlyUri;
+    this.closeOnLeave = !!opts.closeOnLeave;
     this.analyzerRunner = new AnalyzerRunner(
       context,
       (msg) => this.showError(msg),
@@ -1380,10 +1385,11 @@ export class GraphProvider {
     return true;
   }
 
-  /** Back to exactly what the panel showed before the pull request. */
+  /** Back to exactly what the panel showed before the pull request — or, for a panel that is the pull request, close it. */
   exitPullRequest(): void {
     const back = this.prView?.back;
     if (!back) { return; }
+    if (this.closeOnLeave) { this.panel?.dispose(); return; } // onDidDispose ends the PR view and tells the listeners
     this.leavePullRequest(back.scope, true);
     if (!this.panel) { return; }
     this.currentSavedGraphPath = back.savedGraphPath;

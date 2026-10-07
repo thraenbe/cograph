@@ -100,7 +100,7 @@ function vcsDetailLines(detail) {
   const lines = [];
   lines.push(head
     ? { text: `Showing the pull request's own commit ${String(detail.tree.sha).slice(0, 7)}, read-only, in its own panel.`, cls: 'dim' }
-    : { text: `Showing your checkout${detail.tree && detail.tree.branch ? ` (${detail.tree.branch})` : ''}, coloured with the pull request's changes.`, cls: 'dim' });
+    : { text: `Showing your checkout${detail.tree && detail.tree.branch ? ` (${detail.tree.branch})` : ''} in its own panel, coloured with the pull request's changes.`, cls: 'dim' });
   if (c.inGraph === 0) {
     lines.push({ text: `None of this pull request's ${c.total} file${c.total === 1 ? '' : 's'} is in the graph.`, cls: 'warn' });
   } else {

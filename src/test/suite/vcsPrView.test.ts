@@ -390,7 +390,7 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
   let storage: string;
   let source: FakeSource;
   let main: FakeGraph;
-  let heads: Array<{ root: string; title: string; graph: FakeGraph }>;
+  let heads: Array<{ root: string; title: string; graph: FakeGraph; kind?: string }>;
   let states: VcsStateMessage[];
   let progress: string[];
   let materialize: MaterializeHead;
@@ -428,7 +428,7 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
       log: () => undefined,
       exec: async (_c, args) => ({ code: 0, stdout: args[1] === '--abbrev-ref' ? 'main\n' : '\n', stderr: '', notFound: false }),
       storageDir: storage,
-      createHeadGraph: (r, title) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph }); return graph as PrHeadGraph; },
+      createHeadGraph: (r, title, kind) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph, kind }); return graph as PrHeadGraph; },
       progress: async (title, task) => { progress.push(title); return task((m) => progress.push(m), new AbortController().signal); },
       materializeHead: (opts) => materialize(opts),
       budget: { maxTrees: 1, maxBytes: 10 * 1024 * 1024 },
@@ -490,10 +490,13 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
     assert.deepStrictEqual([problem.kind, problem.fallback, problem.detail], ['head-unavailable', 'checkout', 'Could not resolve host']);
     assert.strictEqual(heads.length, 0);
     await sidebar.handle({ type: 'vcs-open', number: 69, tree: 'checkout' });
-    assert.strictEqual(main.shown.length, 1, 'the fallback is the checkout view on the main panel');
-    assert.deepStrictEqual(main.shown[0].message.tree, { kind: 'checkout', branch: 'main' });
-    assert.strictEqual(last().detail?.tree.kind, 'checkout');
+    assert.strictEqual(main.shown.length, 0, 'the user\'s own graph is never taken over');
+    assert.strictEqual(heads.length, 1, 'the checkout view gets a panel of its own, like the head');
+    assert.deepStrictEqual([heads[0].root, heads[0].title], [root, 'PR #69 · your checkout']);
+    assert.deepStrictEqual(heads[0].graph.shown[0].message.tree, { kind: 'checkout', branch: 'main' });
+    assert.deepStrictEqual([last().detail?.tree.kind, last().active], ['checkout', 69]);
     await sidebar.handle({ type: 'vcs-exit' });
+    assert.deepStrictEqual([heads[0].graph.isOpen(), last().active], [false, null], 'Leave closes that panel');
     materialize = async () => { throw new HeadTreeError('cancelled', 'Cancelled.'); };
     await sidebar.handle({ type: 'vcs-open', number: 70 });
     assert.deepStrictEqual([last().openProblem!.problem.message, last().openProblem!.problem.fallback], ['Cancelled.', undefined], 'nothing was copied: nothing kept');
@@ -632,6 +635,17 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
     assert.deepStrictEqual([res.ok, !res.ok && res.problem.kind, !res.ok && res.problem.detail], [false, 'error', 'Analyzer exited with code 1']);
     assert.strictEqual(heads.length, 0);
     assert.ok(fs.existsSync(path.join(storage, 'repo', SHA_A, '.cograph-tree.json')));
+  });
+
+  test('a head panel followed by the checkout fallback: one PR panel at a time, each kind named', async () => {
+    await sidebar.handle({ type: 'vcs-ready' });
+    await sidebar.handle({ type: 'vcs-open', number: 69 });
+    assert.deepStrictEqual(heads.map(h => h.kind), ['head']);
+    await sidebar.handle({ type: 'vcs-open', number: 70, tree: 'checkout' });
+    assert.deepStrictEqual(heads.map(h => [h.kind, h.graph.isOpen()]), [['head', false], ['checkout', true]], 'the head panel closed, the checkout panel opened');
+    await sidebar.handle({ type: 'vcs-open', number: 69, tree: 'checkout' });
+    assert.strictEqual(heads.length, 2, 'the checkout panel is reused for another PR in the checkout');
+    assert.strictEqual(last().active, 69);
   });
 
   test('without storage or a head factory the click is the checkout view', async () => {

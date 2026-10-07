@@ -313,6 +313,16 @@ empty for it.
 - **GitHub Enterprise.** The sign-in message and the Sign in… button use
   `gh auth login --hostname <host>` when the remote is not github.com.
 
+## Panel consistency (session-110's ruling, 2026-10-07)
+
+Clicking a pull request always opens a panel of its own; the user's graph is never taken over.
+The checkout fallback is now a second provider on the workspace root — read-only in the panel
+(a PR view is transient; editing belongs to the main panel), navigation opening the user's real
+files — titled `PR #73 · your checkout`. Leave, from the banner or the sidebar, closes a PR panel
+(`closeOnLeave`); there is nothing to go back to. The in-place PR view on the main panel remains
+as the mechanism every PR panel uses internally, and as the behaviour on hosts without a panel
+factory (tests without global storage). Cost: under half a day.
+
 ## Not in this plan
 
 Ghost nodes for removed functions, workspace annotations mapped onto the head, a vscode-free

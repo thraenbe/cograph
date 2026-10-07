@@ -260,7 +260,7 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
     const checkout = { kind: 'checkout', branch: 'main' };
     const lines = sidebarVcs.vcsDetailLines({ tree: checkout, counts: { total: 13, inGraph: 9, exact: 7, fileLevel: 2, missing: 1, other: 3 }, filesCut: true });
     assert.deepStrictEqual(lines.map((l: any) => l.cls), ['dim', '', 'warn', 'dim', 'dim', 'dim']);
-    assert.strictEqual(lines[0].text, 'Showing your checkout (main), coloured with the pull request\'s changes.');
+    assert.strictEqual(lines[0].text, 'Showing your checkout (main) in its own panel, coloured with the pull request\'s changes.');
     assert.ok(lines[1].text.startsWith('9 of 13 files'));
     assert.ok(lines[2].text.includes('whole file'));
     assert.ok(lines[3].text.includes('not in this checkout'));

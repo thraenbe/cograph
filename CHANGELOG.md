@@ -68,10 +68,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     file list, and the sidebar says so.
   - When the head cannot be fetched (offline, no git, too large, no access) the row says why
     and offers **Show in the current checkout instead**: your working tree, coloured with the
-    pull request's changes, in the main panel. There a modified file is coloured function by
-    function only when your copy is byte-for-byte the pull request's version; otherwise the
-    file is coloured as a whole. The banner and the panel title always say which tree you are
-    looking at: `the pull request's commit 23834be` or `your checkout (main)`.
+    pull request's changes, in a panel of its own as well — clicking a pull request always
+    opens a new panel and never takes over your graph; **Leave** closes it. There a modified
+    file is coloured function by function only when your copy is byte-for-byte the pull
+    request's version; otherwise the file is coloured as a whole, and the banner says so. The
+    banner and the panel title always say which tree you are looking at: `PR commit 23834be`
+    or `your checkout · main`.
   - Files the pull request removes, and files that are not source code, are counted and
     listed in the sidebar rather than dropped silently.
   - A pull-request view is not saved: it follows the pull request.

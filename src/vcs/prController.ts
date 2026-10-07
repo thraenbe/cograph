@@ -59,7 +59,7 @@ export interface PrGraph {
   onPullRequestChange(listener: (active: number | null) => void): { dispose(): void };
 }
 
-/** A second provider bound to a materialised head tree (read-only, its own panel). */
+/** A provider that exists for one pull request, in a panel of its own: the PR's head tree, or the checkout. */
 export interface PrHeadGraph extends PrGraph {
   isOpen(): boolean;
   close(): void;
@@ -78,7 +78,12 @@ export interface PrControllerDeps {
   blobShaOf?: (absPath: string) => string | null;
   /** Where materialised trees live; without it only the checkout view (a) exists. */
   storageDir?: string;
-  createHeadGraph?: (root: string, title: string) => PrHeadGraph;
+  /**
+   * A panel of its own for one pull request: clicking a PR always opens a NEW panel and never
+   * takes over the user's graph. 'head' roots a materialised copy, 'checkout' the workspace.
+   * Without it the checkout view falls back to the main panel (hosts without global storage).
+   */
+  createHeadGraph?: (root: string, title: string, kind: PrTree['kind']) => PrHeadGraph;
   progress?: ProgressRunner;
   budget?: TreeBudget;
   /** Fetch + copy a PR head (the engine by default; tests hand in a directory of their own). */
@@ -167,7 +172,7 @@ export class PrController {
   private readonly exec: Exec;
   private readonly blobShaOf: (absPath: string) => string | null;
   private readonly listeners = new Set<(active: number | null) => void>();
-  /** The head panel on screen, if any. */
+  /** The pull-request panel on screen, if any: a head copy (sha) or the checkout (sha 'checkout'). */
   private head: { number: number; sha: string; dir: string; baseDir?: string; graph: PrHeadGraph; sub: { dispose(): void } } | null = null;
 
   constructor(
@@ -211,6 +216,11 @@ export class PrController {
     return !!(this.deps.storageDir && this.deps.createHeadGraph);
   }
 
+  /** Does the checkout view get a panel of its own (the rule), or the main panel (minimal hosts)? */
+  private ownPanels(): boolean {
+    return !!this.deps.createHeadGraph;
+  }
+
   /**
    * Show a pull request. `tree` 'head' (the default where available) fetches and
    * analyses the PR's own commit in a second, read-only panel; 'checkout' colours
@@ -240,9 +250,12 @@ export class PrController {
       pr, files: fetched.files, tree: this.deps.scanStructure(root), workspaceRoot: root,
       repoRoot: await this.repoRoot(root), unchangedFolders: this.deps.unchangedFolders(), blobShaOf: this.blobShaOf,
     });
-    const shown = this.graph.showPullRequest(this.graphView(pr, tree, view));
+    // Its own panel, like the head: the user's graph is never taken over by a pull request.
+    const graph = this.ownPanels() ? this.panelFor(pr, { sha: 'checkout', dir: root }, 'checkout') : this.graph;
+    const shown = graph.showPullRequest(this.graphView(pr, tree, view));
     if (!shown) { return { ok: false, problem: NO_WORKSPACE }; }
     this.logCounts(pr, 'checkout', view.counts);
+    this.emit();
     return { ok: true, opened: { number: pr.number, tree, counts: view.counts, files: view.files, truncated: fetched.truncated } };
   }
 
@@ -288,7 +301,7 @@ export class PrController {
     });
     // With a diff, the colours come from it: one hunk per added / changed function, nothing from patches.
     if (diff) { view.override = statusesFromDiff(diff, materialised.dir); }
-    const headGraph = this.headGraphFor(pr, materialised);
+    const headGraph = this.panelFor(pr, materialised, 'head');
     // After the switch: a head panel that was just closed no longer protects its copy.
     const protect = [materialised.dir, ...(this.head?.baseDir ? [this.head.baseDir] : [])];
     try { await evictTrees(storageDir, this.deps.budget ?? DEFAULT_BUDGET, protect, this.exec, this.deps.log); } catch (err) { this.deps.log(`[vcs] eviction failed: ${(err as Error).message}`); }
@@ -331,8 +344,8 @@ export class PrController {
 
   private pendingBaseDir: string | undefined;
 
-  /** One head panel at a time: the same commit's panel is reused, any other is closed first. */
-  private headGraphFor(pr: PullRequest, m: { sha: string; dir: string }): PrHeadGraph {
+  /** One pull-request panel at a time: the same tree's panel is reused, any other is closed first. */
+  private panelFor(pr: PullRequest, m: { sha: string; dir: string }, kind: PrTree['kind']): PrHeadGraph {
     const baseDir = this.pendingBaseDir;
     this.pendingBaseDir = undefined;
     if (this.head && this.head.sha === m.sha && this.head.graph.isOpen()) {
@@ -341,7 +354,8 @@ export class PrController {
       return this.head.graph;
     }
     if (this.head) { this.head.sub.dispose(); this.head.graph.close(); }
-    const graph = (this.deps.createHeadGraph as NonNullable<PrControllerDeps['createHeadGraph']>)(m.dir, `PR #${pr.number} · head ${m.sha.slice(0, 7)}`);
+    const title = prViewName(pr, kind === 'head' ? { kind, sha: m.sha } : { kind: 'checkout' });
+    const graph = (this.deps.createHeadGraph as NonNullable<PrControllerDeps['createHeadGraph']>)(m.dir, title, kind);
     const sub = graph.onPullRequestChange(() => this.emit());
     this.head = { number: pr.number, sha: m.sha, dir: m.dir, baseDir, graph, sub };
     return graph;
@@ -362,7 +376,7 @@ export class PrController {
     this.deps.log(`[vcs] PR #${pr.number} in ${where}: ${c.inGraph}/${c.total} files in graph, ${c.exact} exact, ${c.missing} absent, ${c.other} not shown`);
   }
 
-  /** Leave: close the head panel when one is open, otherwise end the checkout view. */
+  /** Leave: close the pull-request panel when one is open, otherwise end a checkout view on the main panel. */
   exit(): void {
     if (this.head?.graph.isOpen()) { this.head.graph.close(); return; }
     this.graph.exitPullRequest();

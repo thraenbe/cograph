@@ -37,9 +37,13 @@ export function activate(context: vscode.ExtensionContext) {
     log: (line) => vcsLog.appendLine(line),
     storageDir: treeStorage,
     // The PR's own commit gets a provider of its own: same engine, another root, nothing writable.
-    createHeadGraph: treeStorage
-      ? (root, title) => new GraphProvider(context, { root, readOnly: true, title, readOnlyUri: (file) => prDocumentUri(root, title, file) })
-      : undefined,
+    // A pull request always gets a panel of its own; the user's graph is never taken over. A head
+    // panel roots the copy and opens files read-only; a checkout panel roots the workspace and
+    // opens the user's real files, but takes no edits itself (a PR view is transient).
+    createHeadGraph: (root, title, kind) => new GraphProvider(context, {
+      root, readOnly: true, title, closeOnLeave: true,
+      ...(kind === 'head' ? { readOnlyUri: (file: string) => prDocumentUri(root, title, file) } : {}),
+    }),
     analyzer: createTreeAnalyzer(context, (line) => vcsLog.appendLine(line)),
     progress: (title, task) => Promise.resolve(vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title, cancellable: true },

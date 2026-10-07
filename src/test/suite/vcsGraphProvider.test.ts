@@ -357,6 +357,26 @@ suite('GraphProvider — a read-only provider on another root (the PR head panel
     ro.close();
   });
 
+  test('a panel that exists for one pull request closes on Leave instead of going back to anything', async () => {
+    const ctx = { extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as unknown as vscode.ExtensionContext;
+    const own = new GraphProvider(ctx, { root: headDir, readOnly: true, title: 'PR #7 · head abc1234', closeOnLeave: true });
+    const changes: Array<number | null> = [];
+    own.onPullRequestChange(n => changes.push(n));
+    const view: PrGraphView = {
+      number: 7, name: 'PR #7 · head abc1234', spec: { include: ['.'], exclude: [] }, override: { files: new Map(), hunks: new Map() },
+      message: { type: 'pr-view', active: true, number: 7, name: 'PR #7 · head abc1234', title: 't', headRef: 'h', baseRef: 'main',
+        tree: { kind: 'head', sha: 'abc1234' }, expand: [], fileGitStatus: {}, counts: { total: 0, inGraph: 0, exact: 0, fileLevel: 0, missing: 0, other: 0 } },
+    };
+    assert.strictEqual(own.showPullRequest(view), true);
+    onMessage()({ type: 'ready' });
+    await waitFor(() => posted('graph').length > 0);
+    assert.deepStrictEqual([own.activePullRequest(), changes], [7, [7]]);
+    onMessage()({ type: 'subgraph-exit' }); // the banner's Leave
+    assert.ok(panel.dispose.calledOnce, 'the panel is closed');
+    panel._disposeCallback();                // what VS Code does next
+    assert.deepStrictEqual([own.isOpen(), own.activePullRequest(), changes], [false, null, [7, null]]);
+  });
+
   test('leaving a scope goes back to the tree\'s title, not "CoGraph"; close() disposes the panel', async () => {
     provider.show();
     onMessage()({ type: 'ready' });

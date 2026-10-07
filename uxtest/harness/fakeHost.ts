@@ -147,7 +147,7 @@ export class FakeHost {
       case 'cancel-analysis':
         return [{ message: { type: 'analysis-state', backgroundParsing: false, cancelled: true } }];
       default:
-        return []; // navigate, dirty-state, open-chat, open-docs, perf-report, … are record-only
+        return []; // navigate, dirty-state, open-docs, perf-report, … are record-only
     }
   }
 

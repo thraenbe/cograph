@@ -47,7 +47,7 @@ async function cpu(cdp: CDPSession): Promise<Record<string, number>> {
   return Object.fromEntries(metrics.map(m => [m.name, m.value]));
 }
 
-/** A free canvas point (bare svg): dragging there pans; dragging a frame would move the frame. */
+/** A point where a drag pans: bare svg, or a frame BODY (path.folder-bubble-shape pans; title strip / nodes do not). */
 async function bareCanvasPoint(page: Page): Promise<{ x: number; y: number } | null> {
   return page.evaluate(() => {
     const svg = document.querySelector('#graph svg');
@@ -56,7 +56,8 @@ async function bareCanvasPoint(page: Page): Promise<{ x: number; y: number } | n
     for (let fy = 0.1; fy < 0.95; fy += 0.08) {
       for (let fx = 0.05; fx < 0.95; fx += 0.06) {
         const x = r.left + r.width * fx, y = r.top + r.height * fy;
-        if (document.elementFromPoint(x, y) === svg) { return { x, y }; }
+        const el = document.elementFromPoint(x, y);
+        if (el === svg || (el && el.classList.contains('folder-bubble-shape'))) { return { x, y }; }
       }
     }
     return null;
@@ -79,7 +80,7 @@ async function measure(page: Page, cdp: CDPSession, act: (mid: () => Promise<voi
 const MOVES = 90;
 async function pan(page: Page, cdp: CDPSession): Promise<Gesture> {
   const p = await bareCanvasPoint(page);
-  if (!p) { throw new SkipStep('no bare canvas point to drag (frames cover the view)'); }
+  if (!p) { throw new SkipStep('no point on screen where a drag pans'); }
   return measure(page, cdp, async (mid) => {
     await page.mouse.move(p.x, p.y);
     await page.mouse.down();
@@ -107,7 +108,7 @@ scenario('shelf-lines', { only: { engine: 'shelf' }, largeOk: true, expandFirst:
   const { page, ux } = lab;
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Performance.enable');
-  const out: Record<string, unknown> = { repo: lab.repo.name, motion: combo.motion, functions: lab.repo.functions, edges: lab.repo.graph.edges.length,
+  const out: Record<string, unknown> = { repo: lab.repo.name, motion: combo.motion, frame: process.env.UXTEST_BENCH_FRAME ?? null, functions: lab.repo.functions, edges: lab.repo.graph.edges.length,
     extRoot: process.env.UXTEST_EXT_ROOT ?? null, loadavg: fs.readFileSync('/proc/loadavg', 'utf8').split(' ').slice(0, 3).map(Number) };
 
   const expand = await ux.step('Expand everything (Detail 1) and settle', async () => {
@@ -119,19 +120,35 @@ scenario('shelf-lines', { only: { engine: 'shelf' }, largeOk: true, expandFirst:
   await page.waitForTimeout(1000);
   out.fitLines = await page.evaluate(linesInPage);
 
+  const k = (): Promise<number> => page.evaluate('d3.zoomTransform(svg.node()).k') as Promise<number>;
+  // UXTEST_BENCH_FRAME=<path suffix>: aim the working view at that folder (e.g. the one with the most in-frame
+  // calls) instead of the largest frame. Re-aims while zooming: a deep zoom from a tiny fit k drifts off target.
+  const target = process.env.UXTEST_BENCH_FRAME;
+  const zoomTo = async (want: number): Promise<void> => {
+    for (let i = 0; i < 200 && await k() < want; i++) {
+      if (i % 10 === 0) {
+        const f = await locateFrame(page, 'largest', target);
+        await page.mouse.move(f.rect.x + f.rect.w / 2, f.rect.y + f.rect.h / 2);
+      }
+      await page.mouse.wheel(0, -60); await page.waitForTimeout(40);
+    }
+    await page.waitForTimeout(900);
+    out.zoomReached = { ...(out.zoomReached as object ?? {}), [String(want)]: +(await k()).toFixed(3) };
+    if (await k() < want) { throw new Error(`zoom stopped at k ${(await k()).toFixed(3)} < ${want}`); }
+  };
+  // fit = as users reach it after Detail 1 (the LOD may be stale after that re-render, F28);
+  // fit-relod = zoomed in past the link LOD (0.4) and fitted again, so the LOD is applied fresh;
+  // working = k ~0.8, a few frames at full detail.
   const views: [string, () => Promise<void>][] = [
     ['fit', async () => { /* already fitted */ }],
-    ['working', async () => {
-      const f = await locateFrame(page, 'largest');
-      await page.mouse.move(f.rect.x + f.rect.w / 2, f.rect.y + f.rect.h / 2);
-      for (let i = 0; i < 8; i++) { await page.mouse.wheel(0, -240); await page.waitForTimeout(60); }
-      await page.waitForTimeout(900);
-    }],
+    ['fit-relod', async () => { await zoomTo(0.6); await fitToView(page); await page.waitForTimeout(900); }],
+    ['working', async () => { await zoomTo(0.8); }],
   ];
   for (const [view, enter] of views) {
     const res: Record<string, unknown> = {};
     await ux.step(`${view}: enter view`, enter, { metrics: false });
     res.lines = await page.evaluate(linesInPage);
+    res.wantAtRest = await page.evaluate('typeof __cull !== "undefined" ? { ...__cull.want } : null');
     const p = await ux.step(`${view}: pan (mouse drag)`, async () => { res.pan = await pan(page, cdp); }, { metrics: false, settle: false });
     const z = await ux.step(`${view}: zoom (wheel in/out)`, async () => { res.zoom = await zoom(page, cdp); }, { metrics: false, settle: false });
     for (const [rec, g] of [[p, res.pan], [z, res.zoom]] as const) {

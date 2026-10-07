@@ -28,12 +28,15 @@ const PR_BANNER_CSS = `
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   }
   #pr-view-banner .pr-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The tree chip is structural, never a status colour: in this panel green, orange and
+     red mean added, modified and deleted, and nothing else may borrow them. */
   #pr-view-banner .pr-tree {
-    flex: none; font-size: 11px; padding: 1px 7px; border-radius: 9px; white-space: nowrap;
-    border: 1px solid currentColor;
+    flex: none; font-size: 11px; padding: 1px 8px; border-radius: 9px; white-space: nowrap;
+    color: var(--vscode-badge-foreground, #fff); background: var(--vscode-badge-background, #4d4d4d);
   }
-  #pr-view-banner .pr-tree.head { color: #4caf50; }
-  #pr-view-banner .pr-tree.checkout { color: var(--vscode-editorWarning-foreground, #cca700); }
+  #pr-view-banner .pr-tree::before { margin-right: 4px; }
+  #pr-view-banner .pr-tree.head::before { content: '⎇'; }
+  #pr-view-banner .pr-tree.checkout::before { content: '⌂'; }
   #pr-view-banner .pr-sub { flex: none; color: var(--vscode-descriptionForeground, #999); white-space: nowrap; }
   #pr-view-banner .pr-sub.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
   #pr-view-banner button {

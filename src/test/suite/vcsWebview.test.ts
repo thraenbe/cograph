@@ -98,6 +98,8 @@ suite('vcs — prView.js (graph webview)', () => {
     chip = p.doc.querySelector('#pr-view-banner .pr-tree')!;
     assert.deepStrictEqual([chip.textContent, chip.className], ['the pull request\'s commit 23834be', 'pr-tree head']);
     assert.ok((chip as HTMLElement).title.includes('read-only'));
+    const css = PR_VIEW_SRC.slice(PR_VIEW_SRC.indexOf('.pr-tree {'), PR_VIEW_SRC.indexOf('.pr-tree::before'));
+    assert.ok(!/#4caf50|#ff9800|#e5534b|editorWarning/i.test(css), 'the chip never borrows a status colour');
     p.w.handlePrViewMessage({ ...ENTER, tree: undefined });
     assert.strictEqual(p.doc.querySelector('#pr-view-banner .pr-tree')!.textContent, 'your checkout', 'a message without a tree is the checkout');
     assert.deepStrictEqual(prView.prViewTreeLabel({ kind: 'head', sha: 'abc', base: 'def' }).title.includes('compared with def'), true);

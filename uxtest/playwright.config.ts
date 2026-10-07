@@ -19,6 +19,11 @@ export default defineConfig({
     { name: 'unit', testMatch: /unit\/.*\.test\.ts$/ },
     { name: 'sweep', testMatch: /sweep\/.*\.spec\.ts$/, use: { browserName: 'chromium', headless: true } },
     { name: 'report', testMatch: /report\/report\.spec\.ts$/ },
+    // Perf benchmarks: ONE worker (no neighbour competing for the CPU), headed by default (GPU raster), uncapped
+    // frame rate so headroom above the display refresh is visible. UXTEST_HEADLESS=1 for a machine without a display.
+    { name: 'bench', testMatch: /bench\/.*\.spec\.ts$/, workers: 1, fullyParallel: false,
+      use: { browserName: 'chromium', headless: process.env.UXTEST_HEADLESS === '1',
+        launchOptions: { args: ['--disable-gpu-vsync', '--disable-frame-rate-limit'] } } },
     { name: 'vscode', testMatch: /vscode\/.*\.spec\.ts$/, workers: 1, fullyParallel: false },
   ],
 });

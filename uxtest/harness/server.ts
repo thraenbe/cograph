@@ -36,6 +36,7 @@ function cfgFromQuery(url: URL): BootConfig {
     perf: url.searchParams.get('perf') !== '0',
     timeline: url.searchParams.get('timeline') === '1',
     workers: (['on', 'off'] as const).find(m => m === url.searchParams.get('workers')) ?? 'auto',
+    settings: url.searchParams.has('settings') ? JSON.parse(url.searchParams.get('settings') as string) as Record<string, unknown> : undefined,
   };
 }
 
@@ -90,6 +91,7 @@ export async function startServer(): Promise<LabServer> {
         engine: cfg.engine ?? 'shelf', motion: cfg.motion ?? 'static',
         perf: cfg.perf === false ? '0' : '1', timeline: cfg.timeline ? '1' : '0', workers: cfg.workers ?? 'auto',
       });
+      if (cfg.settings) { q.set('settings', JSON.stringify(cfg.settings)); }
       return `${origin}/?${q.toString()}`;
     },
     close: () => new Promise<void>((resolve, reject) => server.close(e => (e ? reject(e) : resolve()))),

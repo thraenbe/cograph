@@ -21,6 +21,12 @@ test('invariant rules fire with the right references', () => {
   expect(findingsFor({ ...clean, nodesOutsideSlot: 1 }, ctx())[0]).toMatchObject({ severity: 'high', ref: 'B1' });
 });
 
+test('node-outside-slot after a user drag: Static keeps the drop (low), Dynamic must snap back (high, W5)', () => {
+  expect(findingsFor({ ...clean, nodesOutsideSlot: 1 }, ctx({ birth: 'user-moved', motion: 'static' }))).toEqual([expect.objectContaining({ rule: 'user-node-outside-slot', severity: 'low', ref: 'W5' })]);
+  expect(findingsFor({ ...clean, nodesOutsideSlot: 1 }, ctx({ birth: 'user-moved', motion: 'dynamic' }))).toEqual([expect.objectContaining({ rule: 'node-outside-slot', severity: 'high', ref: 'B1/W5' })]);
+  expect(rules({ nodesOutsideSlot: 1 }, { birth: 'grid', motion: 'dynamic' })).toEqual(['node-outside-slot']);
+});
+
 test('containment rules are shelf-only', () => {
   expect(rules({ nodesOutsideSlot: 5, nodesOutsideFrame: 5, nodesPinnedToWall: 50 }, { engine: 'global' })).toEqual([]);
 });
@@ -89,4 +95,21 @@ test('legibility: a wide-spread layout is penalised, old runs are estimated from
   expect(estimateFitNodePx({ ...old, nodes: 1, inkRatio: 0.5 })).toBe(40);        // fit scale cap 4
   expect(legibilityPenalty(old)).toBeCloseTo(1 - 1.213 / 6, 2);
   expect(QUALITY_WEIGHTS.settleSeconds).toBe(0);
+});
+
+test('folder separation: a layout that merges folders is ranked below one that keeps them apart', () => {
+  const apart = { ...clean, nodePxMedian: 2.5, labelPxMedian: 8, smallBoxShare: 0.2, labels: 20, folderOverlapRatio: 0 };
+  const merged = { ...apart, nodePxMedian: 5, folderOverlapRatio: 0.4 };               // bigger nodes, but folders on top of each other
+  expect(layoutScore(merged, 0, QUALITY_WEIGHTS)).toBeGreaterThan(layoutScore(apart, 0, QUALITY_WEIGHTS));
+  expect(layoutScore({ ...apart, folderOverlapRatio: undefined }, 0, QUALITY_WEIGHTS)).toBe(layoutScore(apart, 0, QUALITY_WEIGHTS)); // old runs: unknown = 0
+  expect(layoutScore({ ...apart, folderOverlapRatio: 0.9 }, 0, QUALITY_WEIGHTS)).toBe(layoutScore({ ...apart, folderOverlapRatio: 0.5 }, 0, QUALITY_WEIGHTS)); // capped
+});
+
+test('R3/R4 rules: giant arrowheads and slot rows over the name line', () => {
+  expect(rules({ maxMarkerPx: 19.9 })).toEqual([]);
+  expect(rules({ maxMarkerPx: 21, maxMarkerId: 'arrow', nodePxMedian: 3 })).toEqual(['giant-arrowhead']);
+  expect(rules({ maxMarkerPx: 90, maxMarkerId: 'arrow', nodePxMedian: 100 })).toEqual([]); // 9-unit marker at 10x zoom
+  expect(rules({ maxMarkerPx: 160, maxMarkerId: 'arrow', nodePxMedian: 40 })).toEqual(['giant-arrowhead']);
+  expect(rules({ slotsOverName: 2 })).toEqual(['slot-over-name']);
+  expect(rules({ slotsOverName: 2 }, { engine: 'global' })).toEqual([]);
 });

@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { startServer, type LabServer } from '../harness/server';
-import { FakeHost, type AnnotationsFixture, type HostMode, type LoggedMessage } from '../harness/fakeHost';
+import { FakeHost, type AnnotationsFixture, type FakeHostOpts, type HostMode, type LoggedMessage } from '../harness/fakeHost';
 import { attachHost, postToWebview } from '../harness/hostBridge';
 import { REPO_ROOT, workersModeFromEnv, type WorkersMode } from '../harness/vscodeStub';
 import { loadConfig, loadRepo, sizeClass, type UxConfig } from './corpus';
@@ -30,9 +30,15 @@ export interface LabOpts {
   timeline?: boolean;
   gitFixture?: { gitAvailable: boolean; fileGitStatus: Record<string, unknown> };
   annotations?: AnnotationsFixture | ((repo: AnalyzedRepo) => AnnotationsFixture);
+  /** round3 W4: open inside a subgraph scope (see FakeHostOpts.scope); function form derives it from the repo. */
+  scope?: NonNullable<FakeHostOpts['scope']> | ((repo: AnalyzedRepo) => NonNullable<FakeHostOpts['scope']>);
   outDir?: string;                      // default uxtest/artifacts/<runId>/<repo>/<scenario>-<engine>-<motion>
   keepSnapshots?: boolean;              // default true
   workers?: WorkersMode;                // cograph.layout.workers; default UXTEST_WORKERS_MODE or 'auto'
+  settings?: Record<string, unknown>;   // extra cograph.* settings at boot (key without the prefix)
+  /** Seed Math.random before any webview script runs. Global seeds new nodes with Math.random (rendering.js,
+   *  main.js, folder.js); d3-force has its own fixed LCG. Same seed + same input = the same Global layout. */
+  seed?: number;
 }
 
 /** Which simulation transport the page REALLY ran (branches with the worker pool expose __fr.backend). */
@@ -47,6 +53,8 @@ export interface RunRecord {
   analyzerHash?: string | null; edges?: number;
   /** Lab boot timing: HTML + scripts ready, then host messages posted → first nodes in state (≈ first paint of the graph). */
   boot?: { pageReadyMs: number; firstNodesMs: number; analysisMs: number };
+  /** Boot-time cograph.* overrides and Math.random seed, when the scenario set them. */
+  settings?: Record<string, unknown>; seed?: number;
 }
 
 export interface Lab {
@@ -58,6 +66,18 @@ export interface Lab {
   simTransport(): Promise<SimTransport>;
   /** Stop recording, write run.json, release browser/server. Returns the run record. */
   close(): Promise<RunRecord>;
+}
+
+/** Runs in the page (addInitScript): Math.random → mulberry32(seed). Self-contained. */
+function seedMathRandom(seed: number): void {
+  let a = seed >>> 0;
+  Math.random = () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 const D3_FILE = path.join(REPO_ROOT, 'node_modules', 'd3', 'dist', 'd3.min.js');
@@ -82,7 +102,7 @@ async function wireNetwork(page: Page, origin: string, blocked: string[]): Promi
 
 async function boot(page: Page, host: FakeHost, server: LabServer, o: LabOpts, stillTimeout: number): Promise<{ pageReadyMs: number; firstNodesMs: number }> {
   const t0 = Date.now();
-  await page.goto(server.pageUrl({ engine: o.engine, motion: o.motion, perf: true, timeline: o.timeline, workers: o.workers }));
+  await page.goto(server.pageUrl({ engine: o.engine, motion: o.motion, perf: true, timeline: o.timeline, workers: o.workers, settings: o.settings }));
   await page.waitForSelector('#graph svg', { state: 'attached', timeout: 15000 });
   const pageReadyMs = Date.now() - t0;
   const t1 = Date.now();
@@ -115,8 +135,10 @@ export async function openLab(o: LabOpts): Promise<Lab> {
   page.on('console', m => { if (m.type() === 'error') { errors.push(`console.error: ${m.text()}`); } });
 
   const host = new FakeHost({ graph: repo.graph, structure: repo.structure, mode: o.hostMode ?? 'eager', ...(o.gitFixture ?? {}),
-    annotations: typeof o.annotations === 'function' ? o.annotations(repo) : o.annotations });
+    annotations: typeof o.annotations === 'function' ? o.annotations(repo) : o.annotations,
+    scope: typeof o.scope === 'function' ? o.scope(repo) : o.scope });
   await wireNetwork(page, server.origin, blocked);
+  if (o.seed !== undefined) { await page.addInitScript(seedMathRandom, o.seed); }
   await attachTheme(page, o.theme ?? 'dark');
   await attachOverlay(page);
   await attachFpsTrace(page);
@@ -164,6 +186,7 @@ export async function openLab(o: LabOpts): Promise<Lab> {
       video: videoRel, steps: ux.steps, hostLog: host.log, consoleErrors: errors, blockedRequests: blocked, perfReport, simTransport: transport,
       analyzerHash: repo.analyzerHash ?? null, edges: repo.graph.edges.length,
       boot: { ...bootTiming, analysisMs: repo.analysisMs },
+      ...(o.settings ? { settings: o.settings } : {}), ...(o.seed !== undefined ? { seed: o.seed } : {}),
     };
     fs.writeFileSync(path.join(outDir, 'run.json'), JSON.stringify(record, null, 2));
     log.info('run-written', { outDir, steps: ux.steps.length, errors: errors.length });

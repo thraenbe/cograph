@@ -11,6 +11,8 @@ export interface BootConfig {
   timeline?: boolean;
   /** cograph.layout.workers: 'auto' (what users get) | 'on' | 'off' (synchronous sims). */
   workers?: WorkersMode;
+  /** Extra `cograph.*` settings (key without the prefix), e.g. { 'display.sameFileEdgesOnly': false }. */
+  settings?: Record<string, unknown>;
 }
 
 export type WorkersMode = 'auto' | 'on' | 'off';
@@ -75,6 +77,7 @@ export function renderWebviewHtml(origin: string, cfg: BootConfig = {}): string 
     'layout.defaultMode': cfg.motion ?? 'static',
     'debug.perfLog': cfg.perf ?? true,
     'layout.workers': cfg.workers ?? 'auto',
+    ...(cfg.settings ?? {}),
   };
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const builder = require(BUILDER);

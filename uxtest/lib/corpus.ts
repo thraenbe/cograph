@@ -9,6 +9,8 @@ export interface UxConfig {
   corpusDir: string;
   defaultRepos: string[];
   largeRepos: string[];
+  /** `--release`: the release-verification lab matrix; must cover every default repo (unit-tested). */
+  releaseRepos: string[];
   knownAnalyzerFailures: string[];
   viewport: { width: number; height: number };
   analyzerTimeoutMs: number;

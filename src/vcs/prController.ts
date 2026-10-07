@@ -6,7 +6,7 @@ import type { ScopeSpec } from '../subgraphScope';
 import { statusesFromDiff } from './engine/diffStatuses';
 import { diffGraphs } from './engine/graphDiff';
 import type { StructuralDiff } from './engine/graphDiff';
-import { DEFAULT_BUDGET, HeadTreeError, evictTrees, fetchBranch, fetchPullRequestHead, githubRemote, materializeCommit, mergeBase } from './engine/headTree';
+import { DEFAULT_BUDGET, HeadTreeError, branchRefs, evictTrees, fetchBranch, fetchPullRequestHead, githubRemote, materializeCommit, mergeBase, pullRequestRefs } from './engine/headTree';
 import type { TreeBudget } from './engine/headTree';
 import { analyzeTreeCached } from './engine/treeAnalysis';
 import type { AnalyzedTree, TreeAnalyzer } from './engine/treeAnalysis';
@@ -100,7 +100,7 @@ export const materializeBaseWithGit: MaterializeBase = async ({ repoRoot, storag
   const remote = await githubRemote(treeDeps);
   const tip = await fetchBranch(treeDeps, baseRef, remote);
   const sha = await mergeBase(treeDeps, headSha, tip);
-  const copied = await materializeCommit(treeDeps, sha);
+  const copied = await materializeCommit(treeDeps, sha, branchRefs(baseRef, tip));
   return { sha, dir: copied.dir };
 };
 
@@ -115,7 +115,7 @@ export const materializeHeadWithGit: MaterializeHead = async ({ repoRoot, storag
   report('fetching the pull request…');
   const sha = await fetchPullRequestHead(treeDeps, prNumber, await githubRemote(treeDeps));
   report('copying its files…');
-  const copied = await materializeCommit(treeDeps, sha);
+  const copied = await materializeCommit(treeDeps, sha, pullRequestRefs(prNumber, sha));
   return { sha, dir: copied.dir };
 };
 
@@ -282,7 +282,7 @@ export class PrController {
     const headGraph = this.headGraphFor(pr, materialised);
     // After the switch: a head panel that was just closed no longer protects its copy.
     const protect = [materialised.dir, ...(this.head?.baseDir ? [this.head.baseDir] : [])];
-    try { evictTrees(storageDir, this.deps.budget ?? DEFAULT_BUDGET, protect); } catch (err) { this.deps.log(`[vcs] eviction failed: ${(err as Error).message}`); }
+    try { await evictTrees(storageDir, this.deps.budget ?? DEFAULT_BUDGET, protect, this.exec, this.deps.log); } catch (err) { this.deps.log(`[vcs] eviction failed: ${(err as Error).message}`); }
     const shown = headGraph.showPullRequest(this.graphView(pr, tree, view, diff?.summary));
     if (!shown) { return { ok: false, problem: NO_WORKSPACE }; }
     this.logCounts(pr, `head ${materialised.sha.slice(0, 7)}${diff ? ` vs base ${baseSha?.slice(0, 7)}: +${diff.summary.added} ~${diff.summary.changed} -${diff.summary.removed} functions` : ''}`, view.counts);

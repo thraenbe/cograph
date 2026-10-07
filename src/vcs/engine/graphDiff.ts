@@ -127,7 +127,8 @@ function index(tree: DiffTree): Indexed {
 }
 
 /** A function's source: from its definition line to the line before the next definition, trailing blanks dropped. */
-function functionText(tree: DiffTree, fnsInFile: Keyed[], k: Keyed, cache: Map<string, string[] | null>, read: (p: string) => string | null): string | null {
+function functionText(tree: DiffTree, fnsInFile: Keyed[], i: number, cache: Map<string, string[] | null>, read: (p: string) => string | null): string | null {
+  const k = fnsInFile[i];
   let lines = cache.get(k.file);
   if (lines === undefined) {
     const text = read(path.join(tree.root, ...k.file.split('/')));
@@ -135,8 +136,9 @@ function functionText(tree: DiffTree, fnsInFile: Keyed[], k: Keyed, cache: Map<s
     cache.set(k.file, lines);
   }
   if (!lines) { return null; }
-  const i = fnsInFile.indexOf(k);
-  const next = fnsInFile.slice(i + 1).find(o => o.line > k.line);
+  // fnsInFile is in line order: the next definition on a later line ends this one.
+  let next: Keyed | undefined;
+  for (let j = i + 1; j < fnsInFile.length; j++) { if (fnsInFile[j].line > k.line) { next = fnsInFile[j]; break; } }
   const end = next ? next.line - 1 : lines.length;
   const slice = lines.slice(Math.max(0, k.line - 1), end).map(l => l.replace(/\s+$/, ''));
   while (slice.length && slice[slice.length - 1] === '') { slice.pop(); }
@@ -176,8 +178,10 @@ export function diffGraphs(base: DiffTree, head: DiffTree, opts: DiffOptions = {
       functions.push(change(hk, 'added', { headLine: hk.line }));
       continue;
     }
-    const before = functionText(base, b.byFile.get(bk.file) ?? [], bk, baseCache, read);
-    const after = functionText(head, h.byFile.get(hk.file) ?? [], hk, headCache, read);
+    const bl = b.byFile.get(bk.file) ?? [];
+    const hl = h.byFile.get(hk.file) ?? [];
+    const before = functionText(base, bl, bl.indexOf(bk), baseCache, read);
+    const after = functionText(head, hl, hl.indexOf(hk), headCache, read);
     // Unreadable on either side: say nothing rather than guess.
     if (before === null || after === null) { continue; }
     if (before !== after) {

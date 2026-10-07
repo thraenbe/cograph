@@ -10,7 +10,8 @@ import { flushCacheWrites } from './cacheStore';
 import { GhCliSource } from './vcs/ghCliSource';
 import { PrController } from './vcs/prController';
 import { VcsSidebar } from './vcs/vcsSidebar';
-import { clearTrees, evictTrees } from './vcs/engine/headTree';
+import { clearRepoRefs, clearTrees, evictTrees } from './vcs/engine/headTree';
+import { defaultExec } from './vcs/ghCliSource';
 import { createTreeAnalyzer } from './vcs/headAnalyzer';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -24,7 +25,8 @@ export function activate(context: vscode.ExtensionContext) {
   // Without global storage (some test hosts) only the checkout view exists.
   const treeStorage = context.globalStorageUri?.fsPath ? path.join(context.globalStorageUri.fsPath, 'pr-trees') : undefined;
   if (treeStorage) {
-    try { evictTrees(treeStorage); } catch (err) { vcsLog.appendLine(`[vcs] eviction on activation failed: ${(err as Error).message}`); }
+    evictTrees(treeStorage, undefined, [], defaultExec, (l) => vcsLog.appendLine(l))
+      .catch((err: unknown) => vcsLog.appendLine(`[vcs] eviction on activation failed: ${(err as Error).message}`));
   }
   const prController = new PrController(new GhCliSource(), provider, {
     workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
@@ -45,10 +47,13 @@ export function activate(context: vscode.ExtensionContext) {
       },
     )),
   });
-  const clearTreesCommand = vscode.commands.registerCommand('cograph.clearPullRequestTrees', () => {
+  const clearTreesCommand = vscode.commands.registerCommand('cograph.clearPullRequestTrees', async () => {
     try {
-      const mb = (treeStorage ? clearTrees(treeStorage) / (1024 * 1024) : 0).toFixed(1);
-      vscode.window.showInformationMessage(`CoGraph: Pull-request trees cleared (${mb} MB).`);
+      const log = (l: string) => vcsLog.appendLine(l);
+      const bytes = treeStorage ? await clearTrees(treeStorage, defaultExec, log) : 0;
+      // Trees gone, and every refs/cograph/* ref of this repository with them: nothing keeps the fetched objects alive.
+      const refs = workspaceRoot ? await clearRepoRefs(workspaceRoot, defaultExec) : [];
+      vscode.window.showInformationMessage(`CoGraph: Pull-request trees cleared (${(bytes / (1024 * 1024)).toFixed(1)} MB, ${refs.length} ref${refs.length === 1 ? '' : 's'}).`);
     } catch (err) {
       vscode.window.showErrorMessage(`CoGraph: Could not clear pull-request trees — ${(err as Error).message}`);
     }

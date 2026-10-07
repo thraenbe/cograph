@@ -55,6 +55,9 @@ export interface HeadTreeDeps {
   now?: () => number;
 }
 
+/** A ref this tree was fetched through, with the value it had: deleted with the tree, if it still has that value. */
+export interface TreeRef { name: string; value: string }
+
 export interface TreeMarker {
   sha: string;
   repoRoot: string;
@@ -62,6 +65,7 @@ export interface TreeMarker {
   bytes: number;
   createdAt: number;
   lastUsedAt: number;
+  refs?: TreeRef[];
 }
 
 export interface MaterializedTree {
@@ -155,6 +159,16 @@ async function git(deps: HeadTreeDeps, args: string[], opts?: { env?: Record<str
   return deps.exec('git', args, deps.repoRoot, opts);
 }
 
+/** The refs that bring a PR head: the one git fetched it into, valued at the head itself. */
+export function pullRequestRefs(prNumber: number, sha: string): TreeRef[] {
+  return [{ name: pullRequestRef(prNumber), value: sha }];
+}
+
+/** The ref that brought a base branch tip (the merge base is reached through it). */
+export function branchRefs(branch: string, tip: string): TreeRef[] {
+  return [{ name: branchRef(branch), value: tip }];
+}
+
 /** `git fetch <remote> +<refspec>`, then the sha it resolved to. */
 async function fetchInto(deps: HeadTreeDeps, remote: string, src: string, dst: string, what: string): Promise<string> {
   const fetched = await git(deps, ['fetch', '--no-tags', '--quiet', remote, `+${src}:${dst}`], { timeoutMs: 120_000 });
@@ -198,6 +212,12 @@ export async function githubRemote(deps: HeadTreeDeps): Promise<string> {
   return fallback;
 }
 
+function mergeRefs(have: TreeRef[] | undefined, add: TreeRef[]): TreeRef[] {
+  const out = new Map((have ?? []).map(r => [r.name, r]));
+  for (const r of add) { out.set(r.name, r); }
+  return [...out.values()];
+}
+
 function readMarker(dir: string): TreeMarker | null {
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(dir, MARKER), 'utf8')) as Partial<TreeMarker>;
@@ -237,13 +257,13 @@ function dirBytes(dir: string): number {
  * copy is reused (and its last-use time refreshed). A half-written one — no
  * marker — is removed and made again.
  */
-export async function materializeCommit(deps: HeadTreeDeps, sha: string): Promise<MaterializedTree> {
+export async function materializeCommit(deps: HeadTreeDeps, sha: string, refs: TreeRef[] = []): Promise<MaterializedTree> {
   if (!/^[0-9a-f]{40}$/.test(sha)) { throw new HeadTreeError('error', `"${sha}" is not a commit id.`); }
   const dir = treeDir(deps, sha);
   const now = deps.now?.() ?? Date.now();
   const existing = readMarker(dir);
   if (existing) {
-    writeMarker(dir, { ...existing, lastUsedAt: now });
+    writeMarker(dir, { ...existing, lastUsedAt: now, refs: mergeRefs(existing.refs, refs) });
     deps.log?.(`[vcs] tree ${sha.slice(0, 7)} reused (${existing.files} files)`);
     return { dir, sha, files: existing.files, bytes: existing.bytes, reused: true };
   }
@@ -275,7 +295,7 @@ export async function materializeCommit(deps: HeadTreeDeps, sha: string): Promis
     fs.rmSync(indexFile, { force: true });
   }
   const bytes = dirBytes(dir);
-  writeMarker(dir, { sha, repoRoot: deps.repoRoot, files: files.length, bytes, createdAt: now, lastUsedAt: now });
+  writeMarker(dir, { sha, repoRoot: deps.repoRoot, files: files.length, bytes, createdAt: now, lastUsedAt: now, refs: mergeRefs([], refs) });
   deps.log?.(`[vcs] tree ${sha.slice(0, 7)} materialised: ${files.length} files, ${Math.round(bytes / 1024)} KB`);
   return { dir, sha, files: files.length, bytes, reused: false };
 }
@@ -301,11 +321,26 @@ export function listTrees(storageDir: string): StoredTree[] {
 }
 
 /**
+ * Delete the refs a tree was fetched through — each only if it still points
+ * where it did when the tree was made (`update-ref -d <ref> <old>` refuses
+ * otherwise), so a ref re-pointed by a newer fetch of the same PR survives.
+ * Without this the objects behind an evicted tree stay reachable and `.git`
+ * grows where the tree budget cannot see it.
+ */
+export async function dropTreeRefs(marker: TreeMarker, exec: Exec, log?: (line: string) => void): Promise<void> {
+  for (const ref of marker.refs ?? []) {
+    const res = await exec('git', ['update-ref', '-d', ref.name, ref.value], marker.repoRoot);
+    if (res.code !== 0) { log?.(`[vcs] kept ${ref.name} (no longer ${ref.value.slice(0, 7)} or already gone)`); }
+  }
+}
+
+/**
  * Enforce the budget: least recently used first, until both the count and the
  * byte limits hold. `protect` names dirs that must stay (the ones on screen).
  * Returns what was removed. Leftovers without a marker (a crashed copy) go too.
+ * With an `exec`, each evicted tree's refs go with it.
  */
-export function evictTrees(storageDir: string, budget: TreeBudget = DEFAULT_BUDGET, protect: string[] = []): StoredTree[] {
+export async function evictTrees(storageDir: string, budget: TreeBudget = DEFAULT_BUDGET, protect: string[] = [], exec?: Exec, log?: (line: string) => void): Promise<StoredTree[]> {
   const keep = new Set(protect.map(p => path.resolve(p)));
   const trees = listTrees(storageDir).sort((a, b) => a.marker.lastUsedAt - b.marker.lastUsedAt);
   const removed: StoredTree[] = [];
@@ -315,6 +350,7 @@ export function evictTrees(storageDir: string, budget: TreeBudget = DEFAULT_BUDG
     if (count <= budget.maxTrees && bytes <= budget.maxBytes) { break; }
     if (keep.has(path.resolve(t.dir))) { continue; }
     fs.rmSync(t.dir, { recursive: true, force: true });
+    if (exec) { await dropTreeRefs(t.marker, exec, log); }
     removed.push(t);
     count--;
     bytes -= t.marker.bytes;
@@ -338,9 +374,24 @@ export function evictTrees(storageDir: string, budget: TreeBudget = DEFAULT_BUDG
   return removed;
 }
 
-/** Remove every tree (the "clear" command). Returns bytes freed. */
-export function clearTrees(storageDir: string): number {
-  const bytes = listTrees(storageDir).reduce((n, t) => n + t.marker.bytes, 0);
+/** Remove every tree and, with an `exec`, the refs each was fetched through (the "clear" command). Returns bytes freed. */
+export async function clearTrees(storageDir: string, exec?: Exec, log?: (line: string) => void): Promise<number> {
+  const trees = listTrees(storageDir);
+  const bytes = trees.reduce((n, t) => n + t.marker.bytes, 0);
+  if (exec) { for (const t of trees) { await dropTreeRefs(t.marker, exec, log); } }
   fs.rmSync(storageDir, { recursive: true, force: true });
   return bytes;
+}
+
+/** Delete every `refs/cograph/*` ref of a repository (what "clear" leaves nothing of). Returns the names deleted. */
+export async function clearRepoRefs(repoRoot: string, exec: Exec): Promise<string[]> {
+  const res = await exec('git', ['for-each-ref', '--format=%(refname)', 'refs/cograph/'], repoRoot);
+  if (res.code !== 0) { return []; }
+  const names = res.stdout.split('\n').map(l => l.trim()).filter(l => l.startsWith('refs/cograph/'));
+  const deleted: string[] = [];
+  for (const name of names) {
+    const del = await exec('git', ['update-ref', '-d', name], repoRoot);
+    if (del.code === 0) { deleted.push(name); }
+  }
+  return deleted;
 }

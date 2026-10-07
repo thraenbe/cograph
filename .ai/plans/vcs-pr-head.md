@@ -95,8 +95,8 @@ the project.
 of the user's is touched), `git ls-tree -r` to list the commit, keep only analysable paths
 (`isAnalyzablePath`), then `GIT_INDEX_FILE=<tmp> git read-tree <sha>` + `git checkout-index
 --prefix=<dir>/ --stdin` for those paths. No tar, no `git worktree` entry, the user's index never
-changes. A `.complete` marker makes a half-written directory restartable. Size guard: above 50 000
-analysable files it refuses with a sentence. Keeps the three newest heads per repository.
+changes. A marker file makes a half-written directory restartable. Size guard: above 50 000 analysable
+files it refuses with a sentence. Kept within the budget below (6 trees / 400 MB, LRU).
 
 **Colours.** Step 1 colours the head tree from the PR's file list and patches (what (a) does) — but
 now exact for every file, because the tree *is* the head. Step 3 replaces that with the structural
@@ -266,6 +266,22 @@ is not the fetch remote.
 Review notes for the engine boundary: `src/vcs/engine/*` imports `fs`, `path`, `crypto`, the
 `cacheStore` and `structureScanner` modules (both vscode-free) and types; `headAnalyzer.ts` and
 `extension.ts` are the only files that know about `AnalyzerRunner` and `vscode.window.withProgress`.
+
+## What the user's `.git` looks like after fifty pull requests (settled in step 5)
+
+Each opened PR fetches into `refs/cograph/pr/N` and each base branch into
+`refs/cograph/base/<branch>`; the fetched objects are reachable only through those refs. A tree's
+marker records the refs that brought it, with their values at the time. **Eviction deletes the
+ref with the tree**, as `git update-ref -d <ref> <value>` — which refuses when the ref has since
+been re-pointed (the same PR re-pushed and reopened), so a newer tree never loses its ref to an
+older one's eviction. **Clear** deletes every tree's refs and then sweeps `refs/cograph/*`.
+
+So after fifty PRs with the 6-tree budget: at most six trees under global storage, at most six
+`refs/cograph/pr/*` plus the base refs those six trees name (typically one, `base/main`), and the
+objects of the forty-four evicted heads unreachable — `git gc --auto`, which git runs on its own
+during normal use, reclaims them. Nothing under `refs/heads`, no worktree entries, the index never
+written. The only trace of an evicted PR is in the reflog-free `refs/cograph` namespace, which is
+empty for it.
 
 ## Not in this plan
 

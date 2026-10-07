@@ -6,8 +6,8 @@ import * as path from 'path';
 import { defaultExec } from '../../vcs/ghCliSource';
 import type { Exec, ExecResult } from '../../vcs/ghCliSource';
 import {
-  DEFAULT_BUDGET, HeadTreeError, analyzerKeepsPath, branchRef, clearTrees, evictTrees, fetchBranch, fetchPullRequestHead, githubRemote,
-  listTrees, materializeCommit, mergeBase, pullRequestRef, repoKey, treeDir,
+  DEFAULT_BUDGET, HeadTreeError, analyzerKeepsPath, branchRef, branchRefs, clearRepoRefs, clearTrees, evictTrees, fetchBranch,
+  fetchPullRequestHead, githubRemote, listTrees, materializeCommit, mergeBase, pullRequestRef, pullRequestRefs, repoKey, treeDir,
 } from '../../vcs/engine/headTree';
 import type { HeadTreeDeps, TreeMarker } from '../../vcs/engine/headTree';
 import { analyzeTree, relPath } from '../../vcs/engine/treeAnalysis';
@@ -207,6 +207,43 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     assert.ok(a.nodes.some(n => n.startsWith('build/gen.ts')), 'what the analyzers walk in a checkout, they walk in the copy');
   });
 
+  test('a tree remembers the refs that brought it; eviction deletes a ref only while it still points at that commit', async () => {
+    const head = await fetchPullRequestHead(deps, 1);
+    const tip = await fetchBranch(deps, 'main');
+    const base = await mergeBase(deps, head, tip);
+    await materializeCommit({ ...deps, now: () => 1 }, head, pullRequestRefs(1, head));
+    await materializeCommit({ ...deps, now: () => 2 }, base, branchRefs('main', tip));
+    assert.strictEqual(sh(repos.work, ['rev-parse', pullRequestRef(1)]), head);
+    assert.strictEqual(sh(repos.work, ['rev-parse', branchRef('main')]), tip);
+    // Budget 0: everything goes, and so do both refs — nothing keeps the fetched objects alive.
+    const removed = await evictTrees(storage, { maxTrees: 0, maxBytes: 0 }, [], defaultExec);
+    assert.deepStrictEqual(removed.map(t => t.marker.sha).sort(), [base, head].sort());
+    assert.strictEqual(sh(repos.work, ['for-each-ref', 'refs/cograph/']), '', 'no refs/cograph/* left');
+    assert.strictEqual(sh(repos.work, ['status', '--porcelain']), '');
+    assert.strictEqual(sh(repos.work, ['branch', '--show-current']), 'main', 'the user\'s checkout is as it was');
+  });
+
+  test('a ref re-pointed by a newer fetch survives the eviction of the old tree', async () => {
+    const head = await fetchPullRequestHead(deps, 1);
+    await materializeCommit({ ...deps, now: () => 1 }, head, pullRequestRefs(1, head));
+    // The PR was re-pushed: the same ref now points elsewhere (here: at main's tip).
+    sh(repos.work, ['update-ref', pullRequestRef(1), repos.mainSha]);
+    const removed = await evictTrees(storage, { maxTrees: 0, maxBytes: 0 }, [], defaultExec);
+    assert.strictEqual(removed.length, 1);
+    assert.strictEqual(sh(repos.work, ['rev-parse', pullRequestRef(1)]), repos.mainSha, 'the ref of the NEWER head was not touched');
+    assert.deepStrictEqual(await clearRepoRefs(repos.work, defaultExec), [pullRequestRef(1)]);
+    assert.strictEqual(sh(repos.work, ['for-each-ref', 'refs/cograph/']), '');
+    assert.deepStrictEqual(await clearRepoRefs(repos.work, defaultExec), []);
+  });
+
+  test('clearing the store deletes the trees and the refs they were fetched through', async () => {
+    const head = await fetchPullRequestHead(deps, 1);
+    await materializeCommit(deps, head, pullRequestRefs(1, head));
+    const bytes = await clearTrees(storage, defaultExec);
+    assert.ok(bytes > 0 && !fs.existsSync(storage));
+    assert.strictEqual(sh(repos.work, ['for-each-ref', 'refs/cograph/']), '');
+  });
+
   test('analyzeTree gives the structure tree and the graph of a directory through the injected analyzer', async () => {
     const sha = await fetchPullRequestHead(deps, 1);
     const tree = await materializeCommit(deps, sha);
@@ -261,25 +298,25 @@ suite('vcs engine — headTree budget and failures', () => {
     assert.strictEqual(repoKey('/a/b').length, 12);
   });
 
-  test('eviction drops the least recently used until count and bytes fit, keeps protected trees, sweeps leftovers', () => {
+  test('eviction drops the least recently used until count and bytes fit, keeps protected trees, sweeps leftovers', async () => {
     const dirs = ['a', 'b', 'c', 'd'].map((n, i) => fakeTree(n.repeat(40), 100, i + 1)); // a is the oldest
     fs.mkdirSync(path.join(storage, key, 'e'.repeat(40)));                          // half-written: no marker
     fs.writeFileSync(path.join(storage, key, '.index-stale'), '');
-    const removed = evictTrees(storage, { maxTrees: 2, maxBytes: 1000 }, [dirs[0]]);
+    const removed = await evictTrees(storage, { maxTrees: 2, maxBytes: 1000 }, [dirs[0]]);
     assert.deepStrictEqual(removed.map(t => t.marker.sha[0]), ['b', 'c'], 'oldest first, the protected one skipped');
     assert.deepStrictEqual(listTrees(storage).map(t => t.marker.sha[0]).sort(), ['a', 'd']);
     assert.ok(!fs.existsSync(path.join(storage, key, 'e'.repeat(40))));
     assert.ok(!fs.existsSync(path.join(storage, key, '.index-stale')));
-    const byBytes = evictTrees(storage, { maxTrees: 10, maxBytes: 150 });
+    const byBytes = await evictTrees(storage, { maxTrees: 10, maxBytes: 150 });
     assert.deepStrictEqual(byBytes.map(t => t.marker.sha[0]), ['a'], 'now the byte limit bites');
   });
 
-  test('defaults, listing an empty store, clearing', () => {
+  test('defaults, listing an empty store, clearing', async () => {
     assert.deepStrictEqual(DEFAULT_BUDGET, { maxTrees: 6, maxBytes: 400 * 1024 * 1024 });
     assert.deepStrictEqual(listTrees(path.join(storage, 'nope')), []);
-    assert.deepStrictEqual(evictTrees(path.join(storage, 'nope')), []);
+    assert.deepStrictEqual(await evictTrees(path.join(storage, 'nope')), []);
     fakeTree('f'.repeat(40), 50, 1);
-    assert.strictEqual(clearTrees(storage), 50);
+    assert.strictEqual(await clearTrees(storage), 50);
     assert.ok(!fs.existsSync(storage));
   });
 

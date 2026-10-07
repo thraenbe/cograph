@@ -16,7 +16,7 @@ import { drainFps, type FpsWindow } from '../lib/fps';
 import { fitToView, setSlider } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 
-interface Lines { inFrameDom: number; inFramePainted: number; layersAttached: number; bundlesPainted: number; k: number }
+interface Lines { inFrameDom: number; inFramePainted: number; layersAttached: number; bundlesPainted: number; k: number; nodesAttached: number; labelsAttached: number }
 interface Gesture extends FpsWindow { fps: number; cpuMsPerFrame: number; scriptMsPerFrame: number; layoutStyleMsPerFrame: number; mid: Lines & { wantLinks: boolean | null; gesture: boolean | null; inViewLinks: number | null } }
 
 /** Runs in the page. */
@@ -28,7 +28,10 @@ function linesInPage(): Lines {
   const painted = lines.filter(el => getComputedStyle(el).display !== 'none').length;
   const bundles = [...document.querySelectorAll('#graph line.cross-bundle')].filter(el => getComputedStyle(el).display !== 'none').length;
   return { inFrameDom: lines.length, inFramePainted: painted, layersAttached: layers.length, bundlesPainted: bundles,
-    k: svg && g.d3 ? +g.d3.zoomTransform(svg).k.toFixed(3) : 0 };
+    k: svg && g.d3 ? +g.d3.zoomTransform(svg).k.toFixed(3) : 0,
+    // F29/F31: what the LOD left attached (parked layers are detached from the document, so these count real DOM cost)
+    nodesAttached: document.querySelectorAll('#graph g.frame circle.regular-node').length,
+    labelsAttached: document.querySelectorAll('#graph g.frame text').length };
 }
 
 /** Mid-gesture: what is painted, and what the culler decided (globals of frameRender.js, absent on old builds). */
@@ -161,7 +164,10 @@ scenario('shelf-lines', { only: { engine: 'shelf' }, largeOk: true, expandFirst:
   const views: [string, () => Promise<void>][] = [
     ['fit', async () => { /* already fitted */ }],
     ['fit-relod', async () => { await zoomTo(0.6); await fitToView(page); await page.waitForTimeout(900); }],
-    ['working', async () => { await zoomTo(0.8); }],
+    // fit-redetail = 216's F29 sequence: at fit (below every LOD threshold) change Detail once, i.e. a re-render while
+    // `want` is already parked. Main/F27 attach everything here; F29 re-parks.
+    ['fit-redetail', async () => { await fitToView(page); await page.waitForTimeout(900); await setSlider(page, 'detailSlider', 0.9); await page.waitForTimeout(600); await setSlider(page, 'detailSlider', 1); await page.waitForTimeout(1500); }],
+    ['working', async () => { await fitToView(page); await page.waitForTimeout(900); await zoomTo(0.8); }],
   ];
   for (const [view, enter] of views) {
     const res: Record<string, unknown> = {};

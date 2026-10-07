@@ -14,7 +14,15 @@ export interface ExecResult {
   notFound: boolean;
 }
 
-export type Exec = (command: string, args: string[], cwd: string) => Promise<ExecResult>;
+export interface ExecOptions {
+  /** Extra environment on top of the extension host's. */
+  env?: Record<string, string>;
+  /** Written to the child's stdin, which is then closed. */
+  stdin?: string;
+  timeoutMs?: number;
+}
+
+export type Exec = (command: string, args: string[], cwd: string, opts?: ExecOptions) => Promise<ExecResult>;
 
 const TIMEOUT_MS = 30_000;
 const MAX_BUFFER = 64 * 1024 * 1024;
@@ -32,10 +40,11 @@ const LIST_FIELDS = [
  * shell resolves `.cmd` shims (as gitService does), which is safe here because
  * every argument this module builds is a constant, an enum value or an integer.
  */
-export const defaultExec: Exec = (command, args, cwd) => new Promise((resolve) => {
-  cp.execFile(command, args, {
-    cwd, timeout: TIMEOUT_MS, encoding: 'utf8', maxBuffer: MAX_BUFFER,
+export const defaultExec: Exec = (command, args, cwd, opts = {}) => new Promise((resolve) => {
+  const child = cp.execFile(command, args, {
+    cwd, timeout: opts.timeoutMs ?? TIMEOUT_MS, encoding: 'utf8', maxBuffer: MAX_BUFFER,
     shell: process.platform === 'win32',
+    env: opts.env ? { ...process.env, ...opts.env } : process.env,
   }, (err, stdout, stderr) => {
     const e = err as (NodeJS.ErrnoException & { code?: number | string }) | null;
     resolve({
@@ -45,6 +54,7 @@ export const defaultExec: Exec = (command, args, cwd) => new Promise((resolve) =
       notFound: e?.code === 'ENOENT',
     });
   });
+  if (opts.stdin !== undefined && child.stdin) { child.stdin.end(opts.stdin); }
 });
 
 const NOT_FOUND_TEXT = /is not recognized as an internal or external command|command not found|ENOENT/i;

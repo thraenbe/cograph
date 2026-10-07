@@ -1,7 +1,8 @@
 # Task: Pull requests analysed at their head (N2 option b)
 
 Planner: session-262, 2026-10-07. Base: `termi/s262` @ 8389035 (step (a) shipped there).
-Status: **plan, awaiting review by session-110.** Commissioned by Bela (N2 = analyse the PR head);
+Status: **approved by session-110 on 2026-10-07, building.** Three points settled below ("Settled
+at approval"). Commissioned by Bela (N2 = analyse the PR head);
 (b′) the checkout action is not wanted. Architectural requirement from session-183, relayed
 2026-10-07: the engine — fetch a ref, analyse it, diff two graphs — is vscode-free, like `funcBrief.ts`.
 
@@ -181,6 +182,30 @@ base cannot be fetched, with the banner saying so, not as the design.
   the head panel's title says `PR #69 · head` so the two are not confused.
 - **Time.** Fetch is network-bound; analysis is CPU-bound; both are behind one cancellable
   progress notification, and a cancelled run leaves nothing half-shown.
+
+## Settled at approval (session-110, 2026-10-07)
+
+1. **Is a source-only copy enough for the analyzers?** Checked in every analyzer: `analyze_ts.js`
+   and `analyze_js.js` call `createSourceFile` per file and never `createProgram`, read no
+   `tsconfig.json` / `package.json` and resolve no modules; `analyze.py` parses each file's AST and
+   touches no `sys.path`; `analyze_java.js` and `analyze_cpp.js` read each file and follow no
+   classpath or `#include`. So the copy needs exactly the files the structure tree shows, and
+   nothing else. Measured on this repository's HEAD: the copy (249 of 335 files, 2.7 MB) analyses to
+   1 639 nodes / 2 500 edges, identical to the full checkout, zero differences either way. Step 1's
+   tests repeat that comparison on a temporary repository with Python, Java and C++ files next to
+   TypeScript, and fail if a single node differs. Known, accepted difference: source under a folder
+   the structure scanner skips (`build/`, `target/`) is not copied; it is not in the graph's tree in
+   the workspace either.
+2. **Disk budget.** `<globalStorage>/pr-heads/<repo>/<sha>/`, each with a marker carrying size and
+   last use. Kept: at most **6 trees** and **400 MB** across all repositories, least recently used
+   evicted first; evicted on activation and after every materialisation. A command **CoGraph: Clear
+   pull-request trees** empties it. A single tree above **50 000 analysable files** is refused.
+3. **How (a) and (b) relate.** One click = (b): the PR's head opens in its own read-only panel titled
+   `PR #69 · head 23834be` with a banner `PR #69 · head 23834be · base 1fc1156`. When the head
+   cannot be fetched (offline, no git, too large, no access) the row explains why and offers one
+   button, **Show in the current checkout instead**, which is (a); (a)'s banner now reads
+   `PR #69 · in your checkout (branch …)` so a graph is never of uncertain origin. No setting, no
+   choice up front.
 
 ## Not in this plan
 

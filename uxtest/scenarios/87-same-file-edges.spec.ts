@@ -11,7 +11,7 @@
 // Without the setting on the branch, the two boots have identical config: a determinism baseline only.
 import { scenario } from '../lib/scenario';
 import { openLab, type Lab } from '../lib/lab';
-import { backgroundPoint, fitToView, hoverPoint, locateFrame, locateNode, setSlider, toggleSwitch, wheelZoom } from '../lib/actions';
+import { backgroundPoint, fitToView, hoverPoint, locateFrame, locateNode, setSlider, toggleSwitch, waitSimRest, wheelZoom } from '../lib/actions';
 import { SkipStep, StepFinding } from '../lib/step';
 import { SEL } from '../selectors';
 import { maxDisplacement } from '../metrics/compute';
@@ -43,13 +43,19 @@ const connectedIds = (lab: Lab): Promise<string[]> =>
 
 async function hasSetting(lab: Lab): Promise<boolean> { return await lab.page.locator(SEL.toggleSameFileEdges.css).count() > 0; }
 
-/** The same deterministic opening for both boots: Detail 1 when the repo opens collapsed, then fit. */
+/** The same deterministic opening for both boots: Detail 1 when the repo opens collapsed, wait for the
+ *  simulation to REST (alpha <= 0.001 or no ticks, not "looks still": Global/Dynamic takes 13-16 s), then fit. */
 async function settle(lab: Lab, label: string): Promise<Snapshot> {
-  await lab.ux.step(`Settle (${label}, seed ${SEED})`, async () => {
+  let restNote = '';
+  const rec = await lab.ux.step(`Settle (${label}, seed ${SEED})`, async () => {
     const visible = await lab.page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as number;
     if (visible < 5) { await setSlider(lab.page, 'detailSlider', 1); await lab.page.waitForTimeout(600); }
+    const rest = await waitSimRest(lab.page, 90000);
+    if (!rest.rested) { throw new Error(`simulation did not rest within 90 s (alpha ${rest.alpha})`); }
+    restNote = `sim at rest after ${rest.ms} ms (${rest.by}, alpha ${rest.alpha})`;
     await fitToView(lab.page);
   }, { stillTimeoutMs: 60000 });
+  rec.note = rec.note ? `${rec.note}; ${restNote}` : restNote;
   if (!lab.ux.lastSnapshot) { throw new Error('no snapshot after settle'); }
   return lab.ux.lastSnapshot;
 }
@@ -121,7 +127,7 @@ scenario('same-file-edges', { expandFirst: false, seed: SEED }, async (lab, comb
     rec.note = `${snapOn.nodes.length} vs ${snapOff.nodes.length} visible nodes, ${m.moved} differ, max ${m.max}px; connected ${connOn.length} vs ${connOff.length}; ` +
       `off draws ${drawnOff.xfileShown} cross-file line(s) + ${drawnOff.bundlesShown} bundle(s)`;
     if (m.max > SAME_PX || idsOn !== idsOff) {
-      rec.findings.push({ rule: feature ? 'same-file-layout-differs' : 'boot-not-deterministic', severity: feature ? 'high' : 'medium', ref: 'U1', message: rec.note });
+      rec.findings.push({ rule: feature ? 'same-file-layout-differs' : 'boot-not-deterministic', severity: 'high', ref: 'U1', message: rec.note });
     }
     if (connOn.join('\n') !== connOff.join('\n')) {
       rec.findings.push({ rule: 'same-file-orphans-differ', severity: 'high', ref: 'U1', message: `state.connectedNodeIds differs on vs off (${connOn.length} vs ${connOff.length})` });

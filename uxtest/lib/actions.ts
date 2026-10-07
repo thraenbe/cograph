@@ -419,3 +419,28 @@ export function judgeFrameDrag(r: FrameDragResult): string {
   }
   return `drag ok: grabbed ${r.path.split('/').pop()}, frame moved ${r.frameDx},${r.frameDy} px for ${r.pointerDx},${r.pointerDy} px pointer, max step ${r.maxJumpPx} px (pointer ${r.maxStepPx} px), release→drop ${r.releaseToDropPx ?? '–'} px`;
 }
+
+/**
+ * Wait until the simulation is at REST, not merely visually still: alpha <= 0.001 (d3's alphaMin, the point
+ * where Global stops ticking), or no tick for one second (node positions exactly unchanged; Shelf frame sims
+ * stop at their own threshold). Global/Dynamic needs ~340 ticks at 15-26 ticks/s, i.e. 13-16 s on corpus
+ * repos; a movement heuristic samples inside that. Returns how it ended.
+ */
+export async function waitSimRest(page: Page, timeoutMs = 60000): Promise<{ rested: boolean; alpha: number | null; ms: number; by: string }> {
+  const t0 = Date.now();
+  const read = (): Promise<{ alpha: number | null; sig: string }> => page.evaluate(`(() => {
+    let a = null; try { a = state.simulation && state.simulation.alpha ? state.simulation.alpha() : null; } catch (e) { a = null; }
+    let h = 0; for (const n of (state.currentNodes || [])) { h = (h * 31 + Math.round((n.x || 0) * 100) * 7 + Math.round((n.y || 0) * 100)) | 0; }
+    return { alpha: a, sig: String(h) };
+  })()`) as Promise<{ alpha: number | null; sig: string }>;
+  let last = await read(), sameSince = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    if (last.alpha !== null && last.alpha <= 0.001) { return { rested: true, alpha: last.alpha, ms: Date.now() - t0, by: 'alpha' }; }
+    await page.waitForTimeout(250);
+    const cur = await read();
+    if (cur.sig !== last.sig) { sameSince = Date.now(); }
+    else if (Date.now() - sameSince >= 1000) { return { rested: true, alpha: cur.alpha, ms: Date.now() - t0, by: 'no-ticks' }; }
+    last = cur;
+  }
+  return { rested: false, alpha: last.alpha, ms: Date.now() - t0, by: 'timeout' };
+}

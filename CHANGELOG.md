@@ -15,6 +15,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.cograph/chats/`, and CoGraph says so once. The AI Workflow Graph and Annotate Graph are
   unchanged, and so are all `cograph.graphIntelligence.*` settings.
 
+### Fixed
+- **Saving from the function popup no longer writes over the wrong lines.** A popup
+  remembered the line its function started at when it opened, and Save wrote its text back
+  over the region found at that line. If the file changed while the popup was open (edited
+  in the editor, or another popup on the same file saved first and shifted the lines), the
+  save overwrote whatever was there now. Save now only writes when the file still contains
+  exactly the text the popup showed, and never when the end of the function cannot be
+  found. Otherwise nothing is written.
+- **A refused or unconfirmed popup save keeps your edit.** The popup now stays open until
+  the save is confirmed. If it is refused, or no answer comes within 8 s, the popup keeps
+  your text editable and shows the reason inline, with **Copy my edit** and, when the
+  function was found again in the file, **Reload from file** (which replaces your edit, so
+  it needs a second click). Saving again is safe: it still compares against the text you
+  were shown.
+- **The function popup shows the whole function, and only that function.** Its end used to
+  be found by counting every brace, including braces inside strings, comments and regexes,
+  and a body-less declaration (a Java interface method, a C++ prototype) ran on into the
+  next function. So the popup could show far too much (11 000 lines for one lodash function)
+  or only the first line of a multi-line signature. The end detection now skips strings,
+  char literals, comments and regexes, and handles multi-line signatures, decorators,
+  declarations without a body, and Python triple-quoted strings, bracket continuations and
+  low-indent comments.
 ## [1.3.0] - 2026-09-24
 
 The Shelf engine release: nested, non-overlapping folder frames with per-file slots,

@@ -625,7 +625,7 @@ suite('saveFuncSource()', () => {
     fs.writeFileSync(filePath, 'def hello():\r\n    return 1\r\n', 'utf8');
 
     const provider = new GraphProvider(makeFakeContext());
-    (provider as any).saveFuncSource(filePath, 1, 'def hello():\n    return 42\n');
+    (provider as any).saveFuncSource(filePath, 1, 'def hello():\n    return 42\n', (provider as any).getFuncSource(filePath, 1));
 
     const written = fs.readFileSync(filePath, 'utf8');
     assert.ok(written.includes('\r\n'), 'CRLF file should keep CRLF after save');
@@ -637,7 +637,7 @@ suite('saveFuncSource()', () => {
     fs.writeFileSync(filePath, 'def hello():\n    return 1\n', 'utf8');
 
     const provider = new GraphProvider(makeFakeContext());
-    (provider as any).saveFuncSource(filePath, 1, 'def hello():\n    return 42\n');
+    (provider as any).saveFuncSource(filePath, 1, 'def hello():\n    return 42\n', (provider as any).getFuncSource(filePath, 1));
 
     const written = fs.readFileSync(filePath, 'utf8');
     assert.ok(!written.includes('\r\n'), 'LF file should keep LF after save');
@@ -650,7 +650,7 @@ suite('saveFuncSource()', () => {
 
     const provider = new GraphProvider(makeFakeContext());
     // newSource has CRLF — but the file is LF, so output must use LF
-    (provider as any).saveFuncSource(filePath, 1, 'def hello():\r\n    return 99\r\n');
+    (provider as any).saveFuncSource(filePath, 1, 'def hello():\r\n    return 99\r\n', (provider as any).getFuncSource(filePath, 1));
 
     const written = fs.readFileSync(filePath, 'utf8');
     assert.ok(!written.includes('\r\n'), 'LF file should remain LF even when newSource has CRLF');

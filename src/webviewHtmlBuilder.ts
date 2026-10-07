@@ -213,6 +213,7 @@ export function getWebviewHtml(
   const viewCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'viewCull.js'));
   const frameCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameCull.js'));
   const hoverCardUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverCard.js'));
+  const funcSaveUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'funcSave.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
 
@@ -521,6 +522,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${slotDragUri}?v=${nonce}"></script>
   ${timelineScriptTag}
   <script nonce="${nonce}" src="${hoverCardUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${funcSaveUri}?v=${nonce}"></script>
 </body>
 </html>`;
 }

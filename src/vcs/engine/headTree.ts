@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { DECLARED_TRACKED } from '../../projectScope';
 import { isAnalyzablePath } from '../../structureScanner';
 import type { Exec, ExecResult } from '../ghCliSource';
 
@@ -92,9 +93,6 @@ export interface MaterializedTree {
  * of the same commit — structure scan and analyzers — and fails if the two ever differ.
  */
 export const analyzerKeepsPath = isAnalyzablePath;
-
-/** Declared tracked files of a copy (no `.git` there): what projectScope reads instead of `git ls-files`. */
-export const TRACKED_LIST = '.cograph-tracked';
 
 /** Stable, path-safe key for a repository, so two checkouts of one repo share nothing by accident. */
 export function repoKey(repoRoot: string): string {
@@ -208,7 +206,7 @@ function mergeRefs(have: TreeRef[] | undefined, add: TreeRef[]): TreeRef[] {
 
 const LOCK = '.cograph-tree.lock';
 /** The marker, the lock, the tracked list and the analysis cache are not part of the copy. */
-const NOT_CONTENT = new Set([MARKER, LOCK, TRACKED_LIST, '.cograph']);
+const NOT_CONTENT = new Set([MARKER, LOCK, DECLARED_TRACKED, '.cograph']);
 
 /**
  * A panel showing a tree holds a lock on it: the pid of its VS Code window.
@@ -338,7 +336,10 @@ export async function materializeCommit(deps: HeadTreeDeps, sha: string, refs: T
     if (deps.signal?.aborted) { throw new HeadTreeError('cancelled', 'Cancelled.'); }
     // The copy has no .git: it declares what the commit tracks, so the scanner's git-aware rule
     // (build output only where tracked) sees the commit exactly as a checkout of it would.
-    fs.writeFileSync(path.join(dir, TRACKED_LIST), files.join('\0'), 'utf8');
+    // Written whole: tmp + rename, so a reader never sees a partial list.
+    const declaration = path.join(dir, DECLARED_TRACKED);
+    fs.writeFileSync(`${declaration}.tmp`, files.join('\0'), 'utf8');
+    fs.renameSync(`${declaration}.tmp`, declaration);
   } catch (err) {
     fs.rmSync(dir, { recursive: true, force: true });
     throw err;

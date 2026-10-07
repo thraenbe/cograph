@@ -44,16 +44,33 @@ export type GitLister = (root: string) => string[] | null;
 /**
  * A directory that is not a repository can still say what git tracks in it: a copy of a
  * commit (src/vcs/engine) writes the commit's files here, NUL-separated, root-relative.
+ * One name, defined once: the engine imports it, so the two cannot drift apart.
  */
-const DECLARED_TRACKED = '.cograph-tracked';
+export const DECLARED_TRACKED = '.cograph-tracked';
+
+/** Told when a declaration exists but cannot be read; the extension points this at its log. */
+let onDeclarationError: (root: string, err: NodeJS.ErrnoException) => void = () => undefined;
+export function setDeclarationErrorHandler(handler: (root: string, err: NodeJS.ErrnoException) => void): void {
+  onDeclarationError = handler;
+}
 
 /**
- * The directory's own declaration when it has one (a copy is never a repository, and must
- * not borrow the tracking of whatever repository it happens to sit inside); otherwise
- * `git ls-files` relative to `root`; null when root is not in a repository or git fails.
+ * The directory's own declaration when it has one; otherwise `git ls-files` relative to
+ * `root`; null when root is not in a repository or git fails.
+ *
+ * Declaration FIRST: a copy is never a repository, and as a fallback it would borrow the
+ * tracking of whatever repository it happens to sit inside (global storage under a dotfiles
+ * repo, a tmp dir inside a checkout). Only a MISSING declaration falls through to git: one
+ * that exists but cannot be read (EACCES, EISDIR, half-written) means "no git" — borrowing
+ * the outer repository is the one thing this ordering exists to prevent. The declaration is
+ * read only at the walk root, so a scan of a copy must start at the copy's root.
  */
 export const gitLsFiles: GitLister = (root) => {
-  try { return fs.readFileSync(path.join(root, DECLARED_TRACKED), 'utf8').split('\0').filter(Boolean); } catch { /* not a copy */ }
+  try {
+    return fs.readFileSync(path.join(root, DECLARED_TRACKED), 'utf8').split('\0').filter(Boolean);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') { onDeclarationError(root, err as NodeJS.ErrnoException); return null; }
+  }
   try {
     const out = cp.execFileSync('git', ['ls-files', '-z'], {
       cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: 10_000,

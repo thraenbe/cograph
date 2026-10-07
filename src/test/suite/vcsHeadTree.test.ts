@@ -13,6 +13,7 @@ import {
 import type { HeadTreeDeps, TreeMarker } from '../../vcs/engine/headTree';
 import { analyzeTreeCached, relPath } from '../../vcs/engine/treeAnalysis';
 import { isAnalyzablePath, scanStructure } from '../../structureScanner';
+import { DECLARED_TRACKED, gitLsFiles, setDeclarationErrorHandler } from '../../projectScope';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -271,6 +272,53 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     const cleared = await clearTrees(storage, defaultExec);
     assert.ok(cleared.trees === 1 && cleared.bytes > 0 && cleared.kept === 0 && !fs.existsSync(storage));
     assert.strictEqual(sh(repos.work, ['for-each-ref', 'refs/cograph/']), '');
+  });
+
+  test('a copy inside a repository that DISAGREES with its declaration: the declaration wins, both ways', async () => {
+    // An outer repository with the copy inside it (global storage under a dotfiles repo, a tmp dir in a checkout).
+    const outer = path.join(root, 'outer-repo');
+    fs.mkdirSync(outer, { recursive: true });
+    sh(outer, ['init', '--quiet', '-b', 'main']);
+    const copyDeps = { ...deps, storageDir: path.join(outer, 'storage') };
+    const sha = await fetchPullRequestHead(copyDeps, 1);
+    const tree = await materializeCommit(copyDeps, sha);
+    assert.ok(fs.existsSync(path.join(tree.dir, DECLARED_TRACKED)));
+    assert.ok(!fs.existsSync(path.join(tree.dir, `${DECLARED_TRACKED}.tmp`)), 'written whole: tmp renamed away');
+    // Direction 1: the outer repo tracks NOTHING of the copy, the declaration lists build/gen.ts → kept.
+    assert.strictEqual(sh(outer, ['ls-files']), '', 'the outer repository tracks nothing');
+    const rel = (r: string) => scanStructure(r).files.map(f => relPath(r, f.path)).sort();
+    assert.ok(rel(tree.dir).includes('build/gen.ts'), 'declared, so kept, although git would say untracked');
+    // Direction 2: the outer repo tracks a file in the copy's build/ that the declaration does not list → dropped.
+    fs.writeFileSync(path.join(tree.dir, 'build', 'x.ts'), 'export function x() {}\n');
+    sh(outer, ['add', '-f', path.relative(outer, path.join(tree.dir, 'build', 'x.ts'))]);
+    sh(outer, ['commit', '--quiet', '-m', 'track a stray file'], GIT_ID);
+    assert.ok(sh(outer, ['ls-files']).includes('build/x.ts'), 'git now tracks it');
+    assert.ok(!rel(tree.dir).includes('build/x.ts'), 'not declared, so dropped, although git tracks it');
+    assert.ok(rel(tree.dir).includes('build/gen.ts'));
+    // The lister itself: declaration, not the outer repo's answer.
+    assert.deepStrictEqual(gitLsFiles(tree.dir)?.includes('build/gen.ts'), true);
+    assert.deepStrictEqual(gitLsFiles(tree.dir)?.includes('build/x.ts'), false);
+  });
+
+  test('a declaration that exists but cannot be read means "no git" - never the outer repository', async () => {
+    const outer = path.join(root, 'outer-repo-2');
+    fs.mkdirSync(path.join(outer, 'copy', 'build'), { recursive: true });
+    sh(outer, ['init', '--quiet', '-b', 'main']);
+    fs.writeFileSync(path.join(outer, 'copy', 'build', 'y.ts'), 'export function y() {}\n');
+    fs.writeFileSync(path.join(outer, 'copy', 'src.ts'), 'export function s() {}\n');
+    sh(outer, ['add', '-A']);
+    sh(outer, ['commit', '--quiet', '-m', 'tracked'], GIT_ID);
+    const copy = path.join(outer, 'copy');
+    assert.ok(gitLsFiles(copy)?.includes('build/y.ts'), 'no declaration: git answers');
+    fs.mkdirSync(path.join(copy, DECLARED_TRACKED));                 // exists, unreadable (EISDIR)
+    const errors: string[] = [];
+    setDeclarationErrorHandler((r, err) => errors.push(`${path.basename(r)}:${err.code}`));
+    try {
+      assert.strictEqual(gitLsFiles(copy), null, 'not git\'s answer: the no-git rule');
+      assert.deepStrictEqual(errors, ['copy:EISDIR']);
+      const rel = scanStructure(copy).files.map(f => relPath(copy, f.path)).sort();
+      assert.deepStrictEqual(rel, ['src.ts'], 'without git, build output is skipped');
+    } finally { setDeclarationErrorHandler(() => undefined); }
   });
 
   test('a cancel mid-copy leaves no directory, no marker and no temporary index; the next open copies afresh', async () => {

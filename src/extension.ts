@@ -11,6 +11,7 @@ import { GhCliSource } from './vcs/ghCliSource';
 import { PrController } from './vcs/prController';
 import { VcsSidebar } from './vcs/vcsSidebar';
 import { clearRepoRefs, clearTrees, evictTrees } from './vcs/engine/headTree';
+import { setDeclarationErrorHandler } from './projectScope';
 import { defaultExec } from './vcs/ghCliSource';
 import { createTreeAnalyzer } from './vcs/headAnalyzer';
 import { prDocumentUri, registerPrDocuments, showPrText } from './vcs/prDocuments';
@@ -22,6 +23,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Version Control pane: pull requests through the developer's own `gh` sign-in.
   const vcsLog = vscode.window.createOutputChannel('CoGraph Version Control');
+  setDeclarationErrorHandler((root, err) => vcsLog.appendLine(`[vcs] ${root}: tracked-file declaration unreadable (${err.code ?? err.message}); treated as no git`));
   // Materialised pull-request heads live under the extension's global storage, within a budget.
   // Without global storage (some test hosts) only the checkout view exists.
   const treeStorage = context.globalStorageUri?.fsPath ? path.join(context.globalStorageUri.fsPath, 'pr-trees') : undefined;

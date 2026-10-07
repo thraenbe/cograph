@@ -61,6 +61,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   until you zoomed across a threshold again. With in-frame lines now painted (F27), that
   dropped panning at fit-to-view on fmt from 70 to 29 fps; with this fix the view stays light.
   (F29)
+
+### Changed
+- **"Show only this file" now removes the other folders**, the same way "Show only this
+  folder" does. Only the file's own folder and the folders that contain it stay, in both
+  engines; before, every other folder stayed on screen as an empty frame or box.
 ## [1.3.0] - 2026-09-24
 
 The Shelf engine release: nested, non-overlapping folder frames with per-file slots,

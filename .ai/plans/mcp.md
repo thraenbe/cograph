@@ -1,7 +1,7 @@
 # Task: CoGraph MCP server (replaces the in-extension Chat)
 
 Planner: session-214, 2026-09-29. Base: `main` @ 1fc1156, branch `termi/s214`.
-Status: **PLANNER PHASE. Waiting for Bela's approval. No product code written.**
+Status: **steps 0-5 implemented (2026-10-07), cache-only v1.** Bela: M1 six tools, M3 remove Chat, M4 MIT, M5 follow-up release (npm and headless deferred). See "Outcome and deviations" at the end.
 
 ## Problem
 
@@ -432,3 +432,49 @@ Total for 1–5: ~3.5 dev days (the Chat removal, step 0, is already done). With
    takes its place.
 4. **Licensing**: MCP server in the MIT repo (my view) or the private one?
 5. **Headless re-analysis** (step 6) in v1, or v1 = cache-only and 6 follows?
+
+## Outcome and deviations (executor + reviewer, 2026-10-07)
+
+Built on `termi/s214`: dca6e2b, on top of the Chat removal (PR #70, merged in here). Full suite:
+1243 passing, 0 failing. The 31 new tests sit in `mcpCore`, `mcpServer` (including a real stdio
+round-trip through the SDK client against `dist/mcp/server.js`) and `mcpSetup`. Coverage of
+`src/mcp/**` under c8 is about 94 % of statements; the rest is tsc's import helpers and
+`server.ts`'s `main`, which only runs in the spawned bundle. The compile is clean against
+`@types/vscode` 1.75. `vsce ls` passes and ships `dist/mcp/server.js` (473 kB minified).
+
+Measured on real caches:
+- CoGraph itself (1516 functions) and fmt (5171 nodes, 30152 edges): every call took under 100 ms.
+- `impact` on fmt's `include/fmt/base.h` hit the 20 k-character cap and said so.
+- `callers` at depth 5 on fmt's most-called function returned 13.5 k characters.
+
+Deviations from the plan:
+1. **Text only, no `structuredContent`/`outputSchema`.** The spec says structured output SHOULD
+   also be serialised into a text block, which would double every result for clients that all
+   read the text anyway. This can be added later without breaking anything.
+2. **Source slices go through `src/mcp/sourceSlice.ts`**, an adapter over the end-finders already
+   shipped in `sourceEditor.ts`. Its result shape is the subset of session-216's
+   `FuncBriefResult` that we use, so swapping in `readFuncSlice` once PR #69 lands is a one-file
+   change. The adapter deliberately applies **no** next-symbol fallback. From outside the scanner,
+   "the function ends at EOF" and "detection never closed" look the same, so cutting at the next
+   symbol would truncate functions that contain nested ones. `funcBrief` decides this inside the
+   scanner, so its fallback is safe to use after the swap.
+3. **The `get_symbol` source header warns when the file changed since the analysis.** The smoke
+   test on a 12-day-old cache showed drifted lines slicing the wrong code.
+4. **Id resolution also accepts the guessed `file::method` without its class**, and a drifted
+   `:line` resolves to the nearest line. `find_symbol("MAIN")` never returns the module-level
+   pseudo node.
+5. **`--workspace` is optional.** Without it, the server walks up from its cwd to the nearest
+   `.cograph/graph-cache.json`. The team `.mcp.json` entry relies on this, so it carries no
+   machine-specific workspace path, only the server path.
+6. **`cacheStore.ts`: `readCacheFile()` and `diffManifest()` are extracted from `loadCache()`**
+   with unchanged behaviour, so the server parses the cache once and reuses the staleness diff.
+7. **Activation:** `onMcpCollection:cograph`. The docs do not name it, so I verified it in VS
+   Code's source: `mcpConfiguration.ts` `activationEventsGenerator` derives it from the
+   contribution. It is also listed explicitly in `activationEvents`.
+8. **MCP setup is wrapped in try/catch inside `activateMcp`.** A failure there is logged to a lazy
+   "CoGraph MCP" output channel and never breaks extension activation.
+
+Not done:
+- No manual run with the real Claude Code CLI. That would use Bela's account and edit
+  `~/.claude.json`. The SDK client round-trip covers the protocol.
+- Steps 6 (headless re-analysis) and 7 (npm, blocked on a name) are deferred per M5.

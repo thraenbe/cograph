@@ -105,6 +105,132 @@ test('vcs-explore', async () => {
     const openMs = Date.now() - t0;
     await page.waitForTimeout(3000);
     await shot('pr 69 open', { openMs, phases });
+    if (STAGE === 6) {
+      // ── Stage 6: re-drive what b19885c changed (B read-only by construction + fingerprint, A banner, C popup, wording). ──
+      const step = async (what: string, fn: () => Promise<Record<string, unknown>>): Promise<void> => {
+        try { await shot(what, await fn()); } catch (err) { await shot(`${what} FAILED`, { error: String(err).slice(0, 400) }); }
+      };
+      const activeTab = () => page.evaluate(() => {
+        const t = document.querySelector('.editor-group-container.active .tabs-container .tab.active');
+        const grp = document.querySelector('.editor-group-container.active');
+        const ov = grp?.querySelector('.monaco-editor .monaco-editor-overlaymessage');
+        const first = grp?.querySelector('.monaco-editor .view-lines .view-line')?.textContent || '';
+        const crumbs = [...(grp?.querySelectorAll('.breadcrumbs-control .monaco-breadcrumb-item') || [])].map(e => (e.textContent || '').trim()).join(' > ');
+        return t ? { label: t.getAttribute('aria-label') || '', title: t.getAttribute('title') || '', html: t.innerHTML.includes('lock'), dirty: t.classList.contains('dirty'),
+          description: (t.querySelector('.label-description')?.textContent || '').trim(), overlay: (ov?.textContent || '').trim(), firstLine: first.slice(0, 60), crumbs: crumbs.slice(0, 160),
+          lockIcon: !!t.querySelector('[class*="lock"]') } : null;
+      });
+      const zoomToSlot = async (f: Frame): Promise<{ x: number; y: number } | null> => {
+        for (let i = 0; i < 12 && !(await frameHittable(f, '#graph g.file-slot .file-slot-shape', 230)); i++) {
+          const c = await frameHittable(f, '#graph g.frame .folder-bubble-shape', 230);
+          if (c) { await page.mouse.move(c.x, c.y); await page.mouse.wheel(0, -300); await page.waitForTimeout(250); }
+        }
+        return frameHittable(f, '#graph g.file-slot .file-slot-shape', 230);
+      };
+      const tryEdit = async (label: string): Promise<Record<string, unknown>> => {
+        const f = await prFrame(page); if (!f) { throw new Error('no PR panel'); }
+        const slot = await zoomToSlot(f); if (!slot) { throw new Error('no hittable slot'); }
+        await page.mouse.dblclick(slot.x, slot.y); await page.waitForTimeout(2500);
+        const opened = await activeTab();
+        await page.keyboard.type('x'); await page.waitForTimeout(700);
+        const typed = await activeTab();
+        const pf = await prFrame(page);
+        await shot(`B ${label}: right after typing`, { typed, banner: pf ? await bannerGeometry(pf) : null });
+        const writeable: Record<string, unknown> = {};
+        for (const cmd of ['File: Set Active Editor Writeable in Session', 'File: Toggle Active Editor Read-only in Session', 'File: Reset Active Editor Read-only in Session']) {
+          try { await runCommand(page, cmd); await page.waitForTimeout(500); await page.keyboard.press('Escape'); } catch (e) { writeable[cmd] = 'not available: ' + String(e).slice(0, 80); continue; }
+          await page.keyboard.type('y'); await page.waitForTimeout(600);
+          writeable[cmd] = await activeTab();
+        }
+        await runCommand(page, 'View: Revert and Close Editor').catch(() => undefined);
+        await page.waitForTimeout(800);
+        return { label, opened, afterTyping: typed, afterWriteableCommands: writeable };
+      };
+      await step('B: open a copy file, try to edit and to make it writeable', () => tryEdit('fresh open'));
+      // Reproduce the race path: leave, open #70, open #69 again, then open a copy file (it lands in a third group).
+      await step('B: same after leave + #70 + #69 (the race path)', async () => {
+        await side.getByRole('button', { name: 'Leave pull request' }).click(); await page.waitForTimeout(1500);
+        for (const num of [70, 69]) { await side.locator(`.vcs-pr[data-number="${num}"]`).click(); for (let i = 0; i < 120; i++) { if ((await chrome(page) as { tabs: string[] }).tabs.some(t => t.includes(`PR #${num}`))) { break; } await page.waitForTimeout(250); } await page.waitForTimeout(2000); }
+        return tryEdit('after leave/reopen');
+      });
+
+      // A: banner geometry at the split width.
+      await step('A: banner at split width', async () => { const f = await prFrame(page); return { banner: f ? await bannerGeometry(f) : null }; });
+
+      // C: popup in the head panel refuses edits outright.
+      await step('C: popup in the head panel', async () => {
+        const g = await prFrame(page); if (!g) { throw new Error('no PR panel'); }
+        await page.locator('.tabs-container .tab', { hasText: 'PR #69' }).first().click().catch(() => undefined);
+        await frameSetSlider(g, SEL.detailSlider.css, 1).catch(() => undefined); await page.waitForTimeout(1500);
+        for (let i = 0; i < 15 && !(await frameHittable(g, '#graph circle.regular-node', 230)); i++) {
+          const c = (await frameHittable(g, '#graph g.file-slot .file-slot-shape', 230)) || (await frameHittable(g, '#graph g.frame .folder-bubble-shape', 230));
+          if (c) { await page.mouse.move(c.x, c.y); await page.mouse.wheel(0, -300); await page.waitForTimeout(250); }
+        }
+        const node = await frameHittable(g, '#graph circle.regular-node', 230); if (!node) { throw new Error('no function node'); }
+        await page.mouse.click(node.x, node.y); await page.waitForTimeout(1500);
+        const ta = g.locator('.func-card .func-source-textarea').first();
+        const info = await ta.evaluate(el => ({ readOnly: (el as HTMLTextAreaElement).readOnly, title: el.getAttribute('title') || '', value: (el as HTMLTextAreaElement).value.slice(0, 40) }));
+        await ta.click().catch(() => undefined); await page.keyboard.type('zzz'); await page.waitForTimeout(400);
+        const after = await ta.evaluate(el => (el as HTMLTextAreaElement).value.slice(0, 40));
+        await page.keyboard.press('Escape');
+        return { textarea: info, valueAfterTyping: after, changed: after !== info.value, prTabs: (await chrome(page) as { tabs: string[] }).tabs };
+      });
+
+      // (2) Edit a finished copy from OUTSIDE VS Code, then reopen: the fingerprint must discard and re-copy.
+      await step('2: outside edit of the copy, then reopen', async () => {
+        const MARK = 'uxtestInjectedFromOutside';
+        const root = path.join(s.userDataDir, 'User', 'globalStorage');
+        const find = (dir: string, depth = 0): string | null => { if (depth > 6 || !fs.existsSync(dir)) { return null; }
+          for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const p = path.join(dir, e.name);
+            if (e.isDirectory()) { if (e.name.startsWith('23834be') && fs.existsSync(path.join(p, 'src', 'webview', 'funcSave.js'))) { return p; } const r = find(p, depth + 1); if (r) { return r; } } } return null; };
+        const tree = find(root); if (!tree) { throw new Error('PR #69 head copy not found under globalStorage'); }
+        const target = path.join(tree, 'src', 'webview', 'funcSave.js');
+        await side.getByRole('button', { name: 'Leave pull request' }).click(); await page.waitForTimeout(1500);
+        execFileSync('sh', ['-c', `printf '\\nfunction ${MARK}() { return 42; }\\n' >> "$0"`, target]);
+        const injected = fs.readFileSync(target, 'utf8').includes(MARK);
+        const t = Date.now();
+        await side.locator('.vcs-pr[data-number="69"]').click();
+        const phases: string[] = [];
+        for (let i = 0; i < 240; i++) { const m = await notifTexts(page); for (const x of m) { if (!phases.includes(x)) { phases.push(x); } }
+          if ((await chrome(page) as { tabs: string[] }).tabs.some(x => x.includes('PR #69'))) { break; } await page.waitForTimeout(150); }
+        await page.waitForTimeout(2500);
+        const g = await prFrame(page);
+        const inGraph = g ? await g.evaluate(`JSON.stringify((state.graphData && state.graphData.nodes) || []).includes(${JSON.stringify(MARK)})`) : null;
+        const stillOnDisk = fs.existsSync(target) ? fs.readFileSync(target, 'utf8').includes(MARK) : 'file gone';
+        return { tree: tree.replace(root, '<globalStorage>'), injectedBeforeReopen: injected, reopenMs: Date.now() - t, phases, injectedFunctionInHeadGraph: inGraph, markerStillInCopyAfterReopen: stillOnDisk };
+      });
+
+      // (5) Wording: cancel before the copy, cancel after it, then Clear.
+      for (const [phase, label] of [['fetching the pull request', 'before copy'], ['analysing the pull request', 'after copy']] as const) {
+        await step(`5: cancel ${label}`, async () => {
+          await runCommand(page, 'CoGraph: Clear pull-request trees'); await page.waitForTimeout(1500);
+          await runCommand(page, 'Notifications: Clear All Notifications').catch(() => undefined);
+          await side.locator('.vcs-pr[data-number="74"]').click();
+          let hit = false;
+          for (let i = 0; i < 400 && !hit; i++) {
+            if ((await notifTexts(page)).some(m => m.includes(phase))) { await page.locator('.notification-toast').filter({ hasText: phase }).getByRole('button', { name: 'Cancel' }).first().click(); hit = true; }
+            await page.waitForTimeout(60);
+          }
+          await page.waitForTimeout(2500);
+          const row = await side.locator('.vcs-pr[data-number="74"] .vcs-line').innerText().catch(() => '');
+          await runCommand(page, 'Notifications: Clear All Notifications').catch(() => undefined);
+          await runCommand(page, 'CoGraph: Clear pull-request trees'); await page.waitForTimeout(2000);
+          return { cancelClicked: hit, rowLine: row, clearSays: await notifTexts(page) };
+        });
+      }
+
+      // (3) the offline fallback banner.
+      await step('A: offline fallback banner', async () => {
+        execFileSync('git', ['config', 'core.sshCommand', '/bin/false'], { cwd: s.workspace });
+        await runCommand(page, 'Notifications: Clear All Notifications').catch(() => undefined);
+        await side.locator('.vcs-pr[data-number="73"]').click(); await page.waitForTimeout(6000);
+        await side.getByRole('button', { name: 'Show in the current checkout instead' }).click(); await page.waitForTimeout(5000);
+        execFileSync('git', ['config', '--unset', 'core.sshCommand'], { cwd: s.workspace });
+        const f = await prFrame(page);
+        return { tabs: (await chrome(page) as { tabs: string[] }).tabs, banner: f ? await bannerGeometry(f) : null };
+      });
+      return;
+    }
     if (STAGE === 5) {
       // ── Stage 5: is the PR copy read-only every time, and from the first moment? ──
       const f = await prFrame(page); if (!f) { throw new Error('no PR panel'); }

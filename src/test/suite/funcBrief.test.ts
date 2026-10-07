@@ -57,7 +57,7 @@ suite('funcBrief (shared with the MCP server: vscode-free, fs-free, never throws
     assert.strictEqual(r.body.split('\n')[0], '    if file is None:');
     assert.strictEqual(r.endReason, 'detected');
     assert.strictEqual(r.source.split('\n')[0], '@cached');
-    assert.strictEqual(r.source.split('\n').pop(), '');   // trailing blank kept, as the popup always did
+    assert.strictEqual(r.source.split('\n').pop(), '    return write(file, message)', 'trailing blanks trimmed, as the MCP slice does');
   });
 
   test('Python: single-quoted one-line docstring, no docstring, one-liner', () => {
@@ -119,7 +119,7 @@ suite('funcBrief (shared with the MCP server: vscode-free, fs-free, never throws
   test('unclosed: fallback only when detection hits EOF; otherwise eof', () => {
     const src = 'function broken() {\n  a();\n  b();\nfunction next() {\n  c();\n';
     const eof = ok(funcSlice(src, { startLine: 1, maxLines: 80, file: 'a.ts' }));
-    assert.deepStrictEqual([eof.endReason, eof.endLine], ['eof', 6]);
+    assert.deepStrictEqual([eof.endReason, eof.endLine], ['eof', 5], 'the trailing empty line is trimmed');
     const fb = ok(funcSlice(src, { startLine: 1, maxLines: 80, file: 'a.ts', nextStartLine: 4 }));
     assert.deepStrictEqual([fb.endReason, fb.endLine, fb.source], ['fallback', 3, 'function broken() {\n  a();\n  b();']);
     const fb2 = ok(funcSlice(src, { startLine: 1, maxLines: 80, file: 'a.ts', fallbackEndLine: 2 }));
@@ -127,7 +127,7 @@ suite('funcBrief (shared with the MCP server: vscode-free, fs-free, never throws
     // a CLOSED function ignores the fallback, even when a nested function would be the "next symbol"
     const nested = 'def outer():\n    def inner():\n        return 1\n    return inner()\n';
     const r = ok(funcSlice(nested, { startLine: 1, maxLines: 80, file: 'a.py', nextStartLine: 2 }));
-    assert.deepStrictEqual([r.endReason, r.endLine], ['detected', 5]);
+    assert.deepStrictEqual([r.endReason, r.endLine], ['detected', 4]);
   });
 
   test('errors come back as values, never thrown', () => {
@@ -155,4 +155,34 @@ suite('funcBrief (shared with the MCP server: vscode-free, fs-free, never throws
     const long = 'function f(' + Array.from({ length: 80 }, (_, i) => `arg${i}: number`).join(', ') + ') {\n}\n';
     assert.ok(ok(funcSlice(long, { startLine: 1, maxLines: 8, file: 'a.ts' })).signature.length <= SIGNATURE_MAX_CHARS);
   });
+});
+
+suite('funcBrief and the MCP slice agree (one scanner, one range)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { readSlice } = require('../../mcp/sourceSlice');
+  const os = require('os');
+  const cases: [string, string, number][] = [
+    ['a.py', PY, lineOf(PY, '@cached')], ['a.py', PY, lineOf(PY, 'def short')], ['a.py', PY, lineOf(PY, 'def one')],
+    ['a.ts', TS, lineOf(TS, 'export function add')], ['a.ts', TS, lineOf(TS, 'const twice')], ['a.ts', TS, lineOf(TS, '@Injectable')],
+    ['S.java', JAVA, lineOf(JAVA, 'double area')], ['S.java', JAVA, lineOf(JAVA, 'default String name')],
+    ['a.cpp', CPP, 3], ['a.cpp', CPP, lineOf(CPP, 'int sub')],
+    ['b.ts', 'function broken() {\n  a();\n\n', 1],
+    ['c.ts', ['function big() {', ...Array.from({ length: 100 }, (_, i) => `  s${i}();`), '}', '', ''].join('\n'), 1],
+  ];
+  for (const maxLines of [8, 80]) {
+    test(`same source, endLine and endReason at maxLines ${maxLines}`, () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-parity-'));
+      try {
+        for (const [name, text, line] of cases) {
+          const file = path.join(dir, name);
+          fs.writeFileSync(file, text);
+          const a = ok(funcSlice(text, { startLine: line, maxLines, file }));
+          const b = readSlice(file, line, { maxLines });
+          assert.strictEqual(b.ok, true, name + ':' + line);
+          assert.deepStrictEqual({ source: a.source, endLine: a.endLine, endReason: a.endReason },
+            { source: b.source, endLine: b.endLine, endReason: b.endReason }, name + ':' + line);
+        }
+      } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    });
+  }
 });

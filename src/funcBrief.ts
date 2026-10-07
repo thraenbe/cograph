@@ -63,7 +63,12 @@ export function funcSlice(text: string, opts: FuncSliceOptions): FuncBriefResult
     return { ok: false, error: `line ${opts.startLine} is out of range (the file has ${lines.length} lines)` };
   }
   const lang = opts.lang ?? (opts.file ? funcLangOf(opts.file) : 'brace');
-  const { endIdx, reason } = resolveEnd(lines, startIdx, lang, opts);
+  const resolved = resolveEnd(lines, startIdx, lang, opts);
+  const reason = resolved.reason;
+  // Trailing blank lines are noise, and the MCP server's slice (src/mcp/sourceSlice.ts) trims
+  // them too: an agent and the hover card must report the same range for the same function.
+  let endIdx = resolved.endIdx;
+  while (endIdx > startIdx && lines[endIdx].trim() === '') { endIdx--; }
   const totalLines = endIdx - startIdx + 1;
   const capIdx = Math.min(endIdx, startIdx + opts.maxLines - 1);
   const header = lang === 'python' ? pythonHeader(lines, startIdx, endIdx) : braceHeader(lines, startIdx, endIdx);

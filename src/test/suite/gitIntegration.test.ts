@@ -518,7 +518,7 @@ suite('Message Handling', () => {
     assert.strictEqual(msg.signature, 'def hello(name)');
     assert.strictEqual(msg.doc, 'Greet someone.');
     assert.strictEqual(msg.body.split('\n').length, 8);
-    assert.strictEqual(msg.totalLines, 23);
+    assert.strictEqual(msg.totalLines, 22, 'trailing blank line trimmed, as the MCP slice does');
     assert.strictEqual(msg.endReason, 'maxLines');
     assert.strictEqual(msg.colorizedHtml, undefined, 'the card highlights itself');
     fakePanel.sendMessage({ type: 'get-func-source', file: path.join(tmpDir, 'gone.py'), line: 1, maxLines: 8, reqId: 'hc-2' });

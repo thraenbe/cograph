@@ -115,6 +115,11 @@ suite('funcEnd / sourceEditor (save must never destroy code)', () => {
     assert.deepStrictEqual({ ...endOf(py, 'def main', 'python') }, { text: 'def main():\n    print(f"a\\\nb")\n    return 0\n', closed: true, end: 4 });
   });
 
+  test('Python: a start on a decorator (also multi-line) covers the decorated function', () => {
+    const src = '@cached\n@route(\n    "/x",\n)\ndef f():\n    return 1\n\ndef g():\n    pass';
+    assert.strictEqual(endOf(src, '@cached', 'python').end, 6);
+  });
+
   test('an unterminated body is reported, and the read path caps it', () => {
     const body = Array.from({ length: 400 }, (_, i) => `  x${i}();`);
     const src = ['function broken() {', ...body].join('\n');

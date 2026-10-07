@@ -134,6 +134,7 @@ suite('GraphProvider — pull-request view', () => {
     provider.showPullRequest(prView());
     assert.deepStrictEqual(types('pr-view', 'subgraph', 'git-update'), ['pr-view', 'subgraph', 'git-update']);
     assert.strictEqual(posted('pr-view')[0].active, true);
+    assert.strictEqual(posted('pr-view')[0].readOnly, false, 'the main panel takes edits');
     const update = posted('git-update')[0];
     assert.strictEqual(statusOf(update.nodes, 'src/server/api.ts'), 'modified');
     assert.strictEqual(update.nodes.length, 4, 'a full update, not a delta: the baseline changed');
@@ -292,7 +293,8 @@ suite('GraphProvider — a read-only provider on another root (the PR head panel
     sandbox.stub(vscode.window, 'createWebviewPanel').returns(panel);
     const ctx = { extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as unknown as vscode.ExtensionContext;
     // As extension.ts builds a head panel: a read-only root AND the read-only document scheme.
-    provider = new GraphProvider(ctx, { root: headDir, readOnly: true, title: 'PR #7 · head abc1234', readOnlyUri: (file) => prDocumentUri(headDir, 'PR #7 · head abc1234', file) });
+    provider = new GraphProvider(ctx, { root: headDir, readOnly: true, title: 'PR #7 · head abc1234', readOnlyUri: (file) => prDocumentUri(headDir, 'PR #7 · head abc1234', file),
+      readOnlyReason: 'PR #7 · head abc1234 shows a copy of a commit, not your working tree — edit the file in your checkout instead.' });
     const nodes = [{ id: 'n:head', name: 'head', file: path.join(headDir, 'src', 'head.ts'), line: 1 }];
     writeCache(headDir, { nodes, edges: [], files: nodes.map(n => n.file) } as any, scanStructure(headDir));
   });
@@ -372,6 +374,7 @@ suite('GraphProvider — a read-only provider on another root (the PR head panel
     onMessage()({ type: 'ready' });
     await waitFor(() => posted('graph').length > 0);
     assert.deepStrictEqual([own.activePullRequest(), changes], [7, [7]]);
+    assert.strictEqual(posted('pr-view')[0].readOnly, true, 'the webview is told read-only by the panel, whatever the tree kind');
     onMessage()({ type: 'subgraph-exit' }); // the banner's Leave
     assert.ok(panel.dispose.calledOnce, 'the panel is closed');
     panel._disposeCallback();                // what VS Code does next
@@ -382,13 +385,14 @@ suite('GraphProvider — a read-only provider on another root (the PR head panel
     const ctx = { extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as unknown as vscode.ExtensionContext;
     const nodes = [{ id: 'n:ws', name: 'ws', file: path.join(workspace, 'src', 'ws.ts'), line: 1 }];
     writeCache(workspace, { nodes, edges: [], files: nodes.map(n => n.file) } as any, scanStructure(workspace));
-    const co = new GraphProvider(ctx, { root: workspace, readOnly: true, title: 'PR #7 · your checkout', closeOnLeave: true });
+    const co = new GraphProvider(ctx, { root: workspace, readOnly: true, title: 'PR #7 · your checkout', closeOnLeave: true,
+      readOnlyReason: 'PR #7 · your checkout is a pull-request view and takes no edits — open the file from the Explorer to edit it.' });
     co.show();
     onMessage()({ type: 'ready' });
     await waitFor(() => posted('graph').length > 0);
     await onMessage()({ type: 'save-func-source', file: path.join(workspace, 'src', 'ws.ts'), line: 1, newSource: 'x', reqId: 1 });
     const reason: string = posted('func-source-saved')[0].reason;
-    assert.ok(reason.includes('pull-request view') && reason.includes('double-click'), reason);
+    assert.ok(reason.includes('pull-request view') && reason.includes('Explorer'), reason);
     assert.ok(!reason.includes('copy of a commit'), 'the checkout is not a copy');
     const opened: unknown[] = [];
     sandbox.stub(vscode.workspace, 'openTextDocument').callsFake((async (u: unknown) => { opened.push(u); return { uri: u } as any; }) as any);

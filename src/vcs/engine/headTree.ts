@@ -51,7 +51,6 @@ export interface HeadTreeDeps {
   keep?: (relPath: string) => boolean;
   log?: (line: string) => void;
   signal?: AbortSignal;
-  budget?: TreeBudget;
   now?: () => number;
 }
 

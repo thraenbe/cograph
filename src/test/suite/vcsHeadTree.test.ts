@@ -10,7 +10,7 @@ import {
   fetchPullRequestHead, githubRemote, listTrees, materializeCommit, mergeBase, pullRequestRef, pullRequestRefs, repoKey, treeDir,
 } from '../../vcs/engine/headTree';
 import type { HeadTreeDeps, TreeMarker } from '../../vcs/engine/headTree';
-import { analyzeTree, relPath } from '../../vcs/engine/treeAnalysis';
+import { analyzeTreeCached, relPath } from '../../vcs/engine/treeAnalysis';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -301,14 +301,17 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     assert.deepStrictEqual(started, ['fetch'], 'rev-parse never ran');
   });
 
-  test('analyzeTree gives the structure tree and the graph of a directory through the injected analyzer', async () => {
+  test('analyzeTreeCached analyses a directory once through the injected analyzer, then from the cache it wrote', async () => {
     const sha = await fetchPullRequestHead(deps, 1);
     const tree = await materializeCommit(deps, sha);
     const seen: string[] = [];
-    const analyzed = await analyzeTree(tree.dir, async (dir) => { seen.push(dir); return { nodes: [], edges: [] }; }, sha);
-    assert.deepStrictEqual(seen, [tree.dir]);
-    assert.deepStrictEqual([analyzed.root, analyzed.sha, analyzed.tree.totalFiles, analyzed.graph.nodes.length], [tree.dir, sha, 7, 0],
+    const analyzer = async (dir: string) => { seen.push(dir); return { nodes: [{ id: 'x', name: 'x', file: path.join(dir, 'src', 'app.ts'), line: 1 }], edges: [] }; };
+    const analyzed = await analyzeTreeCached(tree.dir, analyzer, sha);
+    assert.deepStrictEqual([seen, analyzed.cached], [[tree.dir], false]);
+    assert.deepStrictEqual([analyzed.root, analyzed.sha, analyzed.tree.totalFiles, analyzed.graph.nodes.length], [tree.dir, sha, 7, 1],
       'the structure tree skips build/, as it does in the workspace');
+    const again = await analyzeTreeCached(tree.dir, analyzer, sha);
+    assert.deepStrictEqual([seen.length, again.cached, again.graph.nodes.length], [1, true, 1], 'the second time is a read');
     assert.strictEqual(relPath(tree.dir, path.join(tree.dir, 'src', 'a.ts')), 'src/a.ts');
     assert.strictEqual(relPath(tree.dir, path.join(root, 'elsewhere')), null);
   });

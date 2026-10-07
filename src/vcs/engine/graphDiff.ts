@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { GraphData, GraphNode } from '../../graphProvider';
 import { relPath } from './treeAnalysis';
+import type { EngineGraph, EngineNode } from './types';
 
 /**
  * Structural diff of two analysed trees: which functions a change adds, removes
@@ -19,7 +19,7 @@ import { relPath } from './treeAnalysis';
 export interface DiffTree {
   root: string;
   sha?: string;
-  graph: GraphData;
+  graph: EngineGraph;
 }
 
 export type FunctionChangeKind = 'added' | 'removed' | 'changed' | 'moved';
@@ -71,7 +71,7 @@ interface Keyed {
   name: string;
   className?: string;
   line: number;
-  node: GraphNode;
+  node: EngineNode;
 }
 
 interface Indexed {
@@ -86,7 +86,7 @@ function readFromDisk(absPath: string): string | null {
   try { return fs.readFileSync(absPath, 'utf8'); } catch { return null; }
 }
 
-function libraryKey(n: GraphNode): string {
+function libraryKey(n: EngineNode): string {
   return `lib:${n.libraryName ?? ''}:${n.name}`;
 }
 
@@ -100,7 +100,7 @@ function index(tree: DiffTree): Indexed {
     const rel = relPath(tree.root, f);
     if (rel) { files.add(rel); }
   }
-  const pending: Array<{ n: GraphNode; file: string; base: string }> = [];
+  const pending: Array<{ n: EngineNode; file: string; base: string }> = [];
   for (const n of tree.graph.nodes) {
     if (n.isLibrary) { keyById.set(n.id, libraryKey(n)); continue; }
     if (!n.file) { continue; }

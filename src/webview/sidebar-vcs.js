@@ -108,7 +108,9 @@ function vcsDetailLines(detail) {
     lines.push({ text: `${c.inGraph} of ${c.total} file${c.total === 1 ? '' : 's'} in the graph.`, cls: '' });
     if (c.fileLevel > 0) {
       lines.push({
-        text: `${c.fileLevel} coloured as a whole file: your checkout's version differs from the pull request's, so its functions cannot be told apart.`,
+        text: head
+          ? `${c.fileLevel} coloured as a whole file: GitHub sent no patch for it (binary, very large or a pure rename), so its functions cannot be told apart.`
+          : `${c.fileLevel} coloured as a whole file: your checkout's version differs from the pull request's, so its functions cannot be told apart.`,
         cls: 'warn',
       });
     }
@@ -309,12 +311,14 @@ function mountVcsPane(doc, mount, post, wire) {
       list.appendChild(n);
       return;
     }
-    if (!state.pullRequests.length) {
+    if (!state.pullRequests.length && !(state.activePr && state.active === state.activePr.number)) {
       list.appendChild(note(state.loading ? 'Loading pull requests…'
         : state.filter === 'all' ? 'This repository has no pull requests.' : 'No open pull requests.'));
       return;
     }
     const shown = state.pullRequests.filter(pr => vcsMatches(pr, query));
+    // The open pull request keeps its card - and its Leave - even when a filter or a refresh dropped it from the list.
+    if (state.activePr && state.active === state.activePr.number && !shown.some(pr => pr.number === state.activePr.number)) { shown.unshift(state.activePr); }
     if (!shown.length) { list.appendChild(note('No pull request matches the filter.')); return; }
     const nowMs = Date.now();
     for (const pr of shown) { list.appendChild(prCard(pr, nowMs)); }

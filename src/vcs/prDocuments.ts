@@ -35,13 +35,16 @@ export function prDocumentFile(uri: vscode.Uri, roots: string[]): string | null 
   return roots.some(r => { const root = path.resolve(r); return abs === root || abs.startsWith(root + path.sep); }) ? abs : null;
 }
 
-/** Text handed in directly (fetched from GitHub), keyed by URI; shown until the extension unloads. */
+/** Text handed in directly (fetched from GitHub), keyed by URI; the last MAX_INLINE are kept. */
 const inline = new Map<string, string>();
+const MAX_INLINE = 50;
 
 /** Open `text` as `<label>/<relPath>`, read-only. */
 export async function showPrText(label: string, relPath: string, text: string): Promise<void> {
   const uri = vscode.Uri.from({ scheme: PR_DOCUMENT_SCHEME, path: `/${label}/${relPath}`, query: 'inline=1' });
+  inline.delete(uri.toString());
   inline.set(uri.toString(), text);
+  while (inline.size > MAX_INLINE) { inline.delete(inline.keys().next().value as string); }
   const doc = await vscode.workspace.openTextDocument(uri);
   await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
 }

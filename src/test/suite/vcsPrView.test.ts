@@ -478,11 +478,39 @@ suite('vcs — controller: the pull request\'s own commit in a second panel', ()
     assert.strictEqual(main.active, null);
   });
 
-  test('closing the head panel from its tab tells the sidebar', async () => {
+  test('closing the head panel from its tab tells the sidebar and lets the provider go; the next open makes a new one', async () => {
     await sidebar.handle({ type: 'vcs-ready' });
     await sidebar.handle({ type: 'vcs-open', number: 69 });
     heads[0].graph.set(null);
-    assert.deepStrictEqual([last().active, last().detail], [null, null]);
+    assert.deepStrictEqual([last().active, last().detail, last().activePr], [null, null, null]);
+    await sidebar.handle({ type: 'vcs-open', number: 69 });
+    assert.strictEqual(heads.length, 2, 'a closed provider is not reused');
+    assert.strictEqual(last().activePr?.number, 69);
+  });
+
+  test('with the diff in hand, a gh hiccup on the file list does not throw the head away', async () => {
+    const graphOf = (dir: string) => ({ nodes: [{ id: `${path.join(dir, 'src/main.ts')}::main::1`, name: 'main', file: path.join(dir, 'src/main.ts'), line: 1 }], edges: [] });
+    const controller = new PrController(source, main, {
+      workspaceRoot: () => root, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
+      exec: async () => ({ code: 0, stdout: '\n', stderr: '', notFound: false }),
+      storageDir: storage,
+      createHeadGraph: (r, title, kind, editorLabel) => { const graph = new FakeGraph(); heads.push({ root: r, title, graph, kind, editorLabel }); return graph as PrHeadGraph; },
+      materializeHead: (opts) => materialize(opts),
+      materializeBase: async ({ storageDir }) => { const dir = path.join(storageDir, 'repo', 'c'.repeat(40)); fs.mkdirSync(path.join(dir, 'src'), { recursive: true }); fs.writeFileSync(path.join(dir, 'src', 'main.ts'), 'export function main() { return 1; }\n'); return { sha: 'c'.repeat(40), dir }; },
+      analyzer: async (dir) => graphOf(dir) as any,
+    });
+    source.filesResult = { ok: false, problem: { kind: 'offline', message: 'GitHub could not be reached.' } };
+    const res = await controller.open(PR);
+    assert.ok(res.ok, 'shown: git fetched it and the engine analysed it');
+    assert.deepStrictEqual([res.opened.diff?.summary.changed, res.opened.files.map(f => [f.path, f.status])], [1, [['src/main.ts', 'modified']]], 'the file list comes from the diff instead');
+    assert.strictEqual(heads.length, 1);
+    // Without a diff the file list is what the colours come from: then the problem stands.
+    const plain = new PrController(source, main, {
+      workspaceRoot: () => root, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
+      exec: async () => ({ code: 0, stdout: '\n', stderr: '', notFound: false }),
+      storageDir: storage, createHeadGraph: () => new FakeGraph() as PrHeadGraph, materializeHead: (opts) => materialize(opts),
+    });
+    assert.strictEqual((await plain.open(PR)).ok, false);
   });
 
   test('when the head cannot be fetched the row says why and offers the checkout; cancelling offers nothing', async () => {

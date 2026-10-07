@@ -135,6 +135,7 @@ suite('vcs — every gh failure is a named situation', () => {
     const ghe = classifyGhFailure(fail('HTTP 401: Bad credentials'), 'ghe.corp.example');
     assert.strictEqual(ghe.command, 'gh auth login --hostname ghe.corp.example', 'Enterprise signs in per host');
     assert.ok(ghe.message.includes('--hostname ghe.corp.example'));
+    assert.strictEqual(classifyGhFailure(fail('HTTP 401'), 'x; rm -rf ~').command, 'gh auth login', 'only a host name is typed into a terminal');
     assert.strictEqual(kind(fail('HTTP 401: Bad credentials (https://api.github.com/graphql)')), 'gh-unauthenticated');
     assert.strictEqual(kind(fail("GraphQL: Could not resolve to a Repository with the name 'acme/secret'. (repository)")), 'no-access');
     assert.strictEqual(kind(fail('gh: Not Found (HTTP 404)')), 'no-access');
@@ -231,9 +232,9 @@ suite('vcs — GhCliSource', () => {
       assert.strictEqual(r.ok, false, `rejected ${p} @ ${ref}`);
     }
     assert.strictEqual(calls.length, 0);
-    const r = await src.fileText('/ws', 'src/some dir/x.ts', '23834bed9fcf43c45b1214d6ee7e5c0d8aba6a18');
+    const r = await src.fileText('/ws', 'src/some dir/100%.ts', '23834bed9fcf43c45b1214d6ee7e5c0d8aba6a18');
     assert.deepStrictEqual(r, { ok: true, text: 'export function x() {}\n' });
-    assert.deepStrictEqual(calls[0].args, ['api', 'repos/{owner}/{repo}/contents/src/some%20dir/x.ts?ref=23834bed9fcf43c45b1214d6ee7e5c0d8aba6a18']);
+    assert.deepStrictEqual(calls[0].args, ['api', 'repos/{owner}/{repo}/contents/src/some%20dir/100%25.ts?ref=23834bed9fcf43c45b1214d6ee7e5c0d8aba6a18']);
     const dir = new GhCliSource(fakeExec({ 'gh api': ok(JSON.stringify([{ type: 'file' }])) }).exec);
     assert.strictEqual((await dir.fileText('/ws', 'src', 'abc1234')).ok, false, 'a directory listing is not a file');
   });

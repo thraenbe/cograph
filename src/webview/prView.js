@@ -80,11 +80,11 @@ function prViewTreeLabel(tree) {
   }
   const branch = tree && tree.branch ? ` · ${tree.branch}` : '';
   // The two panels look alike; this is where the difference that matters is said: what a double-click opens.
-  return { text: `your checkout${branch}`, cls: 'checkout', title: 'This is the code in your working tree, coloured with what the pull request changes. Files you open from here are your own and editable. Files the pull request adds or removes that your checkout does not have are listed in the sidebar.' };
+  return { text: `your checkout${branch}`, cls: 'checkout', title: 'This is the code in your working tree, coloured with what the pull request changes - it may not contain them. Files you open from here are read-only views of your checkout, labelled as such; to edit one, open it from the Explorer. Files the pull request adds that your checkout does not have can be viewed from the sidebar.' };
 }
 
 /** One line for the banner: the structural diff when there is one, else how much of the PR the graph shows. */
-function prViewSummary(counts, diff) {
+function prViewSummary(counts, diff, tree) {
   if (diff) {
     const bits = [`+${diff.added || 0}`, `~${diff.changed || 0}`, `−${diff.removed || 0}`];
     return { text: `${bits.join(' ')} functions · ${diff.callersAffected || 0} caller${diff.callersAffected === 1 ? '' : 's'} affected`, warn: false };
@@ -97,7 +97,8 @@ function prViewSummary(counts, diff) {
   const base = `${c.inGraph} of ${total} file${total === 1 ? '' : 's'} in the graph`;
   if (c.fileLevel > 0) {
     // The warning first: it is the only sign that the colours are approximate, and a narrow panel cuts the end.
-    return { text: `${c.fileLevel} coloured as whole file${c.fileLevel === 1 ? '' : 's'} (checkout differs) · ${base}`, warn: true };
+    const why = tree && tree.kind === 'head' ? 'no patch from GitHub' : 'checkout differs';
+    return { text: `${c.fileLevel} coloured as whole file${c.fileLevel === 1 ? '' : 's'} (${why}) · ${base}`, warn: true };
   }
   return { text: base, warn: false };
 }
@@ -190,7 +191,7 @@ function prViewRenderBanner() {
   tree.className = 'pr-tree ' + treeLabel.cls;
   tree.textContent = treeLabel.text;
   tree.title = treeLabel.title;
-  const summary = prViewSummary(pv.counts, pv.diff);
+  const summary = prViewSummary(pv.counts, pv.diff, pv.tree);
   const sub = document.createElement('span');
   sub.className = 'pr-sub' + (summary.warn ? ' warn' : '');
   sub.textContent = summary.text;
@@ -242,7 +243,7 @@ function prViewEnter(message) {
     counts: message.counts || {},
     tree: message.tree || { kind: 'checkout', branch: '' },
     diff: message.diff || null,
-    readOnly: !!(message.tree && message.tree.kind === 'head'),
+    readOnly: message.readOnly !== undefined ? !!message.readOnly : !!(message.tree && message.tree.kind === 'head'),
     // Going from one pull request to the next keeps what was there before the first.
     snapshot: previous ? previous.snapshot : prViewSnapshot(),
     prevGitMode: previous ? previous.prevGitMode : state.gitMode,

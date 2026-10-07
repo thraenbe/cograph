@@ -70,6 +70,7 @@ suite('vcs — prView.js (graph webview)', () => {
     assert.deepStrictEqual(prView.prViewSummary({ total: 13, inGraph: 9, fileLevel: 0 }), { text: '9 of 13 files in the graph', warn: false });
     const whole = prView.prViewSummary({ total: 13, inGraph: 9, fileLevel: 2 });
     assert.ok(whole.warn && whole.text.startsWith('2 coloured as whole files (checkout differs)'), 'the warning leads the sentence');
+    assert.ok(prView.prViewSummary({ total: 13, inGraph: 9, fileLevel: 2 }, undefined, { kind: 'head', sha: 'abc' }).text.startsWith('2 coloured as whole files (no patch from GitHub)'), 'a head panel has no checkout to differ from');
     assert.ok(prView.prViewSummary({ total: 1, inGraph: 1, fileLevel: 1 }).text.startsWith('1 coloured as whole file ('));
     assert.deepStrictEqual(prView.prViewSummary({ total: 1, inGraph: 0 }), { text: 'none of its 1 file is in the graph', warn: true });
     assert.deepStrictEqual(prView.prViewSummary({ total: 1, inGraph: 0 }, { added: 35, changed: 13, removed: 0, callersAffected: 31 }),
@@ -107,7 +108,7 @@ suite('vcs — prView.js (graph webview)', () => {
     assert.deepStrictEqual([chip.textContent, chip.className], ['PR commit 23834be', 'pr-tree head']);
     assert.ok((chip as HTMLElement).title.includes('read-only copies'));
     p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'checkout', branch: 'main' } });
-    assert.ok((p.doc.querySelector('#pr-view-banner .pr-tree') as HTMLElement).title.includes('your own and editable'), 'the editability difference is said on both sides');
+    assert.ok((p.doc.querySelector('#pr-view-banner .pr-tree') as HTMLElement).title.includes('read-only views of your checkout'), 'what a double-click opens is said on both sides');
     const css = PR_VIEW_SRC.slice(PR_VIEW_SRC.indexOf('.pr-tree {'), PR_VIEW_SRC.indexOf('.pr-tree::before'));
     assert.ok(!/#4caf50|#ff9800|#e5534b|editorWarning/i.test(css), 'the chip never borrows a status colour');
     p.w.handlePrViewMessage({ ...ENTER, tree: undefined });
@@ -134,7 +135,9 @@ suite('vcs — prView.js (graph webview)', () => {
     p.w.handlePrViewMessage({ type: 'pr-view', active: false, restore: true });
     assert.deepStrictEqual([ta.readOnly, ta.title], [false, '']);
     p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'checkout', branch: 'main' } });
-    assert.deepStrictEqual([p.state.prView.readOnly, ta.readOnly], [false, false]);
+    assert.deepStrictEqual([p.state.prView.readOnly, ta.readOnly], [false, false], 'without a word from the host, the tree kind decides');
+    p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'checkout', branch: 'main' }, readOnly: true });
+    assert.deepStrictEqual([p.state.prView.readOnly, ta.readOnly], [true, true], 'the host\'s word wins: a checkout PANEL takes no edits either');
   });
 
   test('the banner\'s Leave button asks the host through the existing subgraph-exit', () => {
@@ -223,7 +226,7 @@ const PR = {
 function vcsState(over: Record<string, unknown> = {}) {
   return {
     type: 'vcs-state', loading: false, filter: 'open', problem: null, fixLabel: null, pullRequests: [PR],
-    truncated: false, fetchedAt: '2026-10-06T09:59:00Z', active: null, opening: null, detail: null, openProblem: null,
+    truncated: false, fetchedAt: '2026-10-06T09:59:00Z', active: null, activePr: null, opening: null, detail: null, openProblem: null,
     ...over,
   };
 }
@@ -391,6 +394,18 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
       files: [{ path: 'src/gone.ts', status: 'deleted', place: 'missing', exact: false }] } }));
     assert.strictEqual(p.q('.vcs-file .vcs-mini'), null);
     assert.strictEqual(p.q('.vcs-file .why')!.textContent, 'removed');
+  });
+
+  test('the open PR keeps its card and its Leave when a filter change drops it from the list', () => {
+    const p = sidebarPage();
+    const merged = { ...PR, number: 60, state: 'merged' };
+    p.send(vcsState({ pullRequests: [PR], active: 60, activePr: merged, detail: { number: 60, tree: { kind: 'head', sha: 'abc' }, filesCut: false, counts: { total: 1, inGraph: 1, exact: 1, fileLevel: 0, missing: 0, other: 0 }, files: [] } }));
+    assert.deepStrictEqual(p.all('.vcs-pr').map(c => c.dataset.number), ['60', '69'], 'the open one first, even though the filter hides it');
+    assert.ok(p.q('.vcs-pr.active .vcs-actions button')!.textContent, 'Leave pull request');
+    p.send(vcsState({ pullRequests: [], active: 60, activePr: merged, detail: { number: 60, tree: { kind: 'head', sha: 'abc' }, filesCut: false, counts: { total: 1, inGraph: 1, exact: 1, fileLevel: 0, missing: 0, other: 0 }, files: [] } }));
+    assert.deepStrictEqual(p.all('.vcs-pr').map(c => c.dataset.number), ['60'], 'even with nothing else listed');
+    p.send(vcsState({ pullRequests: [PR], active: null, activePr: null }));
+    assert.deepStrictEqual(p.all('.vcs-pr').map(c => c.dataset.number), ['69']);
   });
 
   test('while a PR is opening, cards are busy and further clicks do nothing', () => {

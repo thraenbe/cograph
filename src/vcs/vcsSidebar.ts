@@ -33,6 +33,8 @@ export interface VcsStateMessage {
   fetchedAt: string | null;
   /** Pull request shown in the graph. */
   active: number | null;
+  /** Its record, so its card stays even when a filter change drops it from the list. */
+  activePr: PullRequest | null;
   /** Pull request whose files are being fetched. */
   opening: number | null;
   detail: VcsDetail | null;
@@ -71,12 +73,14 @@ export class VcsSidebar {
   private opening: number | null = null;
   private detail: VcsDetail | null = null;
   private openProblem: { number: number; problem: PrProblem } | null = null;
+  private activePr: PullRequest | null = null;
   private loadSeq = 0;
 
   constructor(private readonly controller: PrController, private readonly deps: VcsSidebarDeps) {
     controller.onActiveChange((active) => {
       // The graph left the pull request on its own (Exit in the panel, a saved graph, the panel closed).
       if (active === null || active !== this.detail?.number) { this.detail = null; }
+      if (active === null) { this.activePr = null; }
       this.push();
     });
   }
@@ -169,6 +173,7 @@ export class VcsSidebar {
     this.opening = null;
     if (result.ok) {
       const { counts, files, truncated } = result.opened;
+      this.activePr = pr;
       this.detail = {
         number: pr.number, tree: result.opened.tree, counts,
         ...(result.opened.diff ? { diff: result.opened.diff } : {}),
@@ -193,6 +198,7 @@ export class VcsSidebar {
       truncated: this.truncated,
       fetchedAt: this.fetchedAt,
       active: this.controller.activePullRequest(),
+      activePr: this.controller.activePullRequest() === null ? null : this.activePr,
       opening: this.opening,
       detail: this.detail,
       openProblem: this.openProblem,

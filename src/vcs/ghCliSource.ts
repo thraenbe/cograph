@@ -38,14 +38,14 @@ const LIST_FIELDS = [
 
 /**
  * Run a CLI without ever rejecting: a missing binary, a non-zero exit and a
- * timeout all come back as data. Arguments are passed as an array; on Windows the
- * shell resolves `.cmd` shims (as gitService does), which is safe here because
- * every argument this module builds is a constant, an enum value or an integer.
+ * timeout all come back as data. Arguments are passed as an array and NEVER
+ * through a shell: `git` and `gh` are real executables on every platform, and
+ * cmd.exe would mangle `^{commit}` and split a `--prefix=C:/Users/John Doe/...`
+ * at the space.
  */
 export const defaultExec: Exec = (command, args, cwd, opts = {}) => new Promise((resolve) => {
   const child = cp.execFile(command, args, {
     cwd, timeout: opts.timeoutMs ?? TIMEOUT_MS, encoding: 'utf8', maxBuffer: MAX_BUFFER,
-    shell: process.platform === 'win32',
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
     ...(opts.signal ? { signal: opts.signal } : {}),
   }, (err, stdout, stderr) => {
@@ -104,8 +104,9 @@ export function classifyGhFailure(res: ExecResult, host: string | null): PrProbl
     };
   }
   if (/gh auth login|not logged in|HTTP 401|Bad credentials|authentication (token|failed)|gh auth refresh/i.test(text)) {
-    // GitHub Enterprise signs in per host; github.com is gh's default.
-    const command = host && host !== 'github.com' ? `gh auth login --hostname ${host}` : 'gh auth login';
+    // GitHub Enterprise signs in per host; github.com is gh's default. The host comes from the
+    // user's own .git/config, but it is typed into a terminal: only a host name gets through.
+    const command = host && host !== 'github.com' && /^[A-Za-z0-9.-]+$/.test(host) ? `gh auth login --hostname ${host}` : 'gh auth login';
     return {
       kind: 'gh-unauthenticated',
       message: `The GitHub CLI is not signed in. Run "${command}" in a terminal, then refresh.`,
@@ -269,7 +270,7 @@ export class GhCliSource implements PullRequestSource {
     const bad: PrProblem = { kind: 'error', message: 'That is not a file of this pull request.' };
     if (!/^[0-9a-f]{7,40}$/.test(ref)) { return { ok: false, problem: bad }; }
     const segs = relPath.split('/');
-    if (!relPath || relPath.length > 1024 || segs.some(s => !s || s === '.' || s === '..' || /[\\?#%&\x00-\x1f]/.test(s))) { return { ok: false, problem: bad }; }
+    if (!relPath || relPath.length > 1024 || segs.some(s => !s || s === '.' || s === '..' || /[\\?#&\x00-\x1f]/.test(s))) { return { ok: false, problem: bad }; }
     const encoded = segs.map(encodeURIComponent).join('/');
     const res = await this.exec('gh', ['api', `repos/{owner}/{repo}/contents/${encoded}?ref=${ref}`], root);
     if (res.code !== 0) { return { ok: false, problem: classifyGhFailure(res, null) }; }

@@ -184,9 +184,12 @@ export class GraphProvider {
   private readonly readOnlyUri: ((file: string) => vscode.Uri) | undefined;
   /** A panel that exists for one pull request: leaving the PR view closes it, there is nothing to go back to. */
   private readonly closeOnLeave: boolean;
+  /** Why a read-only provider refuses a write — the caller knows what the panel shows. */
+  private readonly readOnlyWhy: string | undefined;
 
   constructor(context: vscode.ExtensionContext, opts: {
     root?: string; readOnly?: boolean; title?: string; readOnlyUri?: (file: string) => vscode.Uri; closeOnLeave?: boolean;
+    readOnlyReason?: string; outputChannel?: vscode.OutputChannel;
   } = {}) {
     this.context = context;
     this.rootOverride = opts.root;
@@ -194,6 +197,8 @@ export class GraphProvider {
     this.baseTitle = opts.title ?? 'CoGraph';
     this.readOnlyUri = opts.readOnlyUri;
     this.closeOnLeave = !!opts.closeOnLeave;
+    this.readOnlyWhy = opts.readOnlyReason;
+    this._outputChannel = opts.outputChannel; // shared by every pull-request panel: not one "CoGraph" channel per PR
     this.analyzerRunner = new AnalyzerRunner(
       context,
       (msg) => this.showError(msg),
@@ -1104,11 +1109,8 @@ export class GraphProvider {
     }
   }
 
-  /** Why a write is refused: a head panel shows a copy, a checkout panel shows the real tree but is a transient view. */
   private readOnlyReason(): string {
-    return this.readOnlyUri
-      ? `${this.baseTitle} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`
-      : `${this.baseTitle} is a pull-request view and takes no edits — open the file (double-click) and edit it there.`;
+    return this.readOnlyWhy ?? `${this.baseTitle} is read-only.`;
   }
 
   /** Close the panel (a pull-request head panel is closed when another one opens). */
@@ -1366,6 +1368,8 @@ export class GraphProvider {
     const back = this.prView?.back
       ?? { scope: this.scope, title: this.getCleanTitle(), savedGraphPath: this.currentSavedGraphPath, dirty: this.isDirty };
     const scope: Scope = { spec: view.spec, source: 'pr', name: view.name };
+    // The webview takes read-only from the host: the panel decides, not the kind of tree.
+    view = { ...view, message: { ...view.message, readOnly: this.readOnly } };
     this.gitService.setOverride(view.override);
     this.prView = { view, back };
     if (!this.panel) {

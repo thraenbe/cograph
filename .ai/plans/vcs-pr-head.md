@@ -323,6 +323,41 @@ files — titled `PR #73 · your checkout`. Leave, from the banner or the sideba
 as the mechanism every PR panel uses internally, and as the behaviour on hosts without a panel
 factory (tests without global storage). Cost: under half a day.
 
+## Reviewer pass over (a) + (b) as one diff (2026-10-07)
+
+Read cold by a second reader with no stake in the code, then fixed. What would have been rejected:
+
+1. **Windows was broken.** `defaultExec` ran git and gh through cmd.exe, which eats the `^` in
+   `rev-parse <ref>^{commit}` (every head open: "does not exist on the remote") and splits
+   `--prefix=C:/Users/John Doe/…` at the space. No shell any more: both are real executables.
+2. **A regression from the same day:** since both panel kinds opened labelled documents, the
+   checkout panel's refusal read "shows a copy of a commit" — false — and the branch meant for it
+   was dead. The caller now supplies the sentence per kind.
+3. **Host and webview disagreed on the checkout panel:** the host refused edits, the webview's
+   popups accepted them (read-only was inferred from the tree kind). The host now puts `readOnly`
+   on the `pr-view` message; the kind is only the fallback.
+4. **A chip tooltip promised editable files** one commit after they became labelled read-only
+   views. Rewritten.
+5. **An analyzer crash yielded an empty graph that was diffed**, painting every function as added
+   or removed with a confident summary. Empty plus a failed analyzer is now a failure.
+6. **The head view died on a second `gh` round-trip** (the file list) after git and the engine had
+   already done their work. With a diff in hand the list is derived from the diff instead.
+7. One "CoGraph" output channel per PR panel, a provider retained after its tab was closed, a base
+   dir carried from a failed open into the next panel, a closed panel's debounced cache write
+   racing eviction, an unbounded map of fetched texts, an unvalidated host name typed into a
+   terminal, `%` rejected in file names, head-panel wording that mentioned a checkout, the open
+   PR's card vanishing from the sidebar after a filter change — all fixed; `analyzeTree` and
+   `HeadTreeDeps.budget` removed as dead.
+8. **Engine independence at the type level:** `graphDiff`, `diffStatuses` and `treeAnalysis` took
+   their types from `graphProvider.ts` / `gitService.ts`. They now have `engine/types.ts`. One link
+   remains through `cacheStore.ts`, which types its graph from `graphProvider.ts`; moving
+   `GraphData` into a vscode-free module is a shared-file change for its owner.
+
+Not fixed, written down: cross-window eviction (a second VS Code window can evict a tree the first
+is showing; the budget is global), `createTreeAnalyzer` relies on the runner reaching a sink (it
+does today), case-sensitive path comparison in `prDocumentFile`, `marker.bytes` not counting the
+analysis cache written later.
+
 ## Not in this plan
 
 Ghost nodes for removed functions, workspace annotations mapped onto the head, a vscode-free

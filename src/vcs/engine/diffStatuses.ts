@@ -1,6 +1,6 @@
 import * as path from 'path';
-import type { FileStatus, GitStatusOverride, LineHunk } from '../../gitService';
 import type { StructuralDiff } from './graphDiff';
+import type { EngineFileStatus, EngineHunk, EngineStatusOverride } from './types';
 
 /**
  * Project a structural diff onto the colours the graph already draws: the
@@ -13,10 +13,10 @@ import type { StructuralDiff } from './graphDiff';
  * no other. Removed functions have no node in the head and are not here; the
  * diff lists them for the sidebar.
  */
-export function statusesFromDiff(diff: StructuralDiff, headRoot: string): GitStatusOverride {
+export function statusesFromDiff(diff: StructuralDiff, headRoot: string): EngineStatusOverride {
   const abs = (rel: string) => path.join(headRoot, ...rel.split('/')).replace(/\\/g, '/');
-  const files = new Map<string, FileStatus>();
-  const hunks = new Map<string, LineHunk[]>();
+  const files = new Map<string, EngineFileStatus>();
+  const hunks = new Map<string, EngineHunk[]>();
   for (const f of diff.files.added) { files.set(abs(f), { unstaged: 'added', staged: null }); }
   for (const fn of diff.functions) {
     if ((fn.kind !== 'added' && fn.kind !== 'changed') || fn.headLine === undefined) { continue; }

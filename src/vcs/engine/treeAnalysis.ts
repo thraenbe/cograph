@@ -1,8 +1,8 @@
 import * as path from 'path';
 import { loadCache, writeCache } from '../../cacheStore';
-import type { GraphData } from '../../graphProvider';
 import { scanStructure } from '../../structureScanner';
 import type { StructureTree } from '../../structureScanner';
+import type { EngineGraph } from './types';
 
 /**
  * A directory turned into what the graph works from: its structure tree and its
@@ -11,7 +11,7 @@ import type { StructureTree } from '../../structureScanner';
  * vscode import.
  */
 
-export type TreeAnalyzer = (dir: string, signal?: AbortSignal) => Promise<GraphData>;
+export type TreeAnalyzer = (dir: string, signal?: AbortSignal) => Promise<EngineGraph>;
 
 export interface AnalyzedTree {
   /** Absolute directory the paths in `tree` and `graph` point into. */
@@ -19,17 +19,11 @@ export interface AnalyzedTree {
   /** Commit the directory was materialised from; undefined for a working tree. */
   sha?: string;
   tree: StructureTree;
-  graph: GraphData;
-}
-
-export async function analyzeTree(root: string, analyzer: TreeAnalyzer, sha?: string, signal?: AbortSignal): Promise<AnalyzedTree> {
-  const tree = scanStructure(root);
-  const graph = await analyzer(root, signal);
-  return { root, sha, tree, graph };
+  graph: EngineGraph;
 }
 
 /**
- * Like analyzeTree, through the graph's own cache file under `<root>/.cograph`:
+ * A directory analysed through the graph's own cache file under `<root>/.cograph`:
  * a materialised commit never changes, so its second analysis is a read. The
  * same file is what a GraphProvider opened on that root paints from.
  */
@@ -38,7 +32,8 @@ export async function analyzeTreeCached(root: string, analyzer: TreeAnalyzer, sh
   const hit = loadCache(root, tree);
   if (hit?.valid) { return { root, sha, tree, graph: hit.graph, cached: true }; }
   const graph = await analyzer(root, signal);
-  writeCache(root, graph, tree);
+  // The cache store speaks GraphProvider's GraphData; the engine's graph is the same shape.
+  writeCache(root, graph as Parameters<typeof writeCache>[1], tree);
   return { root, sha, tree, graph, cached: false };
 }
 

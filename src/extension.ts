@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { GraphProvider } from './graphProvider';
 import { SidebarProvider } from './sidebarProvider';
 import { showChatRemovalNotice } from './chatRemovalNotice';
+import { activateMcp } from './mcp/setupCommand';
 import { scanStructure } from './structureScanner';
 import { pickFolder } from './folderPicker';
 import { specForFolder } from './subgraphScope';
@@ -17,6 +18,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
   );
   provider.setSidebarProvider(sidebarProvider);
+  activateMcp(context);
 
   const command = vscode.commands.registerCommand('cograph.visualize', () => {
     provider.show();

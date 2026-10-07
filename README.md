@@ -66,6 +66,30 @@ AI features are **off by default**. Nothing is sent to an AI provider until you 
 
 The Workflow Graph has per-request caps for turns, spend and time (`cograph.graphIntelligence.maxTurns`, `maxBudgetUsd`, `timeoutMs`).
 
+## Use CoGraph from your AI agent (MCP)
+
+CoGraph ships a local [MCP](https://modelcontextprotocol.io) server, so the agent you already use can ask the call graph instead of grepping:
+
+| Tool | Answers |
+|---|---|
+| `find_symbol` | Which functions match this name, and what are their ids? |
+| `get_symbol` | Where is it, what does it look like, who calls it and what does it call? |
+| `callers` / `callees` | Who calls this, or what does it call, up to 5 levels deep? |
+| `impact` | What breaks if I change this function, file or folder, including which tests and entry points reach it? |
+| `overview` | What is in this workspace or folder (with AI summaries if annotated), and where are the entry points and hot spots? |
+
+**Set up:** run **CoGraph: Connect an AI Agent (MCP)…** from the Command Palette, or click the plug icon in the CoGraph sidebar, and choose:
+- **Claude Code: just me.** This copies a `claude mcp add cograph -- node <server> --workspace <folder>` command.
+- **Claude Code: whole team.** This adds the server to the workspace's `.mcp.json`.
+- **Cursor** or **Claude Desktop.** This copies the config snippet.
+
+On VS Code 1.101 and later, agent mode (Copilot) sees CoGraph without any setup.
+
+**What it does and does not do:**
+- It is local and read-only. It reads `.cograph/graph-cache.json`, `.cograph/annotations/` and your source files (for `get_symbol` slices) inside the workspace. It writes nothing, opens no network connection, runs no AI model and needs no API key.
+- It answers from CoGraph's last analysis. Open the project in CoGraph once to create it. Every answer says how old the analysis is and whether files have changed since.
+- The graph comes from static analysis, so calls made through dynamic dispatch, callbacks or reflection can be missing. An empty `callers` result is a hint, not proof that nothing uses the function.
+
 ## Requirements
 
 - VS Code 1.75+

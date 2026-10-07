@@ -45,6 +45,7 @@ suite('extension activate()', () => {
       subscriptions: [],
       extensionPath: '/fake/ext',
       extensionUri: vscode.Uri.file('/fake/ext'),
+      globalStorageUri: vscode.Uri.file(path.join(os.tmpdir(), 'cograph-fake-global-storage')),
       workspaceState: { get: () => undefined, update: async () => {} },
     } as unknown as vscode.ExtensionContext;
   });

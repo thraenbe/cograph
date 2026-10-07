@@ -140,6 +140,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (F29)
 - TypeScript/JavaScript: calls through `this` (`this.helper()`) now appear as edges. They were never detected before, so class-heavy code showed far fewer connections than it has (up to +42% internal edges on the test corpus). A `this` call links to the caller's own class or its base classes, never to an unrelated class that happens to share the method name.
 - The graph and the Folder panel now always cover the same files. Build output (`build/`, `target/`, `CMakeFiles/`, `cmake-build-*/`, `__pycache__/`) is left out of both unless git tracks files there, so hand-written build scripts stay and generated copies go. Before, a Python package built in place (`pip wheel .`) showed every function twice, with calls linked into the copy, and the copies could not be hidden or scoped from the Folder panel. Folders that are not git repositories skip build output entirely.
+- **Zoomed-out Shelf views stay lighter.** A folder frame that is too narrow on screen to read
+  its title (under 40 pixels) no longer draws the title and counts; they return as you zoom in.
+  On django zoomed out to fit, that removes about 1 300 unreadable titles and a third of the
+  work per frame (10.1 → 6.8 ms). (F31)
 
 ## [1.3.0] - 2026-09-24
 

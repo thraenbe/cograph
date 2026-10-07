@@ -7,7 +7,8 @@ import { defaultExec } from '../../vcs/ghCliSource';
 import type { Exec, ExecResult } from '../../vcs/ghCliSource';
 import {
   DEFAULT_BUDGET, HeadTreeError, analyzerKeepsPath, branchRef, branchRefs, clearRepoRefs, clearTrees, evictTrees, fetchBranch,
-  fetchPullRequestHead, githubRemote, listTrees, materializeCommit, mergeBase, pullRequestRef, pullRequestRefs, repoKey, treeDir,
+  fetchPullRequestHead, githubRemote, listTrees, lockTree, materializeCommit, mergeBase, pullRequestRef, pullRequestRefs, repoKey, treeDir,
+  treeHeldBy, unlockTree,
 } from '../../vcs/engine/headTree';
 import type { HeadTreeDeps, TreeMarker } from '../../vcs/engine/headTree';
 import { analyzeTreeCached, relPath } from '../../vcs/engine/treeAnalysis';
@@ -262,7 +263,7 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     const head = await fetchPullRequestHead(deps, 1);
     await materializeCommit(deps, head, pullRequestRefs(1, head));
     const cleared = await clearTrees(storage, defaultExec);
-    assert.ok(cleared.trees === 1 && cleared.bytes > 0 && !fs.existsSync(storage));
+    assert.ok(cleared.trees === 1 && cleared.bytes > 0 && cleared.kept === 0 && !fs.existsSync(storage));
     assert.strictEqual(sh(repos.work, ['for-each-ref', 'refs/cograph/']), '');
   });
 
@@ -381,8 +382,37 @@ suite('vcs engine — headTree budget and failures', () => {
     assert.deepStrictEqual(listTrees(path.join(storage, 'nope')), []);
     assert.deepStrictEqual(await evictTrees(path.join(storage, 'nope')), []);
     fakeTree('f'.repeat(40), 50, 1);
-    assert.deepStrictEqual(await clearTrees(storage), { trees: 1, bytes: 50 });
+    assert.deepStrictEqual(await clearTrees(storage), { trees: 1, bytes: 50, kept: 0 });
     assert.ok(!fs.existsSync(storage));
+  });
+
+  test('a tree shown by a live window is held: neither eviction nor clear touches it', async () => {
+    const shown = fakeTree('a'.repeat(40), 100, 1);     // the oldest: first to go, normally
+    fakeTree('b'.repeat(40), 100, 2);
+    lockTree(shown);
+    assert.strictEqual(treeHeldBy(shown), null, 'our own lock is not "another window"');
+    // Another window: a live process that is not us (the test runner's parent).
+    fs.writeFileSync(path.join(shown, '.cograph-tree.lock'), JSON.stringify({ pid: process.ppid, at: Date.now() }));
+    assert.strictEqual(treeHeldBy(shown), process.ppid);
+    const removed = await evictTrees(storage, { maxTrees: 1, maxBytes: 1000 });
+    assert.deepStrictEqual(removed.map(t => t.marker.sha[0]), ['b'], 'the held tree is skipped although it is the oldest');
+    assert.ok(fs.existsSync(shown));
+    const cleared = await clearTrees(storage);
+    assert.deepStrictEqual([cleared.trees, cleared.kept], [0, 1], 'clear reports what it had to leave');
+    assert.ok(fs.existsSync(shown) && fs.existsSync(storage));
+    unlockTree(shown, process.pid);
+    assert.strictEqual(treeHeldBy(shown), process.ppid, 'released only by its holder');
+    unlockTree(shown, process.ppid);
+    assert.strictEqual(treeHeldBy(shown), null);
+    assert.deepStrictEqual((await clearTrees(storage)).trees, 1);
+  });
+
+  test('a lock left by a dead window is ignored', async () => {
+    const dir = fakeTree('d'.repeat(40), 100, 1);
+    fs.writeFileSync(path.join(dir, '.cograph-tree.lock'), JSON.stringify({ pid: 123456789, at: Date.now() }));
+    assert.strictEqual(treeHeldBy(dir, () => false), null);
+    const removed = await evictTrees(storage, { maxTrees: 0, maxBytes: 0 });
+    assert.strictEqual(removed.length, 1);
   });
 
   test('git failures become named problems', async () => {

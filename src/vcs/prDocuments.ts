@@ -57,7 +57,12 @@ export function registerPrDocuments(roots: string[]): vscode.Disposable {
       if (text !== undefined) { return text; }
       const file = prDocumentFile(uri, roots);
       if (!file) { return `// Not a pull-request document: ${uri.path}`; }
-      try { return fs.readFileSync(file, 'utf8'); } catch (err) { return `// ${(err as Error).message}`; }
+      try { return fs.readFileSync(file, 'utf8'); } catch (err) {
+        const gone = (err as NodeJS.ErrnoException).code === 'ENOENT';
+        return gone
+          ? `// This pull request's copy is no longer on disk (cleared, or evicted by another window).\n// Reopen the pull request from the Version Control pane.`
+          : `// ${(err as Error).message}`;
+      }
     },
   });
 }

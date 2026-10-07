@@ -64,11 +64,12 @@ export function activate(context: vscode.ExtensionContext) {
   const clearTreesCommand = vscode.commands.registerCommand('cograph.clearPullRequestTrees', async () => {
     try {
       const log = (l: string) => vcsLog.appendLine(l);
-      const cleared = treeStorage ? await clearTrees(treeStorage, defaultExec, log) : { trees: 0, bytes: 0 };
+      const cleared = treeStorage ? await clearTrees(treeStorage, defaultExec, log) : { trees: 0, bytes: 0, kept: 0 };
       // Trees gone, and every refs/cograph/* ref of this repository with them: nothing keeps the fetched objects alive.
       const refs = workspaceRoot ? await clearRepoRefs(workspaceRoot, defaultExec) : [];
       const n = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
-      vscode.window.showInformationMessage(`CoGraph: Pull-request trees cleared — ${n(cleared.trees, 'tree')}, ${(cleared.bytes / (1024 * 1024)).toFixed(1)} MB, ${n(refs.length, 'ref')}.`);
+      const kept = cleared.kept ? ` ${n(cleared.kept, 'tree')} shown in another window kept.` : '';
+      vscode.window.showInformationMessage(`CoGraph: Pull-request trees cleared — ${n(cleared.trees, 'tree')}, ${(cleared.bytes / (1024 * 1024)).toFixed(1)} MB, ${n(refs.length, 'ref')}.${kept}`);
     } catch (err) {
       vscode.window.showErrorMessage(`CoGraph: Could not clear pull-request trees — ${(err as Error).message}`);
     }

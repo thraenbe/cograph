@@ -6,7 +6,7 @@ import type { ScopeSpec } from '../subgraphScope';
 import { statusesFromDiff } from './engine/diffStatuses';
 import { diffGraphs } from './engine/graphDiff';
 import type { StructuralDiff } from './engine/graphDiff';
-import { DEFAULT_BUDGET, HeadTreeError, branchRefs, evictTrees, fetchBranch, fetchPullRequestHead, githubRemote, materializeCommit, mergeBase, pullRequestRefs } from './engine/headTree';
+import { DEFAULT_BUDGET, HeadTreeError, branchRefs, evictTrees, fetchBranch, fetchPullRequestHead, githubRemote, lockTree, materializeCommit, mergeBase, pullRequestRefs, unlockTree } from './engine/headTree';
 import type { TreeBudget } from './engine/headTree';
 import { analyzeTreeCached } from './engine/treeAnalysis';
 import { flushCacheWrites } from '../cacheStore';
@@ -382,12 +382,15 @@ export class PrController {
     if (this.head) { this.head.sub.dispose(); this.head.graph.close(); }
     const title = prViewName(pr, kind === 'head' ? { kind, sha: m.sha } : { kind: 'checkout' });
     const graph = (this.deps.createHeadGraph as NonNullable<PrControllerDeps['createHeadGraph']>)(m.dir, title, kind, editorLabel);
+    // While shown, the copy is held: another window's eviction or clear leaves it alone.
+    if (kind === 'head') { lockTree(m.dir); if (baseDir) { lockTree(baseDir); } }
+    const release = () => { if (kind === 'head') { unlockTree(m.dir); if (baseDir) { unlockTree(baseDir); } } };
     const sub = graph.onPullRequestChange(() => {
       this.emit();
       // Closed from its tab: nothing to keep — the provider, its analyzer and its channel can go.
-      if (!graph.isOpen() && this.head?.graph === graph) { this.head.sub.dispose(); this.head = null; }
+      if (!graph.isOpen() && this.head?.graph === graph) { release(); this.head.sub.dispose(); this.head = null; }
     });
-    this.head = { number: pr.number, sha: m.sha, dir: m.dir, baseDir, graph, sub };
+    this.head = { number: pr.number, sha: m.sha, dir: m.dir, baseDir, graph, sub: { dispose: () => { release(); sub.dispose(); } } };
     return graph;
   }
 

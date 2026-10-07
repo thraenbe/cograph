@@ -353,9 +353,17 @@ Read cold by a second reader with no stake in the code, then fixed. What would h
    remains through `cacheStore.ts`, which types its graph from `graphProvider.ts`; moving
    `GraphData` into a vscode-free module is a shared-file change for its owner.
 
-Not fixed, written down: cross-window eviction (a second VS Code window can evict a tree the first
-is showing; the budget is global), `createTreeAnalyzer` relies on the runner reaching a sink (it
-does today), case-sensitive path comparison in `prDocumentFile`, `marker.bytes` not counting the
+**Cross-window eviction, traced and then guarded.** The failure mode when a second window evicts
+a tree the first is showing: the graph does not empty (the panel already holds the whole graph from
+the cache the engine wrote, so nothing is parsed from disk afterwards), but a double-click showed
+`// ENOENT…` in the read-only editor, a function popup an error, and the next open re-copied. Visible,
+so guarded: a PR panel writes a lock (`.cograph-tree.lock`, its pid) into its tree while open;
+eviction and Clear skip a tree whose lock belongs to a live process (a crashed window's lock names a
+dead pid and is ignored); Clear reports what it had to leave; and a read of a file that is gone says
+"This pull request's copy is no longer on disk… Reopen the pull request" instead of an errno.
+
+Not fixed, written down: `createTreeAnalyzer` relies on the runner reaching a sink (it does
+today), case-sensitive path comparison in `prDocumentFile`, `marker.bytes` not counting the
 analysis cache written later.
 
 ## Not in this plan

@@ -227,8 +227,38 @@ function mergeRefs(have: TreeRef[] | undefined, add: TreeRef[]): TreeRef[] {
   return [...out.values()];
 }
 
-/** The analysis cache a provider writes under the copy is not part of the copy. */
-const NOT_CONTENT = new Set([MARKER, '.cograph']);
+const LOCK = '.cograph-tree.lock';
+/** The analysis cache a provider writes under the copy, and the lock, are not part of the copy. */
+const NOT_CONTENT = new Set([MARKER, LOCK, '.cograph']);
+
+/**
+ * A panel showing a tree holds a lock on it: the pid of its VS Code window.
+ * Eviction and clear skip a tree whose lock belongs to a process that is still
+ * alive, so a second window's eviction cannot pull a tree out from under the
+ * first. A lock left by a crashed window names a dead pid and is ignored.
+ */
+export function lockTree(dir: string, pid = process.pid): void {
+  try { fs.writeFileSync(path.join(dir, LOCK), JSON.stringify({ pid, at: Date.now() }), 'utf8'); } catch { /* the tree is gone; nothing to hold */ }
+}
+
+export function unlockTree(dir: string, pid = process.pid): void {
+  try {
+    const held = JSON.parse(fs.readFileSync(path.join(dir, LOCK), 'utf8')) as { pid?: number };
+    if (held.pid === pid) { fs.rmSync(path.join(dir, LOCK), { force: true }); }
+  } catch { /* no lock, or not ours */ }
+}
+
+/** The live process holding the tree, or null. */
+export function treeHeldBy(dir: string, isAlive: (pid: number) => boolean = processAlive): number | null {
+  try {
+    const held = JSON.parse(fs.readFileSync(path.join(dir, LOCK), 'utf8')) as { pid?: number };
+    return typeof held.pid === 'number' && held.pid !== process.pid && isAlive(held.pid) ? held.pid : null;
+  } catch { return null; }
+}
+
+function processAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (err) { return (err as NodeJS.ErrnoException).code === 'EPERM'; }
+}
 
 /** sha1 over (relative path, size, mtime) of every file in the tree, in a fixed order. */
 export function fingerprintTree(dir: string): string {
@@ -394,6 +424,8 @@ export async function evictTrees(storageDir: string, budget: TreeBudget = DEFAUL
   for (const t of trees) {
     if (count <= budget.maxTrees && bytes <= budget.maxBytes) { break; }
     if (keep.has(path.resolve(t.dir))) { continue; }
+    const holder = treeHeldBy(t.dir);
+    if (holder !== null) { log?.(`[vcs] tree ${t.marker.sha.slice(0, 7)} kept: shown by another window (pid ${holder})`); continue; }
     fs.rmSync(t.dir, { recursive: true, force: true });
     if (exec) { await dropTreeRefs(t.marker, exec, log); }
     removed.push(t);
@@ -422,13 +454,21 @@ export async function evictTrees(storageDir: string, budget: TreeBudget = DEFAUL
   return removed;
 }
 
-/** Remove every tree and, with an `exec`, the refs each was fetched through (the "clear" command). */
-export async function clearTrees(storageDir: string, exec?: Exec, log?: (line: string) => void): Promise<{ trees: number; bytes: number }> {
-  const trees = listTrees(storageDir);
+/**
+ * Remove every tree not shown by a live window and, with an `exec`, the refs each was
+ * fetched through (the "clear" command). `kept` counts trees another window holds.
+ */
+export async function clearTrees(storageDir: string, exec?: Exec, log?: (line: string) => void): Promise<{ trees: number; bytes: number; kept: number }> {
+  const all = listTrees(storageDir);
+  const held = all.filter(t => treeHeldBy(t.dir) !== null);
+  const trees = all.filter(t => !held.includes(t));
   const bytes = trees.reduce((n, t) => n + t.marker.bytes, 0);
-  if (exec) { for (const t of trees) { await dropTreeRefs(t.marker, exec, log); } }
-  fs.rmSync(storageDir, { recursive: true, force: true });
-  return { trees: trees.length, bytes };
+  for (const t of trees) {
+    if (exec) { await dropTreeRefs(t.marker, exec, log); }
+    fs.rmSync(t.dir, { recursive: true, force: true });
+  }
+  if (held.length === 0) { fs.rmSync(storageDir, { recursive: true, force: true }); }
+  return { trees: trees.length, bytes, kept: held.length };
 }
 
 /** Delete every `refs/cograph/*` ref of a repository (what "clear" leaves nothing of). Returns the names deleted. */

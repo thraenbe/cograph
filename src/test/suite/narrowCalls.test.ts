@@ -157,3 +157,41 @@ suite('D6 end to end — every analyzer', function () {
     assert.deepStrictEqual(graph.stats, { ambiguousNarrowed: 0, ambiguousDropped: 1 });
   });
 });
+
+suite('narrowCalls.resolveThisCall', () => {
+  const D: Record<string, any> = {
+    'a.ts::send::1': { file: 'a.ts', className: 'A' },
+    'b.ts::send::1': { file: 'b.ts', className: 'B' },
+    'f.ts::send::1': { file: 'f.ts' },
+  };
+  const all = Object.keys(D);
+  const passthrough = (ids: string[]) => ids;
+
+  test('caller\'s own class in its own file wins', () => {
+    assert.deepStrictEqual(nc.resolveThisCall(all, { file: 'a.ts', className: 'A' }, D, passthrough, 'a.ts'), ['a.ts::send::1']);
+  });
+  test('class caller with no own or inherited method → no edge (no guess at unrelated classes or free functions)', () => {
+    assert.deepStrictEqual(nc.resolveThisCall(all, { file: 'c.ts', className: 'C' }, D, passthrough, 'c.ts'), []);
+    assert.deepStrictEqual(
+      nc.resolveThisCall(all, { file: 'c.ts', className: 'C', classExtends: 'ExternalBase' }, D, passthrough, 'c.ts'), []);
+  });
+  test('caller outside a class → every candidate, through narrow', () => {
+    let seen: string[] = [];
+    const narrow = (ids: string[]) => { seen = ids; return ids.slice(0, 1); };
+    assert.deepStrictEqual(nc.resolveThisCall(all, { file: 'f.ts' }, D, narrow, 'f.ts'), ['a.ts::send::1']);
+    assert.deepStrictEqual(seen, all);
+  });
+  test('base class (walked through classExtends) beats an unrelated class with the same method', () => {
+    const defs: Record<string, any> = {
+      'child.ts::run::1': { file: 'child.ts', className: 'Child', classExtends: 'Mid' },
+      'mid.ts::other::1': { file: 'mid.ts', className: 'Mid', classExtends: 'Base' },
+      'base.ts::use::1': { file: 'base.ts', className: 'Base' },
+      'spec.ts::use::1': { file: 'spec.ts', className: 'TestMiddleware' },
+    };
+    const ids = ['base.ts::use::1', 'spec.ts::use::1'];
+    assert.deepStrictEqual(nc.resolveThisCall(ids, defs['child.ts::run::1'], defs, passthrough, 'child.ts'), ['base.ts::use::1']);
+  });
+  test('no candidates → empty', () => {
+    assert.deepStrictEqual(nc.resolveThisCall([], { file: 'a.ts', className: 'A' }, D, passthrough, 'a.ts'), []);
+  });
+});

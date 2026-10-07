@@ -54,6 +54,50 @@ function createNarrower(fileOf, root, maxCandidates) {
   return { narrow, stats };
 }
 
+const MAX_EXTENDS_DEPTH = 6;
+const extendsCache = new WeakMap();
+
+/** className → classExtends, built once per definitions object. */
+function extendsMap(definitions) {
+  let m = extendsCache.get(definitions);
+  if (!m) {
+    m = new Map();
+    for (const d of Object.values(definitions)) {
+      if (d && d.className && d.classExtends && !m.has(d.className)) { m.set(d.className, d.classExtends); }
+    }
+    extendsCache.set(definitions, m);
+  }
+  return m;
+}
+
+/**
+ * Targets of a `this.name()` call. `this` is the caller's own object, so prefer, in order:
+ * 1. methods of the caller's class in the caller's file;
+ * 2. methods of its base classes, walking `classExtends` by class name (nearest first).
+ * Inside a class nothing else can be `this.name` (an unrelated class's method or a free
+ * function would be a guess; an external base class's method is not in the graph), so
+ * a class caller with no hit gets no edge. Outside a class (object literals, prototype
+ * code) every definition named `name` is a candidate. Pools after step 1 go through `narrow`.
+ */
+function resolveThisCall(ids, callerDef, definitions, narrow, callerFile) {
+  if (!ids || !ids.length) { return []; }
+  const cls = callerDef && callerDef.className;
+  if (cls) {
+    const own = ids.filter(id => definitions[id] && definitions[id].className === cls
+      && definitions[id].file === callerDef.file);
+    if (own.length) { return own; }
+    let base = callerDef.classExtends || extendsMap(definitions).get(cls);
+    for (let depth = 0; base && depth < MAX_EXTENDS_DEPTH; depth++) {
+      const name = base;
+      const inherited = ids.filter(id => definitions[id] && definitions[id].className === name);
+      if (inherited.length) { return narrow(inherited, callerFile); }
+      base = extendsMap(definitions).get(name);
+    }
+    return [];
+  }
+  return narrow(ids, callerFile);
+}
+
 /** Attach the counters to the output graph — only when something happened, so
  *  graphs without an ambiguous name stay byte-identical to the previous format. */
 function withStats(graph, stats) {
@@ -61,4 +105,4 @@ function withStats(graph, stats) {
   return { ...graph, stats: { ...stats } };
 }
 
-module.exports = { createNarrower, withStats, topLevelOf, MAX_CANDIDATES };
+module.exports = { createNarrower, withStats, topLevelOf, resolveThisCall, MAX_CANDIDATES };

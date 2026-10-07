@@ -5,6 +5,13 @@ All notable changes to CoGraph are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **"Show only this file" now removes the other folders**, the same way "Show only this
+  folder" does. Only the file's own folder and the folders that contain it stay, in both
+  engines; before, every other folder stayed on screen as an empty frame or box.
+
 ## [1.3.0] - 2026-09-24
 
 The Shelf engine release: nested, non-overlapping folder frames with per-file slots,

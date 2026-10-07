@@ -72,9 +72,25 @@ suite('scope — member rule', () => {
     const only = scope({ onlyShowFolder: '/r/src' });
     assert.ok(sc.memberInScope({ isFolderCluster: true, _folderPath: '/r/src/util' }, only));
     assert.ok(!sc.memberInScope({ isFolderCluster: true, _folderPath: '/r/test' }, only));
-    const files = scope({ onlyShowFile: '/r/src/a.ts', hiddenFiles: new Set(['/r/src/b.ts']) });
-    assert.ok(sc.memberInScope({ isFolderCluster: true, _folderPath: '/r/src/util' }, files),
-      'file filters never remove folder glyphs (R2a)');
+    const hiddenFile = scope({ hiddenFiles: new Set(['/r/src/b.ts']) });
+    assert.ok(sc.memberInScope({ isFolderCluster: true, _folderPath: '/r/src/util' }, hiddenFile),
+      'Hide file never removes folder glyphs (R2a)');
+    // U5 (Bela 2026-10-06): Only show FILE removes the other folders, like Only show FOLDER
+    const onlyFile = scope({ onlyShowFile: '/r/src/a.ts' });
+    assert.ok(sc.memberInScope({ isFolderCluster: true, _folderPath: '/r/src' }, onlyFile), 'its own folder stays');
+    assert.ok(sc.memberInScope({ isFolderCluster: true, _folderPath: '/r' }, onlyFile), 'ancestors stay');
+    assert.ok(!sc.memberInScope({ isFolderCluster: true, _folderPath: '/r/src/util' }, onlyFile), 'a subfolder holds nothing shown');
+    assert.ok(!sc.memberInScope({ isFolderCluster: true, _folderPath: '/r/test' }, onlyFile), 'a sibling folder goes');
+  });
+
+  test('U5: Only show FILE keeps only the file\'s folder and its ancestors as frames (both separators)', () => {
+    const only = scope({ onlyShowFile: '/r/src/a.ts' });
+    assert.deepStrictEqual(['/r', '/r/src', '/r/src/util', '/r/test', '/r/srcx'].map(p => sc.frameFolderVisible(p, only)),
+      [true, true, false, false, false]);
+    const win = scope({ onlyShowFile: 'C:\\r\\src\\a.ts' });
+    assert.deepStrictEqual(['C:\\r', 'C:\\r\\src', 'C:\\r\\test'].map(p => sc.frameFolderVisible(p, win)), [true, true, false]);
+    assert.strictEqual(sc.onlyFileKeepsFolder('/r/test', null), true, 'no Only file → no effect');
+    assert.strictEqual(sc.onlyFileKeepsFolder('/anything', 'a.ts'), true, 'a bare file name keeps everything (no folder known)');
   });
 
   test('file filters remove exactly that slot; pathless synthetics stay', () => {

@@ -1,7 +1,7 @@
 # Version Control view: real-VS-Code click-through (2026-10-07)
 
 **Setup**
-- Build: `termi/s262`, first at 3c50a6a, then the re-drive at b19885c.
+- Build: `termi/s262`, first at 3c50a6a, then the re-drive at b19885c, then A and C again at 494c3dd.
 - Workspace: a fresh clone of this repository with 15 open PRs.
 - Driver: `uxtest/vscode/vcs-explore.spec.ts` (stages 1-6). It takes a screenshot after every action, and I judged those
   screenshots as a user.
@@ -23,16 +23,19 @@
 
 ## Findings and status
 
-| | 3c50a6a | b19885c re-drive |
+| | 3c50a6a | b19885c re-drive (494c3dd for A and C) |
 |---|---|---|
 | B: copy file read-only | Not reliable. The command marked whichever editor was active; after leave + reopen the copy opened editable in a third editor group. A saved edit would have been reused as the "PR head" (confirmed by 262) | **Fixed.** Read-only by construction ("Cannot edit in read-only editor"), including the race path; no writeable toggle is offered |
 | Copy edited from outside VS Code | not tested | **Fixed.** I appended a function to a copy file from a shell and reopened the PR. The fingerprint discarded and re-copied the tree, and the function is not in the head graph |
-| A: banner | At 561 px: name 0 px wide, Leave half off-screen (fully off-screen in the offline fallback), Shelf/Global covered | **Fixed at 594 px**: name and Leave visible, nothing covered. **Still broken at 396 px**, the width produced by opening a copy file beside the panel: Leave at x 395-442 is off-screen. The summary is 0 px at both widths, so the fallback's amber "coloured as whole files (checkout differs)" warning is invisible |
-| C: head-panel popup | Editable until Save, then refused with a clear sentence; afterwards the tab showed a dirty dot | **Fixed.** The textarea is read-only, and no dirty dot appears. No tooltip was found on the textarea |
+| A: banner | At 561 px: name 0 px wide, Leave half off-screen (fully off-screen in the offline fallback), Shelf/Global covered | **Fixed at 494c3dd** (b19885c still lost Leave at 396 px). Two rows: the summary or warning always gets its own row, and Leave has a fixed slot. Leave is visible and topmost (`elementFromPoint`) at every width: 561 px at x 447-494 (262's lab: 446-494); 373 px after opening a copy file beside, at 259-306; offline fallback at 1121 px and at 373 px. Nothing covers Engine/Shelf/Global. **The amber warning leads its sentence and is never truncated**: one line at 1121 px, wrapped over 6 lines at 373 px, readable in the screenshot. The chip drops below 300 px of banner width (it repeats the tab title). The plain summary may ellipsize at 373 px (by design: only warnings wrap) |
+| C: head-panel popup | Editable until Save, then refused with a clear sentence; afterwards the tab showed a dirty dot | **Fixed.** b19885c made the textarea read-only. 494c3dd adds the tooltip on the textarea itself, for a popup opened AFTER entering the view (0 popups existed before): "This is a copy of a commit, not your working tree. Edit the file in your checkout." |
 | Cancel wording | "Cancelled." in every phase. Clear reported MB and refs, no tree count. A cancel during the base analysis kept 2 copies (4.2 MB), and a kept copy read as junk | **Fixed.** "Cancelled." before the copy; "Cancelled. The copied files are kept, so the next open is faster." after it; Clear reports "1 tree, 2.1 MB, 0 refs" |
 | Folders opened vs changed files | Exact match (src, src/test, src/test/suite, src/webview, plus root, against `gh`) | not re-driven |
 | Leave / reopen timings | Leave ~2.5 s; #69 5.1 s first, 3.9 s reopen; #70 4.2 s | not re-driven |
 | Offline fallback | "The remote could not be reached. Check the connection and try again." plus "Show in the current checkout instead", which colours the main panel with the "your checkout (main)" chip | Banner OK at 594 px, but its amber warning is hidden (see A) |
+
+**Verdict at 494c3dd: every finding of this click-through is fixed and verified in the real host.** The remaining
+open point is the design question in point 2 above (the main tab changing identity in the offline fallback).
 
 ## Not tested
 

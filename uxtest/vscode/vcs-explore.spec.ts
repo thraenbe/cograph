@@ -42,6 +42,31 @@ async function bannerGeometry(f: Frame): Promise<unknown> {
   });
 }
 
+/** Stage 7: every banner descendant with its box, truncation, and whether Leave is the topmost element (clickable). */
+async function bannerDeep(f: Frame): Promise<unknown> {
+  return f.evaluate(() => {
+    const b = document.getElementById('pr-view-banner'); if (!b) { return null; }
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const box = (el: Element) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left), right: Math.round(r.right), y: Math.round(r.top), h: Math.round(r.height), w: Math.round(r.width) }; };
+    const parts = [...b.querySelectorAll('*')].filter(el => el.children.length === 0 || el.tagName === 'BUTTON').map(el => {
+      const he = el as HTMLElement; const st = getComputedStyle(he);
+      return { cls: (typeof he.className === 'string' ? he.className : '') || he.tagName, text: (he.textContent || '').trim().slice(0, 120), ...box(el),
+        shown: st.display !== 'none' && st.visibility !== 'hidden' && he.getBoundingClientRect().width > 0,
+        truncated: he.scrollWidth > he.clientWidth + 1 || st.textOverflow === 'ellipsis' && he.scrollWidth > he.clientWidth, color: st.color };
+    });
+    const leave = [...b.querySelectorAll('button')].find(x => /Leave/.test(x.textContent || ''));
+    let leaveHit = null as null | { inViewport: boolean; topmost: boolean };
+    if (leave) { const r = leave.getBoundingClientRect(); const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      leaveHit = { inViewport: r.left >= 0 && r.right <= vw && r.top >= 0 && r.bottom <= vh, topmost: document.elementFromPoint(cx, cy) === leave }; }
+    const covered: string[] = [];
+    for (const el of [...document.querySelectorAll('#top-left-controls button, #top-left-controls label')]) {
+      const x = el.getBoundingClientRect(); if (!x.width) { continue; }
+      const hit = document.elementFromPoint(x.left + x.width / 2, x.top + x.height / 2); if (hit && b.contains(hit)) { covered.push((el.textContent || '').trim().slice(0, 20)); }
+    }
+    return { viewportW: vw, banner: box(b), leaveHit, controlsCovered: covered, parts };
+  });
+}
+
 async function sidebarFrame(page: Page): Promise<Frame | null> {
   for (const f of page.frames()) {
     if (!f.url().startsWith('vscode-webview://')) { continue; }
@@ -105,6 +130,62 @@ test('vcs-explore', async () => {
     const openMs = Date.now() - t0;
     await page.waitForTimeout(3000);
     await shot('pr 69 open', { openMs, phases });
+    if (STAGE === 7) {
+      // ── Stage 7 (494c3dd): A at the widths the feature produces, normal + offline; C tooltip on a popup opened AFTER entering. ──
+      const step = async (what: string, fn: () => Promise<Record<string, unknown>>): Promise<void> => {
+        try { await shot(what, await fn()); } catch (err) { await shot(`${what} FAILED`, { error: String(err).slice(0, 400) }); }
+      };
+      const openSlotBeside = async (f: Frame): Promise<boolean> => {
+        for (let i = 0; i < 12 && !(await frameHittable(f, '#graph g.file-slot .file-slot-shape', 230)); i++) {
+          const c = await frameHittable(f, '#graph g.frame .folder-bubble-shape', 230);
+          if (c) { await page.mouse.move(c.x, c.y); await page.mouse.wheel(0, -300); await page.waitForTimeout(250); }
+        }
+        const slot = await frameHittable(f, '#graph g.file-slot .file-slot-shape', 230);
+        if (!slot) { return false; }
+        await page.mouse.dblclick(slot.x, slot.y); await page.waitForTimeout(2500); return true;
+      };
+      // C first, on the fresh head panel: popup opened AFTER entering the view.
+      await step('C: popup opened after entering the head panel', async () => {
+        const g = await prFrame(page); if (!g) { throw new Error('no PR panel'); }
+        await frameSetSlider(g, SEL.detailSlider.css, 1).catch(() => undefined); await page.waitForTimeout(1500);
+        for (let i = 0; i < 15 && !(await frameHittable(g, '#graph circle.regular-node', 230)); i++) {
+          const c = (await frameHittable(g, '#graph g.file-slot .file-slot-shape', 230)) || (await frameHittable(g, '#graph g.frame .folder-bubble-shape', 230));
+          if (c) { await page.mouse.move(c.x, c.y); await page.mouse.wheel(0, -300); await page.waitForTimeout(250); }
+        }
+        const node = await frameHittable(g, '#graph circle.regular-node', 230); if (!node) { throw new Error('no function node'); }
+        const before = await g.evaluate(() => document.querySelectorAll('.func-card').length);
+        await page.mouse.click(node.x, node.y); await page.waitForTimeout(1500);
+        const ta = g.locator('.func-card .func-source-textarea').last();
+        const box = await ta.boundingBox(); if (box) { await page.mouse.move(box.x + box.width / 2, box.y + 20); await page.waitForTimeout(1500); }
+        const info = await ta.evaluate(el => ({ readOnly: (el as HTMLTextAreaElement).readOnly, title: el.getAttribute('title') || '' }));
+        return { popupsBeforeClick: before, textarea: info };
+      });
+      await page.keyboard.press('Escape');
+      await step('A normal: head panel at split width', async () => { const f = await prFrame(page); return { banner: f ? await bannerDeep(f) : null }; });
+      await step('A normal: after opening a copy file (the feature\'s own width)', async () => {
+        const f = await prFrame(page); if (!f) { throw new Error('no PR panel'); }
+        if (!await openSlotBeside(f)) { throw new Error('no slot to open'); }
+        const g = await prFrame(page); return { banner: g ? await bannerDeep(g) : null, tabs: (await chrome(page) as { tabs: string[] }).tabs };
+      });
+      await runCommand(page, 'View: Revert and Close Editor').catch(() => undefined);
+      await side.getByRole('button', { name: 'Leave pull request' }).click().catch(() => undefined); await page.waitForTimeout(1500);
+      await step('A offline fallback: main panel', async () => {
+        execFileSync('git', ['config', 'core.sshCommand', '/bin/false'], { cwd: s.workspace });
+        await runCommand(page, 'CoGraph: Clear pull-request trees'); await page.waitForTimeout(1500);
+        await runCommand(page, 'Notifications: Clear All Notifications').catch(() => undefined);
+        await side.locator('.vcs-pr[data-number="73"]').click(); await page.waitForTimeout(6000);
+        await side.getByRole('button', { name: 'Show in the current checkout instead' }).click(); await page.waitForTimeout(5000);
+        execFileSync('git', ['config', '--unset', 'core.sshCommand'], { cwd: s.workspace });
+        const f = await prFrame(page); return { banner: f ? await bannerDeep(f) : null, tabs: (await chrome(page) as { tabs: string[] }).tabs };
+      });
+      await step('A offline fallback: after opening a file beside', async () => {
+        const f = await prFrame(page); if (!f) { throw new Error('no fallback panel'); }
+        if (!await openSlotBeside(f)) { throw new Error('no slot to open'); }
+        await runCommand(page, 'View: Split Editor Right').catch(() => undefined); await page.waitForTimeout(1500);
+        const g = await prFrame(page); return { banner: g ? await bannerDeep(g) : null, tabs: (await chrome(page) as { tabs: string[] }).tabs };
+      });
+      return;
+    }
     if (STAGE === 6) {
       // ── Stage 6: re-drive what b19885c changed (B read-only by construction + fingerprint, A banner, C popup, wording). ──
       const step = async (what: string, fn: () => Promise<Record<string, unknown>>): Promise<void> => {

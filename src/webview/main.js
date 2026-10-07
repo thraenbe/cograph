@@ -579,9 +579,10 @@ window.addEventListener('message', (event) => {
       inst.originalSource = null;
     } else {
       inst.textarea.value = message.source;
-      // A pull request's own commit is shown read-only (prView.js): its popups never take edits.
-      inst.textarea.readOnly = !!(state.prView && state.prView.readOnly);
+      inst.textarea.readOnly = false;
       inst.originalSource = message.source;
+      // A pull request's own commit is shown read-only (prView.js): its popups never take edits.
+      if (typeof prViewLockPopups === 'function') { prViewLockPopups(!!(state.prView && state.prView.readOnly)); }
     }
     updateFuncHighlight(inst);
     updateSaveBtn(inst);

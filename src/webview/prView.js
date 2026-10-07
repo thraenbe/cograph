@@ -21,20 +21,27 @@ const PR_DELETED_COLOR = '#e5534b';
 
 const PR_BANNER_CSS = `
   /* The banner sits to the right of the left toolbar (#top-left-controls: left 10px, width
-     190px) and left of the settings gear, and shrinks with the panel: a PR always opens
-     BESIDE the main graph, so a ~560 px panel is the normal width, not an edge case. The
-     summary gives way first (it is in the sidebar too), then the chip, then the name; Leave
-     never does, so the user can always leave. */
+     190px) and left of the settings gear. A PR opens BESIDE the main graph, and opening one
+     of its files squeezes the panel again, so ~400-560 px is the normal width. Two rows:
+     the name and the chip on the first (the chip goes when the banner is narrower than
+     300 px - the name already says which tree), the summary or warning ALWAYS on its own
+     second row so it can never be the part that renders 0 px, and Leave in a fixed slot
+     at the right edge that nothing else can take. A user must always be able to leave. */
   #pr-view-banner {
     position: fixed; top: 10px; left: 212px; right: 56px; z-index: 150;
-    display: flex; align-items: center; gap: 8px; min-width: 0;
-    padding: 5px 6px 5px 10px; border-radius: 6px; font-size: 12px;
+    display: flex; flex-direction: column; gap: 3px; min-width: 0;
+    padding: 5px 62px 5px 10px; border-radius: 6px; font-size: 12px;
     color: var(--vscode-foreground);
     background: var(--vscode-editorWidget-background, #252526);
     border: 1px solid var(--vscode-focusBorder, #007fd4);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   }
-  #pr-view-banner .pr-name { flex: 0 1 auto; min-width: 100px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #pr-view-banner .pr-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  #pr-view-banner .pr-name { flex: 0 1 auto; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #pr-view-banner.narrow .pr-tree { display: none; }
+  /* Narrower than 300 px: Leave takes a row of its own at the bottom right, so the text gets the width. */
+  #pr-view-banner.narrow { padding-right: 10px; }
+  #pr-view-banner.narrow button { position: static; transform: none; align-self: flex-end; }
   /* The tree chip is structural, never a status colour: in this panel green, orange and
      red mean added, modified and deleted, and nothing else may borrow them. */
   #pr-view-banner .pr-tree {
@@ -45,10 +52,12 @@ const PR_BANNER_CSS = `
   #pr-view-banner .pr-tree::before { margin-right: 4px; }
   #pr-view-banner .pr-tree.head::before { content: '⎇'; }
   #pr-view-banner .pr-tree.checkout::before { content: '⌂'; }
-  #pr-view-banner .pr-sub { flex: 1 1 0; min-width: 0; color: var(--vscode-descriptionForeground, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #pr-view-banner .pr-sub.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
+  #pr-view-banner .pr-sub { display: block; min-width: 0; color: var(--vscode-descriptionForeground, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* A warning wraps rather than ellipsizes: hidden, it would be worse than none. */
+  #pr-view-banner .pr-sub.warn { color: var(--vscode-editorWarning-foreground, #cca700); white-space: normal; overflow-wrap: anywhere; }
   #pr-view-banner button {
-    flex: none; margin-left: auto; font: inherit; font-size: 11px; padding: 2px 9px; border-radius: 3px; cursor: pointer;
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    font: inherit; font-size: 11px; padding: 2px 9px; border-radius: 3px; cursor: pointer;
     color: var(--vscode-button-foreground, #fff); background: var(--vscode-button-background, #0e639c);
     border: none;
   }
@@ -86,7 +95,8 @@ function prViewSummary(counts, diff) {
   }
   const base = `${c.inGraph} of ${total} file${total === 1 ? '' : 's'} in the graph`;
   if (c.fileLevel > 0) {
-    return { text: `${base} · ${c.fileLevel} coloured as whole files (checkout differs)`, warn: true };
+    // The warning first: it is the only sign that the colours are approximate, and a narrow panel cuts the end.
+    return { text: `${c.fileLevel} coloured as whole file${c.fileLevel === 1 ? '' : 's'} (checkout differs) · ${base}`, warn: true };
   }
   return { text: base, warn: false };
 }
@@ -142,19 +152,21 @@ function prViewPaintDeleted(on) {
 }
 
 /** Popups already open take the panel's read-only state; new ones get it when their source arrives (main.js). */
+const PR_READ_ONLY_HINT = 'This is a copy of a commit, not your working tree. Edit the file in your checkout.';
+
 function prViewLockPopups(locked) {
   if (!state.funcPopups) { return; }
   for (const inst of state.funcPopups.values()) {
     if (!inst || !inst.textarea || inst.originalSource === null) { continue; } // an errored popup stays as it is
     inst.textarea.readOnly = locked;
-    inst.textarea.title = locked ? 'This is a copy of a commit, not your working tree. Edit the file in your checkout.' : '';
+    inst.textarea.title = locked ? PR_READ_ONLY_HINT : '';
   }
 }
 
 function prViewRenderBanner() {
   if (typeof document === 'undefined') { return; }
   let banner = document.getElementById('pr-view-banner');
-  if (!state.prView) { banner?.remove(); return; }
+  if (!state.prView) { banner?._prResize?.disconnect(); banner?.remove(); return; }
   if (!document.getElementById('pr-view-style')) {
     const style = document.createElement('style');
     style.id = 'pr-view-style';
@@ -181,12 +193,27 @@ function prViewRenderBanner() {
   const sub = document.createElement('span');
   sub.className = 'pr-sub' + (summary.warn ? ' warn' : '');
   sub.textContent = summary.text;
+  sub.title = summary.text; // the row ellipsizes in a narrow panel; the full sentence is one hover away
   const exit = document.createElement('button');
   exit.type = 'button';
   exit.textContent = 'Leave';
   exit.title = 'Back to the graph you had before';
   exit.addEventListener('click', () => vscode.postMessage({ type: 'subgraph-exit' }));
-  banner.append(name, tree, sub, exit);
+  const row = document.createElement('div');
+  row.className = 'pr-row';
+  row.append(name, tree);
+  banner.append(row, sub, exit);
+  prViewWatchWidth(banner);
+}
+
+/** Below 300 px the chip goes: the name already names the tree, and the warning row must keep its space. */
+function prViewWatchWidth(banner) {
+  const apply = () => banner.classList.toggle('narrow', banner.getBoundingClientRect().width < 300);
+  apply();
+  if (typeof ResizeObserver === 'function' && !banner._prResize) {
+    banner._prResize = new ResizeObserver(apply);
+    banner._prResize.observe(banner);
+  }
 }
 
 function prViewRerender() {
@@ -275,6 +302,7 @@ function handlePrViewMessage(message) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    handlePrViewMessage, prViewInitialExpansion, prViewExpansion, prViewSummary, prViewTreeLabel, PR_DELETED_COLOR,
+    handlePrViewMessage, prViewInitialExpansion, prViewExpansion, prViewSummary, prViewTreeLabel, prViewLockPopups,
+    PR_DELETED_COLOR, PR_READ_ONLY_HINT,
   };
 }

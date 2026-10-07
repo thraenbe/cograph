@@ -69,7 +69,8 @@ suite('vcs — prView.js (graph webview)', () => {
     assert.deepStrictEqual([...prView.prViewExpansion(null, ['/ws'])], []);
     assert.deepStrictEqual(prView.prViewSummary({ total: 13, inGraph: 9, fileLevel: 0 }), { text: '9 of 13 files in the graph', warn: false });
     const whole = prView.prViewSummary({ total: 13, inGraph: 9, fileLevel: 2 });
-    assert.ok(whole.warn && whole.text.includes('2 coloured as whole files'));
+    assert.ok(whole.warn && whole.text.startsWith('2 coloured as whole files (checkout differs)'), 'the warning leads the sentence');
+    assert.ok(prView.prViewSummary({ total: 1, inGraph: 1, fileLevel: 1 }).text.startsWith('1 coloured as whole file ('));
     assert.deepStrictEqual(prView.prViewSummary({ total: 1, inGraph: 0 }), { text: 'none of its 1 file is in the graph', warn: true });
     assert.deepStrictEqual(prView.prViewSummary({ total: 1, inGraph: 0 }, { added: 35, changed: 13, removed: 0, callersAffected: 31 }),
       { text: '+35 ~13 −0 functions · 31 callers affected', warn: false }, 'a diff outranks the file count');
@@ -89,7 +90,11 @@ suite('vcs — prView.js (graph webview)', () => {
     assert.ok(p.doc.getElementById('btn-git-mode')!.classList.contains('active'));
     const banner = p.doc.getElementById('pr-view-banner')!;
     assert.strictEqual(banner.querySelector('.pr-name')!.textContent, 'PR #69 · fix: save');
-    assert.strictEqual(banner.querySelector('.pr-sub')!.textContent, '1 of 3 files in the graph');
+    const sub = banner.querySelector('.pr-sub') as HTMLElement;
+    assert.strictEqual(sub.textContent, '1 of 3 files in the graph');
+    assert.strictEqual(sub.title, sub.textContent, 'the full sentence survives an ellipsis');
+    assert.strictEqual(sub.parentElement, banner, 'the summary has a row of its own, never competing with the chip');
+    assert.deepStrictEqual([...banner.children].map(c => c.className || c.tagName), ['pr-row', 'pr-sub', 'BUTTON']);
   });
 
   test('the banner says which tree is on screen: the checkout, or the PR\'s own commit', () => {
@@ -114,7 +119,16 @@ suite('vcs — prView.js (graph webview)', () => {
     p.state.funcPopups = new Map([[1, { textarea: ta, originalSource: 'x' }]]);
     p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'head', sha: 'abc' } });
     assert.deepStrictEqual([p.state.prView.readOnly, ta.readOnly], [true, true]);
-    assert.ok(ta.title.includes('copy of a commit'));
+    assert.strictEqual(ta.title, prView.PR_READ_ONLY_HINT);
+    // A popup opened AFTER entering: main.js calls prViewLockPopups once its source has arrived.
+    const later = p.doc.createElement('textarea');
+    p.state.funcPopups.set(2, { textarea: later, originalSource: 'y' });
+    p.w.prViewLockPopups(true);
+    assert.deepStrictEqual([later.readOnly, later.title], [true, prView.PR_READ_ONLY_HINT], 'the later popup carries the hint too');
+    const errored = p.doc.createElement('textarea'); errored.readOnly = true;
+    p.state.funcPopups.set(3, { textarea: errored, originalSource: null });
+    p.w.prViewLockPopups(false);
+    assert.strictEqual(errored.readOnly, true, 'an errored popup is left alone');
     p.w.handlePrViewMessage({ type: 'pr-view', active: false, restore: true });
     assert.deepStrictEqual([ta.readOnly, ta.title], [false, '']);
     p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'checkout', branch: 'main' } });

@@ -297,10 +297,14 @@ empty for it.
   no longer matches is discarded and copied afresh, and a marker without one never passes. The
   copy is not made unwritable on disk: `fs.rm` on a read-only file is unreliable on Windows, and
   the two measures above cover both ways in (CoGraph's own navigation, and anyone else's editor).
-- **A, layout.** The banner is anchored right of the left toolbar and left of the settings gear,
-  and shrinks with the panel: the summary gives way first, then the chip, then the name; Leave
-  never does. Measured in the lab at 561 px (the default split): name `PR #69 · head 238…`, chip
-  `⎇ PR com…`, Leave at 450–498, gear at 521, nothing clipped, nothing over the Engine row.
+- **A, layout** (second round: opening one of the PR's files squeezes the panel to ~396 px, and
+  shrinking cannot go below content). The banner is two rows: name and chip on the first (the
+  chip goes below 300 px of banner width — the name already says which tree), the summary or
+  warning **always on its own row**, so it can never render at 0 px; a warning leads its sentence
+  and wraps instead of ellipsizing; Leave has a fixed slot at the right edge, and below 300 px a
+  row of its own at the bottom. Measured in the lab: at 396 px Leave at 281–329 inside the banner,
+  the amber line fully readable over four lines; at 561 px over two lines; nothing over the
+  Engine row at either.
 - **C.** The function popups of a head panel take no edits (textarea read-only, with the reason as
   tooltip), and a read-only panel never shows a dirty dot.
 - **Cancel wording.** A cancel after the copy says "Cancelled. The copied files are kept, so the

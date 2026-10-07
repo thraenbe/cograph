@@ -56,7 +56,7 @@ export function formatFind(index: GraphIndex, query: string, items: Sym[], total
 }
 
 const ENDED = {
-  detected: 'end detected', maxLines: 'TRUNCATED at maxLines', fallback: 'end not detected, cut before the next function', eof: 'reached end of file',
+  detected: 'end detected', maxLines: 'TRUNCATED at maxLines', fallback: 'end not found, cut before the next function', eof: 'end NOT found before the end of the file',
 };
 
 export function formatSource(slice: SliceResult | null, s: Sym, fileChanged = false): string {

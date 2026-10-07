@@ -55,9 +55,14 @@ suite('MCP paths and source slices', () => {
     const capped = readSlice(fx.abs('src/a.ts'), 1, { maxLines: 2 });
     assert.ok(capped.ok && capped.endLine === 2 && capped.endReason === 'maxLines');
     const last = readSlice(fx.abs('src/b.py'), 4, { maxLines: 80 });
-    assert.ok(last.ok && last.endReason === 'eof');
+    assert.ok(last.ok && last.endLine === 5 && last.endReason === 'detected', 'a function closing at EOF is found, not "eof"');
+    // funcEnd.ts skips strings, so a "}" inside one no longer ends the slice early (it did with the
+    // 1.3.0 brace counter). Slices stay labelled best-effort: the scanner is still a heuristic.
     const quoted = readSlice(fx.abs('src/a.ts'), 9, { maxLines: 80 });
-    assert.ok(quoted.ok && quoted.endLine < 12, 'a "}" in a string ends the scan early: why slices are labelled best-effort');
+    assert.ok(quoted.ok && quoted.endLine === 12 && quoted.endReason === 'detected', JSON.stringify(quoted));
+    fs.writeFileSync(fx.abs('src/broken.ts'), 'function broken() {\n  return 1;\n');
+    const unclosed = readSlice(fx.abs('src/broken.ts'), 1, { maxLines: 80 });
+    assert.ok(unclosed.ok && unclosed.endReason === 'eof', 'eof now means the scanner found no end');
     assert.deepStrictEqual(readSlice(fx.abs('nope.ts'), 1, { maxLines: 5 }), { ok: false, error: 'cannot read file (ENOENT)' });
     assert.ok(!readSlice(fx.abs('src/a.ts'), 999, { maxLines: 5 }).ok);
   });

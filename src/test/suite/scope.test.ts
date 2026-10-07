@@ -420,16 +420,16 @@ suite('scope — counts and refit follow the scope (round 3 polish)', () => {
     assert.strictEqual(root._sub, '4 files');
   });
 
-  test('a scope change re-fits once after the glide unless the user owns the view', () => {
+  test('a scope change runs the re-fit check once after the glide (rule: scopeFit.test.ts)', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fsMod = require('fs');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const path = require('path');
     const src = fsMod.readFileSync(path.resolve(__dirname, '../../../src/webview/frameRender.js'), 'utf8');
     const block = src.slice(src.indexOf('__fr.scopeSig = scopeSig;'), src.indexOf('const members = collectMembers'));
-    assert.ok(block.includes('reshelve && !state.userZoomed && !state._frameInteracting'),
-      'refit only on a scope change with an automatic viewport');
-    assert.ok(block.includes('fitToView()'), 'one fit after the re-pack glide');
+    assert.ok(block.includes('reshelve && !state._frameInteracting'),
+      'checked on every scope change, never during a frame drag/resize');
+    assert.ok(block.includes('refitAfterScope()'), 'F26: the user-zoomed case is decided by scopeFit.js, not skipped here');
     assert.ok(/setTimeout\([\s\S]*?23\d\)/.test(block), 'after the 200ms glide, not during');
   });
 });

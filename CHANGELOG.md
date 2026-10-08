@@ -78,6 +78,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   function to see its own hidden calls. The layout is identical with the setting on or off:
   hidden calls still pull nodes together and still count for Show Orphans. Turn it off to
   draw every call as before. The choice is saved with Save Layout.
+- **Only the function you point at shows its name.** Function names are no longer drawn at
+  rest; resting the pointer on a function shows its name at once (its hover card follows after
+  about half a second). A dragged function and a function whose source popup is open keep their
+  names, and while the filter box has text every function still shown keeps its name, so
+  search results stay readable. Folder titles, file names, collapsed folder and file names,
+  Class overlay names and library groupings are unchanged. Before, function names overlapped
+  into unreadable text at every zoom (F28).
 
 ### Removed
 - **Chat.** The sidebar Chat is gone. It handed the whole graph to the Claude Code / Codex
@@ -133,6 +140,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (F29)
 - TypeScript/JavaScript: calls through `this` (`this.helper()`) now appear as edges. They were never detected before, so class-heavy code showed far fewer connections than it has (up to +42% internal edges on the test corpus). A `this` call links to the caller's own class or its base classes, never to an unrelated class that happens to share the method name.
 - The graph and the Folder panel now always cover the same files. Build output (`build/`, `target/`, `CMakeFiles/`, `cmake-build-*/`, `__pycache__/`) is left out of both unless git tracks files there, so hand-written build scripts stay and generated copies go. Before, a Python package built in place (`pip wheel .`) showed every function twice, with calls linked into the copy, and the copies could not be hidden or scoped from the Folder panel. Folders that are not git repositories skip build output entirely.
+- **Zoomed-out Shelf views stay lighter.** A folder frame that is too narrow on screen to read
+  its title (under 40 pixels) no longer draws the title and counts; they return as you zoom in.
+  On django zoomed out to fit, that removes about 1 300 unreadable titles and a third of the
+  work per frame (10.1 → 6.8 ms). (F31)
 
 ## [1.3.0] - 2026-09-24
 

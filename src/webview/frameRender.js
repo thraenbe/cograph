@@ -818,6 +818,9 @@ const FR_LOD_NODES_AT = 0.3;
 // at fit-to-view 1 300 translucent viewport-spanning lines cost 45 ms per frame
 // (10k fixture: 16 → 50 fps without them) and read as a hairball anyway.
 const FR_LOD_MAX_BUNDLES = 200;
+// F31: a frame narrower than this on screen has its title and counts parked: at django's
+// fit (k 0.03) 1 416 titles rendered at about 0.3 px, unreadable, for about 9.5 ms a frame.
+const FR_TITLE_MIN_PX = 40;
 // Gesture LOD: a viewport full of full-detail content (fmt: 4 300 labels + 13 800
 // lines in four giant frames at k 0.66) repaints at 4 fps. While a pan/zoom
 // gesture runs, labels/links over the element budget are parked; they return
@@ -832,9 +835,24 @@ const __cull = {
   raf: 0,
   frameSelFor: null,             // the frameSel map the culler state belongs to
   zoomLinks: true,               // links drawn at this zoom level (drives the bundle cap)
+  titles: new Map(),             // F31: frame path -> title wide enough to draw (last applied)
+  k: 1,                          // zoom of the last culling pass
   gesture: false,                // a pan/zoom gesture is running
   idleTimer: 0,
 };
+
+/** F31: is this frame wide enough on screen to draw its title? */
+function frameTitleWide(path) {
+  const f = state.frames && state.frames.byPath.get(path);
+  return !f || !f.abs || f.abs.w * (__cull.k || 1) >= FR_TITLE_MIN_PX;
+}
+
+/** The zoom LOD plus this frame's title verdict (recorded, so a pass only touches flips). */
+function lodWantFor(path) {
+  const titles = frameTitleWide(path);
+  __cull.titles.set(path, titles);
+  return { ...__cull.want, titles };
+}
 
 /** Called by the zoom handler: at most one culling pass per animation frame. */
 function onFramesZoom() {
@@ -858,6 +876,7 @@ function applyFrameCulling() {
     __cull.frameSelFor = __fr.frameSel;
     __cull.culler.reset();
     __cull.stale.clear();
+    __cull.titles.clear();
     __cull.dom.reset(frameG.node(), [...__fr.frameSel].map(([path, sel]) => [path, sel.node()]));
   }
   const svgEl = svg.node();
@@ -875,18 +894,26 @@ function applyFrameCulling() {
   }
   const wantChanged = ['labels', 'links', 'nodes', 'slotLabels'].some(k => want[k] !== __cull.want[k]);
   __cull.want = want;
+  __cull.k = t.k;
 
   for (const path of hidden) { __cull.dom.hide(path); }
   for (const path of shown) {
-    __cull.dom.applyLod(path, __cull.want);         // while still detached: no layout work
+    __cull.dom.applyLod(path, lodWantFor(path));    // while still detached: no layout work
     __cull.dom.show(path);
     __cull.stale.delete(path);
     tickFrame(path);                                // chrome + positions may both be stale
   }
   if (freshDom || wantChanged || hidden.length || shown.length) {
     for (const path of __cull.dom.paths()) {
-      if (__cull.culler.isVisible(path)) { __cull.dom.applyLod(path, __cull.want); }
+      if (__cull.culler.isVisible(path)) { __cull.dom.applyLod(path, lodWantFor(path)); }
     }
+  }
+  // F31: titles follow each frame's ON-SCREEN width, so re-check them on every pass
+  // (only frames whose verdict flipped are touched).
+  for (const path of __cull.dom.paths()) {
+    if (!__cull.culler.isVisible(path)) { continue; }
+    const wide = frameTitleWide(path);
+    if (freshDom || __cull.titles.get(path) !== wide) { __cull.dom.applyLod(path, lodWantFor(path)); }
   }
   if (bundlesChanged) { updateCrossBundles(); }
   if (shown.length && __fr.sched) { __fr.sched.wake(); }

@@ -9,14 +9,36 @@ export class ToolError extends Error {
   }
 }
 
-/** realpath when the target exists, the plain resolved path otherwise (a deleted file is still nameable). */
-function realOrResolved(p: string): string {
-  try { return fs.realpathSync.native(p); } catch { return path.resolve(p); }
+/**
+ * Canonical form for comparisons: the realpath of the deepest EXISTING ancestor plus the missing
+ * tail. Both sides of every comparison go through this, so a missing file is canonicalised the
+ * same way as the root. Before, only existing paths were realpath'd, so a missing path under a
+ * root reached through an alias compared as outside it. Aliases are a symlink on POSIX, or a
+ * Windows 8.3 short name such as `RUNNER~1`, which realpath expands.
+ */
+export function canonical(p: string): string {
+  const tail: string[] = [];
+  let cur = path.resolve(p);
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(cur), ...tail.reverse());
+    } catch {
+      const parent = path.dirname(cur);
+      if (parent === cur) { return path.resolve(p); }
+      tail.push(path.basename(cur));
+      cur = parent;
+    }
+  }
 }
 
-function isInside(root: string, candidate: string): boolean {
-  const rel = path.relative(root, candidate);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+/**
+ * Segment-wise containment, not a string prefix: `..foo` is a child, `..` and `../x` are not.
+ * Case-insensitive on Windows, where `c:\x` and `C:\x` are the same directory.
+ */
+export function isInside(root: string, candidate: string, p: path.PlatformPath = path): boolean {
+  const fold = (s: string) => (p === path.win32 ? s.toLowerCase() : s);
+  const rel = p.relative(fold(root), fold(candidate));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${p.sep}`) && !p.isAbsolute(rel));
 }
 
 /**
@@ -29,8 +51,7 @@ export function confine(root: string, input: string): string {
   if (raw === '' || raw === '.' || raw === './') { return root; }
   const resolved = path.resolve(root, raw.split(/[\\/]+/).join(path.sep));
   if (!isInside(root, resolved)) { throw new ToolError(`Path "${input}" is outside the workspace.`); }
-  const real = realOrResolved(resolved);
-  if (!isInside(realOrResolved(root), real)) {
+  if (!isInside(canonical(root), canonical(resolved))) {
     throw new ToolError(`Path "${input}" resolves outside the workspace.`);
   }
   return resolved;
@@ -38,10 +59,9 @@ export function confine(root: string, input: string): string {
 
 /** Workspace-relative POSIX path; absolute paths outside the root are returned unchanged (POSIX-ified). */
 export function relPath(root: string, abs: string): string {
+  if (!isInside(root, abs)) { return abs.split(path.sep).join('/'); }
   const rel = path.relative(root, abs);
-  if (rel === '') { return '.'; }
-  const posix = (rel.startsWith('..') || path.isAbsolute(rel) ? abs : rel).split(path.sep).join('/');
-  return posix;
+  return rel === '' ? '.' : rel.split(path.sep).join('/');
 }
 
 /**

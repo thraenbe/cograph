@@ -10,9 +10,11 @@
 
 When AI writes the code, humans need a better way to understand it. CoGraph is the situational-awareness layer for agentic development: a real-time, multi-dimensional map of what is being built in your project.
 
-![CoGraph call graph overview](docs/images/graph-overview.png)
+![CoGraph: the activity bar, a repository opening in Shelf mode, hovering a function to see its definition, then the same graph in Dynamic and Global mode](docs/images/demo.gif)
 
-<!-- TODO(maintainer): replace the static screenshot above with an animated demo GIF at docs/images/demo.gif showing "CoGraph: Visualize Project" → navigating the graph. -->
+*Opening this repository: the folders bloom open, `src/mcp` zooms in with its call lines and the
+counts of calls leaving each file, hovering `relPath` shows what it is and what calls it, then the
+same graph settling live and in the Global engine.*
 
 ## Install
 

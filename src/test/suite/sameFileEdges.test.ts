@@ -49,12 +49,11 @@ suite('U1: only calls within a file', () => {
   test('wiring contract: lines marked, one root class, CSS hides cross-file lines but not hovered ones', () => {
     const rendering = read('src/webview/rendering.js');
     assert.ok(rendering.includes(".classed('xfile', d => !isSameFileLink(d, fileOf))"), 'renderLinks marks cross-file lines');
-    assert.ok(/g\.classed\('same-file-only', !!settings\.sameFileEdgesOnly && state\.viewMode !== 'workflow'\)/.test(rendering),
-      'one class on the zoom root; Workflow view exempt');
-    assert.ok(/applySameFileEdges\(\);[\s\S]{0,160}updateWorkflowDivider\(\);/.test(rendering), 'applied after every render');
+    assert.ok(rendering.includes("g.classed('same-file-only', !!settings.sameFileEdgesOnly);"), 'one class on the zoom root');
+    assert.ok(/applySameFileEdges\(\);\s+if \(typeof applyFnNames === 'function'\)/.test(rendering), 'applied after every render');
     // the simulation still gets every link: the layout is identical with the setting on or off
     assert.ok(rendering.includes('startSimulation(drawLinks);'));
-    assert.ok(!/sameFileEdgesOnly/.test(rendering.slice(rendering.indexOf('function startSimulation'), rendering.indexOf('function startWorkflowSimulation'))));
+    assert.ok(!/sameFileEdgesOnly/.test(rendering.slice(rendering.indexOf('function startSimulation'), rendering.indexOf('function staticBootFreeze'))));
     const css = read('src/webview/styles.css');
     assert.ok(/#graph g\.same-file-only line\.xfile:not\(\.cg-hl\),\s+#graph g\.same-file-only line\.cross-bundle \{\s+display: none;/.test(css));
   });

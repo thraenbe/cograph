@@ -93,7 +93,6 @@ const dom = makeDOM();
   languageMode: false,
   folderMode: true,
   classMode: true,
-  viewMode: 'cluster',
   clusterGroupBy: 'file',
   hasFitted: false,
   complexityLevel: 0.99,

@@ -641,15 +641,8 @@ if (complexitySlider) {
       window.markDirty?.();
       return;
     }
-    if (state.viewMode === 'workflow') {
-      // Workflow mode reinterprets the 0..1 slider as 10 discrete detail levels.
-      const levels = (typeof WORKFLOW_LEVELS !== 'undefined') ? WORKFLOW_LEVELS : 10;
-      state.workflowLevel = Math.round(raw * (levels - 1));
-      if (complexityVal) complexityVal.textContent = String(state.workflowLevel);
-    } else {
-      state.complexityLevel = raw;
-      if (complexityVal) complexityVal.textContent = raw.toFixed(2);
-    }
+    state.complexityLevel = raw;
+    if (complexityVal) complexityVal.textContent = raw.toFixed(2);
     state.expandedClusters = new Set();
     clearTimeout(state.clusterTimer);
     state.clusterTimer = setTimeout(applyComplexity, 80);

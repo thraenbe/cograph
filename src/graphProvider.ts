@@ -15,11 +15,8 @@ import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource, reloca
 import { readFuncSlice } from './funcBrief';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
 import type { SidebarProvider } from './sidebarProvider';
-import { createProvider, getProviderInfo } from './graphIntelligence/provider';
-import type { GraphIntelligenceProvider, GraphIntelligenceResult } from './graphIntelligence/provider';
-import {
-  buildWorkflowPrompt, normalizeWorkflowModel, validateWorkflowModel, mergeWorkflowAnnotations,
-} from './graphIntelligence/workflowPrompt';
+import { createProvider } from './graphIntelligence/provider';
+import type { GraphIntelligenceProvider } from './graphIntelligence/provider';
 import { AnnotationService } from './graphIntelligence/annotationService';
 import type { AnnotationStatus } from './graphIntelligence/annotationTypes';
 import type { RunResult } from './graphIntelligence/annotationRunner';
@@ -30,45 +27,7 @@ import {
 import type { Scope, ScopeSpec, ScopeSource } from './subgraphScope';
 import type { PrGraphView } from './vcs/prController';
 
-/**
- * Per-node annotations produced by the AI Workflow Graph generation. All fields
- * are optional on GraphNode so the standard force renderer and previously-saved
- * graphs are unaffected; only the workflow render mode consumes them.
- */
-export interface WorkflowNodeMeta {
-  /** 0 = most important; drives the reveal order across the 10 detail levels. */
-  rank: number;
-  /** Pipeline column index, 0 = far-left entry/start. */
-  stage: number;
-  tier: 'backend' | 'frontend' | 'shared';
-  /** Stable topic-cluster slug shared by all members of a cluster. */
-  cluster: string;
-  /** Human-friendly cluster name (AI-generated). */
-  clusterName: string;
-  isEntry?: boolean;
-  isOutput?: boolean;
-}
-
-/** Per-edge annotations produced by the AI Workflow Graph generation. */
-export interface WorkflowEdgeMeta {
-  kind: 'static' | 'dynamic';
-  scope: 'intra-file' | 'inter-file';
-  /** Intelligent connection label, e.g. "emits auth token". */
-  label?: string;
-  /** 0..1 — confidence of an AI-inferred (typically dynamic) dependency. */
-  confidence?: number;
-}
-
-/** Graph-level workflow metadata; its presence marks a graph as a workflow graph. */
-export interface WorkflowGraphMeta {
-  stageCount: number;
-  /** Column index where the backend→frontend divider sits. */
-  dividerStage: number;
-  clusters: { id: string; name: string; tier: string; stage: number }[];
-  generatedAt?: string;
-}
-
-export interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; workflow?: WorkflowEdgeMeta; }
+export interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; }
 
 export interface GraphNode {
   id: string;
@@ -82,14 +41,12 @@ export interface GraphNode {
   className?: string;
   classExtends?: string;
   classImplements?: string[];
-  workflow?: WorkflowNodeMeta;
 }
 
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
   files?: string[];
-  workflow?: WorkflowGraphMeta;
 }
 
 /** Saved-layout schema: v2 adds settings.detailDepth, expandedFolders and
@@ -130,7 +87,6 @@ export class GraphProvider {
   private readonly incrementalTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private graphReadyResolve: (() => void) | undefined;
   private graphReadyPromise: Promise<void> | undefined;
-  private intelController: AbortController | undefined;
   private _providerFactory?: (id: string, ch: vscode.OutputChannel) => GraphIntelligenceProvider;
   /**
    * Subgraph / "Only visualize folder" scope. The cached graph stays the FULL graph
@@ -313,7 +269,6 @@ export class GraphProvider {
       this.cachedGraph = undefined;
       this.graphReadyPromise = undefined;
       this.graphReadyResolve = undefined;
-      this.intelController?.abort();
       this.currentSavedGraphPath = undefined;
       this.scope = NO_SCOPE;
       if (this.prView) { this.leavePullRequest(NO_SCOPE, false); }
@@ -1124,7 +1079,7 @@ export class GraphProvider {
     this.panel?.dispose();
   }
 
-  // ── Graph Intelligence ────────────────────────────────────────────────────
+  // ── AI providers (Annotate) ───────────────────────────────────────────────
 
   setProviderFactoryForTesting(
     fn: (id: string, ch: vscode.OutputChannel) => GraphIntelligenceProvider,
@@ -1147,105 +1102,6 @@ export class GraphProvider {
       };
     });
     return this.graphReadyPromise;
-  }
-
-  /**
-   * Generate the AI Workflow Graph: annotate the current graph with workflow
-   * metadata (pipeline stages, tiers, topic clusters, dynamic edges) in a single
-   * provider call, then deterministically normalize and render it. Returns the
-   * normalized result so the caller (sidebar) can persist it.
-   */
-  async generateWorkflow(
-    providerId: string,
-    onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
-  ): Promise<GraphIntelligenceResult> {
-    if (!vscode.workspace.getConfiguration('cograph').get<boolean>('graphIntelligence.enabled', false)) {
-      throw new Error('AI features are off — enable them in CoGraph settings to generate the Workflow Graph.');
-    }
-    const { result, workspaceRoot } = await this.invokeProvider(buildWorkflowPrompt(), providerId, null, onProgress);
-    const base = this.cachedGraph;
-    if (!base) { throw new Error('the project graph is not loaded yet.'); }
-    // Never let a failed or partial reply replace the user's graph: it only adds annotations.
-    const check = validateWorkflowModel(result.graph);
-    if (!check.ok) {
-      const kb = Math.round(JSON.stringify(base).length / 1024);
-      this.outputChannel.appendLine(`Workflow rejected: ${check.errors.join('; ')}. Request graph ~${kb} KB; `
-        + `the CLI's Read tool refuses files over 256KB, the likely cause. Model said: ${result.text.slice(0, 500)}`);
-      throw new Error('the AI returned no workflow model, most likely because the project is too large for the '
-        + 'AI CLI to read the request. Your graph was not changed; see the CoGraph output for details.');
-    }
-    const normalized = normalizeWorkflowModel(mergeWorkflowAnnotations(base, result.graph));
-    this.cachedGraph = normalized;
-    this.cachedNodes = normalized.nodes.filter(n => !n.isLibrary);
-    if (this.prView) { this.leavePullRequest(this.prView.back.scope, false); } // only now: a failed run leaves the PR view as it was
-    this.postGraphData(normalized, workspaceRoot);
-    this.setPanelTitle('Workflow');
-    return { graph: normalized, text: result.text, sessionId: result.sessionId };
-  }
-
-  /** Render a previously-generated workflow graph (its own annotated nodes/edges). */
-  async showWorkflowGraph(graph: GraphData, filePath: string, name: string): Promise<void> {
-    const workspaceRoot = this.workspaceRoot();
-    if (!workspaceRoot) { throw new Error('No workspace folder open.'); }
-    if (!this.panel) { this.show(); }
-    if (!this.panel) { throw new Error('Failed to open graph panel.'); }
-    await this.waitForGraphReady();
-    this.cachedGraph = graph;
-    this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
-    if (this.prView) { this.leavePullRequest(this.prView.back.scope, false); } // the workflow graph replaces the PR view
-    this.postGraphData(graph, workspaceRoot);
-    // Do not target the workflow file for "Save Layout" — a positions-only save
-    // would drop the annotated graph. Saving becomes Save-As (a normal layout).
-    this.currentSavedGraphPath = undefined;
-    this.isDirty = false;
-    this.setPanelTitle(name);
-    this._sidebar?.setCurrentGraph({ name, file: filePath });
-  }
-
-  /** Shared provider invocation: open panel, await analysis, run the provider. */
-  private async invokeProvider(
-    prompt: string,
-    providerId: string,
-    sessionId: string | null,
-    onProgress?: (ev: import('./graphIntelligence/provider').ProgressEvent) => void,
-  ): Promise<{ result: GraphIntelligenceResult; workspaceRoot: string }> {
-    const workspaceRoot = this.workspaceRoot();
-    if (!workspaceRoot) { throw new Error('No workspace folder open.'); }
-
-    if (!this.panel) { this.show(); }
-    if (!this.panel) { throw new Error('Failed to open graph panel.'); }
-    await this.waitForGraphReady();
-    if (!this.cachedGraph) { throw new Error('Graph not ready yet.'); }
-
-    this.intelController?.abort();
-    this.intelController = new AbortController();
-
-    const config = vscode.workspace.getConfiguration('cograph');
-    const info = getProviderInfo(providerId);
-    const modelKey = info?.modelSettingKey ?? 'graphIntelligence.model';
-    const model = config.get<string>(modelKey, info?.defaultModel ?? 'sonnet');
-    const effort = config.get<string>('graphIntelligence.effort', 'auto');
-    const maxTurns = config.get<number>('graphIntelligence.maxTurns', 15);
-    const maxBudgetUsd = config.get<number>('graphIntelligence.maxBudgetUsd', 2.0);
-    const factory = this._providerFactory ?? createProvider;
-    const provider = factory(providerId, this.outputChannel);
-
-    const result = await provider.run(
-      { prompt, graph: this.cachedGraph, workspaceRoot, sessionId, model, effort, maxTurns, maxBudgetUsd, onProgress },
-      this.intelController.signal,
-    );
-    return { result, workspaceRoot };
-  }
-
-  /** Post a graph to the webview as a reanalysis render (Workflow Graph). */
-  private postGraphData(graph: GraphData, workspaceRoot: string): void {
-    this.panel?.webview.postMessage({
-      type: 'graph',
-      data: graph,
-      gitAvailable: this.gitService.applyGitStatuses(graph.nodes, workspaceRoot),
-      fileGitStatus: this.gitService.fileStatuses,
-      isReanalysis: true,
-    });
   }
 
   // ── Annotate Graph ────────────────────────────────────────────────────────
@@ -1499,10 +1355,6 @@ export class GraphProvider {
       nodes: kept.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
       fileGitStatus: filterFileStatuses(this.gitService.fileStatuses, spec, root),
     };
-  }
-
-  abortIntelligence(): void {
-    this.intelController?.abort();
   }
 
   // ── Thin delegates kept for test compatibility ────────────────────────────

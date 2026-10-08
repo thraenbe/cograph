@@ -59,14 +59,11 @@ toolbar to toggle overlays.
 
 AI features are **off by default**. Nothing is sent to an AI provider until you turn on `cograph.graphIntelligence.enabled`. They run the **Claude Code** or **OpenAI Codex** CLI that is already installed and signed in on your machine, so requests go through your own account; CoGraph has no server of its own.
 
-- **AI Workflow Graph** — a left-to-right view of how the system runs, from entry points to frontend output, with 10 detail levels.
 - **Annotate Graph** — a one-sentence summary of what every folder and file is responsible for, shown when you hover it.
   - By default CoGraph sends only a locally built digest: file paths, function and class names with their signature lines, import names and the leading comment of each file. No function bodies are sent, and with Claude Code the AI cannot open files. Turn on `cograph.graphIntelligence.annotate.readSource` to let it read source files (read-only) for better summaries. The Codex CLI can always read files in the workspace.
   - You confirm an estimate before anything is sent, see the running cost, and the run stops at `cograph.graphIntelligence.annotate.maxRunBudgetUsd` (default $2) and keeps what is done. As a guide, a 180-path repository cost about $0.09 with Claude haiku.
   - Editing a file only marks its summary "outdated". Nothing is re-sent until you click **Update**, which re-annotates just the outdated and missing paths.
   - Summaries are stored locally in `.cograph/annotations/` and are not committed.
-
-The Workflow Graph has per-request caps for turns, spend and time (`cograph.graphIntelligence.maxTurns`, `maxBudgetUsd`, `timeoutMs`).
 
 ## Use CoGraph from your AI agent (MCP)
 

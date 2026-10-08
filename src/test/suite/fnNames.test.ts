@@ -21,7 +21,7 @@ suite('fnNames (F28): only the hovered function\'s name is shown', () => {
     g0.document = dom.window.document;
     labels = [label({ id: 'f1', file: '/a.py', line: 1 }), label({ id: 'f2', file: '/a.py', line: 5 })];
     libLabels = [label({ id: 'lib::np.sum' })];
-    g0.state = { svgLabels: sel(labels), svgLibLabels: sel(libLabels), viewMode: 'graph' };
+    g0.state = { svgLabels: sel(labels), svgLibLabels: sel(libLabels) };
     rootClasses = new Set();
     g0.g = { classed: (c: string, v: boolean) => { if (v) { rootClasses.add(c); } else { rootClasses.delete(c); } } };
     delete require.cache[require.resolve('../../../src/webview/fnNames.js')];
@@ -36,7 +36,7 @@ suite('fnNames (F28): only the hovered function\'s name is shown', () => {
     }
   });
 
-  test('names hidden at rest; a filter shows all; the Workflow view is exempt', () => {
+  test('names hidden at rest; a filter shows all', () => {
     fn.applyFnNames();
     assert.ok(rootClasses.has('fn-names-hidden'));
     (dom.window.document.getElementById('search') as HTMLInputElement).value = 'login';
@@ -45,9 +45,6 @@ suite('fnNames (F28): only the hovered function\'s name is shown', () => {
     (dom.window.document.getElementById('search') as HTMLInputElement).value = '   ';
     fn.applyFnNames();
     assert.ok(rootClasses.has('fn-names-hidden'), 'blank query counts as no filter');
-    g0.state.viewMode = 'workflow';
-    fn.applyFnNames();
-    assert.ok(!rootClasses.has('fn-names-hidden'));
   });
 
   test('hover, drag and an open popup each keep a name on; it goes when the last reason ends', () => {

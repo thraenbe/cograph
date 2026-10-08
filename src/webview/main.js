@@ -150,11 +150,7 @@ function setLayoutEngine(engine, opts = {}) {
   }
   state.currentNodes.forEach(d => { d.fx = null; d.fy = null; });
   state.userZoomed = false; // an engine switch re-lays out — allow auto-fit
-  if (engine === 'shelf' && state.viewMode === 'workflow') {
-    if (typeof enterFileClusterMode === 'function') { enterFileClusterMode(); }
-  } else if (typeof applyComplexity === 'function') {
-    applyComplexity();
-  }
+  if (typeof applyComplexity === 'function') { applyComplexity(); }
   if (state.layoutMode === 'static') { setLayoutMode('static'); }
   // One coalesced tick of the OLD engine may already sit in a rAF; it fires
   // after this switch and scribbles on the new DOM. Queue a repair pass
@@ -372,37 +368,9 @@ function rerunLayout() {
 }
 
 // ── Complexity ────────────────────────────────────────────────────────────────
-function applyWorkflowComplexity() {
-  const projectData = {
-    nodes: state.graphData.nodes.filter(n => !n.isLibrary),
-    edges: state.graphData.edges.filter(e => !e.isLibraryEdge),
-    workflow: state.graphData.workflow,
-  };
-  const degreeMap = new Map();
-  projectData.nodes.forEach(n => degreeMap.set(n.id, 0));
-  projectData.edges.forEach(e => {
-    if (e.source === '::MAIN::0') return;
-    degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
-    degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
-  });
-  const wv = deriveWorkflowView(projectData, state.workflowLevel);
-  state.workflowStageCount = wv.stageCount;
-  state.workflowDividerStage = wv.dividerStage;
-  const elements = buildClusteredElements(projectData, wv, 0.5, state.importanceScores, new Set(), degreeMap);
-  // Carry pipeline stage + tier onto each rendered node so the layered layout can place it.
-  for (const el of elements) {
-    if (el.data.source === undefined) {
-      const lay = wv.layout.get(el.data.id);
-      if (lay) { el.data._stage = lay.stage; el.data._tier = lay.tier; }
-    }
-  }
-  renderElements(elements, new Map());
-}
-
 function applyComplexity() {
   if (isDrilldown()) { applyFileClusters(); return; }
   if (!state.graphData || !state.importanceScores) return;
-  if (state.viewMode === 'workflow') { applyWorkflowComplexity(); return; }
   const projectData = {
     nodes: state.graphData.nodes.filter(n => !n.isLibrary),
     edges: state.graphData.edges.filter(e => !e.isLibraryEdge),
@@ -508,38 +476,9 @@ function renderGraph(data, isReanalysis = false) {
     if (state.slotPlacedIds) { state.slotPlacedIds.clear(); } // new graph, new placements
   }
 
-  // Detect the AI Workflow Graph (its presence is marked by graph.workflow).
-  // Workflow payloads route here even while the drill-down is active (see
-  // classifyGraphMessage); the cluster grouping (clusterGroupBy) is preserved
-  // across workflow toggles.
-  const wasWorkflow = state.viewMode === 'workflow';
-  const isWorkflow = isWorkflowPayload(data);
-  state.viewMode = isWorkflow ? 'workflow' : 'cluster';
-  const levels = (typeof WORKFLOW_LEVELS !== 'undefined') ? WORKFLOW_LEVELS : 10;
-  if (isWorkflow) {
-    state.workflowStageCount = data.workflow.stageCount || 1;
-    state.workflowDividerStage = Number.isFinite(data.workflow.dividerStage)
-      ? data.workflow.dividerStage : (state.workflowStageCount - 1);
-    if (!wasWorkflow) { state.workflowLevel = 0; state.hasFitted = false; } // start least detailed
-    const slider = document.getElementById('slider-complexity');
-    const valEl = document.getElementById('val-complexity');
-    if (slider) slider.value = String(state.workflowLevel / Math.max(1, levels - 1));
-    if (valEl) valEl.textContent = String(state.workflowLevel);
-  } else if (wasWorkflow) {
-    state.hasFitted = false; // returning to the force layout
-    if (isDrilldown()) {
-      // Back to the folder drill-down: this fresh full analysis covers the whole
-      // tree, and workflow mode repurposed the Detail slider as its 0..9 level —
-      // restore both. Drill-down expansion state (expandedFolders/detailDepth)
-      // is intentionally preserved.
-      state.parsedFolders = new Set(Object.keys(state.structureTree.folders));
-      setDetailSlider(state.detailDepth);
-    }
-  }
-
   const nodeCount = projectData.nodes.length;
   // In drill-down the slider means detail depth — don't clobber it for big repos.
-  if (!isWorkflow && !isDrilldown() && nodeCount >= 500) {
+  if (!isDrilldown() && nodeCount >= 500) {
     state.complexityLevel = Math.max(0.1, Math.min(0.9, 500 / nodeCount));
     const slider = document.getElementById('slider-complexity');
     const valEl = document.getElementById('val-complexity');
@@ -632,7 +571,6 @@ window.addEventListener('message', (event) => {
     if (classifyGraphMessage(message.data) === 'ingest') {
       // Skeleton is showing — fold the analysis result into it without losing
       // the user's drill-down, instead of switching to the full graph.
-      // Workflow payloads never take this path: only renderGraph can show them.
       ingestGraphData(message.data);
     } else {
       renderGraph(message.data, message.isReanalysis);
@@ -664,8 +602,7 @@ window.addEventListener('message', (event) => {
         files: state.graphData.files,
       };
     }
-    // Patches never carry workflow metadata today; the classifier keeps the
-    // routing invariant explicit and shared with the `graph` handler.
+    // The classifier keeps the routing shared with the `graph` handler.
     if (classifyGraphMessage(message.patch) === 'ingest') {
       ingestGraphData(message.patch, message.parsedFolder);
     } else {

@@ -13,8 +13,6 @@ import { annotationsPath } from '../../graphIntelligence/annotationStore';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const rawCp = require('child_process');
 
-// Helpers mirror graphProviderWorkflow.test.ts.
-
 function makeFakeContext(extensionPath = '/fake/ext'): vscode.ExtensionContext {
   return { extensionPath, extensionUri: vscode.Uri.file(extensionPath) } as unknown as vscode.ExtensionContext;
 }

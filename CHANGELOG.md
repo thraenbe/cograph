@@ -99,11 +99,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CLI as one file, and above roughly 300 functions the CLI refused to read that file, so on
   most real repositories Chat returned empty answers (measured on axios, requests, socket.io,
   gson and CoGraph itself). Your saved conversations are not deleted: they stay in
-  `.cograph/chats/`, and CoGraph says so once. The AI Workflow Graph and Annotate Graph are
-  unchanged, and so are all `cograph.graphIntelligence.*` settings.
+  `.cograph/chats/`, and CoGraph says so once. Annotate Graph is unchanged.
 
 - **The "Open Chat" button** in the graph view. With Chat gone it only focused the CoGraph
   sidebar, which the activity-bar icon already does.
+- **The AI Workflow Graph.** It asked the Claude Code / Codex CLI to sort every function of the
+  project into left-to-right pipeline stages. Measured on 7 repositories (express, dayjs, axios,
+  requests, socket.io, gson and CoGraph itself), it produced a usable result on **none** of them.
+  From about 700 functions up, the request file was over the CLI's 256 KB read limit, so the
+  model returned an empty graph. On the two smaller projects the reply lost every function name,
+  or 72% of the call edges. Where it did answer, its "topic clusters" were mostly the project's
+  folders, which the Shelf view already shows, without an AI call or its cost (20 s to 2.5 min
+  and $0.15 to $0.54 per run). The pinned Workflow card is gone. An old
+  `.cograph/__workflow__.json` stays on disk and is ignored. Five settings went with it because
+  nothing else read them: `cograph.graphIntelligence.model`, `.codex.model`, `.effort`,
+  `.maxTurns` and `.maxBudgetUsd`. Annotate Graph keeps `.enabled`, `.provider`, `.timeoutMs`
+  and its own `.annotate.*` settings.
 ### Fixed
 - **Saving from the function popup no longer writes over the wrong lines.** A popup
   remembered the line its function started at when it opened, and Save wrote its text back
@@ -131,11 +142,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what is still shown, even after you zoomed or panned. As long as anything in scope is
   still visible, your view is kept. The fit also covers only in-scope content, no longer
   the positions of hidden nodes. Works in Shelf and Global.
-- **A failed AI Workflow Graph generation no longer replaces your graph.** On projects too
-  large for the AI CLI to read the request, the model returned an empty graph that was shown
-  and saved over your own; it is now rejected with an explanation and your graph is left
-  alone. On smaller projects only the returned annotations are merged onto your existing
-  graph, so function names, files and call edges are no longer lost.
 - **Shelf draws the call lines inside a folder again.** Since the Shelf engine shipped, every
   call line between functions of the same folder was created hidden: the visibility check
   compared node objects with ids and never matched. Only the cross-folder bundles were

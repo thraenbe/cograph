@@ -219,41 +219,6 @@ suite('GraphProvider — pull-request view', () => {
     assert.ok(posted('graph')[0].data.nodes.every((n: any) => n.gitStatus.unstaged === null));
   });
 
-  // The AI Workflow Graph replaces whatever is on the canvas; a PR view must not leave its
-  // banner and colours on it. Two paths draw one: the saved card and a fresh generation.
-  const workflowGraph = () => ({
-    nodes: [{ id: 'n:src/main.ts', name: 'f', file: abs('src/main.ts'), line: 1, workflow: { stage: 0, tier: 'backend', cluster: 'core', clusterName: 'Core' } }],
-    edges: [], files: [abs('src/main.ts')], workflow: { stageCount: 1, dividerStage: 0 },
-  });
-
-  test('opening the saved Workflow Graph ends the PR view before the graph is posted', async () => {
-    await openPanel(() => provider.showScoped(specForFolder('src'), 'subgraph', 'Backend'));
-    provider.showPullRequest(prView());
-    panel.webview.postMessage.resetHistory();
-    await provider.showWorkflowGraph(workflowGraph() as any, path.join(root, '.cograph', '__workflow__.json'), 'Workflow');
-    assert.deepStrictEqual(types('pr-view', 'graph'), ['pr-view', 'graph'], 'the PR dressing is gone before the workflow graph arrives');
-    assert.deepStrictEqual([posted('pr-view')[0].active, posted('pr-view')[0].restore], [false, false]);
-    assert.deepStrictEqual([provider.activePullRequest(), provider.getScope().name, panel.title], [null, 'Backend', 'Workflow']);
-    assert.strictEqual(posted('graph')[0].data.nodes[0].gitStatus.unstaged, null, 'working-tree colours, not the PR\'s');
-  });
-
-  test('a generated Workflow Graph ends the PR view; a failed generation leaves it exactly as it was', async () => {
-    aiEnabled = true;
-    await openPanel();
-    provider.showPullRequest(prView());
-    panel.webview.postMessage.resetHistory();
-
-    provider.setProviderFactoryForTesting((() => ({ run: sinon.stub().rejects(new Error('the CLI refused the file')) })) as any);
-    await assert.rejects(() => provider.generateWorkflow('claude-code'), /refused/);
-    assert.deepStrictEqual([provider.activePullRequest(), provider.getScope().source, panel.title], [69, 'pr', 'PR #69 · a change']);
-    assert.strictEqual(posted('pr-view').length, 0, 'nothing told the webview to leave');
-
-    provider.setProviderFactoryForTesting((() => ({ run: sinon.stub().resolves({ graph: workflowGraph(), text: 'ok', sessionId: 's' }) })) as any);
-    await provider.generateWorkflow('claude-code');
-    assert.deepStrictEqual(types('pr-view', 'graph'), ['pr-view', 'graph']);
-    assert.deepStrictEqual([provider.activePullRequest(), provider.getScope().source, panel.title], [null, 'none', 'Workflow']);
-  });
-
   test('without a workspace nothing is half-opened', () => {
     sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
     sandbox.stub(vscode.workspace, 'workspaceFolders').value(undefined);

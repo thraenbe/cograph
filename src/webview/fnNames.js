@@ -8,8 +8,7 @@
 // 'drag' (for the whole drag), 'popup' (while that node's source popup is open).
 // With a filter active every function still shown keeps its name: search hides
 // non-matches, so the matches must be readable. Unchanged: folder frame titles,
-// file slot labels, collapsed folder/file glyph names, Class overlay names, and
-// the Workflow view.
+// file slot labels, collapsed folder/file glyph names, and Class overlay names.
 //
 // Globals used: g (zoom root), state, document. Nothing in a tick path.
 
@@ -52,7 +51,7 @@ function fnNameOn(id, reason, on) {
 /** After a render or a filter change: root class, and re-mark names that are on. */
 function applyFnNames() {
   if (typeof g === 'undefined' || !g) { return; }
-  g.classed('fn-names-hidden', state.viewMode !== 'workflow' && !fnFilterActive());
+  g.classed('fn-names-hidden', !fnFilterActive());
   for (const id of __fnOn.keys()) {
     for (const el of fnLabelEls(id)) { el.classList.add('fn-name-on'); }
   }

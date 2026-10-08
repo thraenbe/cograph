@@ -179,7 +179,6 @@ export function getWebviewHtml(
   const stateUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'state.js'));
   const aggregateUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'aggregate.js'));
   const clusteringUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'clustering.js'));
-  const workflowUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'workflow.js'));
   const highlightUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'highlight.js'));
   const renderingUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'rendering.js'));
   const folderUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'folder.js'));
@@ -504,7 +503,6 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${frameCullUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${aggregateUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${clusteringUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${workflowUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${highlightUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${renderingUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${folderUri}?v=${nonce}"></script>

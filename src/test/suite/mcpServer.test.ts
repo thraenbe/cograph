@@ -95,6 +95,12 @@ suite('MCP paths and source slices', () => {
     fs.writeFileSync(fx.abs('src/broken.ts'), 'function broken() {\n  return 1;\n');
     const unclosed = readSlice(fx.abs('src/broken.ts'), 1, { maxLines: 80 });
     assert.ok(unclosed.ok && unclosed.endReason === 'eof', 'eof now means the scanner found no end');
+    // funcBrief applies the next symbol's line ONLY to an unclosed scan, never to a found end
+    // (a nested function as the next symbol must not cut its parent: 399 such cases in click).
+    const fellBack = readSlice(fx.abs('src/broken.ts'), 1, { maxLines: 80, nextStartLine: 2 });
+    assert.ok(fellBack.ok && fellBack.endReason === 'fallback' && fellBack.endLine === 1, JSON.stringify(fellBack));
+    const notCut = readSlice(fx.abs('src/a.ts'), 1, { maxLines: 80, nextStartLine: 2 });
+    assert.ok(notCut.ok && notCut.endReason === 'detected' && notCut.endLine === 4, JSON.stringify(notCut));
     assert.deepStrictEqual(readSlice(fx.abs('nope.ts'), 1, { maxLines: 5 }), { ok: false, error: 'cannot read file (ENOENT)' });
     assert.ok(!readSlice(fx.abs('src/a.ts'), 999, { maxLines: 5 }).ok);
   });

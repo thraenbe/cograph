@@ -8,6 +8,7 @@ import { overviewOf } from './overview';
 import { confine, ToolError } from './paths';
 import { findSymbols, impactOf, seedsForPath, walk } from './queries';
 import { readSlice } from './sourceSlice';
+import type { Sym } from './ids';
 
 export interface ToolResult { text: string; isError: boolean; }
 
@@ -60,7 +61,7 @@ export const TOOLS = [
     },
     run: (a, index) => {
       const s = resolveSymbol(index, a.id);
-      const slice = a.includeSource && s.file ? sourceInside(index, s.file, s.line, a.maxLines) : null;
+      const slice = a.includeSource && s.file ? sourceInside(index, s, s.file, a.maxLines) : null;
       return formatSymbol(index, s, formatSource(slice, s, !!s.file && fileChangedSinceAnalysis(index, s.file)), 25);
     },
   }),
@@ -122,9 +123,11 @@ export const TOOLS = [
 ];
 
 /** Source is only ever read from inside the workspace, even if the cache names a file elsewhere. */
-function sourceInside(index: GraphIndex, file: string, line: number, maxLines: number) {
+function sourceInside(index: GraphIndex, s: Sym, file: string, maxLines: number) {
   try { confine(index.root, file); } catch { return { ok: false as const, error: 'file is outside the workspace' }; }
-  return readSlice(file, line, { maxLines });
+  // funcBrief uses the next symbol's line only when its scan reaches EOF unclosed.
+  const next = s.rel ? index.byFile.get(s.rel)?.find((o) => o.line > s.line) : undefined;
+  return readSlice(file, s.line, { maxLines, nextStartLine: next?.line ?? null });
 }
 
 export const NO_ANALYSIS = 'No CoGraph analysis for this workspace yet. Open the project in VS Code with the CoGraph extension (CoGraph: Visualize Project) once; it writes .cograph/graph-cache.json, which this server reads.';

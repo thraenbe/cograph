@@ -62,6 +62,10 @@ function hcBasename(p) { const n = hcNorm(p); return n.slice(n.lastIndexOf('/') 
 function hcResolveTarget(el) {
   if (!el || !el.classList) { return null; }
   const own = el.__data__;
+  // U3: a function node (funcCard.js). Only the circle itself, never its label.
+  if (own && el.classList.contains('regular-node') && typeof fcIsFunctionNode === 'function' && fcIsFunctionNode(own)) {
+    return { kind: 'function', path: own.file, node: own, background: false };
+  }
   if (own && own.isFolderCluster && own._folderPath) { return { kind: 'folder', path: own._folderPath, background: false }; }
   if (own && own.isFileCluster && own._filePath) { return { kind: 'file', path: own._filePath, background: false }; }
   // .frame-tab may be a group: accept a hit on any of its children.
@@ -162,15 +166,15 @@ function hcBuildElement(doc) {
   card.className = 'hover-card';
   card.setAttribute('role', 'tooltip');
   const parts = {};
-  for (const name of ['name', 'badge', 'path', 'role', 'summary', 'hint', 'facts']) {
-    const node = doc.createElement('div');
+  for (const name of ['name', 'badge', 'sig', 'path', 'role', 'summary', 'hint', 'doc', 'code', 'more', 'calls', 'facts']) {
+    const node = doc.createElement(name === 'code' ? 'pre' : 'div');
     node.className = 'hc-' + name;
     parts[name] = node;
   }
   const head = doc.createElement('div');
   head.className = 'hc-head';
   head.append(parts.name, parts.badge);
-  card.append(head, parts.path, parts.role, parts.summary, parts.hint, parts.facts);
+  card.append(head, parts.sig, parts.path, parts.role, parts.summary, parts.hint, parts.doc, parts.code, parts.more, parts.calls, parts.facts);
   parts.badge.textContent = 'outdated';
   doc.body.appendChild(card);
   return { card, parts };
@@ -184,6 +188,10 @@ function createHoverCard(env) {
   const doc = env.doc, win = env.win;
   const ann = { root: '', aiEnabled: false, files: {}, folders: {}, stale: new Set() };
   let counts = null, timer = null, leaveTimer = null, pendingKey = null, shownKey = null;
+  let pendingTarget = null, shownTarget = null, suppressKey = null, dwellX = 0, dwellY = 0;
+  let callIdx = null, nameOf = null, briefSeq = 0;
+  const briefs = new Map();      // node id → func-source reply (cached until graph / graph-patch)
+  const briefReqs = new Map();   // reqId → node id, in flight
   let px = 0, py = 0;
 
   const { card, parts } = hcBuildElement(doc);
@@ -195,43 +203,89 @@ function createHoverCard(env) {
   function hide() {
     cancelLeave();
     if (timer) { win.clearTimeout(timer); timer = null; }
-    pendingKey = null;
-    if (shownKey) { shownKey = null; card.classList.remove('visible'); }
+    pendingKey = null; pendingTarget = null;
+    if (shownKey) { shownKey = null; shownTarget = null; card.classList.remove('visible'); }
   }
 
   function fill(c) {
     parts.name.textContent = c.name;
     parts.path.textContent = c.path;
-    parts.role.textContent = c.role;
-    parts.summary.textContent = c.summary;
-    parts.hint.textContent = c.hint;
-    parts.facts.textContent = c.facts;
+    parts.role.textContent = c.role || '';
+    parts.summary.textContent = c.summary || c.error || '';
+    parts.hint.textContent = c.hint || '';
+    parts.facts.textContent = c.facts || '';
+    parts.sig.textContent = c.sig || '';
+    parts.doc.textContent = c.doc || '';
+    parts.more.textContent = c.more || '';
+    parts.calls.textContent = c.calls || '';
+    parts.code.textContent = '';
+    if (c.code) { parts.code.appendChild(fcCodeNodes(doc, c.code, c.file)); }
     parts.badge.style.display = c.outdated ? '' : 'none';
-    for (const name of ['role', 'summary', 'hint', 'facts']) { parts[name].style.display = c[name] ? '' : 'none'; }
+    for (const name of ['role', 'hint', 'facts', 'sig', 'doc', 'code', 'more', 'calls']) { parts[name].style.display = c[name] ? '' : 'none'; }
+    parts.summary.style.display = (c.summary || c.error) ? '' : 'none';
+  }
+
+  function place() {
+    const box = card.getBoundingClientRect(); // one layout read per open (and per late fill)
+    const pos = hcPlace(px, py, box.width, box.height, win.innerWidth, win.innerHeight);
+    card.style.transform = 'translate(' + pos.left + 'px,' + pos.top + 'px)';
   }
 
   function show(target, key) {
     timer = null; pendingKey = null;
     const st = env.getState();
-    if (!counts) { counts = hcFunctionCounts(st && st.graphData); }
-    fill(hcContent(target, ann, st, counts));
-    const box = card.getBoundingClientRect(); // the one layout read per open
-    const pos = hcPlace(px, py, box.width, box.height, win.innerWidth, win.innerHeight);
-    card.style.transform = 'translate(' + pos.left + 'px,' + pos.top + 'px)';
+    if (target.kind === 'function') {
+      // The editable source popup for this node is open: it already shows everything.
+      if (st && st.funcPopups && st.funcPopups.has(target.node.id)) { return; }
+      fill(fnContent(target.node, st));
+      requestBrief(target.node);
+    } else {
+      if (!counts) { counts = hcFunctionCounts(st && st.graphData); }
+      fill(hcContent(target, ann, st, counts));
+    }
+    card.classList.toggle('hc-function', target.kind === 'function');
+    place();
     card.classList.add('visible');
     shownKey = key;
+    shownTarget = target;
   }
 
-  function keyOf(target) { return target ? target.kind + ':' + target.path : null; }
+  // ── Function cards (U3): graph facts now, source once per function from the host ──
+  function fnContent(d, st) {
+    if (!callIdx) { callIdx = fcCallIndex(st && st.graphData); nameOf = fcNameOf(st && st.graphData); }
+    const c = fcContent(d, briefs.get(d.id) || null, hcRelPath(ann.root, d.file), callIdx, nameOf);
+    c.file = d.file;
+    return c;
+  }
+
+  function requestBrief(d) {
+    if (briefs.has(d.id) || [...briefReqs.values()].includes(d.id)) { return; }
+    const reqId = 'hc-' + (++briefSeq);
+    briefReqs.set(reqId, d.id);
+    env.post({ type: 'get-func-source', file: d.file, line: d.line, maxLines: FN_PEEK_LINES, reqId });
+  }
+
+  function keyOf(target) {
+    if (!target) { return null; }
+    return target.kind === 'function' ? 'function:' + target.node.id : target.kind + ':' + target.path;
+  }
 
   function onOver(event) {
     const target = hcResolveAt(event.target, event.clientX, event.clientY, doc);
     const key = keyOf(target);
     if (key && (key === shownKey || key === pendingKey)) { cancelLeave(); return; } // still on the same thing
     hide();
-    if (!target || event.buttons) { return; } // a pressed button means a drag is in progress
+    if (key !== suppressKey) { suppressKey = null; }
+    if (!target || event.buttons || key === suppressKey) { return; } // drag in progress / just clicked
     pendingKey = key;
-    timer = win.setTimeout(() => show(target, key), target.background ? HOVER_BG_DELAY_MS : HOVER_DELAY_MS);
+    pendingTarget = target;
+    dwellX = event.clientX; dwellY = event.clientY;
+    timer = win.setTimeout(() => show(target, key), delayOf(target));
+  }
+
+  function delayOf(target) {
+    if (target.kind === 'function') { return HOVER_FN_DELAY_MS; }
+    return target.background ? HOVER_BG_DELAY_MS : HOVER_DELAY_MS;
   }
 
   function onOut(event) {
@@ -248,12 +302,36 @@ function createHoverCard(env) {
     if ((shownKey || pendingKey) && !leaveTimer) { leaveTimer = win.setTimeout(hide, HOVER_LEAVE_GRACE_MS); }
   }
 
-  function onMove(event) { px = event.clientX; py = event.clientY; }
+  function onMove(event) {
+    px = event.clientX; py = event.clientY;
+    // Function nodes are small and dense: the card waits for the pointer to REST.
+    if (timer && pendingTarget && pendingTarget.kind === 'function'
+      && Math.abs(px - dwellX) + Math.abs(py - dwellY) > HOVER_FN_DWELL_PX) {
+      dwellX = px; dwellY = py;
+      win.clearTimeout(timer);
+      const target = pendingTarget, key = pendingKey;
+      timer = win.setTimeout(() => show(target, key), HOVER_FN_DELAY_MS);
+    }
+  }
+
+  // Mouse down hides at once, and a click on a function (which opens its popup) must
+  // not bring the card back while the pointer is still on that node.
+  function onDown() {
+    suppressKey = shownKey || pendingKey;
+    hide();
+  }
 
   function onMessage(event) {
     const m = event.data;
     if (!m) { return; }
-    if (m.type === 'graph' || m.type === 'graph-patch') { counts = null; return; }
+    if (m.type === 'graph' || m.type === 'graph-patch') { counts = null; callIdx = null; briefs.clear(); briefReqs.clear(); return; }
+    if (m.type === 'func-source' && typeof m.reqId === 'string' && briefReqs.has(m.reqId)) {
+      const id = briefReqs.get(m.reqId);
+      briefReqs.delete(m.reqId);
+      briefs.set(id, m);
+      if (shownKey === 'function:' + id && shownTarget) { fill(fnContent(shownTarget.node, env.getState())); place(); }
+      return;
+    }
     if (m.type !== 'annotations') { return; }
     ann.root = m.root || '';
     ann.aiEnabled = !!m.aiEnabled;
@@ -268,7 +346,7 @@ function createHoverCard(env) {
   root.addEventListener('mouseover', onOver);
   root.addEventListener('mouseout', onOut);
   root.addEventListener('mousemove', onMove, { passive: true });
-  root.addEventListener('mousedown', hide, true);        // drag or pan starts
+  root.addEventListener('mousedown', onDown, true);      // drag, pan or click starts
   root.addEventListener('wheel', hide, { passive: true, capture: true }); // zoom
   root.addEventListener('mouseleave', scheduleLeave);
   win.addEventListener('message', onMessage);
@@ -287,7 +365,7 @@ function createHoverCard(env) {
       root.removeEventListener('mouseover', onOver);
       root.removeEventListener('mouseout', onOut);
       root.removeEventListener('mousemove', onMove);
-      root.removeEventListener('mousedown', hide, true);
+      root.removeEventListener('mousedown', onDown, true);
       root.removeEventListener('wheel', hide, { capture: true });
       root.removeEventListener('mouseleave', scheduleLeave);
       win.removeEventListener('message', onMessage);

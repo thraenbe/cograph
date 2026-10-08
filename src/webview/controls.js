@@ -144,6 +144,12 @@ document.getElementById('toggle-arrows')?.addEventListener('change', (e) => {
   applyDisplaySettings();
 });
 
+document.getElementById('toggle-same-file-edges')?.addEventListener('change', (e) => {
+  settings.sameFileEdgesOnly = e.target.checked;
+  if (typeof applySameFileEdges === 'function') { applySameFileEdges(); }
+  window.markDirty?.();
+});
+
 function wireSlider(id, valId, settingsKey, onInput) {
   const slider = document.getElementById(id);
   const valEl = document.getElementById(valId);
@@ -441,6 +447,7 @@ function buildSavePayload() {
       detailDepth: state.detailDepth,
       // Infinity does not survive JSON — it round-trips as null (= unlimited).
       repelRange: settings.repelRange ?? Infinity,
+      sameFileEdgesOnly: !!settings.sameFileEdgesOnly,
     },
     nodePositions,
   };
@@ -505,6 +512,13 @@ function applySavedViewSettings(saved) {
     // Only the File lens exists; saves from builds with the Class/Connect
     // lenses (or the older 'connectivity'/'auto' names) load silently as File.
     state.clusterGroupBy = 'file';
+  }
+  if (saved.sameFileEdgesOnly !== undefined) {
+    // Saves from before U1 have no key: they open with the current setting.
+    settings.sameFileEdgesOnly = !!saved.sameFileEdgesOnly;
+    const box = document.getElementById('toggle-same-file-edges');
+    if (box) { box.checked = settings.sameFileEdgesOnly; }
+    if (typeof applySameFileEdges === 'function') { applySameFileEdges(); }
   }
   if (saved.gitMode !== undefined) {
     state.gitMode = saved.gitMode;

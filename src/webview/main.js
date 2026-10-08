@@ -34,6 +34,8 @@ const settings = {
   showEmptyFiles: false,
   groupByFile: false,
   arrows: true,
+  // U1: draw only calls within one file (cograph.display.sameFileEdgesOnly, default on)
+  sameFileEdgesOnly: !(typeof window !== 'undefined' && window.COGRAPH_CONFIG && window.COGRAPH_CONFIG.sameFileEdgesOnly === false),
   textFadeThreshold: 0.5,
   nodeSize: 2.5,
   textSize: 1.5,

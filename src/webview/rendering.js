@@ -534,10 +534,25 @@ function edgeWeightScale(count) {
   return 1 + Math.log2(Math.max(1, count || 1)) * 0.6;
 }
 
+// U1 same-file rule: cross-file lines carry .xfile and are hidden by ONE class
+// on the zoom root, so the toggle needs no re-render and the layout (which
+// still uses every edge) is identical either way. Hover (.cg-hl) reveals them.
+let __fileOfFor = null, __fileOf = null;
+function linkFileOf() {
+  if (__fileOfFor !== state.currentNodes) { __fileOfFor = state.currentNodes; __fileOf = fileLookup(state.currentNodes); }
+  return __fileOf;
+}
+
+function applySameFileEdges() {
+  g.classed('same-file-only', !!settings.sameFileEdgesOnly && state.viewMode !== 'workflow');
+}
+
 function renderLinks(allLinks, visibleSet, parent = linkG) {
+  const fileOf = linkFileOf();
   return parent.selectAll('line')
     .data(allLinks)
     .join('line')
+    .classed('xfile', d => !isSameFileLink(d, fileOf))
     .attr('stroke', d => d.isLibraryEdge ? getCSSVar('--cograph-link-library') : getCSSVar('--cograph-link-default'))
     .attr('stroke-dasharray', d => d.isLibraryEdge ? '6,3' : (d.pending ? '4,3' : null))
     .attr('stroke-width', d => settings.linkThickness * edgeWeightScale(d._count))
@@ -897,6 +912,7 @@ function renderElements(elements, positionHints = new Map()) {
     renderGlobalLayout(allLinks, visibleSet);
   }
   if (state.gitMode) applyGitColors();
+  applySameFileEdges();
   updateWorkflowDivider();
   if (typeof perfMeasure === 'function') { perfMeasure('renderElements', 'render:start'); }
 }

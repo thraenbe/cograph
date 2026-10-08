@@ -158,3 +158,50 @@ suite('crossLinks — ancestor/descendant routing', () => {
     assert.deepStrictEqual(cl.individualLinksFor(CROSS, null, () => ({ x: 0, y: 0 })), []);
   });
 });
+
+suite('crossLinks: same-file rule (U1)', () => {
+  const NODES = [
+    { id: 'f1', file: '/r/a.py' }, { id: 'f2', file: '/r/a.py' }, { id: 'g1', file: '/r/b.py' },
+    { id: 'file::/r/a.py', isFileCluster: true, isCluster: true, file: '/r/a.py', _filePath: '/r/a.py' },
+    { id: 'file::/r/c.py', isFileCluster: true, isCluster: true, file: '/r/c.py', _filePath: '/r/c.py' },
+    { id: 'folder::/r/x', isFolderCluster: true, isCluster: true, file: null, _folderPath: '/r/x' },
+    { id: 'lib', isLibrary: true, file: '/site/lib.py' },
+    { id: 'syn', isSynthetic: true },
+  ];
+
+  test('fileOfNode: function and file glyph have a file; folder glyph, library and synthetic do not', () => {
+    const by = Object.fromEntries(NODES.map(n => [n.id, cl.fileOfNode(n)]));
+    assert.deepStrictEqual(by, {
+      f1: '/r/a.py', f2: '/r/a.py', g1: '/r/b.py', 'file::/r/a.py': '/r/a.py', 'file::/r/c.py': '/r/c.py',
+      'folder::/r/x': null, lib: null, syn: null,
+    });
+    assert.strictEqual(cl.fileOfNode(null), null);
+  });
+
+  test('isSameFileLink / partitionByFile over ids and resolved node objects', () => {
+    const fileOf = cl.fileLookup(NODES);
+    const L = (s: string, t: string, extra: object = {}) => ({ source: s, target: t, ...extra });
+    const links = [
+      L('f1', 'f2'),                    // same file
+      L('f1', 'f1'),                    // recursion
+      L('f1', 'g1'),                    // two files, same folder or not: cross
+      L('f2', 'lib', { isLibraryEdge: true }),
+      L('f1', 'folder::/r/x', { _count: 4 }),
+      L('file::/r/a.py', 'file::/r/c.py', { _count: 2, pending: true }),
+      L('syn', 'syn'),                  // no file at all: never "same file"
+      L('f1', 'unknown'),
+    ];
+    const { same, cross } = cl.partitionByFile(links, fileOf);
+    assert.deepStrictEqual(same, [links[0], links[1]]);
+    assert.deepStrictEqual(cross, links.slice(2));
+    // d3's forceLink replaces ids with node objects: still resolved through .id
+    const resolved = { source: NODES[0], target: NODES[1] };
+    assert.strictEqual(cl.isSameFileLink(resolved, fileOf), true);
+    assert.strictEqual(cl.isSameFileLink({ source: NODES[0], target: NODES[2] }, fileOf), false);
+  });
+
+  test('fileLookup: unknown ids resolve to null', () => {
+    assert.strictEqual(cl.fileLookup([])('x'), null);
+    assert.strictEqual(cl.fileLookup(undefined)('x'), null);
+  });
+});

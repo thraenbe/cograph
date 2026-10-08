@@ -217,6 +217,7 @@ export function getWebviewHtml(
   const prViewUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'prView.js'));
 
   const scopeFitUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'scopeFit.js'));
+  const funcCardUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'funcCard.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
 
@@ -233,6 +234,7 @@ export function getWebviewHtml(
     perf: cfg.get<boolean>('debug.perfLog', false) ?? false,
     workers: cfg.get<string>('layout.workers', 'auto') ?? 'auto',
     workerUri: bundled.workerUri,
+    sameFileEdgesOnly: cfg.get<boolean>('display.sameFileEdgesOnly', true) ?? true,
   };
 
   const timelinePanelHtml = timelineMode ? `
@@ -424,6 +426,10 @@ export function getWebviewHtml(
         <span>Arrows</span>
         <label class="switch"><input type="checkbox" id="toggle-arrows" checked /><span class="pill"></span></label>
       </div>
+      <div class="toggle-row" title="On: only calls between functions in the same file are drawn. Calls between files, into libraries, and all edges of collapsed folders/files are hidden; hover a function to see its own. The layout does not change.">
+        <span>Only calls within a file</span>
+        <label class="switch"><input type="checkbox" id="toggle-same-file-edges" ${bootConfig.sameFileEdgesOnly ? 'checked ' : ''}/><span class="pill"></span></label>
+      </div>
       <div class="slider-row">
         <div class="slider-header"><label for="slider-text-fade">Text Fade Threshold</label><span id="val-text-fade">0.5</span></div>
         <input type="range" id="slider-text-fade" min="0" max="2" step="0.1" value="0.5" />
@@ -529,6 +535,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${prViewUri}?v=${nonce}"></script>
 
   <script nonce="${nonce}" src="${scopeFitUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${funcCardUri}?v=${nonce}"></script>
 </body>
 </html>`;
 }

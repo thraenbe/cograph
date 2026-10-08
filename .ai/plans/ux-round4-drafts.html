@@ -1,0 +1,423 @@
+<title>UX Round 4 Drafts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one review sheet; each draft = picture left, what-it-means right (stacks on phones). Canvas tokens mirror the webview's own light/dark variables. */
+:root{
+  --ground:#f3f5f8; --surface:#ffffff; --ink:#1b2230; --muted:#5a6579; --rule:#d8dde6; --accent:#0b62c4; --rec:#1d7a46;
+  --canvas:#ffffff; --node:#3d78b8; --node-dim:rgba(61,120,184,.35); --link:rgba(80,80,80,.35); --link-hot:#0062cc; --dim:.22;
+  --slot:rgba(40,60,90,.05); --slot-line:rgba(40,60,90,.30); --lbl:#1b2230; --lbl-muted:#6b7485;
+  --hw-bg:#f3f3f3; --hw-line:#c8c8c8; --hw-fg:#1f1f1f; --code-bg:rgba(0,0,0,.04);
+  --kw:#0000ff; --fn:#795e26; --str:#a31515; --cm:#008000; --warn:#8a6d00;
+  --fs:12%; --fl:88%; --fa:.75; --ss:18%; --sl:62%; --tb:26%; --tl:78%;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#14161b; --surface:#1b1e25; --ink:#e3e7ef; --muted:#97a0b3; --rule:#2b303b; --accent:#5aabff; --rec:#5cc98a;
+    --canvas:#1e1e1e; --node:#3f7fbf; --node-dim:rgba(63,127,191,.35); --link:rgba(160,160,160,.30); --link-hot:#5aabff; --dim:.18;
+    --slot:rgba(255,255,255,.035); --slot-line:rgba(120,160,210,.35); --lbl:#d4d4d4; --lbl-muted:#8b93a3;
+    --hw-bg:#252526; --hw-line:#454545; --hw-fg:#cccccc; --code-bg:rgba(255,255,255,.04);
+    --kw:#569cd6; --fn:#dcdcaa; --str:#ce9178; --cm:#6a9955; --warn:#cca700;
+    --fs:14%; --fl:17%; --fa:.7; --ss:18%; --sl:34%; --tb:30%; --tl:30%;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#14161b; --surface:#1b1e25; --ink:#e3e7ef; --muted:#97a0b3; --rule:#2b303b; --accent:#5aabff; --rec:#5cc98a;
+  --canvas:#1e1e1e; --node:#3f7fbf; --node-dim:rgba(63,127,191,.35); --link:rgba(160,160,160,.30); --link-hot:#5aabff; --dim:.18;
+  --slot:rgba(255,255,255,.035); --slot-line:rgba(120,160,210,.35); --lbl:#d4d4d4; --lbl-muted:#8b93a3;
+  --hw-bg:#252526; --hw-line:#454545; --hw-fg:#cccccc; --code-bg:rgba(255,255,255,.04);
+  --kw:#569cd6; --fn:#dcdcaa; --str:#ce9178; --cm:#6a9955; --warn:#cca700;
+  --fs:14%; --fl:17%; --fa:.7; --ss:18%; --sl:34%; --tb:30%; --tl:30%;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55;padding-inline:20px;padding-block:36px 64px;margin:0}
+.wrap{max-width:1160px;margin-inline:auto;display:flex;flex-direction:column;gap:36px}
+header h1{font-size:28px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px;text-wrap:balance}
+header p{max-width:70ch;color:var(--muted);margin:0 0 6px}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:0 0 6px}
+.part{display:flex;flex-direction:column;gap:22px}
+.part>h2{font-size:22px;margin:0;text-wrap:balance}
+.part>p{margin:0;max-width:72ch;color:var(--muted)}
+section.draft{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:28px;align-items:start;padding-top:24px;border-top:1px solid var(--rule)}
+@media (max-width:860px){section.draft{grid-template-columns:minmax(0,1fr)}}
+.fig{background:var(--canvas);border:1px solid var(--rule);border-radius:6px;overflow-x:auto;position:relative}
+.fig svg{display:block;width:100%;min-width:560px;height:auto}
+h3{font-size:18px;font-weight:600;margin:0 0 6px;text-wrap:balance;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.tag{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:1px 7px;border-radius:10px;border:1px solid var(--rule);color:var(--muted);font-weight:500}
+.tag.rec{color:var(--rec);border-color:currentColor}
+.lede{color:var(--muted);margin:0 0 14px;max-width:60ch}
+dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 14px;margin:0;font-size:14px}
+dt{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding-top:3px}
+dd{margin:0}
+code{font-family:var(--mono);font-size:.88em}
+.rec-box{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:18px 20px;max-width:80ch}
+.rec-box h2{font-size:18px;margin:0 0 10px}
+.rec-box ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500}
+td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:13px}
+/* svg vocabulary */
+.ff{fill:hsl(var(--h) var(--fs) var(--fl) / var(--fa))}
+.fstroke{fill:none;stroke:hsl(var(--h) var(--ss) var(--sl));stroke-width:1.2}
+.tabfill{fill:hsl(var(--h) var(--tb) var(--tl))}
+.slot{fill:var(--slot);stroke:var(--slot-line);stroke-width:1}
+.nd{fill:var(--node)}
+.nd.dim{fill:var(--node-dim)}
+.fname{font-family:var(--mono);font-size:11px;font-weight:500;fill:var(--lbl)}
+.cnt{font-family:var(--mono);font-size:9px;fill:var(--lbl-muted)}
+.slbl{font-family:var(--mono);font-size:9.5px;fill:var(--node)}
+.nlbl{font-family:var(--mono);font-size:10px;fill:var(--lbl)}
+.bundle{stroke:var(--link);fill:none;stroke-linecap:round}
+.xl{stroke:var(--link);fill:none;stroke-width:1.2}
+.xl.hot{stroke:var(--link-hot);stroke-width:1.6;opacity:.9}
+.hot-o{stroke:var(--link-hot);fill:none}
+.badge rect{fill:var(--canvas);stroke:var(--link-hot);stroke-width:1}
+.badge text{font-family:var(--mono);font-size:10px;fill:var(--link-hot)}
+.badge.plain rect{stroke:var(--slot-line)}
+.badge.plain text{fill:var(--lbl-muted)}
+.dimmed{opacity:var(--dim)}
+.glyph{fill:hsl(var(--h) 30% 45%)}
+.glyphtxt{font-family:var(--sans);font-size:12px;fill:#fff;font-weight:500}
+.callout{font-family:var(--sans);font-size:11px;fill:var(--muted)}
+.callout-line{stroke:var(--muted);stroke-width:.8;stroke-dasharray:2 2;fill:none}
+.ui-chip rect{fill:var(--surface);stroke:var(--rule)}
+.ui-chip text{font-family:var(--sans);font-size:11px;fill:var(--ink)}
+.seg rect.bg{fill:var(--surface);stroke:var(--rule)}
+.seg rect.on{fill:var(--accent)}
+.seg text{font-family:var(--sans);font-size:11px;fill:var(--ink)}
+.seg text.on{fill:#fff}
+/* hover card mock (mirrors .hover-card in styles.css) */
+.hc{position:absolute;max-width:340px;padding:8px 10px;display:grid;gap:5px;border-radius:6px;border:1px solid var(--hw-line);background:var(--hw-bg);color:var(--hw-fg);font-family:var(--sans);font-size:12px;line-height:1.4;box-shadow:0 4px 14px rgba(0,0,0,.28)}
+.hc .sig{font-family:var(--mono);font-size:11.5px;overflow-wrap:anywhere}
+.hc .sig b{color:var(--fn);font-weight:500}
+.hc .path{font-size:11px;opacity:.7}
+.hc .doc{font-size:12px}
+.hc .calls{font-size:11px;opacity:.75}
+.hc .calls span{font-family:var(--mono)}
+.hc .ai{font-size:12px;border-left:2px solid var(--link-hot);padding-left:7px}
+.hc .ai .k{font-size:10px;letter-spacing:.06em;text-transform:uppercase;opacity:.7;display:block}
+.hc .badge-o{font-size:10px;padding:0 5px;border-radius:8px;color:var(--warn);border:1px solid currentColor;margin-left:6px}
+.hc pre{margin:0;font-family:var(--mono);font-size:10.5px;line-height:1.45;background:var(--code-bg);padding:6px 8px;border-radius:4px;overflow:hidden;
+  -webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
+.hc .more{font-size:11px;opacity:.7}
+.k1{color:var(--kw)} .k2{color:var(--fn)} .k3{color:var(--str)} .k4{color:var(--cm)}
+.pop{position:absolute;width:330px;border:1px solid var(--hw-line);background:var(--hw-bg);color:var(--hw-fg);border-radius:6px;font-family:var(--sans);font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,.3)}
+.pop .bar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--hw-line)}
+.pop .bar .t{font-family:var(--mono);font-size:11.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pop .btn{font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid var(--hw-line)}
+.pop .btn.x{border-color:var(--link-hot);color:var(--link-hot)}
+.pop pre{margin:0;padding:8px 10px;font-family:var(--mono);font-size:10.5px;line-height:1.45;white-space:pre}
+.pop .ai{margin:8px 10px 0;font-size:12px;border-left:2px solid var(--link-hot);padding-left:7px}
+.stage{position:relative;min-width:560px}
+.timeline{display:flex;flex-wrap:wrap;gap:6px;font-size:12.5px;margin-top:10px}
+.timeline span{background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:3px 8px}
+.timeline i{font-style:normal;color:var(--muted);align-self:center}
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">CoGraph · UX round 4 · session-216 · planner drafts</p>
+  <h1>More connections in Shelf, a function hover card, and the F26 blank canvas</h1>
+  <p>Static pictures to decide from. Part A shows three ways to see the real cross-folder calls that Shelf folds into bundles today. Part B shows three versions of a card that appears when you rest the pointer on a function. Part C shows the fix for the blank canvas after "Show only this file" while zoomed in.</p>
+  <p>The frames use the round-1 Index-tab look. Canvas colours follow your theme, as the webview does. The full plan is in <code>.ai/plans/ux-round4.md</code> on branch <code>termi/s216</code>.</p>
+</header>
+
+<div class="part">
+  <h2>A · Seeing more of the cross-folder connections</h2>
+  <p>Today every call between two folders collapses into one grey bundle between the folder tabs. Individual lines only appear while the pointer is on a node, and they disappear when it leaves.</p>
+
+  <section class="draft">
+    <div class="fig"><svg id="a0" viewBox="0 0 760 420" role="img" aria-label="Today: tests and src/click connected by one thick bundle labelled 37"></svg></div>
+    <div><h3>A0 · Today <span class="tag">baseline</span></h3>
+      <p class="lede">One bundle per folder pair, thickness by call count. <code>examples/</code> is collapsed. You can see <em>that</em> tests call src 37 times, but not which functions.</p></div>
+  </section>
+
+  <section class="draft">
+    <div class="fig"><svg id="a1" viewBox="0 0 760 420" role="img" aria-label="Option A1: the tests to src bundle expanded into individual lines that leave through the tab ports and fan out to their nodes"></svg></div>
+    <div><h3>A1 · Expand a bundle <span class="tag rec">recommended primary</span></h3>
+      <p class="lede">Click a bundle and it opens into its individual calls, and stays open. Click it again, or press Esc, to fold it.</p>
+      <dl>
+        <dt>Route</dt><dd>Each line leaves its frame through the same tab port the bundle used, then fans out to its node. The corridor still reads as one connection.</dd>
+        <dt>Cap</dt><dd>60 heaviest calls per pair. The rest stay as a thin bundle labelled <code>+N more</code>, which raises the cap to 300 on click.</dd>
+        <dt>Collapsed</dt><dd>Calls into a collapsed folder end on its glyph and merge, with a count.</dd>
+        <dt>Zoomed out</dt><dd>Below 0.4 zoom the expansion draws as its bundle again and costs nothing.</dd>
+        <dt>Saved</dt><dd>Open bundles are saved with the layout.</dd>
+      </dl></div>
+  </section>
+
+  <section class="draft">
+    <div class="fig"><svg id="a2" viewBox="0 0 760 420" role="img" aria-label="Option A2: test_cli.py pinned; all its cross links highlighted in blue, other bundles dimmed, a pin chip shown"></svg></div>
+    <div><h3>A2 · Pin connections <span class="tag rec">recommended secondary</span></h3>
+      <p class="lede">Right-click a folder tab, file slot or function and choose <em>Pin connections</em>. Its cross links stay drawn in the highlight colour and the other bundles dim. This is today's hover behaviour, made sticky.</p>
+      <dl>
+        <dt>Undo</dt><dd>Pins are listed as chips in the Filters panel, each with ×.</dd>
+        <dt>Many</dt><dd>Several pins can be active at once. All pins and expansions share one 600-line limit.</dd>
+        <dt>Answers</dt><dd>"What does this file talk to?" A1 answers "what is inside this bundle?"</dd>
+      </dl></div>
+  </section>
+
+  <section class="draft">
+    <div class="fig"><svg id="a3" viewBox="0 0 760 440" role="img" aria-label="Option A3: a Bundles, Strongest, All switch set to All, producing a dense hairball of lines"></svg></div>
+    <div><h3>A3 · Global detail level <span class="tag">not recommended</span></h3>
+      <p class="lede">A three-step switch in the Folder panel: Bundles · Strongest · All. Shown so you can compare.</p>
+      <dl>
+        <dt>Why not</dt><dd>On a mid-size repo "All" becomes a hairball even at this toy size, and it costs every edge in every frame. "Strongest" hides the reason a line is drawn.</dd>
+        <dt>Keep?</dt><dd>It could come back later as a <em>Strongest</em> preset if A1 and A2 turn out to be too manual.</dd>
+      </dl></div>
+  </section>
+</div>
+
+<div class="part">
+  <h2>B · Resting on a function</h2>
+  <p>In all three options the hover card is small and read-only. It reuses the existing folder/file card, so there's still only one tooltip layer. <strong>Click stays exactly as it is</strong>: it opens the editable source popup, and the card hides the moment you press. The card opens after the pointer rests for 450 ms. Moving more than 4 px restarts the wait, so sweeping across a dense slot never flashes cards.</p>
+
+  <section class="draft">
+    <div class="fig"><div class="stage"><svg id="b1" viewBox="0 0 760 360" role="img" aria-label="Option B1 hover card: signature, path, docstring, caller and callee counts"></svg>
+      <div class="hc" style="left:318px;top:118px">
+        <div class="sig"><b>echo</b>(message=None, file=None, nl=True, err=False, color=None)</div>
+        <div class="path">src/click/utils.py:205 · 44 lines</div>
+        <div class="doc">Print a message and newline to stdout or a file. This should be used instead of print() because it provides better support for different data, files, and environments.</div>
+        <div class="calls">called by 38 · <span>secho, echo_via_pager, main</span> …<br>calls 6 · <span>resolve_color_default, strip_ansi, _default_text_stdout</span> …</div>
+      </div></div></div>
+    <div><h3>B1 · Brief <span class="tag">free, instant</span></h3>
+      <p class="lede">Signature, location, the docstring or leading comment (up to 3 lines), and who calls it and what it calls.</p>
+      <dl>
+        <dt>Source</dt><dd>Read from the file by the extension on first hover, then cached until the file changes. Caller and callee counts come from the graph already loaded.</dd>
+        <dt>No docstring</dt><dd>The doc line is left out. The card still shows signature and calls.</dd>
+      </dl></div>
+  </section>
+
+  <section class="draft">
+    <div class="fig"><div class="stage"><svg id="b2" viewBox="0 0 760 400" role="img" aria-label="Option B2 hover card: brief plus the first eight lines of the function body, fading out"></svg>
+      <div class="hc" style="left:318px;top:70px">
+        <div class="sig"><b>echo</b>(message=None, file=None, nl=True, err=False, color=None)</div>
+        <div class="path">src/click/utils.py:205 · 44 lines</div>
+        <div class="doc">Print a message and newline to stdout or a file.</div>
+<pre><span class="k1">if</span> file <span class="k1">is None</span>:
+    <span class="k1">if</span> err:
+        file = <span class="k2">_default_text_stderr</span>()
+    <span class="k1">else</span>:
+        file = <span class="k2">_default_text_stdout</span>()
+    <span class="k4"># There are no standard streams attached to write to.</span>
+    <span class="k1">if</span> file <span class="k1">is None</span>:
+        <span class="k1">return</span></pre>
+        <div class="more">… 28 more lines · click to open and edit</div>
+        <div class="calls">called by 38 · calls 6</div>
+      </div></div></div>
+    <div><h3>B2 · Peek <span class="tag rec">recommended</span></h3>
+      <p class="lede">B1 plus the first 8 lines of the body, highlighted, fading out. The docstring shows once, above the code. It is the "show the definition" half without opening an editor.</p>
+      <dl>
+        <dt>Safety</dt><dd>Code is written into the card as text pieces. Nothing from the file is ever parsed as HTML.</dd>
+        <dt>Size</dt><dd>At most 340 px wide and about 11 lines of code, so it never covers the slot you are reading.</dd>
+      </dl></div>
+  </section>
+
+  <section class="draft">
+    <div class="fig"><div class="stage"><svg id="b3" viewBox="0 0 760 420" role="img" aria-label="Option B3: the click popup has an Explain button; its cached result then appears in the hover card"></svg>
+      <div class="pop" style="left:24px;top:40px">
+        <div class="bar"><span class="t">echo · utils.py:205</span><span class="btn x">Explain ✦</span><span class="btn">Save</span><span class="btn">×</span></div>
+        <div class="ai"><b>What it does</b> · Writes one message plus newline to stdout, stderr or a given file. Handles bytes vs text and strips colours when the target is not a terminal.</div>
+<pre><span class="k1">def</span> <span class="k2">echo</span>(
+    message=<span class="k1">None</span>, file=<span class="k1">None</span>,
+    nl=<span class="k1">True</span>, err=<span class="k1">False</span>, color=<span class="k1">None</span>,
+) -> <span class="k1">None</span>:
+    <span class="k3">"""Print a message and newline …"""</span>
+    <span class="k1">if</span> file <span class="k1">is None</span>: …</pre>
+      </div>
+      <div class="hc" style="left:396px;top:170px">
+        <div class="sig"><b>echo</b>(message=None, file=None, nl=True, …)</div>
+        <div class="path">src/click/utils.py:205 · 44 lines</div>
+        <div class="ai"><span class="k">✦ What it does <span class="badge-o">outdated</span></span>Writes one message plus newline to stdout, stderr or a given file. Handles bytes vs text and strips colours when the target is not a terminal.</div>
+        <div class="calls">called by 38 · calls 6</div>
+      </div></div></div>
+    <div><h3>B3 · Explained <span class="tag">add-on, needs your OK</span></h3>
+      <p class="lede">The AI explanation is asked for per function, on demand, never in bulk. The <em>Explain ✦</em> button sits in the click popup, because the hover card can't be clicked. The answer is stored with the annotations and shows in every later hover, marked <em>outdated</em> once the file changes.</p>
+      <dl>
+        <dt>Cost</dt><dd>About $0.006 per function (haiku). A bulk run over a 10k-function repo would be about $6.5, three times the default $2 run budget. That's why this round has no bulk run.</dd>
+        <dt>Privacy</dt><dd>The function body is sent only when "Annotate: read source" is on. Otherwise the explanation uses signature, docstring and call names.</dd>
+        <dt>Extra</dt><dd>Optional: right-click a file slot, then "Explain functions in this file" (one request).</dd>
+      </dl></div>
+  </section>
+
+  <div class="rec-box" style="max-width:none">
+    <h2>Hover and click on the same node</h2>
+    <div class="timeline"><span>pointer rests 450 ms</span><i>→</i><span>card appears</span><i>→</i><span>mouse down</span><i>→</i><span>card hides at once</span><i>→</i><span>editable popup opens (as today)</span><i>→</i><span>no card for this node while its popup is open</span></div>
+  </div>
+</div>
+
+<div class="part">
+  <h2>C · F26: "Show only this file" while zoomed in</h2>
+  <p>After the re-pack the file lands at the top left, outside the zoomed view. The automatic re-fit is skipped because you had zoomed, so the canvas looks empty. Fix: re-fit anyway when nothing is left in view. When something is still visible, your zoom stays untouched.</p>
+  <section class="draft">
+    <div class="fig"><svg id="c1" viewBox="0 0 760 300" role="img" aria-label="Before: viewport empty, the only file sits outside it. After: view refitted around the file"></svg></div>
+    <div><h3>C · Before / after <span class="tag rec">fix in this round</span></h3>
+      <p class="lede">The same check covers Hide folder/file and Global drill-down. The rule is "re-fit when the viewport would show nothing", not "re-fit always".</p></div>
+  </section>
+</div>
+
+<div class="rec-box">
+  <h2>Decisions for Bela (my default in bold)</h2>
+  <ol>
+    <li>More connections: <strong>A1 expand-a-bundle as the main way, A2 pin as the second</strong>. Or a different pick.</li>
+    <li>Limits: <strong>60 lines per opened bundle (300 via "+N more"), 600 on screen in total</strong>. These get re-checked against the perf benchmark.</li>
+    <li>Function hover card: <strong>B2 Peek (8 lines of code)</strong> or B1 Brief (no code)?</li>
+    <li>AI explanations (B3) this round? Default: <strong>yes, on demand from the click popup, cached, no bulk run, body only sent when "read source" is on</strong>.</li>
+  </ol>
+</div>
+
+<div class="tablewrap"><table>
+  <thead><tr><th>Option</th><th>Extra drawing cost</th><th>Discoverable</th><th>Survives zoom-out</th><th>Saved with layout</th></tr></thead>
+  <tbody>
+    <tr><td>A1 Expand</td><td class="num">≤ 60 lines per open pair</td><td>count badge + pointer on bundles</td><td>folds to bundle &lt; 0.4</td><td>yes</td></tr>
+    <tr><td>A2 Pin</td><td class="num">degree of pinned items</td><td>context menu</td><td>folds to bundle &lt; 0.4</td><td>yes</td></tr>
+    <tr><td>A3 Level</td><td class="num">every cross edge</td><td>panel switch</td><td>no</td><td>yes</td></tr>
+  </tbody>
+</table></div>
+</div>
+
+<script>
+(function(){
+const NS='http://www.w3.org/2000/svg';
+let rs=7; const rnd=()=>{rs=(rs*16807)%2147483647;return rs/2147483647};
+function el(p,tag,a,txt){const e=document.createElementNS(NS,tag);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;p.appendChild(e);return e;}
+function tabFrame(g,x,y,w,h,name,hue,counts){
+  const G=el(g,'g',{style:'--h:'+hue});
+  const tw=Math.max(60,name.length*7+30);
+  el(G,'rect',{x,y:y+14,width:w,height:h-14,rx:5,class:'ff'});
+  el(G,'rect',{x,y:y+14,width:w,height:h-14,rx:5,class:'fstroke'});
+  el(G,'path',{d:`M${x} ${y+19}v-14a5 5 0 0 1 5-5h${tw-10}a5 5 0 0 1 5 5v14z`,class:'tabfill'});
+  el(G,'path',{d:`M${x+8} ${y+6}h4l1.5 1.5h5v6h-10.5z`,fill:'currentColor',class:'fname'});
+  el(G,'text',{x:x+24,y:y+13,class:'fname'},name);
+  if(counts)el(G,'text',{x:x+w-6,y:y+28,'text-anchor':'end',class:'cnt'},counts);
+  return {x,y,w,h,port:{x:x+tw,y:y+8}};
+}
+function slot(g,x,y,w,h,label,n,cls){
+  el(g,'rect',{x,y,width:w,height:h,rx:4,class:'slot'});
+  el(g,'text',{x:x+6,y:y+13,class:'slbl'},label+' · '+n);
+  const cols=Math.max(1,Math.floor((w-12)/13)); const pts=[];
+  for(let i=0;i<n;i++){const cx=x+12+(i%cols)*13, cy=y+28+Math.floor(i/cols)*13; pts.push({x:cx,y:cy});
+    el(g,'circle',{cx,cy,r:4.4,class:'nd'+(cls?' '+cls:'')});}
+  return pts;
+}
+function glyph(g,x,y,w,h,name,hue,sub){
+  const G=el(g,'g',{style:'--h:'+hue});
+  el(G,'path',{d:`M${x} ${y+6}a6 6 0 0 1 6-6h${w*0.3}l8 8h${w*0.7-20}a6 6 0 0 1 6 6v${h-14}a6 6 0 0 1-6 6h-${w-12}a6 6 0 0 1-6-6z`,class:'glyph'});
+  el(G,'text',{x:x+w/2,y:y+h/2+4,'text-anchor':'middle',class:'glyphtxt'},name);
+  if(sub)el(G,'text',{x:x+w/2,y:y+h/2+18,'text-anchor':'middle',class:'glyphtxt',style:'font-size:10px;opacity:.8'},sub);
+  return {x:x+w/2,y:y+h/2,port:{x:x+8,y:y+8}};
+}
+function badge(g,x,y,text,plain){const B=el(g,'g',{class:'badge'+(plain?' plain':'')});const w=text.length*6.3+12;
+  el(B,'rect',{x:x-w/2,y:y-9,width:w,height:18,rx:9});el(B,'text',{x,y:y+3.5,'text-anchor':'middle'},text);return B;}
+function callout(g,x1,y1,x2,y2,text,anchor){el(g,'path',{d:`M${x1} ${y1}L${x2} ${y2}`,class:'callout-line'});
+  el(g,'text',{x:x2+(anchor==='end'?-4:4),y:y2+4,'text-anchor':anchor||'start',class:'callout'},text);}
+function fan(g,a,pa,pb,b,cls){el(g,'path',{d:`M${a.x} ${a.y}C${pa.x} ${pa.y} ${pb.x} ${pb.y} ${b.x} ${b.y}`,class:cls||'xl'});}
+
+function scene(svg,opt){
+  opt=opt||{};
+  const gF=el(svg,'g',{}), gL=el(svg,'g',{}), gT=el(svg,'g',{});
+  const T=tabFrame(gF,20,34,340,360,'tests',92,'3 files · 71 fns');
+  const tc=slot(gF,40,76,150,120,'test_core.py',30);
+  const tu=slot(gF,200,76,140,100,'test_utils.py',21, opt.dimTu);
+  const tl=slot(gF,40,212,150,110,'test_cli.py',20);
+  const S=tabFrame(gF,420,34,320,260,'src/click',8,'3 files · 62 fns');
+  const co=slot(gF,440,76,150,110,'core.py',30);
+  const ut=slot(gF,600,76,125,90,'utils.py',18);
+  const tm=slot(gF,440,200,150,80,'termui.py',14);
+  const E=glyph(gF,560,318,130,70,'examples','250','14 files');
+  return {gF,gL,gT,T,S,E,tc,tu,tl,co,ut,tm};
+}
+
+// A0
+(function(){const s=document.getElementById('a0');const c=scene(s);
+  el(c.gL,'path',{d:`M${c.T.port.x} ${c.T.port.y}L${c.S.port.x} ${c.S.port.y}`,class:'bundle','stroke-width':7});
+  el(c.gL,'path',{d:`M${c.T.port.x} ${c.T.port.y}Q 420 330 ${c.E.port.x} ${c.E.port.y}`,class:'bundle','stroke-width':3});
+  el(c.gL,'path',{d:`M${c.S.port.x} ${c.S.port.y}Q 540 200 ${c.E.port.x+30} ${c.E.port.y}`,class:'bundle','stroke-width':2});
+  badge(c.gT,(c.T.port.x+c.S.port.x)/2,c.T.port.y+2,'37',true);
+  badge(c.gT,470,326,'9',true);
+})();
+
+// A1
+(function(){const s=document.getElementById('a1');const c=scene(s);
+  const pA={x:c.T.port.x+60,y:c.T.port.y}, pB={x:c.S.port.x-60,y:c.S.port.y};
+  const src=[c.tc[3],c.tc[8],c.tc[14],c.tc[22],c.tu[2],c.tu[9],c.tu[15],c.tl[1],c.tl[6],c.tl[12],c.tl[17],c.tc[27]];
+  const dst=[c.co[4],c.co[11],c.co[2],c.co[19],c.ut[3],c.ut[10],c.co[25],c.tm[2],c.tm[7],c.co[11],c.ut[14],c.tm[11]];
+  src.forEach((a,i)=>fan(c.gL,a,pA,pB,dst[i],'xl hot'));
+  el(c.gL,'path',{d:`M${c.T.port.x} ${c.T.port.y-3}L${c.S.port.x} ${c.S.port.y-3}`,class:'bundle','stroke-width':1.5,'stroke-dasharray':'3 3'});
+  // collapsed endpoint merge
+  el(c.gL,'path',{d:`M${c.tl[10].x} ${c.tl[10].y}Q 420 330 ${c.E.port.x} ${c.E.port.y}`,class:'xl hot'});
+  el(c.gL,'path',{d:`M${c.S.port.x} ${c.S.port.y}Q 540 200 ${c.E.port.x+30} ${c.E.port.y}`,class:'bundle','stroke-width':2});
+  badge(c.gT,(c.T.port.x+c.S.port.x)/2,c.T.port.y-10,'+25 more');
+  badge(c.gT,510,300,'×3');
+  callout(c.gT,(c.T.port.x+c.S.port.x)/2+30,c.T.port.y-10,440,14,'12 of 37 shown; click chip for the rest');
+  callout(c.gT,510,300,420,408,'3 calls into collapsed examples/ merge on the glyph');
+  callout(c.gT,c.tl[14].x,c.tl[14].y,40,408,'each line leaves through the tab port, then fans to its node');
+})();
+
+// A2
+(function(){const s=document.getElementById('a2');const c=scene(s,{dimTu:'dim'});
+  // dim bundles
+  const d=el(c.gL,'g',{class:'dimmed'});
+  el(d,'path',{d:`M${c.T.port.x} ${c.T.port.y}L${c.S.port.x} ${c.S.port.y}`,class:'bundle','stroke-width':7});
+  el(d,'path',{d:`M${c.S.port.x} ${c.S.port.y}Q 540 200 ${c.E.port.x+30} ${c.E.port.y}`,class:'bundle','stroke-width':2});
+  // pinned file outline
+  el(c.gF,'rect',{x:37,y:209,width:156,height:116,rx:6,class:'hot-o','stroke-width':2});
+  el(c.gF,'path',{d:'M184 200l6 6-3 1-4 5-2-2 5-4 1-3z',fill:'var(--link-hot)'});
+  const pA={x:c.T.port.x+40,y:c.T.port.y+40}, pB={x:c.S.port.x-40,y:c.S.port.y+60};
+  [[1,c.co[5]],[4,c.co[16]],[6,c.ut[2]],[9,c.tm[4]],[12,c.co[27]],[15,c.ut[12]],[17,c.tm[9]]].forEach(([i,b])=>fan(c.gL,c.tl[i],pA,pB,b,'xl hot'));
+  el(c.gL,'path',{d:`M${c.tl[10].x} ${c.tl[10].y}Q 420 360 ${c.E.port.x} ${c.E.port.y}`,class:'xl hot'});
+  el(c.gL,'path',{d:`M${c.tl[18].x} ${c.tl[18].y}Q 420 370 ${c.E.port.x} ${c.E.port.y+10}`,class:'xl hot'});
+  const ch=el(c.gT,'g',{class:'ui-chip'});el(ch,'rect',{x:560,y:398,width:188,height:18,rx:9});el(ch,'text',{x:572,y:411},'Pinned: test_cli.py   ×');
+  callout(c.gT,190,265,250,388,'pinned via right-click → Pin connections');
+})();
+
+// A3
+(function(){const s=document.getElementById('a3');const g0=el(s,'g',{transform:'translate(0,20)'});const c=scene(g0);
+  const sg=el(s,'g',{class:'seg'});el(sg,'rect',{x:20,y:4,width:228,height:22,rx:5,class:'bg'});
+  ['Bundles','Strongest','All'].forEach((t,i)=>{if(i===2)el(sg,'rect',{x:20+i*76,y:4,width:76,height:22,rx:5,class:'on'});
+    el(sg,'text',{x:58+i*76,y:19,'text-anchor':'middle',class:i===2?'on':''},t);});
+  const A=c.tc.concat(c.tu,c.tl), B=c.co.concat(c.ut,c.tm);
+  for(let i=0;i<120;i++){const a=A[Math.floor(rnd()*A.length)], b=B[Math.floor(rnd()*B.length)]; el(c.gL,'path',{d:`M${a.x} ${a.y}L${b.x} ${b.y}`,class:'xl'});}
+  for(let i=0;i<25;i++){const a=A[Math.floor(rnd()*A.length)]; el(c.gL,'path',{d:`M${a.x} ${a.y}L${c.E.x} ${c.E.y}`,class:'xl'});}
+})();
+
+// B scenes: zoomed-in utils.py slot
+function bscene(id,h,hover){const s=document.getElementById(id);
+  const G=el(s,'g',{});const F=tabFrame(G,16,16,728,h-32,'src/click',8,'');
+  el(G,'rect',{x:36,y:58,width:260,height:h-100,rx:6,class:'slot'});
+  el(G,'text',{x:44,y:74,class:'slbl',style:'font-size:11px'},'utils.py · 18');
+  const names=['echo','secho','style','unstyle','make_str','safecall','open_file','get_app_dir','format_filename','LazyFile','KeepOpenFile','_posixify','get_binary_stream','get_text_stream','echo_via_pager','PacifyFlushWrapper','_detect_program_name','_expand_args'];
+  names.forEach((n,i)=>{const cx=58+(i%3)*80, cy=102+Math.floor(i/3)*38;
+    const on=i===hover; if(on)el(G,'circle',{cx,cy,r:13,fill:'var(--link-hot)',opacity:.25});
+    el(G,'circle',{cx,cy,r:on?9:7.5,class:'nd'});
+    el(G,'text',{x:cx,y:cy+20,'text-anchor':'middle',class:'nlbl',style:'font-size:9px'},n.length>11?n.slice(0,10)+'…':n);});
+  if(hover!=null){const cx=58, cy=102; el(G,'path',{d:`M${cx+4} ${cy+4}l0 14 4-4 3 6 2-1-3-6 5 0z`,fill:'var(--lbl)',stroke:'var(--canvas)','stroke-width':1});}
+  el(G,'rect',{x:320,y:58,width:200,height:90,rx:6,class:'slot'});el(G,'text',{x:328,y:74,class:'slbl',style:'font-size:11px'},'core.py · 30');
+  return G;}
+bscene('b1',360,0); bscene('b2',400,0);
+(function(){const G=bscene('b3',420,0);})();
+
+// C
+(function(){const s=document.getElementById('c1');
+  function panel(ox,title,after){const g=el(s,'g',{transform:`translate(${ox},0)`});
+    el(g,'text',{x:0,y:18,class:'fname',style:'font-size:12px'},title);
+    // world
+    el(g,'rect',{x:0,y:30,width:350,height:250,rx:4,fill:'none',stroke:'var(--rule)'});
+    const fx=after?50:18, fy=after?66:42, sc=after?2.1:1;
+    const f=el(g,'g',{transform:`translate(${fx},${fy}) scale(${sc})`});
+    tabFrame(f,0,0,116,70,'tests',92,'');slot(f,8,22,100,40,'test_cli.py',8);
+    // viewport
+    if(!after){el(g,'rect',{x:170,y:120,width:160,height:110,rx:3,fill:'none',stroke:'var(--link-hot)','stroke-width':1.6,'stroke-dasharray':'5 3'});
+      el(g,'text',{x:250,y:180,'text-anchor':'middle',class:'callout'},'your view: empty');
+      el(g,'text',{x:20,y:270,class:'callout'},'userZoomed = true → re-fit skipped');}
+    else{el(g,'rect',{x:4,y:34,width:342,height:242,rx:3,fill:'none',stroke:'var(--link-hot)','stroke-width':1.6,'stroke-dasharray':'5 3'});
+      el(g,'text',{x:20,y:270,class:'callout'},'view is empty → re-fit after the 230 ms glide');}
+  }
+  panel(20,'Before',false); panel(400,'After',true);
+})();
+})();
+</script>

@@ -1,7 +1,7 @@
 // crossLinks.js — split weighted edges by owning frame and aggregate the
 // cross-frame remainder into one bundle per folder pair (drawn between title
 // bar ports). Individual cross links are produced only for a hovered node.
-// Pure helpers — no DOM/d3/state.
+// Also the same-file rule (U1). Pure helpers — no DOM/d3/state.
 
 const CL_SEP = '';
 
@@ -164,9 +164,43 @@ function buildCrossLinks(opts) {
   };
 }
 
+// ── Same-file rule (U1, setting cograph.display.sameFileEdgesOnly) ─────────────
+// With the setting on only calls whose caller and callee live in the same file
+// are drawn. A node belongs to one file when it is a function (its `file`) or a
+// collapsed file glyph; a folder glyph spans many files and a library has
+// none, so every edge touching one of those counts as cross-file.
+
+/** The single file a node stands for, or null. */
+function fileOfNode(n) {
+  if (!n || n.isLibrary || n.isFolderCluster) { return null; }
+  if (n.isFileCluster) { return n._filePath || n.file || null; }
+  return n.file || null;
+}
+
+/** True when both ends resolve to the same file (recursion included). */
+function isSameFileLink(l, fileOfId) {
+  const a = fileOfId(clIdOf(l.source));
+  return a != null && a === fileOfId(clIdOf(l.target));
+}
+
+/** { same, cross } — order inside each list follows `links`. */
+function partitionByFile(links, fileOfId) {
+  const same = [], cross = [];
+  for (const l of links) { (isSameFileLink(l, fileOfId) ? same : cross).push(l); }
+  return { same, cross };
+}
+
+/** fileOfId over a node list (one Map per render, not per link). */
+function fileLookup(nodes) {
+  const byId = new Map();
+  for (const n of nodes || []) { byId.set(n.id, fileOfNode(n)); }
+  return (id) => (byId.has(id) ? byId.get(id) : null);
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     splitEdgesByFrame, buildCrossLinks, portOn, pairKey, nearestEdgePoint, CL_SEP,
     aggregateCrossPairs, routeBundle, routeBundles, indexCrossByNode, individualLinksFor,
+    fileOfNode, isSameFileLink, partitionByFile, fileLookup,
   };
 }

@@ -72,12 +72,19 @@ const indentOf = (s: string): number => s.match(/^(\s*)/)?.[1].length ?? 0;
 export function scanPythonFuncEnd(lines: string[], startIdx: number): FuncEnd {
   const base = indentOf(lines[startIdx]);
   const st: PyState = { bracket: 0, triple: '', single: '' };
-  let last = startIdx;
-  let i = startIdx;
+  // A start on a decorator: walk to the def/class line first (decorators may span lines).
+  let defIdx = startIdx;
+  while (defIdx < lines.length - 1 && /^\s*@/.test(lines[defIdx])) {
+    pyScanLine(lines[defIdx], st);
+    defIdx++;
+    while (st.bracket > 0 && defIdx < lines.length - 1) { pyScanLine(lines[defIdx], st); defIdx++; }
+  }
+  let last = defIdx;
+  let i = defIdx;
   for (; i < lines.length; i++) {
     const s = lines[i];
-    const continued = st.bracket > 0 || st.triple !== '' || st.single !== '' || (i > startIdx && /\\$/.test(lines[i - 1]));
-    if (i > startIdx && !continued) {
+    const continued = st.bracket > 0 || st.triple !== '' || st.single !== '' || (i > defIdx && /\\$/.test(lines[i - 1]));
+    if (i > defIdx && !continued) {
       const t = s.trim();
       if (t === '') { continue; }
       if (indentOf(s) <= base) {

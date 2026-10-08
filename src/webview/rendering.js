@@ -290,6 +290,7 @@ function fitToRect(minX, minY, maxX, maxY, maxR) {
 const drag = d3.drag()
   .container(function () { return g.node(); }) // absolute coords (identity in global path)
   .on('start', (event, d) => {
+    if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'drag', true); }   // F28: named while dragged
     reheatForDrag(event);
     d.fx = d.x;
     d.fy = d.y;
@@ -307,6 +308,7 @@ const drag = d3.drag()
     __pe('drag:move', __t0);
   })
   .on('end', (event, d) => {
+    if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'drag', false); }
     // W5: dropped outside its file slot in Shelf+Dynamic → snap back via the
     // facade (reheat while pinned, release a microtask later).
     if (typeof snapBackToSlot === 'function' && snapBackToSlot(d)) {
@@ -436,6 +438,7 @@ function hoverCrossLinks(id) {
 
 function onNodeMouseOver(event, d) {
   const __t0 = __pb();
+  if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'hover', true); }   // F28: the name at once
   hoverCrossLinks(d.id);
   d3.select(event.currentTarget)
     .style('fill', getCSSVar('--cograph-node-hover'))
@@ -451,6 +454,7 @@ function onNodeMouseOver(event, d) {
 
 function onNodeMouseOut(event, d) {
   const __t0 = __pb();
+  if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'hover', false); }
   hoverCrossLinks(null);
   d3.select(event.currentTarget)
     .style('fill', resolveNodeFill(d))
@@ -678,6 +682,7 @@ function renderLabels(visibleSet, nodes = state.currentNodes, parent = labelG) {
   return parent.selectAll('text')
     .data(nodes.filter(n => !n.isLibrary && !n.isFileAnchor), d => d.id)
     .join('text')
+    .classed('fn-name', d => typeof isFnLabelDatum === 'function' && isFnLabelDatum(d))   // F28
     .each(function (d) {
       // Folder/file glyphs carry a dim second line with the count (e.g. "23 files").
       // Rebuilt only when the text changed — not on every re-render.
@@ -877,9 +882,11 @@ function renderLibraryNodes(libNodeData, visibleSet) {
     })
     .on('mouseover', (event, d) => {
       d3.select(event.currentTarget).attr('fill', getCSSVar('--cograph-node-hover'));
+      if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'hover', true); }   // F28
       hoverLinksOn(d, null); // library hover recolours + dims, widths stay
     })
-    .on('mouseout', (event) => {
+    .on('mouseout', (event, d) => {
+      if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'hover', false); }
       d3.select(event.currentTarget).attr('fill', getCSSVar('--cograph-node-library'));
       hoverLinksOff();
     });
@@ -889,6 +896,7 @@ function renderLibraryLabels(libNodeData, visibleSet) {
   return libLabelG.selectAll('text')
     .data(libNodeData, d => d.id)
     .join('text')
+    .classed('fn-name', d => !d.isLibCluster)   // F28: library functions too
     .text(d => d.isLibCluster ? d.label : `${d.libraryName}.${d.name}`)
     .attr('font-size', d => `${9 * settings.textSize}px`)
     .attr('text-anchor', 'middle')
@@ -913,6 +921,7 @@ function renderElements(elements, positionHints = new Map()) {
   }
   if (state.gitMode) applyGitColors();
   applySameFileEdges();
+  if (typeof applyFnNames === 'function') { applyFnNames(); }
   updateWorkflowDivider();
   if (typeof perfMeasure === 'function') { perfMeasure('renderElements', 'render:start'); }
 }

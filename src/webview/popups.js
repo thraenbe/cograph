@@ -84,6 +84,7 @@ function closeFuncPopupInstance(inst) {
   if (inst.saving && inst.saving.timer) { clearTimeout(inst.saving.timer); }
   inst.element.remove();
   state.funcPopups.delete(inst.node.id);
+  if (typeof fnNameOn === 'function') { fnNameOn(inst.node.id, 'popup', false); }
 }
 
 function createFuncPopupInstance(d) {
@@ -330,6 +331,7 @@ function showFuncPopup(d) {
 
   const inst = createFuncPopupInstance(d);
   state.funcPopups.set(d.id, inst);
+  if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'popup', true); }   // F28: name while its popup is open
 
   inst.originalSource = null;
   updateFuncHighlight(inst);

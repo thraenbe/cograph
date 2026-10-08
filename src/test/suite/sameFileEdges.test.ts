@@ -51,7 +51,7 @@ suite('U1: only calls within a file', () => {
     assert.ok(rendering.includes(".classed('xfile', d => !isSameFileLink(d, fileOf))"), 'renderLinks marks cross-file lines');
     assert.ok(/g\.classed\('same-file-only', !!settings\.sameFileEdgesOnly && state\.viewMode !== 'workflow'\)/.test(rendering),
       'one class on the zoom root; Workflow view exempt');
-    assert.ok(/applySameFileEdges\(\);\s+updateWorkflowDivider\(\);/.test(rendering), 'applied after every render');
+    assert.ok(/applySameFileEdges\(\);[\s\S]{0,160}updateWorkflowDivider\(\);/.test(rendering), 'applied after every render');
     // the simulation still gets every link: the layout is identical with the setting on or off
     assert.ok(rendering.includes('startSimulation(drawLinks);'));
     assert.ok(!/sameFileEdgesOnly/.test(rendering.slice(rendering.indexOf('function startSimulation'), rendering.indexOf('function startWorkflowSimulation'))));

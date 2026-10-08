@@ -85,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   search results stay readable. Folder titles, file names, collapsed folder and file names,
   Class overlay names and library groupings are unchanged. Before, function names overlapped
   into unreadable text at every zoom (F28).
+- **A function you point at holds still.** In the Global engine with Dynamic motion, the layout
+  keeps moving while it settles, so a function used to drift out from under a resting pointer
+  and its name and card gave way. The hovered function is now held in place until the pointer
+  leaves (a function you placed yourself is never touched). This calms its neighbours too.
 
 ### Removed
 - **Chat.** The sidebar Chat is gone. It handed the whole graph to the Claude Code / Codex

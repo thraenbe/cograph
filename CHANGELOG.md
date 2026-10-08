@@ -78,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   function to see its own hidden calls. The layout is identical with the setting on or off:
   hidden calls still pull nodes together and still count for Show Orphans. Turn it off to
   draw every call as before. The choice is saved with Save Layout.
+  While calls are hidden, the graph marks where they are: a function with hidden calls and no
+  visible one gets a **dashed ring** (so it no longer looks like a function that calls nothing),
+  and each file name shows how many calls leave the file for other files of the project, e.g.
+  `auth.py · 6 ↗44`. Both disappear when the setting is off, because the calls are drawn again.
 - **Only the function you point at shows its name.** Function names are no longer drawn at
   rest; resting the pointer on a function shows its name at once (its hover card follows after
   about half a second). A dragged function and a function whose source popup is open keep their

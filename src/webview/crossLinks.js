@@ -197,8 +197,29 @@ function fileLookup(nodes) {
   return (id) => (byId.has(id) ? byId.get(id) : null);
 }
 
+/**
+ * X3 cue (Bela, 2026-10-08): what the same-file rule hides, per node and per file.
+ *   hiddenOnly: ids that have hidden calls (to/from another file or a library) and NO
+ *               same-file call, i.e. they would look like they call nothing at all;
+ *   outByFile:  file -> calls leaving that file for another PROJECT file (weighted by _count).
+ */
+function xfileCue(links, fileOfId) {
+  const same = new Set(), hidden = new Set(), outByFile = new Map();
+  for (const l of links) {
+    const s = clIdOf(l.source), t = clIdOf(l.target);
+    if (s === t) { continue; }
+    const fs = fileOfId(s), ft = fileOfId(t);
+    if (fs != null && fs === ft) { same.add(s); same.add(t); continue; }
+    hidden.add(s); hidden.add(t);
+    if (fs != null && ft != null) { outByFile.set(fs, (outByFile.get(fs) || 0) + (l._count ?? 1)); }
+  }
+  const hiddenOnly = new Set([...hidden].filter(id => !same.has(id)));
+  return { hiddenOnly, outByFile };
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
+    xfileCue,
     splitEdgesByFrame, buildCrossLinks, portOn, pairKey, nearestEdgePoint, CL_SEP,
     aggregateCrossPairs, routeBundle, routeBundles, indexCrossByNode, individualLinksFor,
     fileOfNode, isSameFileLink, partitionByFile, fileLookup,

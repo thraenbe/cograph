@@ -1338,7 +1338,12 @@ function renderFrameSlots(f, sub) {
       .attr('x', d.x + 6).attr('y', d.y + 11)
       .attr('font-size', `${9 * settings.textSize}px`)
       .attr('fill', color).attr('fill-opacity', 0.9)
-      .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize));
+      .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize))
+      .each(function () {
+        // X3: calls leaving this file, shown only while the same-file rule hides them (CSS)
+        const out = state.xfileCue && state.xfileCue.outByFile.get(d.file);
+        if (out) { d3.select(this).append('tspan').attr('class', 'slot-xout').text(' ↗' + out); }
+      });
   });
   // Every frame's slots are draggable, INCLUDING the root frame's: a handle
   // without a drag behavior lets the mousedown fall through to the zoom

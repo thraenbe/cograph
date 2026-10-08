@@ -46,6 +46,10 @@ npm run package      # produce a .vsix (sanity-check packaging)
 `npm test` downloads a pinned VS Code build and runs the suite headlessly. On Linux it
 needs a display server — use `xvfb-run -a npm test` (this is what CI does).
 
+`tsc` never deletes the output of a source file that no longer exists, so after pulling a change
+that deletes source files, a local `npm test` can fail in tests whose sources are gone. Run
+`rm -rf out` once after such a pull; CI is unaffected because it builds from a clean checkout.
+
 ## Project conventions
 
 - **Naming:** `camelCase` variables, `PascalCase` components/classes, `snake_case` only

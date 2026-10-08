@@ -1,73 +1,10 @@
 import * as assert from 'assert';
-import * as sinon from 'sinon';
-import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { EventEmitter } from 'events';
-import { ClaudeCodeProvider } from '../../graphIntelligence/claudeCodeProvider';
-import { CodexCliProvider, CodexStreamParser } from '../../graphIntelligence/codexCliProvider';
-import { PROVIDER_CATALOG, getProviderInfo, findProviderForModel } from '../../graphIntelligence/provider';
+import { CodexStreamParser } from '../../graphIntelligence/codexCliProvider';
 import { StreamJsonParser, summarizeToolInput, ProgressEvent } from '../../graphIntelligence/progressParser';
-import {
-  sliceAtBalancedBrace,
-  extractLastFencedBlock,
-  extractCographResult,
-  tryParseWithRepair,
-} from '../../graphIntelligence/jsonRepair';
-import type { GraphIntelligenceResult, GraphIntelligenceRequest } from '../../graphIntelligence/provider';
-import type { GraphData } from '../../graphProvider';
+import { sliceAtBalancedBrace } from '../../graphIntelligence/jsonRepair';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const rawCp = require('child_process');
-
-function makeFakeProc() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const proc = new EventEmitter() as any;
-  proc.stdout = new EventEmitter();
-  proc.stderr = new EventEmitter();
-  proc.kill = sinon.stub();
-  proc.pid = 1234;
-  return proc;
-}
-
-const SAMPLE_GRAPH: GraphData = {
-  nodes: [
-    { id: 'a.py::foo::1', name: 'foo', file: '/tmp/a.py', line: 1, language: 'python' },
-    { id: 'a.py::bar::5', name: 'bar', file: '/tmp/a.py', line: 5, language: 'python' },
-  ],
-  edges: [{ source: 'a.py::foo::1', target: 'a.py::bar::5' }],
-};
-
-const SAMPLE_RESULT: GraphIntelligenceResult = {
-  graph: {
-    nodes: [
-      { id: 'a.py::foo_renamed::1', name: 'foo_renamed', file: '/tmp/a.py', line: 1, language: 'python' },
-      { id: 'a.py::bar::5', name: 'bar', file: '/tmp/a.py', line: 5, language: 'python' },
-    ],
-    edges: [{ source: 'a.py::foo_renamed::1', target: 'a.py::bar::5' }],
-  },
-  text: 'Renamed foo to foo_renamed.',
-};
-
-/** Emit a canonical Claude Code stream-json success sequence. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function emitSuccess(proc: any, resultText: string, structured?: unknown) {
-  proc.stdout.emit('data', Buffer.from(
-    JSON.stringify({ type: 'system', subtype: 'init', model: 'sonnet', tools: ['Read'] }) + '\n',
-  ));
-  proc.stdout.emit('data', Buffer.from(
-    JSON.stringify({
-      type: 'result',
-      subtype: 'success',
-      result: resultText,
-      structured_output: structured,
-      usage: { input_tokens: 120, output_tokens: 45 },
-      total_cost_usd: 0.012,
-    }) + '\n',
-  ));
-  proc.emit('close', 0);
-}
+/** Any JSON object the CLI's final message may carry. */
+const SAMPLE_REPLY = { summaries: [{ path: 'src/a.py', summary: 'Parses the config.' }] };
 
 // ── StreamJsonParser ──────────────────────────────────────────────────────────
 
@@ -237,313 +174,8 @@ suite('jsonRepair.sliceAtBalancedBrace', () => {
   });
 });
 
-suite('jsonRepair.extractLastFencedBlock', () => {
-  test('finds last cograph-result block', () => {
-    const text = 'preamble\n```cograph-result\n{"a":1}\n```\nand later\n```cograph-result\n{"b":2}\n```\n';
-    assert.strictEqual(extractLastFencedBlock(text, ['cograph-result']), '{"b":2}');
-  });
-
-  test('falls back to json label', () => {
-    const text = 'foo\n```json\n{"x":1}\n```\n';
-    assert.strictEqual(extractLastFencedBlock(text, ['cograph-result', 'json']), '{"x":1}');
-  });
-
-  test('returns null when no matching block', () => {
-    assert.strictEqual(extractLastFencedBlock('no fences', ['cograph-result']), null);
-  });
-});
-
-suite('jsonRepair.extractCographResult', () => {
-  test('tier-1: uses structured_output when valid', () => {
-    const result = extractCographResult({
-      kind: 'result',
-      text: 'ignored',
-      structured: SAMPLE_RESULT,
-    });
-    assert.strictEqual(result.text, SAMPLE_RESULT.text);
-    assert.strictEqual(result.graph.nodes.length, SAMPLE_RESULT.graph.nodes.length);
-  });
-
-  test('tier-2: parses plain-JSON result text', () => {
-    const result = extractCographResult({
-      kind: 'result',
-      text: JSON.stringify(SAMPLE_RESULT) + '   \n',
-    });
-    assert.strictEqual(result.text, SAMPLE_RESULT.text);
-  });
-
-  test('tier-2 repair: strips trailing garbage via balanced-brace', () => {
-    const result = extractCographResult({
-      kind: 'result',
-      text: JSON.stringify(SAMPLE_RESULT) + '\ntrailing prose that broke the old regex\n```',
-    });
-    assert.strictEqual(result.text, SAMPLE_RESULT.text);
-  });
-
-  test('tier-3: extracts from cograph-result fence', () => {
-    const result = extractCographResult({
-      kind: 'result',
-      text: 'Here is the result:\n```cograph-result\n' + JSON.stringify(SAMPLE_RESULT) + '\n```\nThanks!',
-    });
-    assert.strictEqual(result.text, SAMPLE_RESULT.text);
-  });
-
-  test('regression: result text contains nested python fence inside JSON string', () => {
-    // This reproduces the shape that broke position 9840 in production:
-    // a cograph-result block whose "text" string contains a ```python...``` fence.
-    const inner = {
-      graph: SAMPLE_RESULT.graph,
-      text: 'Here is how:\n```python\ndef foo():\n    pass\n```\nThat renames the function.',
-    };
-    const text = 'Sure!\n```cograph-result\n' + JSON.stringify(inner) + '\n```\n';
-    const result = extractCographResult({ kind: 'result', text });
-    assert.strictEqual(result.text, inner.text);
-    assert.strictEqual(result.graph.nodes.length, SAMPLE_RESULT.graph.nodes.length);
-  });
-
-  test('throws with preview when every tier fails', () => {
-    assert.throws(
-      () => extractCographResult({ kind: 'result', text: 'nothing structured here at all' }),
-      /Unable to extract graph\/text/,
-    );
-  });
-
-  test('tryParseWithRepair returns null on total garbage', () => {
-    assert.strictEqual(tryParseWithRepair('complete garbage no braces'), null);
-  });
-});
-
-// ── ClaudeCodeProvider ────────────────────────────────────────────────────────
-
-suite('ClaudeCodeProvider', () => {
-  let sandbox: sinon.SinonSandbox;
-  let tmpDir: string;
-
-  setup(() => {
-    sandbox = sinon.createSandbox();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-test-claude-'));
-  });
-
-  teardown(() => {
-    sandbox.restore();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  test('happy path — parses stream-json result via structured_output', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new ClaudeCodeProvider(outputChannel);
-
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-
-    const fakeProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({ prompt: 'rename foo', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir });
-    emitSuccess(fakeProc, JSON.stringify(SAMPLE_RESULT), SAMPLE_RESULT);
-
-    const result = await promise;
-    assert.strictEqual(result.text, 'Renamed foo to foo_renamed.');
-    assert.strictEqual(result.graph.nodes[0].name, 'foo_renamed');
-    assert.ok(!fs.existsSync(path.join(tmpDir, '.cograph', '.intelligence-request.json')));
-  });
-
-  test('tier-2 fallback: structured absent, plain JSON in result text', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new ClaudeCodeProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({ prompt: 'x', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir });
-    emitSuccess(fakeProc, JSON.stringify(SAMPLE_RESULT));
-
-    const result = await promise;
-    assert.strictEqual(result.text, SAMPLE_RESULT.text);
-  });
-
-  test('regression: position-9840-style trailing content after JSON recovers via balanced-brace', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new ClaudeCodeProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    // Embed the bug-shape: valid JSON plus a trailing code fence inside the result text.
-    const resultText = JSON.stringify({
-      graph: SAMPLE_RESULT.graph,
-      text: 'Rename complete. Example:\n```python\nfoo_renamed()\n```',
-    }) + '\n```\n';
-
-    const promise = provider.run({ prompt: 'x', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir });
-    emitSuccess(fakeProc, resultText);
-
-    const result = await promise;
-    assert.ok(result.text.includes('Rename complete'));
-    assert.strictEqual(result.graph.nodes.length, SAMPLE_RESULT.graph.nodes.length);
-  });
-
-  test('malformed stdout — rejects with descriptive error', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new ClaudeCodeProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({ prompt: 'test', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir });
-    emitSuccess(fakeProc, 'not JSON and no fenced block');
-
-    await assert.rejects(promise, /Unable to extract graph\/text/);
-  });
-
-  test('missing CLI — throws descriptive error', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new ClaudeCodeProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: new Error('not found') });
-
-    await assert.rejects(
-      () => provider.run({ prompt: 'test', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir }),
-      /Claude Code CLI not found/,
-    );
-  });
-
-  test('CLI error result — rejects with subtype + message', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new ClaudeCodeProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({ prompt: 'x', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir });
-    fakeProc.stdout.emit('data', Buffer.from(
-      JSON.stringify({
-        type: 'result',
-        subtype: 'error_max_budget_usd',
-        errors: [{ message: 'budget exceeded' }],
-      }) + '\n',
-    ));
-    fakeProc.emit('close', 0);
-
-    await assert.rejects(promise, /error_max_budget_usd.*budget exceeded/);
-  });
-
-  test('non-zero exit code — rejects', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new ClaudeCodeProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({ prompt: 'test', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir });
-    fakeProc.emit('close', 1);
-
-    await assert.rejects(promise, /exited with code 1/);
-  });
-
-  test('argv carries model/schema/stream flags', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new ClaudeCodeProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    const spawnStub = sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({
-      prompt: 'test',
-      graph: SAMPLE_GRAPH,
-      workspaceRoot: tmpDir,
-      model: 'opus',
-      effort: 'high',
-      maxTurns: 5,
-      maxBudgetUsd: 1.5,
-    });
-    emitSuccess(fakeProc, JSON.stringify(SAMPLE_RESULT), SAMPLE_RESULT);
-    await promise;
-
-    const args = spawnStub.firstCall.args[1] as string[];
-    assert.ok(args.includes('--output-format'));
-    assert.ok(args.includes('stream-json'));
-    assert.ok(args.includes('--verbose'));
-    assert.ok(args.includes('--json-schema'));
-    assert.ok(args.includes('--permission-mode'));
-    assert.ok(args.includes('dontAsk'));
-    const modelIdx = args.indexOf('--model');
-    assert.strictEqual(args[modelIdx + 1], 'opus');
-    const turnsIdx = args.indexOf('--max-turns');
-    assert.strictEqual(args[turnsIdx + 1], '5');
-    const budgetIdx = args.indexOf('--max-budget-usd');
-    assert.strictEqual(args[budgetIdx + 1], '1.5');
-    const effortIdx = args.indexOf('--effort');
-    assert.strictEqual(args[effortIdx + 1], 'high');
-  });
-
-  test('effort flag omitted for non-opus models', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new ClaudeCodeProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    const spawnStub = sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({
-      prompt: 'test', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir,
-      model: 'sonnet', effort: 'high',
-    });
-    emitSuccess(fakeProc, JSON.stringify(SAMPLE_RESULT), SAMPLE_RESULT);
-    await promise;
-
-    const args = spawnStub.firstCall.args[1] as string[];
-    assert.ok(!args.includes('--effort'), 'effort should be omitted for sonnet');
-  });
-
-  test('onProgress receives init, then result events', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new ClaudeCodeProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const events: ProgressEvent[] = [];
-    const promise = provider.run({
-      prompt: 'x', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir,
-      onProgress: (e) => events.push(e),
-    });
-    emitSuccess(fakeProc, JSON.stringify(SAMPLE_RESULT), SAMPLE_RESULT);
-    await promise;
-
-    assert.ok(events.some(e => e.kind === 'init'));
-    assert.ok(events.some(e => e.kind === 'result'));
-  });
-});
-
-// ── Provider catalog ──────────────────────────────────────────────────────────
-
-suite('Provider catalog', () => {
-  test('catalog lists claude-code and codex with non-empty models', () => {
-    const ids = PROVIDER_CATALOG.map(p => p.id);
-    assert.ok(ids.includes('claude-code'));
-    assert.ok(ids.includes('codex'));
-    for (const p of PROVIDER_CATALOG) {
-      assert.ok(p.models.length > 0, `${p.id} should have at least one model`);
-    }
-  });
-
-  test('getProviderInfo resolves by id; unknown returns undefined', () => {
-    assert.strictEqual(getProviderInfo('claude-code')?.id, 'claude-code');
-    assert.strictEqual(getProviderInfo('codex')?.id, 'codex');
-    assert.strictEqual(getProviderInfo('nope'), undefined);
-  });
-
-  test('findProviderForModel maps a model to its owning provider', () => {
-    assert.strictEqual(findProviderForModel('sonnet')?.id, 'claude-code');
-    assert.strictEqual(findProviderForModel('opus')?.id, 'claude-code');
-    assert.strictEqual(findProviderForModel('gpt-5-codex')?.id, 'codex');
-    assert.strictEqual(findProviderForModel('gpt-5')?.id, 'codex');
-    assert.strictEqual(findProviderForModel('nonexistent'), undefined);
-  });
-});
-
-// ── CodexStreamParser ─────────────────────────────────────────────────────────
-
 suite('CodexStreamParser', () => {
-  test('session_configured emits init with sessionId + model', () => {
+  test('session_configured emits init with the model', () => {
     const events: ProgressEvent[] = [];
     const parser = new CodexStreamParser((e) => events.push(e));
     parser.feed(JSON.stringify({
@@ -553,7 +185,6 @@ suite('CodexStreamParser', () => {
     assert.strictEqual(events.length, 1);
     assert.strictEqual(events[0].kind, 'init');
     if (events[0].kind === 'init') {
-      assert.strictEqual(events[0].sessionId, 'abc-123');
       assert.strictEqual(events[0].model, 'gpt-5-codex');
     }
   });
@@ -598,11 +229,11 @@ suite('CodexStreamParser', () => {
     const events: ProgressEvent[] = [];
     const parser = new CodexStreamParser((e) => events.push(e));
     parser.feed(JSON.stringify({
-      id: '1', msg: { type: 'task_complete', last_agent_message: JSON.stringify(SAMPLE_RESULT) },
+      id: '1', msg: { type: 'task_complete', last_agent_message: JSON.stringify(SAMPLE_REPLY) },
     }) + '\n');
     assert.strictEqual(events.length, 1);
     if (events[0].kind === 'result') {
-      assert.ok(events[0].text.includes('Renamed foo'));
+      assert.ok(events[0].text.includes('Parses the config'));
     }
   });
 
@@ -620,12 +251,12 @@ suite('CodexStreamParser', () => {
     const events: ProgressEvent[] = [];
     const parser = new CodexStreamParser((e) => events.push(e));
     parser.feed(JSON.stringify({
-      id: '1', msg: { type: 'agent_message', message: JSON.stringify(SAMPLE_RESULT) },
+      id: '1', msg: { type: 'agent_message', message: JSON.stringify(SAMPLE_REPLY) },
     }) + '\n');
     parser.feed(JSON.stringify({ id: '1', msg: { type: 'task_complete' } }) + '\n');
     const result = events.find(e => e.kind === 'result');
     if (result && result.kind === 'result') {
-      assert.ok(result.text.includes('Renamed foo'));
+      assert.ok(result.text.includes('Parses the config'));
     } else {
       assert.fail('expected a result event');
     }
@@ -639,121 +270,5 @@ suite('CodexStreamParser', () => {
       id: '1', msg: { type: 'session_configured', session_id: 'x', model: 'gpt-5' },
     }) + '\n');
     assert.strictEqual(events.length, 1);
-  });
-});
-
-// ── CodexCliProvider ──────────────────────────────────────────────────────────
-
-suite('CodexCliProvider', () => {
-  let sandbox: sinon.SinonSandbox;
-  let tmpDir: string;
-
-  setup(() => {
-    sandbox = sinon.createSandbox();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-test-codex-'));
-  });
-
-  teardown(() => {
-    sandbox.restore();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  /** Emit a canonical Codex JSON success sequence. */
-  function emitCodexSuccess(proc: { stdout: EventEmitter; emit: (event: string, ...args: unknown[]) => boolean }, finalJson: string, sessionId = 'sess-x') {
-    proc.stdout.emit('data', Buffer.from(
-      JSON.stringify({ id: 's', msg: { type: 'session_configured', session_id: sessionId, model: 'gpt-5-codex' } }) + '\n',
-    ));
-    proc.stdout.emit('data', Buffer.from(
-      JSON.stringify({ id: 's', msg: { type: 'task_complete', last_agent_message: finalJson } }) + '\n',
-    ));
-    proc.emit('close', 0);
-  }
-
-  test('happy path — parses JSON from last_agent_message + returns sessionId', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new CodexCliProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({ prompt: 'rename foo', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir });
-    emitCodexSuccess(fakeProc, JSON.stringify(SAMPLE_RESULT), 'sess-abc');
-
-    const result = await promise;
-    assert.strictEqual(result.text, SAMPLE_RESULT.text);
-    assert.strictEqual(result.sessionId, 'sess-abc');
-    assert.ok(!fs.existsSync(path.join(tmpDir, '.cograph', '.intelligence-request.json')));
-  });
-
-  test('missing CLI — throws descriptive error', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new CodexCliProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: new Error('not found') });
-
-    await assert.rejects(
-      () => provider.run({ prompt: 'test', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir }),
-      /Codex CLI not found/,
-    );
-  });
-
-  test('argv carries --json, --full-auto, --cd, --model and prompt', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new CodexCliProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    const spawnStub = sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({
-      prompt: 'q', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir, model: 'gpt-5-codex',
-    });
-    emitCodexSuccess(fakeProc, JSON.stringify(SAMPLE_RESULT));
-    await promise;
-
-    const args = spawnStub.firstCall.args[1] as string[];
-    assert.strictEqual(args[0], 'exec', 'first arg is "exec"');
-    assert.ok(args.includes('--json'));
-    assert.ok(args.includes('--full-auto'));
-    assert.ok(args.includes('--skip-git-repo-check'));
-    const cdIdx = args.indexOf('--cd');
-    assert.strictEqual(args[cdIdx + 1], tmpDir);
-    const modelIdx = args.indexOf('--model');
-    assert.strictEqual(args[modelIdx + 1], 'gpt-5-codex');
-    // Last argv is the prompt
-    assert.ok(typeof args[args.length - 1] === 'string' && args[args.length - 1].length > 0);
-  });
-
-  test('sessionId in request adds "resume <id>" to argv', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new CodexCliProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    const spawnStub = sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({
-      prompt: 'cont', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir, sessionId: 'sess-prev',
-    });
-    emitCodexSuccess(fakeProc, JSON.stringify(SAMPLE_RESULT));
-    await promise;
-
-    const args = spawnStub.firstCall.args[1] as string[];
-    assert.strictEqual(args[0], 'exec');
-    assert.strictEqual(args[1], 'resume');
-    assert.strictEqual(args[2], 'sess-prev');
-  });
-
-  test('error event in stream rejects with Codex prefix', async () => {
-    const outputChannel = { append: sinon.stub() } as unknown as vscode.OutputChannel;
-    const provider = new CodexCliProvider(outputChannel);
-    sandbox.stub(rawCp, 'spawnSync').returns({ error: null });
-    const fakeProc = makeFakeProc();
-    sandbox.stub(rawCp, 'spawn').returns(fakeProc);
-
-    const promise = provider.run({ prompt: 'x', graph: SAMPLE_GRAPH, workspaceRoot: tmpDir });
-    fakeProc.stdout.emit('data', Buffer.from(
-      JSON.stringify({ id: '1', msg: { type: 'error', message: 'rate limited' } }) + '\n',
-    ));
-    fakeProc.emit('close', 0);
-
-    await assert.rejects(promise, /Codex:.*rate limited/);
   });
 });

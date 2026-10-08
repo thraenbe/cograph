@@ -1,46 +1,8 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import type {
-  GraphIntelligenceProvider, GraphIntelligenceRequest, GraphIntelligenceResult, JsonRequest, JsonResult,
-} from './provider';
+import type { GraphIntelligenceProvider, JsonRequest, JsonResult } from './provider';
 import { StreamJsonParser, ProgressEvent } from './progressParser';
-import { extractCographResult, extractJsonObject } from './jsonRepair';
+import { extractJsonObject } from './jsonRepair';
 import { runCliStream, ensureCliBinary } from './cliProcess';
-
-const WRAPPER_PROMPT = `Read ./.cograph/.intelligence-request.json. It holds the user's request under "prompt" and the current code graph under "graph" (nodes and edges). Fulfill the user's request.
-
-Your final reply MUST be a single JSON object matching:
-  {"graph":{"nodes":[...],"edges":[...]},"text":"<markdown>"}
-
-The "text" field MUST be concise, skimmable markdown. Use:
-  - short paragraphs (2-3 sentences max)
-  - "##" / "###" headings when the answer has more than one section
-  - "-" bullet lists for enumerations and trade-offs
-  - fenced code blocks with a language tag (\`\`\`ts, \`\`\`py, \`\`\`bash) for code, file paths, symbol names that benefit from monospace, and shell snippets
-  - backticks for inline identifiers, file paths, and flags
-  - **bold** for the single most important takeaway, sparingly
-
-Do NOT repeat the user's question. Do NOT restate the graph. Lead with the answer. If the change is trivial, a one-line answer is best.
-
-Do not wrap the JSON object in a code fence. Do not include any prose outside the JSON.`;
-
-const COGRAPH_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['graph', 'text'],
-  properties: {
-    text: { type: 'string' },
-    graph: {
-      type: 'object',
-      required: ['nodes', 'edges'],
-      properties: {
-        nodes: { type: 'array', items: { type: 'object' } },
-        edges: { type: 'array', items: { type: 'object' } },
-      },
-    },
-  },
-};
 
 const CLAUDE_NOT_FOUND =
   'Claude Code CLI not found on PATH. Install from https://docs.anthropic.com/en/docs/claude-code';
@@ -83,42 +45,6 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
 
   constructor(private readonly outputChannel: vscode.OutputChannel) {}
 
-  async run(req: GraphIntelligenceRequest, signal?: AbortSignal): Promise<GraphIntelligenceResult> {
-    ensureCliBinary('claude', CLAUDE_NOT_FOUND);
-
-    const cographDir = path.join(req.workspaceRoot, '.cograph');
-    const tempFile = path.join(cographDir, '.intelligence-request.json');
-    fs.mkdirSync(cographDir, { recursive: true });
-    fs.writeFileSync(tempFile, JSON.stringify({ prompt: req.prompt, graph: req.graph }), 'utf8');
-
-    let finalEvent: (ProgressEvent & { kind: 'result' }) | null = null;
-    let errorEvent: (ProgressEvent & { kind: 'error' }) | null = null;
-    let latestSessionId: string | null = req.sessionId ?? null;
-
-    const parser = new StreamJsonParser((ev) => {
-      if (ev.kind === 'init' && ev.sessionId) { latestSessionId = ev.sessionId; }
-      if (ev.kind === 'result') { finalEvent = ev; }
-      else if (ev.kind === 'error') { errorEvent = ev; }
-      req.onProgress?.(ev);
-    });
-
-    try {
-      await this.spawnStream(req, parser, signal);
-    } finally {
-      try { fs.unlinkSync(tempFile); } catch { /* already cleaned up */ }
-    }
-
-    if (errorEvent) {
-      const e = errorEvent as ProgressEvent & { kind: 'error' };
-      throw new Error(`Claude Code: ${e.subtype} — ${e.message}`);
-    }
-    if (!finalEvent) {
-      throw new Error('Claude Code closed without emitting a result.');
-    }
-    const base = extractCographResult(finalEvent);
-    return { ...base, sessionId: latestSessionId };
-  }
-
   /**
    * Narrow structured call. The prompt travels over stdin (no command-line length
    * limit, nothing written to disk). Tools are off unless the caller opts into
@@ -158,46 +84,5 @@ export class ClaudeCodeProvider implements GraphIntelligenceProvider {
     if (!finalEvent) { throw new Error('Claude Code closed without emitting a result.'); }
     const done = finalEvent as ProgressEvent & { kind: 'result' };
     return { data: extractJsonObject(done, 'Claude Code'), usage: done.usage };
-  }
-
-  private spawnStream(req: GraphIntelligenceRequest, parser: StreamJsonParser, signal?: AbortSignal): Promise<void> {
-    const config = vscode.workspace.getConfiguration('cograph');
-    const timeoutMs = config.get<number>('graphIntelligence.timeoutMs', 300_000);
-    const model = req.model ?? config.get<string>('graphIntelligence.model', 'sonnet');
-    const effort = req.effort ?? config.get<string>('graphIntelligence.effort', 'auto');
-    const maxTurns = req.maxTurns ?? config.get<number>('graphIntelligence.maxTurns', 15);
-    const maxBudgetUsd = req.maxBudgetUsd ?? config.get<number>('graphIntelligence.maxBudgetUsd', 2.0);
-
-    const args: string[] = [
-      '-p', WRAPPER_PROMPT,
-      '--output-format', 'stream-json',
-      '--verbose',
-      '--model', model,
-      '--json-schema', JSON.stringify(COGRAPH_SCHEMA),
-      '--permission-mode', 'dontAsk',
-      '--max-turns', String(maxTurns),
-      '--max-budget-usd', String(maxBudgetUsd),
-    ];
-    if (req.sessionId) {
-      args.push('--resume', req.sessionId);
-    }
-    if ((model === 'opus' || model === 'opusplan') && effort && effort !== 'auto') {
-      args.push('--effort', effort);
-    }
-
-    return runCliStream({
-      command: 'claude',
-      args,
-      cwd: req.workspaceRoot,
-      label: 'Claude Code',
-      timeoutMs,
-      signal,
-      onStdout: (text) => {
-        this.outputChannel.append(text);
-        parser.feed(text);
-      },
-      onStderr: (text) => this.outputChannel.append(`[stderr] ${text}`),
-      onEnd: () => parser.flush(),
-    });
   }
 }

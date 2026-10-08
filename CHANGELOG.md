@@ -159,6 +159,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   On django zoomed out to fit, that removes about 1 300 unreadable titles and a third of the
   work per frame (10.1 → 6.8 ms). (F31)
 
+### Security
+- **CoGraph can no longer have an AI tool write to your files.** Chat and the AI Workflow Graph
+  ran the Claude Code / Codex CLI in modes that may edit files (`--permission-mode dontAsk`,
+  `--full-auto`); those were the only such calls CoGraph ever made, and they are gone with
+  both features. The one AI feature left, Annotate Graph, runs Claude Code with no tools, or
+  with read-only ones (Read, Grep, Glob) if you turn on source reading, and runs Codex in its
+  read-only sandbox. Nothing is sent to an AI until you turn on `cograph.graphIntelligence.enabled`.
+
 ## [1.3.0] - 2026-09-24
 
 The Shelf engine release: nested, non-overlapping folder frames with per-file slots,

@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { IndexHolder } from '../../mcp/graphIndex';
 import { ago, capText, footer } from '../../mcp/format';
-import { confine, findWorkspaceRoot, relPath, ToolError } from '../../mcp/paths';
+import { canonical, confine, findWorkspaceRoot, isInside, relPath, ToolError } from '../../mcp/paths';
 import { parseArgs } from '../../mcp/server';
 import { readSlice } from '../../mcp/sourceSlice';
 import { NO_ANALYSIS, runTool, TOOLS, type ToolContext } from '../../mcp/tools';
@@ -35,6 +35,38 @@ suite('MCP paths and source slices', () => {
       fs.symlinkSync(os.tmpdir(), fx.abs('escape'), 'dir');
     } catch { return; } // symlinks may need privileges (Windows CI)
     assert.throws(() => confine(fx.root, 'escape'), /resolves outside/);
+  });
+
+  test('confine works under a root reached through an alias, for existing AND missing paths', () => {
+    // Regression (Windows CI, 2026-10-08): the runner's temp dir is an 8.3 short name (RUNNER~1)
+    // that realpath expands, so a missing path compared its short form with the expanded root and
+    // every one "resolved outside". A symlinked root reproduces the same thing on every OS.
+    const alias = `${fx.root}-alias`;
+    try { fs.symlinkSync(fx.root, alias, 'junction'); } catch { return; } // no symlink rights
+    try {
+      assert.strictEqual(confine(alias, 'src/a.ts'), path.join(alias, 'src', 'a.ts'));
+      assert.strictEqual(confine(alias, 'src/not-there.ts'), path.join(alias, 'src', 'not-there.ts'));
+      assert.strictEqual(confine(alias, 'docs/new/deep.md'), path.join(alias, 'docs', 'new', 'deep.md'));
+      assert.throws(() => confine(alias, '../x'), /outside the workspace/);
+    } finally {
+      fs.rmSync(alias, { force: true, recursive: false });
+    }
+  });
+
+  test('canonical realpaths the deepest existing ancestor and keeps the missing tail', () => {
+    assert.strictEqual(canonical(fx.abs('src/a.ts')), fs.realpathSync.native(fx.abs('src/a.ts')));
+    assert.strictEqual(canonical(fx.abs('src/gone/x.ts')), path.join(fs.realpathSync.native(fx.abs('src')), 'gone', 'x.ts'));
+  });
+
+  test('isInside: segment-wise, so "..foo" is a child; case-insensitive on Windows', () => {
+    assert.ok(isInside('/w', '/w/..foo/a', path.posix));
+    assert.ok(!isInside('/w', '/w/../x', path.posix));
+    assert.ok(!isInside('/w', '/', path.posix));
+    assert.ok(isInside('C:\\Users\\a', 'c:\\Users\\A\\src', path.win32), 'drive and name case differ');
+    assert.ok(isInside('c:\\w', 'c:\\w\\..foo', path.win32));
+    assert.ok(!isInside('c:\\w', 'c:\\w2', path.win32));
+    assert.ok(!isInside('c:\\w', 'd:\\w\\x', path.win32), 'another drive');
+    assert.strictEqual(relPath(fx.root, path.join(fx.root, '..foo', 'a.ts')), '..foo/a.ts');
   });
 
   test('relPath is POSIX and keeps foreign absolute paths; findWorkspaceRoot walks up to the cache', () => {

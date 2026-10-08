@@ -83,7 +83,9 @@ suite('MCP VS Code integration', () => {
     sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: vscode.Uri.file(tmp) }]);
     const disposable = registerMcpProvider('/s/server.js', '1.3.0', api as never)!;
     const [def] = provider!.provideMcpServerDefinitions(undefined);
-    assert.deepStrictEqual(def.args, ['CoGraph', process.execPath, ['/s/server.js', '--workspace', tmp], { ELECTRON_RUN_AS_NODE: '1' }, '1.3.0']);
+    // The root comes from Uri.fsPath, which normalises the drive letter on Windows (c:\…), so compare in that form.
+    const root = vscode.Uri.file(tmp).fsPath;
+    assert.deepStrictEqual(def.args, ['CoGraph', process.execPath, ['/s/server.js', '--workspace', root], { ELECTRON_RUN_AS_NODE: '1' }, '1.3.0']);
     assert.strictEqual(def.cwd!.fsPath, vscode.Uri.file(tmp).fsPath);
     sandbox.stub(vscode.workspace, 'workspaceFolders').value(undefined);
     assert.deepStrictEqual(provider!.provideMcpServerDefinitions(undefined), []);

@@ -485,29 +485,21 @@ function toggleFileClusterExpand(d) {
   }
 }
 
-// Drill-down (folder navigation) is the 'file' cluster lens, outside workflow mode.
+// Drill-down (folder navigation) is the 'file' cluster lens.
 // Requires a structure tree; without one (e.g. autoEngage disabled) 'file' mode
 // falls back to plain file-structural clustering instead of a blank view.
 function isDrilldown() {
   return state.clusterGroupBy === 'file'
-    && state.viewMode !== 'workflow'
     && !!(state.structureTree && state.structureTree.folders);
 }
 
-/** True when `data` is an AI Workflow Graph payload (marked by graph.workflow). */
-function isWorkflowPayload(data) {
-  return !!(data && data.workflow && Array.isArray(data.workflow.clusters));
-}
-
-/** Route an incoming full-graph message: workflow payloads always take the full
- *  renderGraph path (drill-down cannot show the staged layout); everything else
- *  folds into the skeleton while drill-down is active. Returns 'render' | 'ingest'. */
-function classifyGraphMessage(data) {
-  return (isWorkflowPayload(data) || !isDrilldown()) ? 'render' : 'ingest';
+/** Route an incoming full-graph message: while drill-down is active it folds into
+ *  the skeleton, otherwise it takes the full renderGraph path. Returns 'render' | 'ingest'. */
+function classifyGraphMessage() {
+  return isDrilldown() ? 'ingest' : 'render';
 }
 
 function enterFileClusterMode() {
-  state.viewMode = 'cluster';
   state.clusterGroupBy = 'file'; // the 'file' lens IS the folder drill-down
   state.classMode = false;
   // If a full graph is already loaded (small repo / valid cache), every folder is
@@ -556,7 +548,6 @@ if (typeof module !== 'undefined') {
     enterFileClusterMode,
     renderStructureSkeleton,
     isDrilldown,
-    isWorkflowPayload,
     classifyGraphMessage,
     applyDetailDepth,
     setInitialDetailDepth,

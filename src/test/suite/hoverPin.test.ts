@@ -9,7 +9,7 @@ suite('hoverPin (X2): hold a hovered function still in Global + Dynamic', () => 
   let hp: any;
   setup(() => {
     for (const k of GLOBALS) { saved[k] = g[k]; }
-    g.state = { layoutMode: 'dynamic', viewMode: 'graph' };
+    g.state = { layoutMode: 'dynamic' };
     g.usesFrames = () => false;
     delete require.cache[require.resolve('../../../src/webview/hoverPin.js')];
     hp = require('../../../src/webview/hoverPin.js');
@@ -40,13 +40,12 @@ suite('hoverPin (X2): hold a hovered function still in Global + Dynamic', () => 
     assert.deepStrictEqual([d.fx, d.fy], [50, 60], 'the drag end decides, not the hover');
   });
 
-  test('only Global + Dynamic: Static, Shelf and the Workflow view are left alone', () => {
+  test('only Global + Dynamic: Static and Shelf are left alone', () => {
     for (const setupFn of [
       () => { g.state.layoutMode = 'static'; },
       () => { g.usesFrames = () => true; },
-      () => { g.state.viewMode = 'workflow'; },
     ]) {
-      g.state = { layoutMode: 'dynamic', viewMode: 'graph' }; g.usesFrames = () => false;
+      g.state = { layoutMode: 'dynamic' }; g.usesFrames = () => false;
       setupFn();
       const d: any = { x: 1, y: 2, fx: null, fy: null };
       hp.hoverPinOn(d);

@@ -1079,7 +1079,7 @@ function teardownFrames() {
   }
   if (state.slotPlacedIds) { state.slotPlacedIds.clear(); }
   __fr.slotRects = null;
-  // state.frames is kept: returning from workflow/global restores stable rects.
+  // state.frames is kept: returning from global restores stable rects.
 }
 
 /** Drop every packed rect so the next render re-packs from scratch. */

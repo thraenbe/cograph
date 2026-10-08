@@ -13,7 +13,7 @@
 
 function hoverPinApplies() {
   if (typeof usesFrames === 'function' && usesFrames()) { return false; }
-  return typeof state !== 'undefined' && state.layoutMode === 'dynamic' && state.viewMode !== 'workflow';
+  return typeof state !== 'undefined' && state.layoutMode === 'dynamic';
 }
 
 function hoverPinOn(d) {

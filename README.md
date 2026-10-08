@@ -39,6 +39,7 @@ toolbar to toggle overlays.
 - **Static analysis, zero config** — extracts the call graph using each language's native tooling: Python's built-in `ast`, the TypeScript compiler API, `java-parser` for Java, and `web-tree-sitter` for C++. No runtime instrumentation, no setup.
 - **Two layout engines** — **Shelf** packs every open folder into its own non-overlapping frame with a slot per file and simulates only what is open (the default, and what keeps large repositories navigable); **Global** is the classic single force-directed graph. **Dynamic | Static** picks whether the layout keeps settling or is frozen where it was placed. Shelf simulations run in background workers.
 - **Interactive graph** — zoom, pan, drag nodes and frames, and filter by function name.
+- **A readable default** — only the calls that stay inside a file are drawn, so a folder shows its structure instead of a hairball (`cograph.display.sameFileEdgesOnly`, on by default; turn it off to draw every call). Function names appear when you hover one, and on every match while you filter. A function whose calls all leave its file carries a dashed ring, and each file name shows how many calls leave it — `auth.py · 6 ↗44` — so nothing looks unconnected when it is not.
 - **Click-to-navigate** — click any node to open the file and jump to the function definition.
 - **Function source popup** — click a node to open a draggable, resizable popup showing syntax-highlighted source code; multiple popups can be open simultaneously.
 - **OOP class overlay** — visualize class hierarchies, fields, and methods; toggle with the **Class** button.
@@ -49,8 +50,8 @@ toolbar to toggle overlays.
 - **Detail / Complexity slider** — progressively cluster low-connectivity nodes to keep large projects navigable.
 - **Save Layout** — persist node positions to `.cograph/<name>.json`; reopen the same graph and pick up where you left off.
 - **Subgraphs** — visualize part of the project. **CoGraph: Only visualize folder…** (command palette) opens one folder and its subfolders; **⊂ Create new Subgraph** in the sidebar opens an explorer-like picker to choose several folders and saves them as a subgraph next to your layouts. Folders left out stay listed under FILTERS in the Folder panel, where one click brings them in; Save keeps the scope with the layout.
-- **Version Control** — the sidebar lists the repository's pull requests (through the GitHub CLI and your own sign-in). Click one and CoGraph fetches the pull request's own commit and opens it in a read-only panel: every folder that leads to a changed file is open, the rest are closed, and the changed files are green (added), orange (modified) or red (deleted). The panel title and banner say which tree you are looking at; when the head cannot be fetched you can show the pull request in your current checkout instead.
-- **Hover card** — rest the pointer on a folder or file to see its path, size and languages, plus its AI summary once generated.
+- **Version Control** — the sidebar lists the repository's pull requests (through the GitHub CLI and your own sign-in). Click one and CoGraph fetches the pull request's own commit and opens it in a read-only panel: every folder that leads to a changed file is open, the rest are closed, and the changed files are green (added), orange (modified) or red (deleted). The panel title and banner say which tree you are looking at; when the head cannot be fetched you can show the pull request in your current checkout instead. Folders without changes stay visible but closed (`cograph.pullRequests.unchangedFolders`), and the fetched commits are kept on disk so reopening is fast — **CoGraph: Clear pull-request trees** reports what they weigh and removes them.
+- **Hover card** — rest the pointer on a function for its name, signature, doc comment, the first lines of its code and how many functions call it; on a folder or file for its path, size and languages, plus its AI summary once generated.
 - **Hide what you do not need** — right-click a folder or a file for **Hide** or **Show only this one**: it leaves the layout entirely and the remaining folders close the gap. Every hide is listed under **FILTERS** in the Folder panel and is reversible one by one or with **Show all**, and hides are saved with the layout.
 - **Forces box** — the left toolbar shows only the forces the current engine uses, with a **show more forces** expander for the advanced ones. Under Static motion it explains that forces are off instead of showing dead sliders.
 - **Settings panel** — display options (node size, text size, link thickness, arrows) and visibility toggles (orphan nodes, library nodes).
@@ -107,7 +108,7 @@ On VS Code 1.101 and later, agent mode (Copilot) sees CoGraph without any setup.
 2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run **`CoGraph: Visualize Project`**.
 3. The call graph opens in a side panel.
 4. Use the search bar to filter functions by name (`Ctrl+F` / `Cmd+F` focuses it).
-5. Click any node to navigate to its definition, or view its source in a popup.
+5. Hover a function to see its name, signature and first lines; click it to navigate to its definition, or open its source in a popup.
 6. Toggle **Git** or **Language** coloring with the buttons in the top-left.
 7. Toggle the **Class** button to overlay OOP class hierarchy and field information.
 8. Toggle the **Folder** button to overlay the directory/file structure as collapsible groups.
@@ -132,6 +133,16 @@ On VS Code 1.101 and later, agent mode (Copilot) sees CoGraph without any setup.
   simulations run in background workers (`cograph.layout.workers`: `auto` | `on` | `off`,
   default `auto`; `off` simulates on the UI thread), and when zoomed far out labels, call
   lines and function dots are dropped until you zoom back in.
+- **I cannot see any calls between files.** That is the default: CoGraph draws only the calls
+  that stay inside a file, because on most projects the cross-file lines cover everything else
+  (on a sample of twelve repositories they are between 26 % and 93 % of all calls). A function
+  whose calls all leave its file carries a **dashed ring**, and each file name shows how many
+  calls leave it (`auth.py · 6 ↗44`). Hover a function to see its own cross-file calls, or turn
+  off `cograph.display.sameFileEdgesOnly` to draw them all.
+- **Function names are not shown.** They appear when you hover a function, while you drag one,
+  while its source popup is open, and on every match while you filter. Labels scale with the
+  zoom, so drawn at rest they overlapped each other at every zoom level rather than separating
+  as you zoomed in.
 - **Some calls are missing.** Dynamic dispatch, `eval`, and computed/runtime-generated
   calls are not statically resolvable — see *Limitations*.
 

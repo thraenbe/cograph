@@ -5,7 +5,21 @@ All notable changes to CoGraph are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-10-09
+
+The release that took things away. Two of the three AI features were measured rather than
+assumed, found not to work, and removed: Chat handed the whole graph to the CLI as one file,
+which the CLI refuses to read above 256 KB, so it returned empty answers on most real
+repositories; the AI Workflow Graph did the same and produced nothing usable on any of seven
+test repositories. What replaces them needs no model at all — a local **MCP server**, so the
+agent you already use can ask the graph directly, and a **Version Control** view that opens a
+pull request's own commit as a graph.
+
+Underneath, the Shelf engine started drawing the call lines inside a folder, which it had never
+done since it shipped; `this.helper()` calls started resolving in TypeScript and JavaScript,
+which they never had; and the graph and the Folder panel stopped disagreeing about which files
+are in the project. The default view is quieter on purpose: only the calls inside a file are
+drawn, function names appear when you point at one, and anything whose calls are hidden says so.
 
 ### Added
 - **CoGraph as an MCP server for your AI agent.** Claude Code, Cursor, Claude Desktop and VS Code

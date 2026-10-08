@@ -1449,3 +1449,14 @@ g.frame.drag-hover > .folder-bubble-shape { stroke-opacity: 0.9; }
 
 /* ── F28: only the hovered function's name is shown (fnNames.js) ── */
 #graph g.fn-names-hidden text.fn-name:not(.fn-name-on) { display: none; }
+
+/* ── X3: what the same-file rule hides (crossLinks.xfileCue), shown only while it is on ──
+   Ring: a function with hidden calls and no visible one (it would look like it calls nothing).
+   Only where the node has no outline of its own, so git's outline is never overwritten. */
+#graph g.same-file-only circle.regular-node.has-xfile[stroke="none"] {
+  stroke: var(--cograph-node-default, #d4d4d4);
+  stroke-opacity: 0.6;
+  stroke-dasharray: 2.5 2;
+}
+tspan.slot-xout { display: none; }
+#graph g.same-file-only tspan.slot-xout { display: inline; opacity: 0.75; font-weight: 400; }

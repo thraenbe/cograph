@@ -291,6 +291,7 @@ const drag = d3.drag()
   .container(function () { return g.node(); }) // absolute coords (identity in global path)
   .on('start', (event, d) => {
     if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'drag', true); }   // F28: named while dragged
+    if (typeof hoverPinHandOver === 'function') { hoverPinHandOver(d); }    // X2: the drag owns the pin now
     reheatForDrag(event);
     d.fx = d.x;
     d.fy = d.y;
@@ -439,6 +440,7 @@ function hoverCrossLinks(id) {
 function onNodeMouseOver(event, d) {
   const __t0 = __pb();
   if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'hover', true); }   // F28: the name at once
+  if (typeof hoverPinOn === 'function') { hoverPinOn(d); }                  // X2: hold it while read
   hoverCrossLinks(d.id);
   d3.select(event.currentTarget)
     .style('fill', getCSSVar('--cograph-node-hover'))
@@ -455,6 +457,7 @@ function onNodeMouseOver(event, d) {
 function onNodeMouseOut(event, d) {
   const __t0 = __pb();
   if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'hover', false); }
+  if (typeof hoverPinOff === 'function') { hoverPinOff(d); }
   hoverCrossLinks(null);
   d3.select(event.currentTarget)
     .style('fill', resolveNodeFill(d))
@@ -587,6 +590,7 @@ function renderNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
       update => update,
       exit => exit.remove()
     )
+    .classed('has-xfile', d => !!(state.xfileCue && state.xfileCue.hiddenOnly.has(d.id)))   // X3 ring
     .attr('r', d => nodeRadius(d))
     .style('fill', d => resolveNodeFill(d))
     .attr('stroke', d => resolveNodeStroke(d))
@@ -913,6 +917,8 @@ function renderElements(elements, positionHints = new Map()) {
   // the d3 joins below only see attached elements.
   if (typeof restoreFrameDom === 'function') { restoreFrameDom(); }
   const { allLinks, visibleSet } = prepareRenderData(elements, positionHints);
+  // X3: computed once per render; read by renderNodes (ring) and the Shelf slot labels (count).
+  state.xfileCue = (typeof xfileCue === 'function') ? xfileCue(allLinks, linkFileOf()) : null;
   if (typeof usesFrames === 'function' && usesFrames()) {
     renderFrameLayout(allLinks, visibleSet);
   } else {

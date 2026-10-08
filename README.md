@@ -6,7 +6,7 @@
 [![Rating](https://img.shields.io/visual-studio-marketplace/r/thraenbe.cograph)](https://marketplace.visualstudio.com/items?itemName=thraenbe.cograph&ssr=false#review-details)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> Visualize your Python, TypeScript, JavaScript, Java, or C++ project as an interactive call graph — functions are nodes, calls are edges. Navigate your codebase by clicking. No configuration required.
+> See your Python, TypeScript, JavaScript, Java, or C++ project as a living map — functions are nodes, calls are edges. Navigate your codebase by clicking. No configuration required.
 
 When AI writes the code, humans need a better way to understand it. CoGraph is the situational-awareness layer for agentic development: a real-time, multi-dimensional map of what is being built in your project.
 
@@ -31,12 +31,12 @@ same graph settling live and in the Global engine.*
 2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 3. Run **`CoGraph: Visualize Project`**.
 
-The call graph opens in a side panel. Click a node to jump to its definition; use the
+The graph opens in a side panel. Click a node to jump to its definition; use the
 toolbar to toggle overlays.
 
 ## Features
 
-- **Static analysis, zero config** — extracts the call graph using each language's native tooling: Python's built-in `ast`, the TypeScript compiler API, `java-parser` for Java, and `web-tree-sitter` for C++. No runtime instrumentation, no setup.
+- **Static analysis, zero config** — maps every function and the calls between them using each language's native tooling: Python's built-in `ast`, the TypeScript compiler API, `java-parser` for Java, and `web-tree-sitter` for C++. No runtime instrumentation, no setup.
 - **Two layout engines** — **Shelf** packs every open folder into its own non-overlapping frame with a slot per file and simulates only what is open (the default, and what keeps large repositories navigable); **Global** is the classic single force-directed graph. **Dynamic | Static** picks whether the layout keeps settling or is frozen where it was placed. Shelf simulations run in background workers.
 - **Interactive graph** — zoom, pan, drag nodes and frames, and filter by function name.
 - **A readable default** — only the calls that stay inside a file are drawn, so a folder shows its structure instead of a hairball (`cograph.display.sameFileEdgesOnly`, on by default; turn it off to draw every call). Function names appear when you hover one, and on every match while you filter. A function whose calls all leave its file carries a dashed ring, and each file name shows how many calls leave it — `auth.py · 6 ↗44` — so nothing looks unconnected when it is not.
@@ -71,7 +71,7 @@ The Workflow Graph has per-request caps for turns, spend and time (`cograph.grap
 
 ## Use CoGraph from your AI agent (MCP)
 
-CoGraph ships a local [MCP](https://modelcontextprotocol.io) server, so the agent you already use can ask the call graph instead of grepping:
+CoGraph ships a local [MCP](https://modelcontextprotocol.io) server, so the agent you already use can ask the graph instead of grepping:
 
 | Tool | Answers |
 |---|---|
@@ -106,7 +106,7 @@ On VS Code 1.101 and later, agent mode (Copilot) sees CoGraph without any setup.
 
 1. Open a Python, TypeScript, JavaScript, Java, or C++ project folder in VS Code.
 2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run **`CoGraph: Visualize Project`**.
-3. The call graph opens in a side panel.
+3. The graph opens in a side panel.
 4. Use the search bar to filter functions by name (`Ctrl+F` / `Cmd+F` focuses it).
 5. Hover a function to see its name, signature and first lines; click it to navigate to its definition, or open its source in a popup.
 6. Toggle **Git** or **Language** coloring with the buttons in the top-left.

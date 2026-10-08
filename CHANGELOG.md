@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **CoGraph as an MCP server for your AI agent.** Claude Code, Cursor, Claude Desktop and VS Code
-  agent mode can now ask CoGraph's call graph directly, through six read-only tools:
+  agent mode can now ask CoGraph's graph directly, through six read-only tools:
   `find_symbol`, `get_symbol`, `callers`, `callees`, `impact` ("what breaks if I change this",
   with the tests and entry points it reaches) and `overview` (folder tree with AI summaries,
   entry points, hot spots). Results are compact text, capped in size, and say how fresh the

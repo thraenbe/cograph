@@ -14,7 +14,8 @@ import { runId } from '../lib/lab';
 import { attachLogFile, log } from '../lib/log';
 
 const VSCODE_VERSION = '1.116.0'; // keep in sync with src/test/runTest.ts
-const SIZE = { width: 1440, height: 900 };
+// UXTEST_VSCODE_SIZE=1440x810 for a 16:9 window (README demo); default 1440x900.
+const SIZE = (() => { const m = /^(\d+)x(\d+)$/.exec(process.env.UXTEST_VSCODE_SIZE ?? ''); return m ? { width: +m[1], height: +m[2] } : { width: 1440, height: 900 }; })();
 
 export interface VsCodeSession {
   app: ElectronApplication; page: Page; ux: StepRecorder; outDir: string; workspace: string; userDataDir: string;
@@ -91,7 +92,8 @@ export async function launchVsCode(repo: string, scenario: string, settings: Rec
     args: [`--extensionDevelopmentPath=${EXT_ROOT}`, `--user-data-dir=${userDataDir}`, `--extensions-dir=${path.join(tmp, 'extensions')}`,
       '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates', '--disable-telemetry', '--disable-crash-reporter',
       '--password-store=basic', '--no-sandbox', '--disable-gpu-sandbox', `--window-size=${SIZE.width},${SIZE.height}`, workspace],
-    recordVideo: { dir: outDir, size: SIZE },
+    // UXTEST_VSCODE_NOVIDEO=1: no Playwright video (a demo records its own, sharper screencast).
+    ...(process.env.UXTEST_VSCODE_NOVIDEO === '1' ? {} : { recordVideo: { dir: outDir, size: SIZE } }),
   });
   const page = await app.firstWindow();
   page.setDefaultTimeout(15000); // Electron pages do not inherit `use.actionTimeout`: without this a bad selector hangs for the whole test

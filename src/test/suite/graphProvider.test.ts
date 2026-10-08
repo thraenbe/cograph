@@ -625,7 +625,7 @@ suite('saveFuncSource()', () => {
     fs.writeFileSync(filePath, 'def hello():\r\n    return 1\r\n', 'utf8');
 
     const provider = new GraphProvider(makeFakeContext());
-    (provider as any).saveFuncSource(filePath, 1, 'def hello():\n    return 42\n');
+    (provider as any).saveFuncSource(filePath, 1, 'def hello():\n    return 42\n', (provider as any).getFuncSource(filePath, 1));
 
     const written = fs.readFileSync(filePath, 'utf8');
     assert.ok(written.includes('\r\n'), 'CRLF file should keep CRLF after save');
@@ -637,7 +637,7 @@ suite('saveFuncSource()', () => {
     fs.writeFileSync(filePath, 'def hello():\n    return 1\n', 'utf8');
 
     const provider = new GraphProvider(makeFakeContext());
-    (provider as any).saveFuncSource(filePath, 1, 'def hello():\n    return 42\n');
+    (provider as any).saveFuncSource(filePath, 1, 'def hello():\n    return 42\n', (provider as any).getFuncSource(filePath, 1));
 
     const written = fs.readFileSync(filePath, 'utf8');
     assert.ok(!written.includes('\r\n'), 'LF file should keep LF after save');
@@ -650,7 +650,7 @@ suite('saveFuncSource()', () => {
 
     const provider = new GraphProvider(makeFakeContext());
     // newSource has CRLF — but the file is LF, so output must use LF
-    (provider as any).saveFuncSource(filePath, 1, 'def hello():\r\n    return 99\r\n');
+    (provider as any).saveFuncSource(filePath, 1, 'def hello():\r\n    return 99\r\n', (provider as any).getFuncSource(filePath, 1));
 
     const written = fs.readFileSync(filePath, 'utf8');
     assert.ok(!written.includes('\r\n'), 'LF file should remain LF even when newSource has CRLF');
@@ -798,11 +798,9 @@ suite('save-graph message handler', () => {
     const provider = new GraphProvider(makeFakeContext());
     const sidebarRefresh = sinon.stub();
     const setCurrentGraph = sinon.stub();
-    const appendSystem = sinon.stub();
     provider.setSidebarProvider({
       refresh: sidebarRefresh,
       setCurrentGraph,
-      appendSystem,
     } as unknown as import('../../sidebarProvider').SidebarProvider);
     provider.show();
 
@@ -1174,11 +1172,9 @@ suite('setSidebarProvider()', () => {
 
       const refresh = sinon.stub();
       const setCurrentGraph = sinon.stub();
-      const appendSystem = sinon.stub();
       provider.setSidebarProvider({
         refresh,
         setCurrentGraph,
-        appendSystem,
       } as unknown as import('../../sidebarProvider').SidebarProvider);
 
       provider.show();
@@ -1186,8 +1182,6 @@ suite('setSidebarProvider()', () => {
 
       assert.ok(refresh.calledOnce, 'sidebar.refresh() should fire after successful save');
       assert.ok(setCurrentGraph.calledOnce, 'sidebar.setCurrentGraph() should be called with the saved graph');
-      assert.ok(appendSystem.calledOnce, 'sidebar.appendSystem() should append the "Graph: X Updated" message');
-      assert.match(appendSystem.firstCall.args[0] as string, /^Graph: .* Updated$/);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -1214,47 +1208,3 @@ suite('setSidebarProvider()', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// open-chat message handler — focuses the activity-bar sidebar view
-// ---------------------------------------------------------------------------
-
-suite('open-chat message handler', () => {
-  let sandbox: sinon.SinonSandbox;
-
-  setup(() => {
-    sandbox = sinon.createSandbox();
-  });
-
-  teardown(() => {
-    sandbox.restore();
-  });
-
-  test('open-chat → executes cograph.savedGraphs.focus command', async () => {
-    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/tmp/ws' } }]);
-    const execStub = sandbox.stub(vscode.commands, 'executeCommand').resolves();
-
-    const { msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
-    const provider = new GraphProvider(makeFakeContext());
-    provider.show();
-
-    assert.ok(msgCallbacks.length >= 1);
-    await msgCallbacks[0]({ type: 'open-chat' });
-
-    const focusCalls = execStub.getCalls().filter(c => c.args[0] === 'cograph.savedGraphs.focus');
-    assert.strictEqual(focusCalls.length, 1, 'should call cograph.savedGraphs.focus exactly once');
-  });
-
-  test('open-chat does not write any file or change panel title', async () => {
-    sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/tmp/ws' } }]);
-    sandbox.stub(vscode.commands, 'executeCommand').resolves();
-
-    const { panel, msgCallbacks } = setupPanelWithCapturedMessages(sandbox);
-    const provider = new GraphProvider(makeFakeContext());
-    provider.show();
-    const titleBefore = panel.title;
-
-    await msgCallbacks[0]({ type: 'open-chat' });
-
-    assert.strictEqual(panel.title, titleBefore, 'panel title should be unchanged');
-  });
-});

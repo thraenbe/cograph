@@ -33,6 +33,8 @@ test('corpus helpers', () => {
   expect([sizeClass(10), sizeClass(2000), sizeClass(8000)]).toEqual(['small', 'medium', 'large']);
   const cfg = loadConfig();
   expect(cfg.defaultRepos.length).toBeGreaterThan(0);
+  // The release matrix may add repos but never drop a default one (1.3.0 skipped gson + flask).
+  expect(cfg.defaultRepos.filter(r => !cfg.releaseRepos.includes(r))).toEqual([]);
   expect(path.isAbsolute(cfg.corpusDir)).toBe(true);
   withEnv({ UXTEST_REPOS: 'a, b', UXTEST_CORPUS: '/tmp/corpus' }, () => {
     expect(selectedRepos(cfg)).toEqual(['a', 'b']);
@@ -68,6 +70,7 @@ test('layoutBirth: grid-born vs frozen vs user-moved', () => {
   const stat = snapshot({ motion: 'static', nodes: [node('a', 0, 0), node('b', 9, 9)] });
   const dyn = { ...stat, motion: 'dynamic' };
   expect(layoutBirth(null, 'grid', stat, false)).toBe('grid');                       // first load
+  expect(layoutBirth(null, 'user-moved', stat, false)).toBe('user-moved');           // restored picture with a user drag
   expect(layoutBirth(dyn, 'grid', stat, false)).toBe('frozen');                      // Dynamic → Static
   expect(layoutBirth(stat, 'frozen', stat, false)).toBe('frozen');                   // stays frozen
   expect(layoutBirth(stat, 'frozen', { ...stat, nodes: [node('a', 0, 0)] }, false)).toBe('grid');            // Detail change re-packs
@@ -75,6 +78,8 @@ test('layoutBirth: grid-born vs frozen vs user-moved', () => {
   expect(layoutBirth({ ...stat, engine: 'global' }, 'frozen', stat, false)).toBe('grid');                      // engine switch into Shelf
   expect(layoutBirth(stat, 'grid', stat, true)).toBe('user-moved');                  // drag
   expect(layoutBirth(stat, 'user-moved', stat, false)).toBe('user-moved');           // …until something re-packs
-  expect(layoutBirth(stat, 'user-moved', dyn, false)).toBe('grid');
+  expect(layoutBirth(stat, 'user-moved', dyn, false)).toBe('grid');                 // Static → Dynamic re-runs the layout
+  expect(layoutBirth(dyn, 'user-moved', dyn, false)).toBe('user-moved');             // Dynamic keeps a user drop pinned
+  expect(layoutBirth(dyn, 'grid', dyn, false)).toBe('grid');
   expect(layoutBirth(stat, 'grid', { ...stat, viewMode: 'workflow' }, false)).toBe('grid');
 });

@@ -2,7 +2,9 @@
 // visible glide so the video shows what happened; selectors come from the map.
 import type { Page } from '@playwright/test';
 import { SEL, type SelName } from '../selectors';
-import { SkipStep } from './step';
+import { SkipStep, StepFinding } from './step';
+import { collectSnapshot } from '../metrics/collect';
+import type { Snapshot } from '../metrics/types';
 
 export interface Point { x: number; y: number }
 export type NodePick = { kind: 'folder' | 'file' | 'fn'; pick?: 'largest' | 'first'; id?: string };
@@ -154,8 +156,9 @@ export async function ctxMenuLabels(page: Page): Promise<string[]> {
 export async function ctxMenuClick(page: Page, label: string | RegExp): Promise<void> {
   const item = page.locator(SEL.ctxMenuItems.css).filter({ hasText: label }).first();
   if (await item.count() === 0) { throw new SkipStep(`context menu has no item ${String(label)}`); }
-  const box = await item.boundingBox();
-  if (!box) { throw new Error(`context menu item not visible: ${String(label)}`); }
+  let box = await item.boundingBox();
+  if (!box) { await item.scrollIntoViewIfNeeded().catch(() => undefined); box = await item.boundingBox(); }
+  if (!box) { await page.keyboard.press('Escape'); throw new SkipStep(`context menu item ${String(label)} exists but is not visible (menu placed off screen?)`); }
   const p = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   await glideTo(page, p);
   await page.mouse.click(p.x, p.y);
@@ -232,19 +235,20 @@ function locateFrameInPage(q: { pick: 'smallest' | 'largest'; pathSuffix?: strin
     if (!path || (d && d.kind === 'root')) { why.root++; return; }
     if (q.pathSuffix && !path.replace(/\\/g, '/').endsWith(q.pathSuffix)) { why.otherPath = (why.otherPath ?? 0) + 1; return; }
     const shape = grp.querySelector(':scope > .folder-bubble-shape');
-    const grip = grp.querySelector(':scope > .frame-tab, :scope > .folder-bubble-titlebar');
+    // The drag target is the transparent title strip; the visual .frame-tab is pointer-events:none and must not be matched.
+    const grip = grp.querySelector(':scope > rect.folder-bubble-titlebar, :scope > .folder-bubble-titlebar');
     if (!shape || !grip) { why.noGrip++; return; }
     const r = shape.getBoundingClientRect(), t = grip.getBoundingClientRect();
     if (r.width < 40 || t.width < 10 || t.height < 3) { why.tooSmall++; return; }
     // Only the part of the title strip right of the left toolbar and above the caption is grabbable.
     const vl = Math.max(t.left, 215), vr = Math.min(t.right, window.innerWidth - 10);
     if (vr - vl < 30 || t.top < 0 || t.bottom > window.innerHeight - 40) { why.offscreen++; return; }
-    // Child frames, tabs and labels can sit on top of parts of the strip: probe along it.
+    // Probe along the strip; a hit counts only if THIS frame's own strip is the topmost element there
+    // (a child frame's strip stacked on top would start a drag of the child).
     let title: { x: number; y: number } | null = null;
     for (const fx of [0.5, 0.25, 0.75, 0.1, 0.9]) {
       const cand = { x: vl + (vr - vl) * fx, y: t.top + t.height / 2 };
-      const top = document.elementFromPoint(cand.x, cand.y);
-      if (top && grp.contains(top)) { title = cand; break; }
+      if (document.elementFromPoint(cand.x, cand.y) === grip) { title = cand; break; }
     }
     if (!title) { why.covered++; return; }
     const area = r.width * r.height;
@@ -253,6 +257,28 @@ function locateFrameInPage(q: { pick: 'smallest' | 'largest'; pathSuffix?: strin
     }
   });
   return { hit: best, why };
+}
+
+/** Runs in the page. Which frame currently owns the pointer position (its title strip is the topmost element). */
+function frameUnderPointInPage(p: { x: number; y: number }): string | null {
+  const el = document.elementFromPoint(p.x, p.y);
+  if (!el || !el.classList.contains('folder-bubble-titlebar')) { return null; }
+  const grp = el.closest('g.frame, g.folder-bubble');
+  const d = grp ? (grp as any).__data__ : null;
+  return d ? String(d.path ?? d.folderPath ?? '') : null;
+}
+
+/** Runs in the page. Screen rect of a frame by path, or null (detached / off screen). */
+function frameRectInPage(path: string): { x: number; y: number; w: number; h: number } | null {
+  for (const grp of document.querySelectorAll('#graph g.frame, #graph g.folder-bubble')) {
+    const d = (grp as any).__data__;
+    if (!d || String(d.path ?? d.folderPath ?? '') !== path) { continue; }
+    const shape = grp.querySelector(':scope > .folder-bubble-shape');
+    if (!shape) { return null; }
+    const b = shape.getBoundingClientRect();
+    return { x: b.left, y: b.top, w: b.width, h: b.height };
+  }
+  return null;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -316,4 +342,105 @@ export async function switchEngine(page: Page, engine: 'shelf' | 'global'): Prom
   const guarded = await page.locator(SEL.globalGuardHint.css).first().isVisible().catch(() => false);
   if (guarded) { await clickSel(page, 'engineGlobal'); } // confirm within the 6 s window
   return { guarded };
+}
+
+/** Measurement-grade fit: call the product's own fitToView() instead of the double-click gesture. On a layout that
+ *  is still moving the gesture can land on a drifting node (opening a source popup instead of fitting) — fine to
+ *  discover in a UX walkthrough, fatal for a sweep whose metrics are taken "at fit". Also closes stray popups. */
+export async function fitDirect(page: Page): Promise<void> {
+  await page.keyboard.press('Escape');
+  const ok = await page.evaluate('typeof fitToView === "function" ? (fitToView(), true) : false');
+  if (!ok) { await fitToView(page); return; }
+  await page.waitForTimeout(750); // fitToView() animates for 500 ms
+}
+
+export interface FrameDragResult {
+  path: string; grabbed: string | null;   // grabbed = the frame whose strip was under the pointer at mousedown
+  pointerDx: number; pointerDy: number;   // total pointer travel
+  frameDx: number; frameDy: number;       // total frame travel
+  maxJumpPx: number; maxStepPx: number;   // largest per-step frame move vs the largest per-step pointer move
+  samples: number;
+  /** geometry with the button still down (last pointer position) and right after the drop */
+  midDrag: Snapshot | null; afterDrop: Snapshot | null;
+  /** how far the DRAGGED frame moved between release (button still down) and the settled drop */
+  releaseToDropPx: number | null;
+  midDragScreenshot?: string;             // set by the caller when it saved one
+}
+
+/** Drag a folder by its title strip in small steps and watch the frame follow. Asserts the grab hit the intended
+ *  frame; reports the largest per-step jump of the frame so a scenario can flag `drag-jump` (frame moves more than
+ *  twice the pointer step: it is being pulled by something other than the pointer). */
+export async function dragFrame(page: Page, hit: FrameHit, dx: number, dy: number, steps = 12, midDragScreenshot?: string): Promise<FrameDragResult> {
+  await glideTo(page, hit.title);
+  const grabbed = await page.evaluate(frameUnderPointInPage, hit.title);
+  const out: FrameDragResult = { path: hit.path, grabbed, pointerDx: dx, pointerDy: dy, frameDx: 0, frameDy: 0, maxJumpPx: 0, maxStepPx: 0, samples: 0, midDrag: null, afterDrop: null, releaseToDropPx: null };
+  if (grabbed !== hit.path) { return out; } // the caller decides (wrong-frame-grab finding); do not drag a stranger
+  const start = await page.evaluate(frameRectInPage, hit.path);
+  await page.mouse.down();
+  let prev = start;
+  for (let i = 1; i <= steps; i++) {
+    const px = hit.title.x + (dx * i) / steps, py = hit.title.y + (dy * i) / steps;
+    await page.mouse.move(px, py);
+    await page.waitForTimeout(40);
+    const cur = await page.evaluate(frameRectInPage, hit.path);
+    if (cur && prev) {
+      const jump = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+      const step = Math.hypot(dx / steps, dy / steps);
+      if (jump > out.maxJumpPx) { out.maxJumpPx = +jump.toFixed(1); }
+      out.maxStepPx = +step.toFixed(1);
+      out.samples++;
+    }
+    prev = cur;
+  }
+  // Button still down: this is the drag phase the H4 rule judges.
+  out.midDrag = await collectSnapshot(page, { maxLabels: 10 });
+  if (midDragScreenshot) { await page.screenshot({ path: midDragScreenshot }); out.midDragScreenshot = midDragScreenshot; }
+  await page.mouse.up();
+  await page.waitForTimeout(900); // drop re-pack + glide
+  out.afterDrop = await collectSnapshot(page, { maxLabels: 10 });
+  const atRelease = out.midDrag?.frames.find(f => f.path === hit.path)?.rect, atDrop = out.afterDrop?.frames.find(f => f.path === hit.path)?.rect;
+  if (atRelease && atDrop) { out.releaseToDropPx = +Math.hypot(atDrop.x - atRelease.x, atDrop.y - atRelease.y).toFixed(1); }
+  const end = await page.evaluate(frameRectInPage, hit.path);
+  if (start && end) { out.frameDx = +(end.x - start.x).toFixed(1); out.frameDy = +(end.y - start.y).toFixed(1); }
+  return out;
+}
+
+/** Turn a drag result into findings: a grab of the wrong frame (high), a frame that jumps ahead of the pointer
+ *  (drag-jump, medium: max per-step frame move > 2x the pointer step), or a frame that did not follow at all. */
+export function judgeFrameDrag(r: FrameDragResult): string {
+  if (r.grabbed !== r.path) {
+    throw new StepFinding({ rule: 'wrong-frame-grab', severity: 'high', ref: 'ux-round2 R1', message: `mousedown on the title of ${r.path} would grab ${r.grabbed ?? 'nothing'} (stacked title strips)` });
+  }
+  if (r.samples && r.maxStepPx > 0 && r.maxJumpPx > 2 * r.maxStepPx) {
+    throw new StepFinding({ rule: 'drag-jump', severity: 'medium', ref: 'ux-round2 R1', message: `frame jumped ${r.maxJumpPx} px in one step while the pointer moved ${r.maxStepPx} px (${Math.round(r.maxJumpPx / r.maxStepPx)}x)` });
+  }
+  if (r.samples && Math.hypot(r.frameDx, r.frameDy) < 0.3 * Math.hypot(r.pointerDx, r.pointerDy)) {
+    throw new StepFinding({ rule: 'frame-did-not-follow', severity: 'medium', message: `pointer moved ${r.pointerDx},${r.pointerDy} px but the frame only ${r.frameDx},${r.frameDy}` });
+  }
+  return `drag ok: grabbed ${r.path.split('/').pop()}, frame moved ${r.frameDx},${r.frameDy} px for ${r.pointerDx},${r.pointerDy} px pointer, max step ${r.maxJumpPx} px (pointer ${r.maxStepPx} px), release→drop ${r.releaseToDropPx ?? '–'} px`;
+}
+
+/**
+ * Wait until the simulation is at REST, not merely visually still: alpha <= 0.001 (d3's alphaMin, the point
+ * where Global stops ticking), or no tick for one second (node positions exactly unchanged; Shelf frame sims
+ * stop at their own threshold). Global/Dynamic needs ~340 ticks at 15-26 ticks/s, i.e. 13-16 s on corpus
+ * repos; a movement heuristic samples inside that. Returns how it ended.
+ */
+export async function waitSimRest(page: Page, timeoutMs = 60000): Promise<{ rested: boolean; alpha: number | null; ms: number; by: string }> {
+  const t0 = Date.now();
+  const read = (): Promise<{ alpha: number | null; sig: string }> => page.evaluate(`(() => {
+    let a = null; try { a = state.simulation && state.simulation.alpha ? state.simulation.alpha() : null; } catch (e) { a = null; }
+    let h = 0; for (const n of (state.currentNodes || [])) { h = (h * 31 + Math.round((n.x || 0) * 100) * 7 + Math.round((n.y || 0) * 100)) | 0; }
+    return { alpha: a, sig: String(h) };
+  })()`) as Promise<{ alpha: number | null; sig: string }>;
+  let last = await read(), sameSince = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    if (last.alpha !== null && last.alpha <= 0.001) { return { rested: true, alpha: last.alpha, ms: Date.now() - t0, by: 'alpha' }; }
+    await page.waitForTimeout(250);
+    const cur = await read();
+    if (cur.sig !== last.sig) { sameSince = Date.now(); }
+    else if (Date.now() - sameSince >= 1000) { return { rested: true, alpha: cur.alpha, ms: Date.now() - t0, by: 'no-ticks' }; }
+    last = cur;
+  }
+  return { rested: false, alpha: last.alpha, ms: Date.now() - t0, by: 'timeout' };
 }

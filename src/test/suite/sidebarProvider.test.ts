@@ -115,7 +115,9 @@ suite('SidebarProvider', () => {
       assert.strictEqual((webview.options as any).enableScripts, true, 'scripts must be enabled');
       assert.ok(webview.html.length > 0, 'html should be set');
       assert.ok(webview.html.includes('Saved Graphs'), 'html should include Saved Graphs section header');
-      assert.ok(webview.html.includes('Chat'), 'html should include Chat section header');
+      assert.ok(webview.html.includes('id="pane-primary" hidden'), 'empty primary slot present and hidden');
+      assert.ok(!webview.html.includes('sidebar-chat.js'), 'chat script no longer loaded');
+      assert.ok(!webview.html.includes('id="chat-'), 'no chat markup left');
       assert.ok(webview.html.includes('id="btn-new-graph"'), 'html should include new-graph button');
       assert.ok(webview.html.includes('id="search"'), 'html should include search input');
       assert.ok(webview.html.includes('id="graph-list"'), 'html should include graph-list container');
@@ -255,10 +257,8 @@ suite('SidebarProvider', () => {
       const calls = webview.postMessage.getCalls().map((c: sinon.SinonSpyCall) => c.args[0]);
       const graphList = calls.find((c: { type: string }) => c.type === 'graph-list');
       assert.ok(graphList, 'should post graph-list');
-      // The pinned Workflow card is always first, followed by the saved graphs.
-      assert.strictEqual(graphList.files.length, 2);
-      assert.strictEqual(graphList.files[0].isWorkflow, true);
-      assert.strictEqual(graphList.files[1].name, 'One');
+      assert.strictEqual(graphList.files.length, 1);
+      assert.strictEqual(graphList.files[0].name, 'One');
     });
 
     test('open-graph with valid file → loads JSON and calls controller.loadGraph', async () => {
@@ -348,9 +348,7 @@ suite('SidebarProvider', () => {
       assert.ok(webview.postMessage.called, 'graph-list should be posted after delete');
       const lastMsg = webview.postMessage.lastCall.args[0];
       assert.strictEqual(lastMsg.type, 'graph-list');
-      // Only the pinned Workflow card remains after the sole saved graph is deleted.
-      assert.strictEqual(lastMsg.files.length, 1);
-      assert.strictEqual(lastMsg.files[0].isWorkflow, true);
+      assert.strictEqual(lastMsg.files.length, 0);
     });
 
     test('delete-graph dismissed → does NOT unlink', async () => {
@@ -528,110 +526,57 @@ suite('SidebarProvider', () => {
       assert.ok(webview.postMessage.calledOnce);
       const msg = webview.postMessage.firstCall.args[0];
       assert.strictEqual(msg.type, 'graph-list');
-      assert.strictEqual(msg.files.length, 2);
-      assert.strictEqual(msg.files[0].isWorkflow, true);
-      assert.strictEqual(msg.files[1].name, 'X');
+      assert.strictEqual(msg.files.length, 1);
+      assert.strictEqual(msg.files[0].name, 'X');
     });
   });
 
-  // ── Workflow Graph card + handlers ─────────────────────────────────────────
-  suite('workflow graph', () => {
-    test('_sendGraphList pins a "before" workflow card when no file exists', () => {
-      const cographDir = path.join(tmpDir, '.cograph');
-      fs.mkdirSync(cographDir);
-      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
-      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
-      const { view, webview } = makeFakeWebviewView();
-      provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
-      webview.postMessage.resetHistory();
-      provider.refresh();
-      const msg = webview.postMessage.firstCall.args[0];
-      assert.strictEqual(msg.files[0].isWorkflow, true);
-      assert.strictEqual(msg.files[0].status, 'before');
-    });
-
-    test('_sendGraphList reports "ready" once a valid workflow file exists', () => {
+  // ── The removed AI Workflow Graph (1.4.0) leaves nothing behind ────────────
+  suite('removed workflow graph', () => {
+    test('a __workflow__.json left by an older version is never listed as a saved graph', () => {
       const cographDir = path.join(tmpDir, '.cograph');
       fs.mkdirSync(cographDir);
       writeJsonFile(cographDir, '__workflow__.json', {
-        name: 'Workflow', isWorkflow: true, status: 'ready', savedAt: 't',
-        graph: { nodes: [{ id: 'a' }], edges: [] },
+        name: 'Workflow', isWorkflow: true, status: 'ready', savedAt: 't', graph: { nodes: [{ id: 'a' }], edges: [] },
       });
+      writeJsonFile(cographDir, 'kept.json', { name: 'Kept' });
       sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
       const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
       const { view, webview } = makeFakeWebviewView();
       provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
       webview.postMessage.resetHistory();
+
       provider.refresh();
+
       const msg = webview.postMessage.firstCall.args[0];
-      assert.strictEqual(msg.files[0].status, 'ready');
-      // The workflow file is NOT also listed as an ordinary saved-graph card.
-      assert.strictEqual(msg.files.filter((f: SavedGraphMeta) => !f.isWorkflow).length, 0);
+      assert.deepStrictEqual(msg.files.map((f: SavedGraphMeta) => f.name), ['Kept']);
+      assert.ok(fs.existsSync(path.join(cographDir, '__workflow__.json')), 'the old file is left alone');
     });
 
-    test('workflow-generate → runs controller, persists __workflow__.json, refreshes as ready', async () => {
-      const cographDir = path.join(tmpDir, '.cograph');
-      fs.mkdirSync(cographDir);
-      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
+    test('workflow-* messages from a stale webview are ignored', async () => {
       stubAiEnabled(sandbox, true);
-      const generateWorkflow = sinon.stub().resolves({
-        graph: { nodes: [{ id: 'a' }], edges: [], workflow: { stageCount: 2, dividerStage: 1, clusters: [] } },
-        text: 'done',
-      });
-      const controller = makeFakeController({ generateWorkflow });
-      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), controller);
-      const { view, webview, received } = makeFakeWebviewView();
-      provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+      const execStub = sandbox.stub(vscode.commands, 'executeCommand').resolves();
+      const errStub = sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
+      const fake = makeFakeWebviewView();
+      provider.resolveWebviewView(fake.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
 
-      await received[0]({ type: 'workflow-generate' });
+      for (const type of ['workflow-generate', 'workflow-update', 'workflow-open']) {
+        await fake.received[0]({ type, file: path.join(tmpDir, '.cograph', '__workflow__.json') });
+      }
 
-      assert.ok(generateWorkflow.calledOnce, 'controller.generateWorkflow called');
-      const file = path.join(cographDir, '__workflow__.json');
-      assert.ok(fs.existsSync(file), '__workflow__.json written');
-      const written = JSON.parse(fs.readFileSync(file, 'utf8'));
-      assert.strictEqual(written.status, 'ready');
-      assert.ok(Array.isArray(written.graph.nodes));
-      // Last graph-list shows the card as ready.
-      const lists = webview.postMessage.getCalls()
-        .map((c: sinon.SinonSpyCall) => c.args[0])
-        .filter((m: { type: string }) => m.type === 'graph-list');
-      assert.strictEqual(lists[lists.length - 1].files[0].status, 'ready');
+      assert.ok(fake.webview.postMessage.notCalled, 'nothing is posted back');
+      assert.ok(execStub.notCalled && errStub.notCalled, 'no command, no error');
     });
 
-    test('workflow-open → reads file and calls controller.showWorkflowGraph', async () => {
-      const cographDir = path.join(tmpDir, '.cograph');
-      fs.mkdirSync(cographDir);
-      const file = writeJsonFile(cographDir, '__workflow__.json', {
-        name: 'Workflow', status: 'ready', graph: { nodes: [{ id: 'a' }], edges: [] },
-      });
-      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: tmpDir } }]);
-      const showWorkflowGraph = sinon.stub().resolves();
-      const controller = makeFakeController({ showWorkflowGraph });
-      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), controller);
-      const { view, received } = makeFakeWebviewView();
-      provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
-
-      await received[0]({ type: 'workflow-open', file });
-
-      assert.ok(showWorkflowGraph.calledOnce);
-      assert.deepStrictEqual(showWorkflowGraph.firstCall.args[0].nodes, [{ id: 'a' }]);
-      assert.strictEqual(showWorkflowGraph.firstCall.args[1], file);
-    });
-
-    test('renderCards markup includes all three workflow-card states', () => {
+    test('the sidebar HTML carries no workflow card', () => {
       const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
       const { view, webview } = makeFakeWebviewView();
       provider.resolveWebviewView(view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
-      const html = webview.html;
-      assert.ok(html.includes('workflow-card before'), 'before-state markup present');
-      assert.ok(html.includes('workflow-card generating'), 'generating-state markup present');
-      assert.ok(html.includes('workflow-card ready'), 'ready-state markup present');
-      assert.ok(html.includes("type: 'workflow-generate'"), 'generate action wired');
-      assert.ok(html.includes("type: 'workflow-open'"), 'open action wired');
+      assert.ok(!/workflow/i.test(webview.html), 'no workflow markup, script or style');
     });
   });
 
-  // ── Subgraph picker (round 3) ────────────────────────────────────────────
   suite('subgraph picker', () => {
     function openWith(controller = makeFakeController()) {
       const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), controller);
@@ -724,13 +669,10 @@ suite('SidebarProvider', () => {
       assert.ok(webview.html.includes('.card-glyph {'), 'glyph style present');
     });
 
-    test('HTML contains the consent overlay and Enable button (gated by default)', () => {
+    test('HTML starts gated (the chat overlay is gone)', () => {
       const { webview } = setup2();
       assert.ok(webview.html.includes('<body class="ai-disabled">'), 'body starts gated');
-      assert.ok(webview.html.includes('id="chat-gate"'), 'chat gate overlay present');
-      assert.ok(webview.html.includes('id="btn-enable-ai"'), 'enable button present');
-      assert.ok(webview.html.includes('Enable AI Features'), 'enable button label present');
-      assert.ok(webview.html.includes('workflow-card locked'), 'locked workflow card markup present');
+      assert.ok(!webview.html.includes('id="chat-gate"'), 'chat gate overlay removed with Chat');
       assert.ok(webview.html.includes("type: 'open-ai-settings'"), 'open-ai-settings action wired');
     });
 
@@ -748,55 +690,18 @@ suite('SidebarProvider', () => {
       assert.strictEqual(msg.enabled, false);
     });
 
-    test('chat-send while disabled → does not run intelligence and opens settings', async () => {
-      stubAiEnabled(sandbox, false);
+    test('chat-* messages from a stale webview are ignored (Chat was removed)', async () => {
       const execStub = sandbox.stub(vscode.commands, 'executeCommand').resolves();
-      const runGraphIntelligence = sinon.stub().resolves({ text: 'x' });
-      // A chat store makes appendSystem observable (it early-returns without one).
-      const chatStore = { append: sinon.stub(), getActiveKey: () => 'k', load: () => [] };
-      const provider = new SidebarProvider(
-        vscode.Uri.file('/fake/ext'),
-        makeFakeController({ runGraphIntelligence }),
-        chatStore as any,
-      );
+      const provider = new SidebarProvider(vscode.Uri.file('/fake/ext'), makeFakeController());
       const fake = makeFakeWebviewView();
       provider.resolveWebviewView(fake.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
 
-      await fake.received[0]({ type: 'chat-send', prompt: 'hi' });
+      for (const type of ['chat-send', 'chat-new-session', 'chat-pick-graph', 'chat-model-change', 'chat-open-settings']) {
+        await fake.received[0]({ type, prompt: 'hi' });
+      }
 
-      assert.ok(runGraphIntelligence.notCalled, 'AI must not run while disabled');
-      assert.ok(
-        execStub.calledWith('workbench.action.openSettings', 'cograph.graphIntelligence'),
-        'should open AI settings',
-      );
-      const posted = fake.webview.postMessage.getCalls().map((c: sinon.SinonSpyCall) => c.args[0]);
-      const status = posted.find((m: any) => m.type === 'chat-status');
-      assert.ok(status && status.stage === 'idle', 'chat spinner reset to idle');
-      const restore = posted.find((m: any) => m.type === 'chat-input-restore');
-      assert.ok(restore && restore.text === 'hi', 'typed prompt restored to the input');
-      const sys = posted.find((m: any) =>
-        m.type === 'chat-append' && m.message?.role === 'system' && /AI features are off/.test(m.message.text));
-      assert.ok(sys, 'system explainer appended to the chat');
-    });
-
-    test('workflow-generate while disabled → does not call controller and opens settings', async () => {
-      stubAiEnabled(sandbox, false);
-      const execStub = sandbox.stub(vscode.commands, 'executeCommand').resolves();
-      const generateWorkflow = sinon.stub().resolves({ graph: { nodes: [], edges: [] }, text: 'x' });
-      const provider = new SidebarProvider(
-        vscode.Uri.file('/fake/ext'),
-        makeFakeController({ generateWorkflow }),
-      );
-      const fake = makeFakeWebviewView();
-      provider.resolveWebviewView(fake.view, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
-
-      await fake.received[0]({ type: 'workflow-generate' });
-
-      assert.ok(generateWorkflow.notCalled, 'workflow must not generate while disabled');
-      assert.ok(
-        execStub.calledWith('workbench.action.openSettings', 'cograph.graphIntelligence'),
-        'should open AI settings',
-      );
+      assert.ok(fake.webview.postMessage.notCalled, 'nothing is posted back');
+      assert.ok(execStub.notCalled, 'no command (settings, picker) is run');
     });
 
     test('open-ai-settings → opens native settings filtered to cograph AI', async () => {

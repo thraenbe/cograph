@@ -21,6 +21,13 @@ const FC_LAYERS = {
     }
     return out;
   },
+  // F31: the frame's own title and counts — parked when the frame is too narrow on screen
+  // to read them (decided per frame by the caller, not by the zoom alone)
+  titles: (frameEl) => {
+    const out = childrenMatching(frameEl, 'text', 'folder-bubble-label');
+    for (const tab of childrenMatching(frameEl, 'g', 'frame-tab')) { out.push(...childrenMatching(tab, 'text', 'frame-tab-counts')); }
+    return out;
+  },
   // function nodes only — folder/file glyphs (path.cloud-node) stay clickable
   nodes: (frameEl) => {
     const holder = childrenMatching(frameEl, 'g', 'f-nodes')[0];
@@ -73,7 +80,7 @@ function createDomCuller() {
       parent.insertBefore(el, nextAttachedSibling(path));
       return true;
     },
-    /** Make one frame's layers match `want` = { labels, links, nodes, slotLabels } (true = drawn). */
+    /** Make one frame's layers match `want` = { labels, links, nodes, slotLabels, titles } (true or absent = drawn). */
     applyLod(path, want) {
       const frameEl = els.get(path);
       if (!frameEl) { return 0; }

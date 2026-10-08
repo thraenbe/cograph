@@ -15,6 +15,9 @@ export const SEL = {
   frameTitle: { css: '#graph g.frame .folder-bubble-titlebar' },
   frameTab: { css: '#graph g.frame .frame-tab', optional: true, note: 'ux: index-tab header replaces the titlebar' },
   fileSlot: { css: '#graph g.file-slot' },
+  fileSlotHandle: { css: '#graph g.file-slot rect.file-slot-handle', optional: true, note: 'ux-round2 R2b: drag handle = the slot label band' },
+  fileFilterChip: { css: '#folder-filters-body .chip-file', optional: true, note: 'ux-round2 R2a: hidden-file chip, click to unhide' },
+  arrowBundleMarker: { css: '#arrow-bundle', optional: true, note: 'ux-round2 R3: marker for cross bundles' },
   fnNode: { css: '#graph circle.regular-node' },
   clusterNode: { css: '#graph path.cloud-node' },
   ctxMenu: { css: '#ctx-menu' },
@@ -45,26 +48,39 @@ export const SEL = {
   folderMode: { css: '#btn-folder-mode' },
   folderFiltersToggle: { css: '#toggle-folder-filters' },
   folderFiltersBody: { css: '#folder-filters-body' },
+  folderShowAll: { css: '#btn-folder-show-all', optional: true, note: 'round3 W2: clears all four filter sets + structural re-render' },
+  subgraphBlock: { css: '#folder-filters-body .subgraph-block', optional: true, note: 'round3 W4 (selector to be confirmed by session-111)' },
+  subgraphRow: { css: '#folder-filters-body .subgraph-row', optional: true, note: 'round3 W4: one row per excluded top-level folder (name + fileCount)' },
+  subgraphVisualize: { css: '#folder-filters-body .subgraph-visualize', optional: true, note: 'round3 W4: posts subgraph-include {path}' },
+  subgraphExit: { css: '#folder-filters-body .subgraph-exit', optional: true, note: 'round3 W4: posts subgraph-exit' },
+  // session-178 sidebar (confirmed 2026-09-24): "Create new Subgraph" picker in the saved-graph list
+  sidebarNewSubgraph: { css: '#btn-new-subgraph', optional: true, note: 'round3: opens #subgraph-picker; #body-graphs gets .picking' },
+  subgraphPicker: { css: '#subgraph-picker', optional: true },
+  subgraphPickerName: { css: '#sp-name', optional: true },
+  subgraphPickerRow: { css: '#sp-tree .sp-row', optional: true, note: 'data-rel=<rel>; .locked = included via an ancestor' },
+  subgraphPickerCheck: { css: 'input.sp-check', optional: true },
+  subgraphPickerCreate: { css: '#sp-create', optional: true },
+  subgraphPickerCancel: { css: '#sp-cancel', optional: true },
+  subgraphCard: { css: '.graph-card.subgraph', optional: true, note: '.card-desc "Subgraph · N folders"' },
   classMode: { css: '#btn-class-mode' },
 
   // forces (ux: one engine-specific Forces box in the left toolbar)
   forceFileCluster: { css: '#slider-file-cluster' },
-  forceFolderRepel: { css: '#slider-folder-repel' },
-  forceFileRepel: { css: '#slider-file-repel' },
+  forceFolderRepel: { css: '#slider-folder-repel', optional: true, note: 'D1-D3 (round 3): removed from the Global box' },
+  forceFileRepel: { css: '#slider-file-repel', optional: true, note: 'D1-D3 (round 3): removed from the Global box' },
   forceCenter: { css: '#slider-center-force' },
   forceRepel: { css: '#slider-repel-force' },
   forceLink: { css: '#slider-link-force' },
   moreForcesOld: { css: '#btn-more-forces', optional: true, note: 'ux: replaced by #btn-show-more-forces' },
   showMoreForces: { css: '#btn-show-more-forces', optional: true, note: 'ux: inline expander' },
   forcesHint: { css: '#forces-hint', optional: true, note: 'ux: shown in Static' },
-  forceLinkDistance: { css: '#slider-link-distance', optional: true, note: 'ux: new' },
+  forceLinkDistance: { css: '#slider-link-distance', optional: true, note: 'ux: new; D1-D3 (round 3): removed from both boxes' },
   forceVelocityDecay: { css: '#slider-velocity-decay', optional: true, note: 'ux: new' },
   forceCollidePad: { css: '#slider-collide-pad', optional: true, note: 'ux: new' },
-  forceSlotPad: { css: '#slider-slot-pad', optional: true, note: 'ux: new' },
+  forceSlotPad: { css: '#slider-slot-pad', optional: true, note: 'ux: new; D1-D3 (round 3): removed from the Shelf box' },
   forceRepelRange: { css: '#slider-repel-range', optional: true, note: 'ux 7b539b5: Global only, 100-2000 px, slider max = unlimited (shown as ∞, default)' },
 
   // actions
-  openChat: { css: '#btn-open-chat' },
   saveGraph: { css: '#btn-save-graph' },
 
   // settings (gear) panel
@@ -79,6 +95,12 @@ export const SEL = {
   toggleEmptyFiles: { css: '#toggle-empty-files' },
   toggleArrows: { css: '#toggle-arrows' },
   toggleFuncPopup: { css: '#toggle-func-popup' },
+  toggleSameFileEdges: { css: '#toggle-same-file-edges', optional: true, note: 'U1: Display > "Only calls within a file", setting cograph.display.sameFileEdgesOnly (default on)' },
+  sameFileRoot: { css: '#graph g.same-file-only', optional: true, note: 'U1: class on the zoom root that hides line.xfile:not(.cg-hl) and line.cross-bundle' },
+  xfileLine: { css: '#graph line.xfile', optional: true, note: 'U1: cross-file call line (stays in the DOM, CSS-hidden while same-file-only)' },
+  funcSaveError: { css: '.func-card .func-save-error', optional: true, note: 'PR #69: refused / unanswered save bar (role=alert), popup stays open' },
+  funcSaveReason: { css: '.func-card .func-save-reason', optional: true, note: 'PR #69: "Not saved: <reason>"' },
+  funcSaveReload: { css: '.func-card button.func-save-reload', optional: true, note: 'PR #69: only when the host found the function again; two clicks within 3 s' },
   sliderTextFade: { css: '#slider-text-fade' },
   sliderNodeSize: { css: '#slider-node-size' },
   sliderTextSize: { css: '#slider-text-size' },
@@ -111,4 +133,4 @@ export type SelName = keyof typeof SEL;
 /** Selectors only present in the timeline variant of the HTML. */
 export const TIMELINE_ONLY: SelName[] = ['tlPlay', 'tlReset', 'tlPos', 'tlSpeed'];
 /** Selectors created at runtime by the renderer (absent from the static HTML). */
-export const RUNTIME_ONLY: SelName[] = ['svg', 'frame', 'frameTitle', 'frameTab', 'fileSlot', 'fnNode', 'clusterNode', 'ctxMenuItems', 'hoverCard', 'hoverCardVisible', 'hoverCardName', 'hoverCardPath', 'hoverCardFacts', 'hoverCardSummary', 'hoverCardBadge'];
+export const RUNTIME_ONLY: SelName[] = ['svg', 'frame', 'frameTitle', 'frameTab', 'fileSlot', 'fnNode', 'clusterNode', 'ctxMenuItems', 'folderShowAll', 'subgraphBlock', 'subgraphRow', 'subgraphVisualize', 'subgraphExit', 'fileSlotHandle', 'fileFilterChip', 'arrowBundleMarker', 'hoverCard', 'hoverCardVisible', 'hoverCardName', 'hoverCardPath', 'hoverCardFacts', 'hoverCardSummary', 'hoverCardBadge', 'sameFileRoot', 'xfileLine'];

@@ -30,6 +30,19 @@ Status as reported by the owning sessions; "verified" = re-run by uxtest via `--
 - A metric must follow the product's own geometry parameters: `nodesPinnedToWall` tested the UNPADDED slot wall, so
   every sample with slot pad ≥ 2 px looked wall-free (click: 94 → 0 exactly at slot pad 2). Caught while re-ranking;
   the interior now moves inward with `settings.slotPad`.
+- Measurement runs must not depend on gestures that can miss: on a never-settling layout the double-click "fit"
+  landed on drifting nodes and opened source popups (17 of 22 zod/Global samples), so "at fit" metrics were taken
+  un-fitted behind a popup. Sweeps now call the product's `fitToView()` directly and assert that no click reached the
+  graph. Found only by opening the keyframes — always look at the pictures before trusting a ranking.
+- Wall-clock settle times measure the MACHINE, not the code, as soon as several software-rendering pages share it:
+  a '3x slower settle' I reported was pure load (perf's bisect: identical tick counts on four SHAs, ms per tick varying
+  41 -> 74 for the same SHA). Report settle in simulation TICKS (alpha schedule) and keep wall-clock comparisons to
+  `--workers 1` on an idle machine.
+- Killing the Playwright RUNNER does not kill its workers or their Chromium pages: two orphans from aborted sweeps
+  span for 8 h 45 min and 5 h 55 min (47 % + 25 % CPU) under everybody's measurements. After any aborted run check
+  `ps` for `workerProcessEntry` / `chrome-headless-shell` with your worktree as cwd and end exactly those trees.
+- A picture score needs a term for every quality the eye judges: without folder separation the Global ranking
+  rewarded layouts that merged `tests/` into `src/`. `folderOverlapRatio` (non-nested folder boxes) is now part of it.
 - Controls inside a collapsed expander are "hidden", not "absent": open `#forces-advanced` before deciding a slider
   does not exist — otherwise a sweep silently drops exactly the parameters it was run for.
 
@@ -54,3 +67,61 @@ fileRepel have no measurable effect. 12 samples per group: a direction, not fina
 Shelf: both runs are invalid on shelf-base — the sweep set Detail first and thereby triggered F13 (click/express: 0 px
 movement in every sample incl. the reheated defaults; zod moved but within noise). The sweep no longer touches
 Detail when it is already at the target; the real Shelf sweep runs on the integrated branch after F7/F13.
+
+## Final force sweeps on the integrated branch (termi/s180 50876d2 = F12 clamp, D6 graphs; 2026-09-21)
+
+Shelf (63 samples, 7 sliders, wall metric aware of slot pad): keep the defaults - with nodes-on-a-wall weighted like node
+overlap they rank 2nd / 3rd / 1st of 21 (click / express / zod). Slot pad is the one harmful slider (more overlap AND more
+nodes on walls) -> cap at ~3 px or remove; link distance has no effect under Shelf -> drop; collide pad trades overlap for
+wall contacts -> leave at 1.5. Only consistent lever on wall contacts: File Cluster Force up (rho -0.48 / -0.58 / -0.57).
+
+Global (2 x 64 LHS samples + a 42-run candidate pass scored WITH folder separation + a quiet single-page run):
+- Repel range is the lever: unlimited (default) leaves nodes at 1.2-1.5 px radius at fit on click / zod whatever the
+  center force; a finite range of 850-1200 px doubles that. 500 px is too tight on larger repos (zod: folders merge, -9 %).
+- Center force alone pulls FOLDERS together (folder overlap up); it only pays together with more repel + file cluster.
+- Recommended defaults: center 0.08 · repel 450 · file cluster 0.36 · repel range 850 px; link 1, link distance 40,
+  damping 0.3, collide pad 1.5 unchanged. Quiet run vs shipped defaults: click score -21 % (node 1.46 -> 2.94 px, folder
+  boxes < 40 px 37 % -> 21 %, folder overlap 0.09 -> 0.02), express -10 % (3.6 -> 5.8 px, 70 % -> 0 %), zod -11 %
+  (1.27 -> 2.94 px, 71 % -> 41 %). Settle is ~300 ticks for every tuple (fixed alpha schedule); quiet wall-clock 33 / 7 /
+  47 s for the defaults and 37 / 8 / 46 s for the recommendation in headless software rendering.
+- Runner-up (one slider): repel range 850 px only: -12 % / -12 % / -8 %.
+- Remove from the Global box: folder repel + file repel (no effect in three sweeps), link distance (no score benefit, makes
+  nodes smaller at fit, rho -0.38 .. -0.49). Damping and collide pad: no consistent effect - keep them advanced.
+- The previously top-ranked compact samples (13, 18, 19) fall BELOW the defaults on click and zod once folder separation
+  is scored (folder overlap 0.21 - 1.0) - ranking and eye agree now.
+- F12 regression tuple on zod: responsive, settles, max |coordinate| 1 723 - 2 120 px (two runs).
+
+
+## Product decisions from the suite's findings
+
+- **Node dragged out of its slot (Shelf).** Observed on synthetic-1k and zod: a function node dragged out of its
+  file slot in Shelf+Dynamic stayed pinned where it was dropped. Raised as an open question; **decided
+  2026-09-24 (Bela via session-110):** in Shelf+Dynamic the node snaps back into its slot on release
+  (session-111 implements this as W5); in Shelf+Static a dropped node stays where dropped (unchanged).
+  Suite: `node-outside-slot` after a user drag is a high finding in Dynamic (ref B1/W5) and a low
+  `user-node-outside-slot` note in Static; scenario 70 has an explicit "drag out of its slot" step (`no-snap-back`).
+
+## Round 3 (hide entirely / glyph label / subgraph scope), verified on frozen checkouts of termi/s111
+
+| # | Finding | Evidence | Owner | Status |
+|---|---------|----------|-------|--------|
+| F21 | **Global engine, W1b (a27d6bd): hiding a folder leaves the cross-boundary edges into it in `g.links` with UNRESOLVED endpoints** (`__data__.source/target` are id strings, one end inside the hidden folder). Every simulation tick then writes `x1/y1/x2/y2 = NaN` → 4 console errors per line per tick (click, hide `examples/imagepipe`: 25 such lines, 28 300 errors in 1.5 s; the canvas scenario accumulated 1 035 780). Not on W1a-only 89874da (0 errors) and not on develop 7d91c5d. | `hide-entirely`/`canvas`/`folder-panel` global/dynamic on a27d6bd: `console-error`; diag: `{lines: 938, bad: 25, sample: source tests/test_chain.py::test_pipeline (visible) → target examples/imagepipe/imagepipe.py::processor (not visible)}` | ux (session-111) | **fixed** in df7f84a (render and force share one scoped link list); verified on develop f2768cf: 0 console errors in 56 recordings |
+| F22 | **Shelf, W1a (89874da/a27d6bd): hiding a folder removes its frame from the DOM but nothing re-packs** — the parent keeps its size and every sibling keeps its rect (click: `examples` 1257×1194 before and after hiding `inout`; zod: `app` unchanged after hiding `(doc)`), in Static AND Dynamic. The gap stays where the frame was. Hiding a file removes its slot the same way (slot gone, frame unchanged). Chip ✕ / Show all bring frame and slot back. | `hide-entirely` shelf/static + shelf/dynamic on a27d6bd: `no-repack-after-hide`; snapshots 01 vs 02 (identical rects) | ux (session-111) | **fixed** in W2b 32c3ed2; verified on ac49020/f2768cf (zod `app` 100×119 → 100×80 after hiding `(doc)`, click siblings shelf up). Rule refined: a frame that was last in its row with row-mates re-packs nothing |
+
+Also seen (not new): in Global+Static the double-click fit leaves 18 of 19 frames off-screen at Detail 1 (`graph-overflows-viewport`, F4 family) so the hide steps skip there; the Global hide is covered by the Dynamic run.
+| F23 | **W5 miss (Shelf+Dynamic, click): a function node dragged 91 px straight down out of its slot - the release point lies in the next row's frame - stays where dropped**, still bound to its own slot (`node-outside-slot` persists through the following steps). zod (46 px), express (100 px) and synthetic-1k (203 px) snap back. Suspect: a release over a neighbouring frame/slot takes a different path. | `canvas` click shelf/dynamic step 8 on f2768cf: `no-snap-back`; `examples/completion/completion.py::cli` slot y 2808..2917, node at y 2950 after release | ux (session-111) | **fixed** in 23dee5d; verified on the release SHA: snap-back on click/express/synthetic-1k/zod |
+| F24 | **synthetic-1k, Shelf both motions, new vs 7d91c5d: "Show only this file" (slot menu, f0.ts) then "Show all" does not restore** - `state.onlyShowFile` stays f0.ts, drawn 12/0, visible set 12 → 12. click/express/zod restore correctly. | `canvas` synthetic-1k shelf/* step 24 on f2768cf: `file-filter-noop` | ux / uxtest | **not a product bug**: every Show all clears `onlyShowFile` (verified by diagnostic on cb187b3). The scenario never reached the menu because Show only re-packs the one slot off-screen at a user zoom - see F26 |
+| F25 | **W4 boot order: excluded-folder rows never rendered** - `subgraph` arrives before `structure`, the section derivation ran on a null tree and was not re-run, so the Filters section showed only the subhead + "Show whole project". Found through the lab (DOM dump) and Tier B on the real host. | `subgraph` step 2 on ac49020/f2768cf: `scope-rows-missing`; Tier B click/zod | ux (session-111) | **fixed** in 3074831; verified lab (4 repos) + Tier B (click/express/zod) |
+| F26 | **"Show only this file" while zoomed in can leave the canvas blank.** W2b re-packs the shelf to the one remaining slot; with `userZoomed` true e22c370 deliberately does not re-fit, so the slot lands off-screen (synthetic-1k at k 1.2: slot at -902,-447 px). The Filters chip `◎ f0.ts ×` and "Show all" are visible, a double-click fits. | diagnostic screenshot on cb187b3; canvas rule `filter-empties-viewport` | ux | open - UX follow-up, not a release blocker: re-fit (or pan) when a filter change leaves nothing in the viewport |
+
+## Release verification 1.3.0 - develop ce29b9f (run on frozen cb187b3, code-identical), 2026-09-25
+
+| Item | Result |
+|------|--------|
+| Lab matrix, click/express/synthetic-1k/zod, all scenarios, both engines | 142 recordings, 1547 steps, 0 console errors. 3 test failures, none a product result: 2 wall-clock timeouts across a laptop suspend (rerun 8/8 pass), `popups` click global/static flake (passes 4 of 5). Delta after harness fixes: 33 recordings, 0 failed. |
+| Tier B, click/express/zod | 24/24 passed, 129 steps, 0 console errors, no findings: cold-open 5 attempts each, f14-restore under Global, smoke, subgraph E2E incl. the include half |
+| Global defaults (D1-D3) | click at fit 3.18 px node radius / 21.1 % small boxes (target ~2.9 / ~21 %, 7d91c5d 1.8 / 36.8 %); zod 2.69 / 52.9 % (7d91c5d 1.54 / 64.7 %); shipped values on load, removed sliders absent, Reset Layout restores them - 4/4 repos |
+| Round 3 | hide entirely + re-pack, chips, Show all (panel) on 4 repos; glyph labels inside 4/4; subgraph scope rows / Visualize / Exit 4/4 (lab) + 3/3 (Tier B); scoped root-glyph count (zod 480 of 493, click 47 of 79); re-fit after hide (0 % off-screen); W5 snap-back 4/4; F21 0 console errors |
+| Pre-existing, unchanged | synthetic-1k d0/d4 title right-click opens no menu (since 7d91c5d); zod hover-card one step (since 7d91c5d); synthetic-1k workflow Static overlap (since cd2e398) |
+
+**Verdict: PASS - ship ce29b9f.** Follow-up: F26 (UX).

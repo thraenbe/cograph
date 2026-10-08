@@ -5,6 +5,182 @@ All notable changes to CoGraph are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-09
+
+The release that took things away. Two of the three AI features were measured rather than
+assumed, found not to work, and removed: Chat handed the whole graph to the CLI as one file,
+which the CLI refuses to read above 256 KB, so it returned empty answers on most real
+repositories; the AI Workflow Graph did the same and produced nothing usable on any of seven
+test repositories. What replaces them needs no model at all — a local **MCP server**, so the
+agent you already use can ask the graph directly, and a **Version Control** view that opens a
+pull request's own commit as a graph.
+
+Underneath, the Shelf engine started drawing the call lines inside a folder, which it had never
+done since it shipped; `this.helper()` calls started resolving in TypeScript and JavaScript,
+which they never had; and the graph and the Folder panel stopped disagreeing about which files
+are in the project. The default view is quieter on purpose: only the calls inside a file are
+drawn, function names appear when you point at one, and anything whose calls are hidden says so.
+
+### Added
+- **CoGraph as an MCP server for your AI agent.** Claude Code, Cursor, Claude Desktop and VS Code
+  agent mode can now ask CoGraph's graph directly, through six read-only tools:
+  `find_symbol`, `get_symbol`, `callers`, `callees`, `impact` ("what breaks if I change this",
+  with the tests and entry points it reaches) and `overview` (folder tree with AI summaries,
+  entry points, hot spots). Results are compact text, capped in size, and say how fresh the
+  analysis is. The server is local: it reads `.cograph/` and your source files, opens no
+  network connection and needs no API key. Set it up with **CoGraph: Connect an AI Agent
+  (MCP)…** (also the plug icon in the CoGraph sidebar); on VS Code 1.101+ agent mode finds it
+  with no setup. It answers from the last analysis, so open the project in CoGraph once.
+- **Version Control: pull requests that open as a graph.** The sidebar's top pane lists the
+  repository's pull requests (number, title, author, branches, check status, files changed),
+  with an **Open | All** switch, a filter box once the list is long, and **Show more** for
+  repositories with hundreds of them. Click a pull request and the graph shows it: every
+  folder on a path to a changed file is opened, every other folder is closed, and the changed
+  files are coloured green (added), orange (modified) or red (deleted). **Leave** in the
+  banner, or **Leave pull request** in the sidebar, puts back the graph you had before -
+  scope, open folders, detail level and frame positions.
+  - The list comes from the GitHub CLI (`gh`) with your own sign-in; CoGraph stores no token.
+    Not a git repository, no remote, a remote that is not GitHub, `gh` missing or signed out,
+    no access and no connection each show as one readable line with a Retry.
+  - **The graph is the pull request's own commit.** CoGraph fetches the PR head into a
+    namespaced ref (`refs/cograph/pr/N`, your branches and index untouched), copies only its
+    source files under the extension's storage, and opens them in a second, read-only panel
+    titled `PR #69 · head 23834be`, with its own cache so the same head reopens instantly.
+    Copies are kept within a budget of 6 trees / 400 MB; **CoGraph: Clear pull-request trees**
+    empties it.
+  - **Colours come from a structural diff against the merge base**, not from line numbers:
+    CoGraph fetches the base branch, finds the merge base (what GitHub diffs against), analyses
+    both trees and compares function by function — a function is "changed" when its source
+    text differs, "added" when the base lacks it. The banner says `+35 ~13 −0 functions ·
+    31 callers affected`; the sidebar lists the functions the pull request removes together
+    with who called them in the base (they have no node in the head, so this list is the only
+    place they appear), and counts the call edges that appear and vanish. Both analyses are
+    cached under their copies, so the same pull request reopens in the time of the two fetches.
+    When the base cannot be fetched the head is still shown, coloured from the pull request's
+    file list, and the sidebar says so.
+  - When the head cannot be fetched (offline, no git, too large, no access) the row says why
+    and offers **Show in the current checkout instead**: your working tree, coloured with the
+    pull request's changes, in a panel of its own as well — clicking a pull request always
+    opens a new panel and never takes over your graph; **Leave** closes it. There a modified
+    file is coloured function by function only when your copy is byte-for-byte the pull
+    request's version; otherwise the file is coloured as a whole, and the banner says so. The
+    banner and the panel title always say which tree you are looking at: `PR commit 23834be`
+    or `your checkout · main`.
+  - Files the pull request removes, and files that are not source code, are counted and
+    listed in the sidebar rather than dropped silently.
+  - A pull-request view is not saved: it follows the pull request.
+  - New setting `cograph.pullRequests.unchangedFolders` (`collapse` | `hide`, default
+    `collapse`): keep untouched folders in the picture, closed, or take them out of the view
+    and list them under FILTERS.
+- **Hover a function to see its definition.** Rest the pointer on a function for about half a
+  second and a card shows its signature, its docstring or doc comment, who calls it and what it
+  calls, and the first 8 lines of its code. Clicking still opens the editable source popup as
+  before, and the card stays away while that popup is open. Moving across functions does not
+  open cards, and each function's source is read only once (until the graph changes).
+
+### Changed
+- **"Show only this file" now removes the other folders**, the same way "Show only this
+  folder" does. Only the file's own folder and the folders that contain it stay, in both
+  engines; before, every other folder stayed on screen as an empty frame or box.
+- **The graph now draws only calls within one file, by default.** New setting
+  `cograph.display.sameFileEdgesOnly` (default on), also switchable per graph in the Settings
+  panel under Display, *Only calls within a file*. While it is on, these are **not drawn**:
+  every call between two different files (inside a folder and across folders, including
+  Shelf's cross-folder bundles), **every call into a library** (so Show Libraries shows
+  library nodes without their edges), and, **in a collapsed overview** where folders or files
+  are shown as glyphs, **all edges**, because each glyph stands for more than one file. Hover a
+  function to see its own hidden calls. The layout is identical with the setting on or off:
+  hidden calls still pull nodes together and still count for Show Orphans. Turn it off to
+  draw every call as before. The choice is saved with Save Layout.
+  While calls are hidden, the graph marks where they are: a function with hidden calls and no
+  visible one gets a **dashed ring** (so it no longer looks like a function that calls nothing),
+  and each file name shows how many calls leave the file for other files of the project, e.g.
+  `auth.py · 6 ↗44`. Both disappear when the setting is off, because the calls are drawn again.
+- **Only the function you point at shows its name.** Function names are no longer drawn at
+  rest; resting the pointer on a function shows its name at once (its hover card follows after
+  about half a second). A dragged function and a function whose source popup is open keep their
+  names, and while the filter box has text every function still shown keeps its name, so
+  search results stay readable. Folder titles, file names, collapsed folder and file names,
+  Class overlay names and library groupings are unchanged. Before, function names overlapped
+  into unreadable text at every zoom (F28).
+- **A function you point at holds still.** In the Global engine with Dynamic motion, the layout
+  keeps moving while it settles, so a function used to drift out from under a resting pointer
+  and its name and card gave way. The hovered function is now held in place until the pointer
+  leaves (a function you placed yourself is never touched). This calms its neighbours too.
+
+### Removed
+- **Chat.** The sidebar Chat is gone. It handed the whole graph to the Claude Code / Codex
+  CLI as one file, and above roughly 300 functions the CLI refused to read that file, so on
+  most real repositories Chat returned empty answers (measured on axios, requests, socket.io,
+  gson and CoGraph itself). Your saved conversations are not deleted: they stay in
+  `.cograph/chats/`, and CoGraph says so once. Annotate Graph is unchanged.
+
+- **The "Open Chat" button** in the graph view. With Chat gone it only focused the CoGraph
+  sidebar, which the activity-bar icon already does.
+- **The AI Workflow Graph.** It asked the Claude Code / Codex CLI to sort every function of the
+  project into left-to-right pipeline stages. Measured on 7 repositories (express, dayjs, axios,
+  requests, socket.io, gson and CoGraph itself), it produced a usable result on **none** of them.
+  From about 700 functions up, the request file was over the CLI's 256 KB read limit, so the
+  model returned an empty graph. On the two smaller projects the reply lost every function name,
+  or 72% of the call edges. Where it did answer, its "topic clusters" were mostly the project's
+  folders, which the Shelf view already shows, without an AI call or its cost (20 s to 2.5 min
+  and $0.15 to $0.54 per run). The pinned Workflow card is gone. An old
+  `.cograph/__workflow__.json` stays on disk and is ignored. Five settings went with it because
+  nothing else read them: `cograph.graphIntelligence.model`, `.codex.model`, `.effort`,
+  `.maxTurns` and `.maxBudgetUsd`. Annotate Graph keeps `.enabled`, `.provider`, `.timeoutMs`
+  and its own `.annotate.*` settings.
+### Fixed
+- **Saving from the function popup no longer writes over the wrong lines.** A popup
+  remembered the line its function started at when it opened, and Save wrote its text back
+  over the region found at that line. If the file changed while the popup was open (edited
+  in the editor, or another popup on the same file saved first and shifted the lines), the
+  save overwrote whatever was there now. Save now only writes when the file still contains
+  exactly the text the popup showed, and never when the end of the function cannot be
+  found. Otherwise nothing is written.
+- **A refused or unconfirmed popup save keeps your edit.** The popup now stays open until
+  the save is confirmed. If it is refused, or no answer comes within 8 s, the popup keeps
+  your text editable and shows the reason inline, with **Copy my edit** and, when the
+  function was found again in the file, **Reload from file** (which replaces your edit, so
+  it needs a second click). Saving again is safe: it still compares against the text you
+  were shown.
+- **The function popup shows the whole function, and only that function.** Its end used to
+  be found by counting every brace, including braces inside strings, comments and regexes,
+  and a body-less declaration (a Java interface method, a C++ prototype) ran on into the
+  next function. So the popup could show far too much (11 000 lines for one lodash function)
+  or only the first line of a multi-line signature. The end detection now skips strings,
+  char literals, comments and regexes, and handles multi-line signatures, decorators,
+  declarations without a body, and Python triple-quoted strings, bracket continuations and
+  low-indent comments.
+- **"Show only this file" while zoomed in no longer leaves a blank canvas.** When a Hide,
+  Only show or subgraph change moves everything out of the current view, the view now fits
+  what is still shown, even after you zoomed or panned. As long as anything in scope is
+  still visible, your view is kept. The fit also covers only in-scope content, no longer
+  the positions of hidden nodes. Works in Shelf and Global.
+- **Shelf draws the call lines inside a folder again.** Since the Shelf engine shipped, every
+  call line between functions of the same folder was created hidden: the visibility check
+  compared node objects with ids and never matched. Only the cross-folder bundles were
+  visible. (F27)
+- **Shelf zoom detail is re-applied after every re-render.** When you zoom far out, Shelf parks
+  the call lines, labels and function nodes it cannot show legibly. After a re-render (for
+  example a Detail change) it used to bring everything back at full detail and keep it there
+  until you zoomed across a threshold again. With in-frame lines now painted (F27), that
+  dropped panning at fit-to-view on fmt from 70 to 29 fps; with this fix the view stays light.
+  (F29)
+- TypeScript/JavaScript: calls through `this` (`this.helper()`) now appear as edges. They were never detected before, so class-heavy code showed far fewer connections than it has (up to +42% internal edges on the test corpus). A `this` call links to the caller's own class or its base classes, never to an unrelated class that happens to share the method name.
+- The graph and the Folder panel now always cover the same files. Build output (`build/`, `target/`, `CMakeFiles/`, `cmake-build-*/`, `__pycache__/`) is left out of both unless git tracks files there, so hand-written build scripts stay and generated copies go. Before, a Python package built in place (`pip wheel .`) showed every function twice, with calls linked into the copy, and the copies could not be hidden or scoped from the Folder panel. Folders that are not git repositories skip build output entirely.
+- **Zoomed-out Shelf views stay lighter.** A folder frame that is too narrow on screen to read
+  its title (under 40 pixels) no longer draws the title and counts; they return as you zoom in.
+  On django zoomed out to fit, that removes about 1 300 unreadable titles and a third of the
+  work per frame (10.1 → 6.8 ms). (F31)
+
+### Security
+- **CoGraph can no longer have an AI tool write to your files.** Chat and the AI Workflow Graph
+  ran the Claude Code / Codex CLI in modes that may edit files (`--permission-mode dontAsk`,
+  `--full-auto`); those were the only such calls CoGraph ever made, and they are gone with
+  both features. The one AI feature left, Annotate Graph, runs Claude Code with no tools, or
+  with read-only ones (Read, Grep, Glob) if you turn on source reading, and runs Codex in its
+  read-only sandbox. Nothing is sent to an AI until you turn on `cograph.graphIntelligence.enabled`.
+
 ## [1.3.0] - 2026-09-24
 
 The Shelf engine release: nested, non-overlapping folder frames with per-file slots,

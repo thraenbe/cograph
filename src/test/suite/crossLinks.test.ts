@@ -158,3 +158,82 @@ suite('crossLinks — ancestor/descendant routing', () => {
     assert.deepStrictEqual(cl.individualLinksFor(CROSS, null, () => ({ x: 0, y: 0 })), []);
   });
 });
+
+suite('crossLinks: same-file rule (U1)', () => {
+  const NODES = [
+    { id: 'f1', file: '/r/a.py' }, { id: 'f2', file: '/r/a.py' }, { id: 'g1', file: '/r/b.py' },
+    { id: 'file::/r/a.py', isFileCluster: true, isCluster: true, file: '/r/a.py', _filePath: '/r/a.py' },
+    { id: 'file::/r/c.py', isFileCluster: true, isCluster: true, file: '/r/c.py', _filePath: '/r/c.py' },
+    { id: 'folder::/r/x', isFolderCluster: true, isCluster: true, file: null, _folderPath: '/r/x' },
+    { id: 'lib', isLibrary: true, file: '/site/lib.py' },
+    { id: 'syn', isSynthetic: true },
+  ];
+
+  test('fileOfNode: function and file glyph have a file; folder glyph, library and synthetic do not', () => {
+    const by = Object.fromEntries(NODES.map(n => [n.id, cl.fileOfNode(n)]));
+    assert.deepStrictEqual(by, {
+      f1: '/r/a.py', f2: '/r/a.py', g1: '/r/b.py', 'file::/r/a.py': '/r/a.py', 'file::/r/c.py': '/r/c.py',
+      'folder::/r/x': null, lib: null, syn: null,
+    });
+    assert.strictEqual(cl.fileOfNode(null), null);
+  });
+
+  test('isSameFileLink / partitionByFile over ids and resolved node objects', () => {
+    const fileOf = cl.fileLookup(NODES);
+    const L = (s: string, t: string, extra: object = {}) => ({ source: s, target: t, ...extra });
+    const links = [
+      L('f1', 'f2'),                    // same file
+      L('f1', 'f1'),                    // recursion
+      L('f1', 'g1'),                    // two files, same folder or not: cross
+      L('f2', 'lib', { isLibraryEdge: true }),
+      L('f1', 'folder::/r/x', { _count: 4 }),
+      L('file::/r/a.py', 'file::/r/c.py', { _count: 2, pending: true }),
+      L('syn', 'syn'),                  // no file at all: never "same file"
+      L('f1', 'unknown'),
+    ];
+    const { same, cross } = cl.partitionByFile(links, fileOf);
+    assert.deepStrictEqual(same, [links[0], links[1]]);
+    assert.deepStrictEqual(cross, links.slice(2));
+    // d3's forceLink replaces ids with node objects: still resolved through .id
+    const resolved = { source: NODES[0], target: NODES[1] };
+    assert.strictEqual(cl.isSameFileLink(resolved, fileOf), true);
+    assert.strictEqual(cl.isSameFileLink({ source: NODES[0], target: NODES[2] }, fileOf), false);
+  });
+
+  test('fileLookup: unknown ids resolve to null', () => {
+    assert.strictEqual(cl.fileLookup([])('x'), null);
+    assert.strictEqual(cl.fileLookup(undefined)('x'), null);
+  });
+});
+
+suite('crossLinks: X3 cue for what the same-file rule hides', () => {
+  const NODES = [
+    { id: 'a1', file: '/r/a.py' }, { id: 'a2', file: '/r/a.py' }, { id: 'a3', file: '/r/a.py' },
+    { id: 'b1', file: '/r/b.py' }, { id: 'c1', file: '/r/c.py' },
+    { id: 'lib', isLibrary: true, file: '/site/x.py' },
+  ];
+  const L = (s: string, t: string, n = 1) => ({ source: s, target: t, _count: n });
+
+  test('ring only where a node has hidden calls and no visible one; counts leave per project file', () => {
+    const cue = cl.xfileCue([
+      L('a1', 'a2'),            // same file: a1, a2 have a visible line
+      L('a1', 'b1', 2),         // a1 also calls out: still has a visible line, no ring
+      L('a3', 'b1'), L('a3', 'c1', 3),   // a3: calls only out -> ring
+      L('c1', 'lib'),           // c1: only library + incoming hidden -> ring
+      L('b1', 'b1'),            // recursion ignored
+    ], cl.fileLookup(NODES));
+    assert.deepStrictEqual([...cue.hiddenOnly].sort(), ['a3', 'b1', 'c1', 'lib']);
+    assert.ok(!cue.hiddenOnly.has('a1') && !cue.hiddenOnly.has('a2'));
+    assert.deepStrictEqual(Object.fromEntries(cue.outByFile), { '/r/a.py': 6 }, 'a.py: 2 + 1 + 3 leave for b.py/c.py; library calls do not count');
+  });
+
+  test('wiring contract: ring class at render, slot tspan, both CSS-gated on the same-file rule', () => {
+    const fs = require('fs'); const path = require('path');
+    const read = (rel: string) => fs.readFileSync(path.resolve(__dirname, '../../..', rel), 'utf8');
+    assert.ok(read('src/webview/rendering.js').includes(".classed('has-xfile', d => !!(state.xfileCue && state.xfileCue.hiddenOnly.has(d.id)))"));
+    assert.ok(read('src/webview/frameRender.js').includes("attr('class', 'slot-xout').text(' ↗' + out)"));
+    const css = read('src/webview/styles.css');
+    assert.ok(css.includes('#graph g.same-file-only circle.regular-node.has-xfile[stroke="none"]'), 'never overrides a git outline');
+    assert.ok(css.includes('tspan.slot-xout { display: none; }') && css.includes('#graph g.same-file-only tspan.slot-xout { display: inline;'));
+  });
+});

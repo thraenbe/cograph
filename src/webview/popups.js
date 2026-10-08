@@ -81,8 +81,10 @@ function bringToFront(inst) {
 }
 
 function closeFuncPopupInstance(inst) {
+  if (inst.saving && inst.saving.timer) { clearTimeout(inst.saving.timer); }
   inst.element.remove();
   state.funcPopups.delete(inst.node.id);
+  if (typeof fnNameOn === 'function') { fnNameOn(inst.node.id, 'popup', false); }
 }
 
 function createFuncPopupInstance(d) {
@@ -242,7 +244,7 @@ function createFuncPopupInstance(d) {
 
   saveBtn.addEventListener('click', () => {
     const node = inst.node;
-    if (!node || textarea.readOnly) return;
+    if (!node || textarea.readOnly || inst.saving) return;
 
     // Optimistically mark as modified so the node color updates immediately
     if (state.gitMode && node.gitStatus?.unstaged !== 'added') {
@@ -251,8 +253,8 @@ function createFuncPopupInstance(d) {
       applyGitColors();
     }
 
-    vscode.postMessage({ type: 'save-func-source', file: node.file, line: node.line, newSource: textarea.value });
-    closeFuncPopupInstance(inst);
+    // Round trip in funcSave.js: the popup closes only once the host confirms.
+    startFuncSave(inst);
   });
 
   openFileBtn.addEventListener('click', () => {
@@ -329,6 +331,7 @@ function showFuncPopup(d) {
 
   const inst = createFuncPopupInstance(d);
   state.funcPopups.set(d.id, inst);
+  if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'popup', true); }   // F28: name while its popup is open
 
   inst.originalSource = null;
   updateFuncHighlight(inst);

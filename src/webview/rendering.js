@@ -69,7 +69,6 @@ defs.append('symbol')
 
 // Transform groups
 const g = svg.append('g');
-const dividerG = g.append('g').attr('class', 'workflow-divider');  // back layer; workflow mode only
 const folderG = g.append('g').attr('class', 'folder-bubbles');
 const fileG   = g.append('g').attr('class', 'file-circles');
 const classG  = g.append('g').attr('class', 'class-bubbles');
@@ -262,16 +261,19 @@ function fitToView() {
   const xs = state.currentNodes.map(n => n.x).filter(v => v != null && isFinite(v));
   const ys = state.currentNodes.map(n => n.y).filter(v => v != null && isFinite(v));
   if (!xs.length) return;
-  const svgEl = svg.node();
-  const W = svgEl.clientWidth || window.innerWidth;
-  const H = svgEl.clientHeight || window.innerHeight;
-  const pad = 60;
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
   let maxR = 0;
   for (const n of state.currentNodes) {
     if (n.x != null && isFinite(n.x)) { maxR = Math.max(maxR, nodeRadius(n)); }
   }
+  fitToRect(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), maxR);
+}
+
+/** Animate the view onto a graph-space rect (maxR: largest node radius inside it). */
+function fitToRect(minX, minY, maxX, maxY, maxR) {
+  const svgEl = svg.node();
+  const W = svgEl.clientWidth || window.innerWidth;
+  const H = svgEl.clientHeight || window.innerHeight;
+  const pad = 60;
   const scale = (typeof fitScale === 'function')
     ? fitScale(maxX - minX, maxY - minY, W, H, maxR, pad)
     : Math.min((W - pad * 2) / (maxX - minX || 1), (H - pad * 2) / (maxY - minY || 1), 4);
@@ -287,6 +289,8 @@ function fitToView() {
 const drag = d3.drag()
   .container(function () { return g.node(); }) // absolute coords (identity in global path)
   .on('start', (event, d) => {
+    if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'drag', true); }   // F28: named while dragged
+    if (typeof hoverPinHandOver === 'function') { hoverPinHandOver(d); }    // X2: the drag owns the pin now
     reheatForDrag(event);
     d.fx = d.x;
     d.fy = d.y;
@@ -304,6 +308,7 @@ const drag = d3.drag()
     __pe('drag:move', __t0);
   })
   .on('end', (event, d) => {
+    if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'drag', false); }
     // W5: dropped outside its file slot in Shelf+Dynamic → snap back via the
     // facade (reheat while pinned, release a microtask later).
     if (typeof snapBackToSlot === 'function' && snapBackToSlot(d)) {
@@ -386,7 +391,6 @@ function tickedNow() {
     fitToView();
   }
 
-  if (state.viewMode === 'workflow') { updateWorkflowDivider(); }
   // One visibility pass per tick, shared by every overlay (was 3× per tick).
   const needsVis = state.svgFileCircles || state.svgDrilldownBoxes
     || (state.classMode && state.svgClassBubbles);
@@ -433,6 +437,8 @@ function hoverCrossLinks(id) {
 
 function onNodeMouseOver(event, d) {
   const __t0 = __pb();
+  if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'hover', true); }   // F28: the name at once
+  if (typeof hoverPinOn === 'function') { hoverPinOn(d); }                  // X2: hold it while read
   hoverCrossLinks(d.id);
   d3.select(event.currentTarget)
     .style('fill', getCSSVar('--cograph-node-hover'))
@@ -448,6 +454,8 @@ function onNodeMouseOver(event, d) {
 
 function onNodeMouseOut(event, d) {
   const __t0 = __pb();
+  if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'hover', false); }
+  if (typeof hoverPinOff === 'function') { hoverPinOff(d); }
   hoverCrossLinks(null);
   d3.select(event.currentTarget)
     .style('fill', resolveNodeFill(d))
@@ -531,10 +539,25 @@ function edgeWeightScale(count) {
   return 1 + Math.log2(Math.max(1, count || 1)) * 0.6;
 }
 
+// U1 same-file rule: cross-file lines carry .xfile and are hidden by ONE class
+// on the zoom root, so the toggle needs no re-render and the layout (which
+// still uses every edge) is identical either way. Hover (.cg-hl) reveals them.
+let __fileOfFor = null, __fileOf = null;
+function linkFileOf() {
+  if (__fileOfFor !== state.currentNodes) { __fileOfFor = state.currentNodes; __fileOf = fileLookup(state.currentNodes); }
+  return __fileOf;
+}
+
+function applySameFileEdges() {
+  g.classed('same-file-only', !!settings.sameFileEdgesOnly);
+}
+
 function renderLinks(allLinks, visibleSet, parent = linkG) {
+  const fileOf = linkFileOf();
   return parent.selectAll('line')
     .data(allLinks)
     .join('line')
+    .classed('xfile', d => !isSameFileLink(d, fileOf))
     .attr('stroke', d => d.isLibraryEdge ? getCSSVar('--cograph-link-library') : getCSSVar('--cograph-link-default'))
     .attr('stroke-dasharray', d => d.isLibraryEdge ? '6,3' : (d.pending ? '4,3' : null))
     .attr('stroke-width', d => settings.linkThickness * edgeWeightScale(d._count))
@@ -550,8 +573,12 @@ function renderLinks(allLinks, visibleSet, parent = linkG) {
         t.remove();
       }
     })
-    .style('display', d => (visibleSet.has(d.source) && visibleSet.has(d.target)) ? null : 'none');
+    // F27: Shelf hands links whose ends are already node objects (stampLinkRefs);
+    // testing the object against the id set hid every in-frame line.
+    .style('display', d => (visibleSet.has(linkEndId(d.source)) && visibleSet.has(linkEndId(d.target))) ? null : 'none');
 }
+
+function linkEndId(e) { return (e !== null && typeof e === 'object') ? e.id : e; }
 
 function renderNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
   return parent.selectAll('circle.regular-node')
@@ -561,6 +588,7 @@ function renderNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
       update => update,
       exit => exit.remove()
     )
+    .classed('has-xfile', d => !!(state.xfileCue && state.xfileCue.hiddenOnly.has(d.id)))   // X3 ring
     .attr('r', d => nodeRadius(d))
     .style('fill', d => resolveNodeFill(d))
     .attr('stroke', d => resolveNodeStroke(d))
@@ -656,6 +684,7 @@ function renderLabels(visibleSet, nodes = state.currentNodes, parent = labelG) {
   return parent.selectAll('text')
     .data(nodes.filter(n => !n.isLibrary && !n.isFileAnchor), d => d.id)
     .join('text')
+    .classed('fn-name', d => typeof isFnLabelDatum === 'function' && isFnLabelDatum(d))   // F28
     .each(function (d) {
       // Folder/file glyphs carry a dim second line with the count (e.g. "23 files").
       // Rebuilt only when the text changed — not on every re-render.
@@ -691,11 +720,6 @@ function renderLabels(visibleSet, nodes = state.currentNodes, parent = labelG) {
 
 function startSimulation(allLinks) {
   if (typeof perfMark === 'function') { perfMark('sim:start'); }
-  // Workflow mode rebuilds with a fixed-column layout regardless of pendingReheat.
-  if (state.viewMode === 'workflow') {
-    startWorkflowSimulation(allLinks);
-    return;
-  }
   // Reuse the existing global simulation on a reanalysis reheat and, above the
   // big-graph threshold, on every re-render (a folder-parse patch otherwise
   // constructs a fresh simulation and re-settles the world).
@@ -755,72 +779,6 @@ function staticBootFreeze(sim, nodes, maxTicks) {
   nodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
 }
 
-const WORKFLOW_MARGIN_X = 90;
-
-// Left→right layered layout: each node's x is pinned to its pipeline column; the
-// simulation only spreads nodes vertically (charge + collision) within a column.
-function startWorkflowSimulation(allLinks) {
-  state.pendingReheat = false;
-  if (state.simulation) state.simulation.stop();
-  const svgEl = svg.node();
-  const W = svgEl.clientWidth || window.innerWidth;
-  const H = svgEl.clientHeight || window.innerHeight;
-  const stageCount = state.workflowStageCount || 1;
-  state.currentNodes.forEach(d => {
-    d.fx = computeColumnX(d._stage ?? 0, stageCount, W, WORKFLOW_MARGIN_X);
-    d.fy = null;
-    if (!Number.isFinite(d.y)) { d.y = H / 2 + (Math.random() - 0.5) * 200; }
-  });
-  state.simulation = d3.forceSimulation(state.currentNodes)
-    .force('link', d3.forceLink(allLinks).id(d => d.id).distance(40).strength(0.02))
-    .force('charge', d3.forceManyBody().strength(-40))
-    .force('y', d3.forceY(H / 2).strength(0.06))
-    .force('collision', d3.forceCollide(d => nodeRadius(d) + 4))
-    .velocityDecay(0.4)
-    .alphaDecay(0.03)
-    .on('tick', ticked)
-    .on('end', () => { if (typeof perfSettled === 'function') { perfSettled(); } });
-  state.simulation._kind = 'workflow';
-}
-
-// Vertical dotted line dividing backend (left) from frontend (right), with captions.
-function updateWorkflowDivider() {
-  if (state.viewMode !== 'workflow') { dividerG.selectAll('*').remove(); return; }
-  const svgEl = svg.node();
-  const W = svgEl.clientWidth || window.innerWidth;
-  const stageCount = state.workflowStageCount || 1;
-  const x = computeColumnX((state.workflowDividerStage ?? stageCount) - 0.5, stageCount, W, WORKFLOW_MARGIN_X);
-  const stroke = getCSSVar('--cograph-label-cluster') || '#888';
-
-  dividerG.selectAll('line.wf-divider-line')
-    .data([x])
-    .join('line')
-    .attr('class', 'wf-divider-line')
-    .attr('x1', d => d).attr('x2', d => d)
-    .attr('y1', -100000).attr('y2', 100000)
-    .attr('stroke', stroke)
-    .attr('stroke-width', 1.5)
-    .attr('stroke-dasharray', '8,6')
-    .attr('opacity', 0.5)
-    .attr('pointer-events', 'none');
-
-  let minY = Infinity;
-  state.currentNodes.forEach(n => { if (Number.isFinite(n.y)) { minY = Math.min(minY, n.y); } });
-  const capY = (Number.isFinite(minY) ? minY : 0) - 30;
-  dividerG.selectAll('text.wf-divider-cap')
-    .data([{ t: 'Backend', dx: -10, a: 'end' }, { t: 'Frontend', dx: 10, a: 'start' }])
-    .join('text')
-    .attr('class', 'wf-divider-cap')
-    .attr('x', d => x + d.dx)
-    .attr('y', capY)
-    .attr('text-anchor', d => d.a)
-    .attr('fill', stroke)
-    .attr('font-size', `${11 * settings.textSize}px`)
-    .attr('opacity', 0.7)
-    .attr('pointer-events', 'none')
-    .text(d => d.t);
-}
-
 function renderLibraryNodes(libNodeData, visibleSet) {
   return libNodeG.selectAll('use')
     .data(libNodeData, d => d.id)
@@ -855,9 +813,11 @@ function renderLibraryNodes(libNodeData, visibleSet) {
     })
     .on('mouseover', (event, d) => {
       d3.select(event.currentTarget).attr('fill', getCSSVar('--cograph-node-hover'));
+      if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'hover', true); }   // F28
       hoverLinksOn(d, null); // library hover recolours + dims, widths stay
     })
-    .on('mouseout', (event) => {
+    .on('mouseout', (event, d) => {
+      if (typeof fnNameOn === 'function') { fnNameOn(d.id, 'hover', false); }
       d3.select(event.currentTarget).attr('fill', getCSSVar('--cograph-node-library'));
       hoverLinksOff();
     });
@@ -867,6 +827,7 @@ function renderLibraryLabels(libNodeData, visibleSet) {
   return libLabelG.selectAll('text')
     .data(libNodeData, d => d.id)
     .join('text')
+    .classed('fn-name', d => !d.isLibCluster)   // F28: library functions too
     .text(d => d.isLibCluster ? d.label : `${d.libraryName}.${d.name}`)
     .attr('font-size', d => `${9 * settings.textSize}px`)
     .attr('text-anchor', 'middle')
@@ -883,6 +844,8 @@ function renderElements(elements, positionHints = new Map()) {
   // the d3 joins below only see attached elements.
   if (typeof restoreFrameDom === 'function') { restoreFrameDom(); }
   const { allLinks, visibleSet } = prepareRenderData(elements, positionHints);
+  // X3: computed once per render; read by renderNodes (ring) and the Shelf slot labels (count).
+  state.xfileCue = (typeof xfileCue === 'function') ? xfileCue(allLinks, linkFileOf()) : null;
   if (typeof usesFrames === 'function' && usesFrames()) {
     renderFrameLayout(allLinks, visibleSet);
   } else {
@@ -890,7 +853,8 @@ function renderElements(elements, positionHints = new Map()) {
     renderGlobalLayout(allLinks, visibleSet);
   }
   if (state.gitMode) applyGitColors();
-  updateWorkflowDivider();
+  applySameFileEdges();
+  if (typeof applyFnNames === 'function') { applyFnNames(); }
   if (typeof perfMeasure === 'function') { perfMeasure('renderElements', 'render:start'); }
 }
 
@@ -943,7 +907,7 @@ function renderGlobalLayout(allLinks, visibleSet) {
     state.simulation?.force('fileCluster', createFileClusterForce(ddNodesByFile));
     state.simulation?.force('fileSeparation', createFileSeparationForce(ddNodesByFile));
     state.simulation?.force('folderSeparation', null);
-  } else if (state.folderMode && state.viewMode !== 'workflow') {
+  } else if (state.folderMode) {
     state.svgDrilldownBoxes = null;
     state.simulation?.force('drilldownCluster', null);
     state.simulation?.force('drilldownSeparation', null);
@@ -1001,7 +965,7 @@ function renderGlobalLayout(allLinks, visibleSet) {
     state.simulation?.force('drilldownCluster', null);
     state.simulation?.force('drilldownSeparation', null);
   }
-  if (state.classMode && state.viewMode !== 'workflow') {
+  if (state.classMode) {
     const classByKey = groupByClass(state.currentNodes);  // global from class.js
     state.svgClassBubbles = renderClassBubbles(classG, classByKey);
 

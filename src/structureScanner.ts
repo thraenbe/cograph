@@ -1,5 +1,4 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import { walkProjectFiles, gitLsFiles, isAlwaysSkippedDir, type GitLister } from './projectScope';
 
 /**
  * Cheap, parse-free directory scan that powers the instant file-cluster skeleton.
@@ -9,9 +8,10 @@ import * as path from 'path';
  * module produces the structure synchronously in the extension host so the graph
  * view can paint a collapsed folder tree immediately, before any analyzer runs.
  *
- * Pure TypeScript + `fs` only — no subprocess, no native modules (see the
- * packaging note about snap/GLIBCXX). Kept in sync with the analyzers' walk
- * rules in scripts/analyze_*.js.
+ * Pure TypeScript + `fs`, no native modules (see the packaging note about
+ * snap/GLIBCXX); the only subprocess is a lazy `git ls-files`, and only when the
+ * tree contains a build-output directory. What counts as part of the project is decided
+ * once, in projectScope.ts; full analyses hand this file list to every analyzer.
  */
 
 export type StructureLanguage = 'python' | 'typescript' | 'javascript' | 'java' | 'cpp';
@@ -41,9 +41,6 @@ export interface StructureTree {
   totalFiles: number;
 }
 
-/** Directories skipped by every analyzer's file walk (union of scripts/analyze_*.js). */
-const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build', 'CMakeFiles']);
-
 const EXT_LANGUAGE: Record<string, StructureLanguage> = {
   '.py': 'python',
   '.ts': 'typescript', '.tsx': 'typescript',
@@ -67,30 +64,33 @@ function languageOf(name: string): StructureLanguage | null {
   if (name.endsWith('.d.ts')) { return null; } // declaration files aren't analyzed
   const dot = name.lastIndexOf('.');
   if (dot < 0) { return null; }
-  return EXT_LANGUAGE[name.slice(dot)] ?? null;
+  const ext = name.slice(dot);
+  const exact = EXT_LANGUAGE[ext];
+  if (exact) { return exact; }
+  // The C++ analyzer matches extensions case-insensitively (.CPP, .H); the others do not.
+  return EXT_LANGUAGE[ext.toLowerCase()] === 'cpp' ? 'cpp' : null;
 }
 
-function isSkippedDir(name: string): boolean {
-  return SKIP_DIR_NAMES.has(name) || name.startsWith('.') || name.startsWith('cmake-build-');
+/**
+ * Would a file at this root-relative path be part of the project if git tracked it there?
+ * The same rule as the walk (projectScope, F30): a supported source extension and no
+ * always-skipped directory on the way. A build-output directory counts, because the
+ * question is asked about files git tracks — a pull request's files, or a commit's.
+ */
+export function isAnalyzablePath(relPath: string): boolean {
+  const segs = splitSegments(relPath);
+  if (segs.length === 0) { return false; }
+  const name = segs[segs.length - 1];
+  return languageOf(name) !== null && !segs.slice(0, -1).some(isAlwaysSkippedDir);
 }
 
-/** Collect every supported source file under `root` (parse-free). */
-function collectFiles(root: string): StructureFile[] {
+/** Every supported source file of the project under `root` (parse-free), by projectScope's rule. */
+export function listProjectSourceFiles(root: string, list: GitLister = gitLsFiles): StructureFile[] {
   const files: StructureFile[] = [];
-  const stack = [root];
-  while (stack.length) {
-    const dir = stack.pop() as string;
-    let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        if (!isSkippedDir(entry.name)) { stack.push(path.join(dir, entry.name)); }
-      } else if (entry.isFile()) {
-        const language = languageOf(entry.name);
-        if (language) { files.push({ path: path.join(dir, entry.name), language }); }
-      }
-    }
-  }
+  walkProjectFiles(root, (file, name) => {
+    const language = languageOf(name);
+    if (language) { files.push({ path: file, language }); }
+  }, list);
   return files;
 }
 
@@ -114,8 +114,8 @@ function commonRoot(fileDirs: string[]): string {
  * Scan a workspace into a folder hierarchy with a single common root. Empty tree
  * (root '', no folders/files) when nothing supported is found.
  */
-export function scanStructure(workspaceRoot: string): StructureTree {
-  const files = collectFiles(workspaceRoot);
+export function scanStructure(workspaceRoot: string, list: GitLister = gitLsFiles): StructureTree {
+  const files = listProjectSourceFiles(workspaceRoot, list);
   if (files.length === 0) {
     return { root: '', folders: {}, files: [], totalFiles: 0 };
   }

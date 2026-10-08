@@ -6,13 +6,15 @@
 [![Rating](https://img.shields.io/visual-studio-marketplace/r/thraenbe.cograph)](https://marketplace.visualstudio.com/items?itemName=thraenbe.cograph&ssr=false#review-details)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> Visualize your Python, TypeScript, JavaScript, Java, or C++ project as an interactive call graph — functions are nodes, calls are edges. Navigate your codebase by clicking. No configuration required.
+> See your Python, TypeScript, JavaScript, Java, or C++ project as a living map — functions are nodes, calls are edges. Navigate your codebase by clicking. No configuration required.
 
 When AI writes the code, humans need a better way to understand it. CoGraph is the situational-awareness layer for agentic development: a real-time, multi-dimensional map of what is being built in your project.
 
-![CoGraph call graph overview](docs/images/graph-overview.png)
+![CoGraph: the activity bar, a repository opening in Shelf mode, hovering a function to see its definition, then the same graph in Dynamic and Global mode](docs/images/demo.gif)
 
-<!-- TODO(maintainer): replace the static screenshot above with an animated demo GIF at docs/images/demo.gif showing "CoGraph: Visualize Project" → navigating the graph. -->
+*Opening this repository: the folders bloom open, `src/mcp` zooms in with its call lines and the
+counts of calls leaving each file, hovering `relPath` shows what it is and what calls it, then the
+same graph settling live and in the Global engine.*
 
 ## Install
 
@@ -29,14 +31,15 @@ When AI writes the code, humans need a better way to understand it. CoGraph is t
 2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 3. Run **`CoGraph: Visualize Project`**.
 
-The call graph opens in a side panel. Click a node to jump to its definition; use the
+The graph opens in a side panel. Click a node to jump to its definition; use the
 toolbar to toggle overlays.
 
 ## Features
 
-- **Static analysis, zero config** — extracts the call graph using each language's native tooling: Python's built-in `ast`, the TypeScript compiler API, `java-parser` for Java, and `web-tree-sitter` for C++. No runtime instrumentation, no setup.
+- **Static analysis, zero config** — maps every function and the calls between them using each language's native tooling: Python's built-in `ast`, the TypeScript compiler API, `java-parser` for Java, and `web-tree-sitter` for C++. No runtime instrumentation, no setup.
 - **Two layout engines** — **Shelf** packs every open folder into its own non-overlapping frame with a slot per file and simulates only what is open (the default, and what keeps large repositories navigable); **Global** is the classic single force-directed graph. **Dynamic | Static** picks whether the layout keeps settling or is frozen where it was placed. Shelf simulations run in background workers.
 - **Interactive graph** — zoom, pan, drag nodes and frames, and filter by function name.
+- **A readable default** — only the calls that stay inside a file are drawn, so a folder shows its structure instead of a hairball (`cograph.display.sameFileEdgesOnly`, on by default; turn it off to draw every call). Function names appear when you hover one, and on every match while you filter. A function whose calls all leave its file carries a dashed ring, and each file name shows how many calls leave it — `auth.py · 6 ↗44` — so nothing looks unconnected when it is not.
 - **Click-to-navigate** — click any node to open the file and jump to the function definition.
 - **Function source popup** — click a node to open a draggable, resizable popup showing syntax-highlighted source code; multiple popups can be open simultaneously.
 - **OOP class overlay** — visualize class hierarchies, fields, and methods; toggle with the **Class** button.
@@ -47,8 +50,8 @@ toolbar to toggle overlays.
 - **Detail / Complexity slider** — progressively cluster low-connectivity nodes to keep large projects navigable.
 - **Save Layout** — persist node positions to `.cograph/<name>.json`; reopen the same graph and pick up where you left off.
 - **Subgraphs** — visualize part of the project. **CoGraph: Only visualize folder…** (command palette) opens one folder and its subfolders; **⊂ Create new Subgraph** in the sidebar opens an explorer-like picker to choose several folders and saves them as a subgraph next to your layouts. Folders left out stay listed under FILTERS in the Folder panel, where one click brings them in; Save keeps the scope with the layout.
-- **Open Chat** — focus the Cograph activity-bar view with the active graph already selected.
-- **Hover card** — rest the pointer on a folder or file to see its path, size and languages, plus its AI summary once generated.
+- **Version Control** — the sidebar lists the repository's pull requests (through the GitHub CLI and your own sign-in). Click one and CoGraph fetches the pull request's own commit and opens it in a read-only panel: every folder that leads to a changed file is open, the rest are closed, and the changed files are green (added), orange (modified) or red (deleted). The panel title and banner say which tree you are looking at; when the head cannot be fetched you can show the pull request in your current checkout instead. Folders without changes stay visible but closed (`cograph.pullRequests.unchangedFolders`), and the fetched commits are kept on disk so reopening is fast — **CoGraph: Clear pull-request trees** reports what they weigh and removes them.
+- **Hover card** — rest the pointer on a function for its name, signature, doc comment, the first lines of its code and how many functions call it; on a folder or file for its path, size and languages, plus its AI summary once generated.
 - **Hide what you do not need** — right-click a folder or a file for **Hide** or **Show only this one**: it leaves the layout entirely and the remaining folders close the gap. Every hide is listed under **FILTERS** in the Folder panel and is reversible one by one or with **Show all**, and hides are saved with the layout.
 - **Forces box** — the left toolbar shows only the forces the current engine uses, with a **show more forces** expander for the advanced ones. Under Static motion it explains that forces are off instead of showing dead sliders.
 - **Settings panel** — display options (node size, text size, link thickness, arrows) and visibility toggles (orphan nodes, library nodes).
@@ -57,15 +60,35 @@ toolbar to toggle overlays.
 
 AI features are **off by default**. Nothing is sent to an AI provider until you turn on `cograph.graphIntelligence.enabled`. They run the **Claude Code** or **OpenAI Codex** CLI that is already installed and signed in on your machine, so requests go through your own account; CoGraph has no server of its own.
 
-- **Chat** — ask questions about the open graph in the CoGraph sidebar.
-- **AI Workflow Graph** — a left-to-right view of how the system runs, from entry points to frontend output, with 10 detail levels.
 - **Annotate Graph** — a one-sentence summary of what every folder and file is responsible for, shown when you hover it.
   - By default CoGraph sends only a locally built digest: file paths, function and class names with their signature lines, import names and the leading comment of each file. No function bodies are sent, and with Claude Code the AI cannot open files. Turn on `cograph.graphIntelligence.annotate.readSource` to let it read source files (read-only) for better summaries. The Codex CLI can always read files in the workspace.
   - You confirm an estimate before anything is sent, see the running cost, and the run stops at `cograph.graphIntelligence.annotate.maxRunBudgetUsd` (default $2) and keeps what is done. As a guide, a 180-path repository cost about $0.09 with Claude haiku.
   - Editing a file only marks its summary "outdated". Nothing is re-sent until you click **Update**, which re-annotates just the outdated and missing paths.
   - Summaries are stored locally in `.cograph/annotations/` and are not committed.
 
-Chat and the Workflow Graph have per-request caps for turns, spend and time (`cograph.graphIntelligence.maxTurns`, `maxBudgetUsd`, `timeoutMs`).
+## Use CoGraph from your AI agent (MCP)
+
+CoGraph ships a local [MCP](https://modelcontextprotocol.io) server, so the agent you already use can ask the graph instead of grepping:
+
+| Tool | Answers |
+|---|---|
+| `find_symbol` | Which functions match this name, and what are their ids? |
+| `get_symbol` | Where is it, what does it look like, who calls it and what does it call? |
+| `callers` / `callees` | Who calls this, or what does it call, up to 5 levels deep? |
+| `impact` | What breaks if I change this function, file or folder, including which tests and entry points reach it? |
+| `overview` | What is in this workspace or folder (with AI summaries if annotated), and where are the entry points and hot spots? |
+
+**Set up:** run **CoGraph: Connect an AI Agent (MCP)…** from the Command Palette, or click the plug icon in the CoGraph sidebar, and choose:
+- **Claude Code: just me.** This copies a `claude mcp add cograph -- node <server> --workspace <folder>` command.
+- **Claude Code: whole team.** This adds the server to the workspace's `.mcp.json`.
+- **Cursor** or **Claude Desktop.** This copies the config snippet.
+
+On VS Code 1.101 and later, agent mode (Copilot) sees CoGraph without any setup.
+
+**What it does and does not do:**
+- It is local and read-only. It reads `.cograph/graph-cache.json`, `.cograph/annotations/` and your source files (for `get_symbol` slices) inside the workspace. It writes nothing, opens no network connection, runs no AI model and needs no API key.
+- It answers from CoGraph's last analysis. Open the project in CoGraph once to create it. Every answer says how old the analysis is and whether files have changed since.
+- The graph comes from static analysis, so calls made through dynamic dispatch, callbacks or reflection can be missing. An empty `callers` result is a hint, not proof that nothing uses the function.
 
 ## Requirements
 
@@ -74,19 +97,20 @@ Chat and the Workflow Graph have per-request caps for turns, spend and time (`co
 - **TypeScript / JavaScript projects:** Node.js — no additional configuration needed
 - **Java projects:** no extra runtime — the analyzer ships with a pure-JS parser
 - **C++ projects:** no extra runtime — the analyzer ships with a tree-sitter WebAssembly grammar
+- **Pull requests in the sidebar (optional):** the [GitHub CLI](https://cli.github.com/) (`gh`), signed in with `gh auth login`
 
 ## Usage
 
 1. Open a Python, TypeScript, JavaScript, Java, or C++ project folder in VS Code.
 2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run **`CoGraph: Visualize Project`**.
-3. The call graph opens in a side panel.
+3. The graph opens in a side panel.
 4. Use the search bar to filter functions by name (`Ctrl+F` / `Cmd+F` focuses it).
-5. Click any node to navigate to its definition, or view its source in a popup.
+5. Hover a function to see its name, signature and first lines; click it to navigate to its definition, or open its source in a popup.
 6. Toggle **Git** or **Language** coloring with the buttons in the top-left.
 7. Toggle the **Class** button to overlay OOP class hierarchy and field information.
 8. Toggle the **Folder** button to overlay the directory/file structure as collapsible groups.
 9. Use the **Complexity** slider to collapse less-connected nodes on large graphs.
-10. Click **Save Layout** to persist the current node positions, or **Open Chat** to focus the Cograph activity-bar view with this graph selected.
+10. Click **Save Layout** to persist the current node positions.
 11. Open the **Settings** panel (gear icon) to adjust layout and display options.
 
 ## Troubleshooting
@@ -106,6 +130,16 @@ Chat and the Workflow Graph have per-request caps for turns, spend and time (`co
   simulations run in background workers (`cograph.layout.workers`: `auto` | `on` | `off`,
   default `auto`; `off` simulates on the UI thread), and when zoomed far out labels, call
   lines and function dots are dropped until you zoom back in.
+- **I cannot see any calls between files.** That is the default: CoGraph draws only the calls
+  that stay inside a file, because on most projects the cross-file lines cover everything else
+  (on a sample of twelve repositories they are between 26 % and 93 % of all calls). A function
+  whose calls all leave its file carries a **dashed ring**, and each file name shows how many
+  calls leave it (`auth.py · 6 ↗44`). Hover a function to see its own cross-file calls, or turn
+  off `cograph.display.sameFileEdgesOnly` to draw them all.
+- **Function names are not shown.** They appear when you hover a function, while you drag one,
+  while its source popup is open, and on every match while you filter. Labels scale with the
+  zoom, so drawn at rest they overlapped each other at every zoom level rather than separating
+  as you zoomed in.
 - **Some calls are missing.** Dynamic dispatch, `eval`, and computed/runtime-generated
   calls are not statically resolvable — see *Limitations*.
 

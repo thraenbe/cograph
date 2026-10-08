@@ -54,7 +54,6 @@ suite('AnnotationService', () => {
     const provider: GraphIntelligenceProvider = {
       id: 'claude-code',
       displayName: 'Claude Code',
-      run: async () => { throw new Error('annotate must never use the whole-graph run()'); },
       runJson: async (req, signal) => { requests.push(req); signals.push(signal!); return respond(req); },
     };
     createProvider = sinon.stub().returns(provider);
@@ -289,12 +288,6 @@ suite('AnnotationService', () => {
     await assert.rejects(svc.annotate('claude-code', yes), /not found on PATH/);
     assert.strictEqual(svc.running, false);
     assert.match(svc.status().note ?? '', /^Stopped: Claude Code CLI not found/);
-  });
-
-  test('a provider without runJson is rejected', async () => {
-    stubConfig(sandbox, { 'graphIntelligence.enabled': true });
-    createProvider.returns({ id: 'x', displayName: 'Old Provider', run: async () => { throw new Error('no'); } });
-    await assert.rejects(new AnnotationService(host).annotate('x', yes), /Old Provider does not support Annotate Graph/);
   });
 
   test('no workspace or structure: refresh is a no-op and annotate explains', async () => {

@@ -206,22 +206,17 @@ suite('createDrilldownSeparationForce', () => {
 
 suite('isDrilldown()', () => {
   test('true with file lens + cluster view + structure tree', () => {
-    (global as any).state = { clusterGroupBy: 'file', viewMode: 'cluster', structureTree: makeTree() };
+    (global as any).state = { clusterGroupBy: 'file', structureTree: makeTree() };
     assert.strictEqual(fc.isDrilldown(), true);
   });
 
   test('false when the lens is not file (defensive guard)', () => {
-    (global as any).state = { clusterGroupBy: 'other', viewMode: 'cluster', structureTree: makeTree() };
-    assert.strictEqual(fc.isDrilldown(), false);
-  });
-
-  test('false while the workflow view is active', () => {
-    (global as any).state = { clusterGroupBy: 'file', viewMode: 'workflow', structureTree: makeTree() };
+    (global as any).state = { clusterGroupBy: 'other', structureTree: makeTree() };
     assert.strictEqual(fc.isDrilldown(), false);
   });
 
   test('false without a structure tree (fallback to plain clustering)', () => {
-    (global as any).state = { clusterGroupBy: 'file', viewMode: 'cluster', structureTree: null };
+    (global as any).state = { clusterGroupBy: 'file', structureTree: null };
     assert.strictEqual(fc.isDrilldown(), false);
     (global as any).state.structureTree = {}; // tree without folders
     assert.strictEqual(fc.isDrilldown(), false);
@@ -229,38 +224,28 @@ suite('isDrilldown()', () => {
 });
 
 suite('graph message routing (classifyGraphMessage)', () => {
-  const drilldownState = () => ({ clusterGroupBy: 'file', viewMode: 'cluster', structureTree: makeTree() });
+  const drilldownState = () => ({ clusterGroupBy: 'file', structureTree: makeTree() });
 
-  test('workflow payload → render even while drill-down is active', () => {
-    (global as any).state = drilldownState();
-    const data = { nodes: [], edges: [], workflow: { clusters: [], stageCount: 1 } };
-    assert.strictEqual(fc.isWorkflowPayload(data), true);
-    assert.strictEqual(fc.classifyGraphMessage(data), 'render');
-  });
-
-  test('non-workflow payload while drill-down is active → ingest', () => {
+  test('a full graph while drill-down is active → ingest', () => {
     (global as any).state = drilldownState();
     assert.strictEqual(fc.classifyGraphMessage({ nodes: [], edges: [] }), 'ingest');
   });
 
-  test('non-workflow payload outside drill-down → render', () => {
-    (global as any).state = { clusterGroupBy: 'file', viewMode: 'workflow', structureTree: makeTree() };
+  test('a full graph outside drill-down → render', () => {
+    (global as any).state = { clusterGroupBy: 'file', structureTree: null };
     assert.strictEqual(fc.classifyGraphMessage({ nodes: [], edges: [] }), 'render');
   });
 
-  test('a workflow marker without a clusters array is not a workflow payload', () => {
+  test('a payload still carrying an old workflow marker is ingested like any graph', () => {
     (global as any).state = drilldownState();
-    const data = { nodes: [], edges: [], workflow: {} };
-    assert.strictEqual(fc.isWorkflowPayload(data), false);
-    assert.strictEqual(fc.classifyGraphMessage(data), 'ingest');
+    assert.strictEqual(fc.classifyGraphMessage({ nodes: [], edges: [], workflow: { clusters: [], stageCount: 1 } }), 'ingest');
   });
 
-  test('null/missing data → render, no throw', () => {
+  test('null/missing data → routed by drill-down alone, no throw', () => {
     (global as any).state = drilldownState();
-    assert.strictEqual(fc.isWorkflowPayload(null), false);
     assert.strictEqual(fc.classifyGraphMessage(null), 'ingest');
     // Outside drill-down, null data still routes to render without throwing.
-    (global as any).state = { clusterGroupBy: 'file', viewMode: 'cluster', structureTree: null };
+    (global as any).state = { clusterGroupBy: 'file', structureTree: null };
     assert.strictEqual(fc.classifyGraphMessage(null), 'render');
   });
 });
@@ -400,15 +385,14 @@ suite('enterFileClusterMode()', () => {
     assert.strictEqual((global as any).state.parsedFolders.size, 0);
   });
 
-  test('sets viewMode=cluster, clusterGroupBy=file, classMode=false and dispatches applyComplexity', () => {
+  test('sets clusterGroupBy=file, classMode=false and dispatches applyComplexity', () => {
     (global as any).state = {
       structureTree: makeTree(),
-      graphData: null, viewMode: 'workflow', clusterGroupBy: 'file', classMode: true,
+      graphData: null, clusterGroupBy: 'file', classMode: true,
       expandedFolders: new Set(), parsedFolders: new Set(), parsingFolders: new Set(),
     };
     fc.enterFileClusterMode();
     const st = (global as any).state;
-    assert.strictEqual(st.viewMode, 'cluster');
     assert.strictEqual(st.clusterGroupBy, 'file');
     assert.strictEqual(st.classMode, false);
     assert.strictEqual(applyComplexityCalls, 1, 'render dispatched through applyComplexity');

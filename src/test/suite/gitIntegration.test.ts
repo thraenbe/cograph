@@ -507,6 +507,26 @@ suite('Message Handling', () => {
     assert.ok(!msg.error, 'error should not be set');
   });
 
+  test('get-func-source with maxLines (hover peek) → funcBrief fields, no colorize; errors as a value', () => {
+    const { fakePanel } = setupProvider();
+    const filePath = path.join(tmpDir, 'peek.py');
+    fs.writeFileSync(filePath, 'def hello(name):\n    """Greet someone."""\n' + Array.from({ length: 20 }, (_, i) => `    x${i} = ${i}`).join('\n') + '\n');
+    fakePanel.sendMessage({ type: 'get-func-source', file: filePath, line: 1, maxLines: 8, reqId: 'hc-1' });
+    const msg = fakePanel.webview.postMessage.firstCall.args[0];
+    assert.strictEqual(msg.type, 'func-source');
+    assert.strictEqual(msg.reqId, 'hc-1');
+    assert.strictEqual(msg.signature, 'def hello(name)');
+    assert.strictEqual(msg.doc, 'Greet someone.');
+    assert.strictEqual(msg.body.split('\n').length, 8);
+    assert.strictEqual(msg.totalLines, 22, 'trailing blank line trimmed, as the MCP slice does');
+    assert.strictEqual(msg.endReason, 'maxLines');
+    assert.strictEqual(msg.colorizedHtml, undefined, 'the card highlights itself');
+    fakePanel.sendMessage({ type: 'get-func-source', file: path.join(tmpDir, 'gone.py'), line: 1, maxLines: 8, reqId: 'hc-2' });
+    const err = fakePanel.webview.postMessage.secondCall.args[0];
+    assert.strictEqual(err.reqId, 'hc-2');
+    assert.ok(/could not read/.test(err.error));
+  });
+
   test('get-func-source for non-existent file → posts func-source with error', () => {
     const { fakePanel } = setupProvider();
 
@@ -530,10 +550,61 @@ suite('Message Handling', () => {
       file: filePath,
       line: 1,
       newSource: 'def greet():\n    return "world"\n',
+      original: 'def greet():\n    return "hello"\n',   // what the popup showed (get-func-source)
     });
 
     const written = fs.readFileSync(filePath, 'utf8');
     assert.ok(written.includes('return "world"'), 'modified source should be written to file');
+  });
+
+  test('save-func-source without the shown original → refused, file untouched, error shown', () => {
+    const { fakePanel } = setupProvider();
+    const showErr = sandbox.stub(vscode.window, 'showErrorMessage');
+    const filePath = path.join(tmpDir, 'save_test.py');
+    fs.writeFileSync(filePath, 'def greet():\n    return "hello"\n');
+
+    fakePanel.sendMessage({ type: 'save-func-source', file: filePath, line: 1, newSource: 'def greet():\n    return "world"\n' });
+    fakePanel.sendMessage({ type: 'save-func-source', file: filePath, line: 1, newSource: 'def greet():\n    return "world"\n',
+      original: 'def greet():\n    return "stale"\n' });
+
+    assert.strictEqual(fs.readFileSync(filePath, 'utf8'), 'def greet():\n    return "hello"\n', 'nothing written');
+    assert.strictEqual(showErr.callCount, 2);
+    assert.ok(showErr.firstCall.args[0].includes('nothing was saved'));
+    assert.ok(showErr.secondCall.args[0].includes('changed since this popup was opened'));
+  });
+
+  test('save-func-source with reqId → func-source-saved replies (ok / refused+relocated / host error), no toast', () => {
+    const { fakePanel } = setupProvider();
+    const showErr = sandbox.stub(vscode.window, 'showErrorMessage');
+    const replies = () => fakePanel.webview.postMessage.getCalls().map((c: any) => c.args[0]).filter((m: any) => m.type === 'func-source-saved');
+    const filePath = path.join(tmpDir, 'save_test.py');
+    const src = 'def greet():\n    return "hello"\n\ndef other():\n    return 1\n';
+    fs.writeFileSync(filePath, src);
+
+    fakePanel.sendMessage({ type: 'save-func-source', file: filePath, line: 1, reqId: 'save-1',
+      newSource: 'def greet():\n    return "world"\n', original: 'def greet():\n    return "hello"\n' });
+    assert.deepStrictEqual(replies()[0], { type: 'func-source-saved', reqId: 'save-1', ok: true });
+
+    // a popup opened on other() before lines were added above it: refused, and told where other() is now
+    fs.writeFileSync(filePath, '# header\n# more\n' + fs.readFileSync(filePath, 'utf8'));
+    const before = fs.readFileSync(filePath);
+    fakePanel.sendMessage({ type: 'save-func-source', file: filePath, line: 4, reqId: 'save-2',
+      newSource: 'def other():\n    return 2\n', original: 'def other():\n    return 1\n' });
+    const r2 = replies()[1];
+    assert.strictEqual(r2.ok, false);
+    assert.ok(/changed since this popup was opened/.test(r2.reason));
+    assert.strictEqual(r2.line, 6);
+    assert.strictEqual(r2.current, 'def other():\n    return 1\n');
+    assert.ok(fs.readFileSync(filePath).equals(before), 'nothing written');
+
+    // the host itself fails (file gone): still an answer, so the popup never waits forever
+    fakePanel.sendMessage({ type: 'save-func-source', file: path.join(tmpDir, 'gone.py'), line: 1, reqId: 'save-3',
+      newSource: 'x', original: 'y' });
+    const r3 = replies()[2];
+    assert.strictEqual(r3.ok, false);
+    assert.ok(r3.reason);
+    assert.strictEqual(r3.current, undefined);
+    assert.strictEqual(showErr.callCount, 0, 'with a reqId the popup shows the error, not a VS Code toast');
   });
 
   test('save-func-source with bad path → shows error message', () => {
@@ -565,6 +636,7 @@ suite('Message Handling', () => {
       file: filePath,
       line: 1,
       newSource: 'def greet():\n    return "world"\n',
+      original: 'def greet():\n    return "hello"\n',   // what the popup showed (get-func-source)
     });
     (fakePanel as any)._disposeCallback();
 

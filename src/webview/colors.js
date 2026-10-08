@@ -16,14 +16,20 @@ function getLanguageColor(lang) {
 }
 
 // ── Git color resolvers ───────────────────────────────────────────────────────
+/** The theme's "deleted" colour (--cograph-git-deleted). One source for the
+ *  function nodes and for the file slot / file circle around them. */
+function gitDeletedColor() {
+  return typeof getComputedStyle !== 'undefined'
+    ? (getComputedStyle(document.documentElement).getPropertyValue('--cograph-git-deleted').trim() || '#777777')
+    : '#777777';
+}
+
 function resolveNodeFill(d) {
   if (state.gitMode && !d.isCluster && !d.isSynthetic && d.gitStatus) {
     const status = d.gitStatus.unstaged ?? d.gitStatus.staged;
     if (status === 'added')    return '#4caf50';
     if (status === 'modified') return '#ff9800';
-    if (status === 'deleted')  return typeof getComputedStyle !== 'undefined'
-      ? (getComputedStyle(document.documentElement).getPropertyValue('--cograph-git-deleted').trim() || '#777777')
-      : '#777777';
+    if (status === 'deleted')  return gitDeletedColor();
   }
   if (state.languageMode && !d.isCluster && !d.isSynthetic && d.language) {
     return getLanguageColor(d.language);
@@ -70,7 +76,7 @@ function renderLanguageLegend() {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { resolveNodeFill, getLanguageColor, renderLanguageLegend };
+  module.exports = { resolveNodeFill, gitDeletedColor, getLanguageColor, renderLanguageLegend };
 }
 
 function applyGitColors() {

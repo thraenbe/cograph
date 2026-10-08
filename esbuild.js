@@ -62,6 +62,15 @@ async function main() {
     outfile: 'dist/webview/simWorker.js',
   });
 
+  // MCP server (src/mcp/server.ts): a standalone stdio process any MCP client can launch, so
+  // the SDK and zod are inlined. Its own Node floor: @modelcontextprotocol/sdk needs Node 18+.
+  const mcpServer = await esbuild.context({
+    ...common,
+    target: 'node18',
+    entryPoints: ['src/mcp/server.ts'],
+    outfile: 'dist/mcp/server.js',
+  });
+
   // Both WASM files are resolved relative to __dirname at runtime:
   // tree-sitter-cpp.wasm by scripts/analyze_cpp.js, web-tree-sitter.wasm by
   // web-tree-sitter's Emscripten loader (scriptDirectory = __dirname).
@@ -77,10 +86,10 @@ async function main() {
   }
 
   if (watch) {
-    await Promise.all([extension.watch(), analyzers.watch(), simWorker.watch()]);
+    await Promise.all([extension.watch(), analyzers.watch(), simWorker.watch(), mcpServer.watch()]);
   } else {
-    await Promise.all([extension.rebuild(), analyzers.rebuild(), simWorker.rebuild()]);
-    await Promise.all([extension.dispose(), analyzers.dispose(), simWorker.dispose()]);
+    await Promise.all([extension.rebuild(), analyzers.rebuild(), simWorker.rebuild(), mcpServer.rebuild()]);
+    await Promise.all([extension.dispose(), analyzers.dispose(), simWorker.dispose(), mcpServer.dispose()]);
   }
 }
 

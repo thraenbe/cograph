@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # Release integration branches too: a PR that targets one of these otherwise
+    # merges with no cross-platform check at all. That is how an MCP bug that made
+    # every path-taking tool fail on Windows reached version_1.4.0 unnoticed.
+    branches: [main, 'version_*']
   pull_request:
-    branches: [main]
+    branches: [main, 'version_*']
 
 jobs:
   test:

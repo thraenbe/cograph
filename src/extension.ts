@@ -1,22 +1,97 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { GraphProvider } from './graphProvider';
 import { SidebarProvider } from './sidebarProvider';
-import { ChatStore } from './graphIntelligence/chatStore';
+import { showChatRemovalNotice } from './chatRemovalNotice';
+import { activateMcp } from './mcp/setupCommand';
 import { scanStructure } from './structureScanner';
 import { pickFolder } from './folderPicker';
 import { specForFolder } from './subgraphScope';
 import { flushCacheWrites } from './cacheStore';
+import { GhCliSource } from './vcs/ghCliSource';
+import { PrController } from './vcs/prController';
+import { VcsSidebar } from './vcs/vcsSidebar';
+import { clearRepoRefs, clearTrees, evictTrees } from './vcs/engine/headTree';
+import { setDeclarationErrorHandler } from './projectScope';
+import { defaultExec } from './vcs/ghCliSource';
+import { createTreeAnalyzer } from './vcs/headAnalyzer';
+import { prDocumentUri, registerPrDocuments, showPrText } from './vcs/prDocuments';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  const chatStore = workspaceRoot ? new ChatStore(workspaceRoot) : null;
+  void showChatRemovalNotice(workspaceRoot, context.workspaceState);
 
-  const sidebarProvider = new SidebarProvider(context.extensionUri, provider, chatStore, context.workspaceState);
+  // Version Control pane: pull requests through the developer's own `gh` sign-in.
+  const vcsLog = vscode.window.createOutputChannel('CoGraph Version Control');
+  setDeclarationErrorHandler((root, err) => vcsLog.appendLine(`[vcs] ${root}: tracked-file declaration unreadable (${err.code ?? err.message}); treated as no git`));
+  // Materialised pull-request heads live under the extension's global storage, within a budget.
+  // Without global storage (some test hosts) only the checkout view exists.
+  const treeStorage = context.globalStorageUri?.fsPath ? path.join(context.globalStorageUri.fsPath, 'pr-trees') : undefined;
+  if (treeStorage) {
+    evictTrees(treeStorage, undefined, [], defaultExec, (l) => vcsLog.appendLine(l))
+      .catch((err: unknown) => vcsLog.appendLine(`[vcs] eviction on activation failed: ${(err as Error).message}`));
+  }
+  const prController = new PrController(new GhCliSource(), provider, {
+    workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    scanStructure,
+    unchangedFolders: () => vscode.workspace.getConfiguration('cograph')
+      .get<string>('pullRequests.unchangedFolders', 'collapse') === 'hide' ? 'hide' : 'collapse',
+    log: (line) => vcsLog.appendLine(line),
+    storageDir: treeStorage,
+    // The PR's own commit gets a provider of its own: same engine, another root, nothing writable.
+    // A pull request always gets a panel of its own; the user's graph is never taken over. A head
+    // panel roots the copy and opens files read-only; a checkout panel roots the workspace and
+    // opens the user's real files, but takes no edits itself (a PR view is transient).
+    // Both kinds open files as read-only documents labelled with where they come from — the copy, or
+    // the checkout "(not PR #N)" — so no file is ever mistaken for the PR's version or for one to edit.
+    createHeadGraph: (root, title, kind, editorLabel) => new GraphProvider(context, {
+      root, readOnly: true, title, closeOnLeave: true, readOnlyUri: (file: string) => prDocumentUri(root, editorLabel, file),
+      readOnlyReason: kind === 'head'
+        ? `${title} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`
+        : `${title} is a pull-request view and takes no edits — open the file from the Explorer to edit it.`,
+      outputChannel: vcsLog,
+    }),
+    showText: showPrText,
+    analyzer: createTreeAnalyzer(context, (line) => vcsLog.appendLine(line)),
+    progress: (title, task) => Promise.resolve(vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title, cancellable: true },
+      (p, token) => {
+        const ac = new AbortController();
+        token.onCancellationRequested(() => ac.abort());
+        return task((message) => p.report({ message }), ac.signal);
+      },
+    )),
+  });
+  context.subscriptions.push(registerPrDocuments([...(treeStorage ? [treeStorage] : []), ...(workspaceRoot ? [workspaceRoot] : [])]));
+  const clearTreesCommand = vscode.commands.registerCommand('cograph.clearPullRequestTrees', async () => {
+    try {
+      const log = (l: string) => vcsLog.appendLine(l);
+      const cleared = treeStorage ? await clearTrees(treeStorage, defaultExec, log) : { trees: 0, bytes: 0, kept: 0 };
+      // Trees gone, and every refs/cograph/* ref of this repository with them: nothing keeps the fetched objects alive.
+      const refs = workspaceRoot ? await clearRepoRefs(workspaceRoot, defaultExec) : [];
+      const n = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+      const kept = cleared.kept ? ` ${n(cleared.kept, 'tree')} shown in another window kept.` : '';
+      vscode.window.showInformationMessage(`CoGraph: Pull-request trees cleared — ${n(cleared.trees, 'tree')}, ${(cleared.bytes / (1024 * 1024)).toFixed(1)} MB, ${n(refs.length, 'ref')}.${kept}`);
+    } catch (err) {
+      vscode.window.showErrorMessage(`CoGraph: Could not clear pull-request trees — ${(err as Error).message}`);
+    }
+  });
+  const vcsSidebar = new VcsSidebar(prController, {
+    openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)); },
+    openTerminal: (command) => {
+      const terminal = vscode.window.createTerminal('GitHub CLI');
+      terminal.show();
+      terminal.sendText(command, false); // typed, not run: the developer presses Enter
+    },
+  });
+
+  const sidebarProvider = new SidebarProvider(context.extensionUri, provider, context.workspaceState, vcsSidebar);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
   );
   provider.setSidebarProvider(sidebarProvider);
+  activateMcp(context);
 
   const command = vscode.commands.registerCommand('cograph.visualize', () => {
     provider.show();
@@ -81,7 +156,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  context.subscriptions.push(command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener, annotateCommand, visualizeFolderCommand);
+  context.subscriptions.push(vcsLog, clearTreesCommand, command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener, annotateCommand, visualizeFolderCommand);
 }
 
 // VS Code awaits a returned promise on shutdown: persist a still-debounced graph cache.

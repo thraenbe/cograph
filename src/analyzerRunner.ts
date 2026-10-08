@@ -3,6 +3,8 @@ import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { walkProjectFiles } from './projectScope';
+import { listProjectSourceFiles } from './structureScanner';
 
 export const MAX_OUTPUT_BYTES = 500 * 1024 * 1024; // 500 MB guard
 export const ANALYSIS_TIMEOUT_MS = 300_000;         // 5 min
@@ -17,8 +19,6 @@ const SOURCE_EXTS = new Set([
   '.py', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java',
   '.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hh', '.hxx', '.h++', '.h',
 ]);
-/** Directories skipped by every analyzer's file walk (kept in sync with scripts/). */
-const SKIP_DIR_NAMES = new Set(['node_modules', 'out', 'dist', 'target', 'build', 'CMakeFiles']);
 
 export type AnalyzerStatus =
   | 'ok'             // produced ≥1 node
@@ -52,7 +52,7 @@ export class AnalyzerRunner {
   /** Bumped by killAll() / each new run so a stale retry loop aborts itself. */
   private runToken = 0;
   /** Monotonic counter for unique subset temp-file names. */
-  private subsetSeq = 0;
+  private fileListSeq = 0;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -152,22 +152,45 @@ export class AnalyzerRunner {
     return fs.existsSync(bundled) ? bundled : path.join(this.context.extensionPath, 'scripts', name);
   }
 
-  private runOnce(workspaceRoot: string, pythonBin: string): Promise<{ merged: GraphData; statuses: AnalyzerResult[] }> {
-    const spawns: Array<Promise<AnalyzerResult>> = [
-      this.spawnAnalyzerProcess(pythonBin, [this.analyzerScript('analyze.py'), workspaceRoot], 'python'),
-      this.spawnAnalyzerProcess(process.execPath, [this.analyzerScript('analyze_ts.js'), workspaceRoot], 'typescript'),
-      this.spawnAnalyzerProcess(process.execPath, [this.analyzerScript('analyze_js.js'), workspaceRoot], 'javascript'),
-      this.spawnAnalyzerProcess(process.execPath, [this.analyzerScript('analyze_java.js'), workspaceRoot], 'java'),
-      this.spawnAnalyzerProcess(process.execPath, [this.analyzerScript('analyze_cpp.js'), workspaceRoot], 'cpp'),
-    ];
-    return Promise.all(spawns).then((statuses) => {
+  /**
+   * One full pass. The analyzers get the structure scanner's file list (`--files`), so the
+   * graph and the Folder tree always cover the same files (F30); if the list cannot be
+   * written they fall back to their own walk, which skips every artefact dir.
+   */
+  private async runOnce(workspaceRoot: string, pythonBin: string): Promise<{ merged: GraphData; statuses: AnalyzerResult[] }> {
+    const listPath = this.writeFileList('full', listProjectSourceFiles(workspaceRoot).map(f => f.path));
+    const args = (script: string) => listPath
+      ? [this.analyzerScript(script), workspaceRoot, '--files', listPath]
+      : [this.analyzerScript(script), workspaceRoot];
+    try {
+      const statuses = await Promise.all([
+        this.spawnAnalyzerProcess(pythonBin, args('analyze.py'), 'python'),
+        this.spawnAnalyzerProcess(process.execPath, args('analyze_ts.js'), 'typescript'),
+        this.spawnAnalyzerProcess(process.execPath, args('analyze_js.js'), 'javascript'),
+        this.spawnAnalyzerProcess(process.execPath, args('analyze_java.js'), 'java'),
+        this.spawnAnalyzerProcess(process.execPath, args('analyze_cpp.js'), 'cpp'),
+      ]);
       const merged: GraphData = {
         nodes: statuses.flatMap(r => r.graph.nodes),
         edges: statuses.flatMap(r => r.graph.edges),
         files: statuses.flatMap(r => r.graph.files ?? []),
       };
       return { merged, statuses };
-    });
+    } finally {
+      if (listPath) { try { fs.unlinkSync(listPath); } catch { /* best effort cleanup */ } }
+    }
+  }
+
+  /** Write a newline-separated file list for `--files`; null (logged) when it cannot be written. */
+  private writeFileList(kind: 'full' | 'subset', files: string[]): string | null {
+    try {
+      const listPath = path.join(os.tmpdir(), `cograph-${kind}-${process.pid}-${this.fileListSeq++}.txt`);
+      fs.writeFileSync(listPath, files.join('\n'), 'utf8');
+      return listPath;
+    } catch (err: unknown) {
+      this.log(`Could not write the ${kind} file list: ${(err as Error).message}`);
+      return null;
+    }
   }
 
   /**
@@ -184,13 +207,8 @@ export class AnalyzerRunner {
     if (files.length === 0) { return empty; }
     const pythonBin = this.resolvePythonBin();
 
-    let listPath: string;
-    try {
-      listPath = path.join(os.tmpdir(), `cograph-subset-${process.pid}-${this.subsetSeq++}.txt`);
-      fs.writeFileSync(listPath, files.join('\n'), 'utf8');
-    } catch {
-      return empty;
-    }
+    const listPath = this.writeFileList('subset', files);
+    if (!listPath) { return empty; }
 
     try {
       const withList = (script: string) => [this.analyzerScript(script), workspaceRoot, '--files', listPath];
@@ -230,25 +248,11 @@ export class AnalyzerRunner {
    */
   countCandidateSourceFiles(root: string, cap = 1): number {
     let count = 0;
-    const stack = [root];
-    while (stack.length) {
-      const dir = stack.pop() as string;
-      let entries: fs.Dirent[];
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          if (!SKIP_DIR_NAMES.has(entry.name) && !entry.name.startsWith('.') && !entry.name.startsWith('cmake-build-')) {
-            stack.push(path.join(dir, entry.name));
-          }
-        } else if (entry.isFile()) {
-          const dot = entry.name.lastIndexOf('.');
-          if (dot >= 0 && SOURCE_EXTS.has(entry.name.slice(dot))) {
-            count++;
-            if (count >= cap) { return count; }
-          }
-        }
-      }
-    }
+    walkProjectFiles(root, (_file, name) => {
+      const dot = name.lastIndexOf('.');
+      if (dot >= 0 && SOURCE_EXTS.has(name.slice(dot))) { count++; }
+      return count < cap;
+    });
     return count;
   }
 

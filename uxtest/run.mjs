@@ -5,8 +5,8 @@
 //   npm run uxtest -- --repo click --scenario smoke
 //   npm run uxtest -- --repo click,flask --engine shelf --motion dynamic --headed
 //   npm run uxtest -- --all-repos --strict
-import { spawnSync } from 'node:child_process';
-import { existsSync, statSync, readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, statSync, readFileSync, readdirSync, readlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -19,7 +19,7 @@ function value(name) { const i = argv.indexOf(`--${name}`); return i !== -1 && a
 function fail(msg) { process.stderr.write(`uxtest: ${msg}\n`); process.exit(2); }
 
 if (flag('help')) {
-  process.stdout.write(readFileSync(path.join(here, 'README.md'), 'utf8').split('## CLI')[1]?.split('\n## ')[0] ?? 'see uxtest/README.md\n');
+  process.stdout.write(readFileSync(path.join(here, 'README.md'), 'utf8').split('## CLI')[1]?.split(/\r?\n## /)[0] ?? 'see uxtest/README.md\n');
   process.exit(0);
 }
 
@@ -27,6 +27,13 @@ const project = value('project') ?? 'lab';
 const env = { ...process.env };
 env.UXTEST_RUN_ID = value('run-id') ?? env.UXTEST_RUN_ID ?? new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 if (value('repo')) { env.UXTEST_REPOS = value('repo'); }
+if (flag('release')) {
+  // Release verification: every default repo plus synthetic-1k. The 1.3.0 run picked its repos by hand and left out
+  // gson (7-level source root) and flask, so a gson-only harness gap stayed invisible. Tier B opens real folders only.
+  if (value('repo') || flag('all-repos')) { fail('--release picks the repos itself; drop --repo / --all-repos'); }
+  const cfg = JSON.parse(readFileSync(path.join(here, 'uxtest.config.json'), 'utf8'));
+  env.UXTEST_REPOS = cfg.releaseRepos.filter(r => value('project') !== 'vscode' || !r.startsWith('synthetic-')).join(',');
+}
 if (flag('all-repos')) {
   const cfg = JSON.parse(readFileSync(path.join(here, 'uxtest.config.json'), 'utf8'));
   env.UXTEST_REPOS = [...cfg.defaultRepos, ...cfg.largeRepos].join(',');
@@ -46,6 +53,7 @@ if (flag('reanalyze')) { env.UXTEST_REANALYZE = '1'; }
 if (value('samples')) { env.UXTEST_SWEEP_SAMPLES = value('samples'); }
 if (value('space')) { env.UXTEST_SWEEP_SPACE = path.resolve(value('space')); }
 if (flag('video')) { env.UXTEST_SWEEP_VIDEO = '1'; }
+if (flag('resume')) { env.UXTEST_SWEEP_RESUME = '1'; } // with --run-id <existing>: only the missing sweep samples run
 if (project === 'report' && value('run-id')) { env.UXTEST_REPORT_RUN = value('run-id'); }
 if (value('baseline')) { env.UXTEST_REPORT_BASELINE = value('baseline'); }
 
@@ -71,11 +79,51 @@ if (scenario) { args.push(scenario); } // file-name filter, e.g. "smoke" → sce
 if (value('grep')) { args.push('-g', value('grep')); }
 
 process.stderr.write(`uxtest: run ${env.UXTEST_RUN_ID} → uxtest/artifacts/${env.UXTEST_RUN_ID}/\n`);
-const res = spawnSync('npx', args, { cwd: root, stdio: 'inherit', env });
-// A sweep is only useful aggregated: build sweep.csv / contact sheet / recommendations right away.
-if (project === 'sweep') {
-  const rep = spawnSync('npx', ['playwright', 'test', '-c', path.join(here, 'playwright.config.ts'), '--project=report'],
-    { cwd: root, stdio: 'inherit', env: { ...env, UXTEST_REPORT_RUN: env.UXTEST_RUN_ID } });
-  if (rep.status !== 0) { process.exit(rep.status ?? 1); }
+
+// The runner gets its OWN PROCESS GROUP. Killing only the runner leaves its workers and their Chromium pages
+// alive (two such orphans once spun for hours under everybody's measurements) - so an abort ends the whole group.
+function runGroup(cmd, cmdArgs, runEnv) {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, cmdArgs, { cwd: root, stdio: 'inherit', env: runEnv, detached: true });
+    const stopGroup = (sig) => { try { process.kill(-child.pid, sig); } catch { /* group already gone */ } };
+    const onSignal = (sig) => { stopGroup(sig); setTimeout(() => stopGroup('SIGKILL'), 5000).unref(); };
+    const handlers = { SIGINT: () => onSignal('SIGINT'), SIGTERM: () => onSignal('SIGTERM'), SIGHUP: () => onSignal('SIGTERM') };
+    for (const [sig, h] of Object.entries(handlers)) { process.on(sig, h); }
+    child.on('exit', (code, signal) => {
+      for (const [sig, h] of Object.entries(handlers)) { process.off(sig, h); }
+      stopGroup('SIGTERM'); // anything the runner left behind in its group
+      resolve(code ?? (signal ? 1 : 0));
+    });
+  });
 }
-process.exit(res.status ?? 1);
+
+/** Workers / headless browsers of THIS worktree that survived a run (cwd is checked, nothing is killed here). */
+function orphanReport() {
+  if (process.platform !== 'linux') { return; }
+  const mine = [];
+  for (const pid of readdirSync('/proc').filter(d => /^\d+$/.test(d))) {
+    try {
+      const cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ');
+      if (!/workerProcessEntry|chrome-headless-shell/.test(cmdline)) { continue; }
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const ppid = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
+      const cwd = readlinkSync(`/proc/${pid}/cwd`);
+      // An orphan has been re-parented to init; workers of ANOTHER live run of this worktree are not orphans.
+      if (ppid === 1 && cwd === root) { mine.push(pid); }
+    } catch { /* process ended or is not ours to read */ }
+  }
+  if (mine.length) {
+    process.stderr.write(`uxtest: WARNING - ${mine.length} leftover worker/browser process(es) of this worktree: ${mine.join(' ')}. `
+      + 'They burn CPU under every later measurement; inspect with `ps -o pid,ppid,pcpu,etime,cmd -p <pids>` and end them.\n');
+  }
+}
+
+const status = await runGroup('npx', args, env);
+// A sweep is only useful aggregated: build sweep.csv / contact sheet / recommendations right away.
+let reportStatus = 0;
+if (project === 'sweep') {
+  reportStatus = await runGroup('npx', ['playwright', 'test', '-c', path.join(here, 'playwright.config.ts'), '--project=report'],
+    { ...env, UXTEST_REPORT_RUN: env.UXTEST_RUN_ID });
+}
+orphanReport();
+process.exit(status || reportStatus);

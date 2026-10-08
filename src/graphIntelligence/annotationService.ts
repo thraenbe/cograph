@@ -193,7 +193,6 @@ export class AnnotationService {
   private async execute(providerId: string, model: string, run: PreparedRun, signal: AbortSignal): Promise<RunResult> {
     const { root, tree, graph, plan, options } = run;
     const provider = this.host.createProvider(providerId);
-    if (!provider.runJson) { throw new Error(`${provider.displayName} does not support Annotate Graph.`); }
     const data = this.data!;
     data.provider = providerId;
     data.model = model;
@@ -204,7 +203,7 @@ export class AnnotationService {
         root, tree, graph, data, stale: this.stale, options, signal,
         save: (d) => { d.generatedAt = new Date().toISOString(); saveAnnotations(root, d); },
         onProgress: (p) => { this.progress = p; this.publish(); },
-        callJson: (req: CallRequest, sig): Promise<JsonResult> => provider.runJson!({
+        callJson: (req: CallRequest, sig): Promise<JsonResult> => provider.runJson({
           prompt: req.prompt, systemPrompt: ANNOTATE_SYSTEM_PROMPT, schema: SUMMARY_SCHEMA,
           workspaceRoot: root, model, tools: req.tools, maxBudgetUsd: req.maxBudgetUsd,
         }, sig),

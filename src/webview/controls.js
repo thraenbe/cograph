@@ -144,6 +144,12 @@ document.getElementById('toggle-arrows')?.addEventListener('change', (e) => {
   applyDisplaySettings();
 });
 
+document.getElementById('toggle-same-file-edges')?.addEventListener('change', (e) => {
+  settings.sameFileEdgesOnly = e.target.checked;
+  if (typeof applySameFileEdges === 'function') { applySameFileEdges(); }
+  window.markDirty?.();
+});
+
 function wireSlider(id, valId, settingsKey, onInput) {
   const slider = document.getElementById(id);
   const valEl = document.getElementById(valId);
@@ -441,6 +447,7 @@ function buildSavePayload() {
       detailDepth: state.detailDepth,
       // Infinity does not survive JSON — it round-trips as null (= unlimited).
       repelRange: settings.repelRange ?? Infinity,
+      sameFileEdgesOnly: !!settings.sameFileEdgesOnly,
     },
     nodePositions,
   };
@@ -506,6 +513,13 @@ function applySavedViewSettings(saved) {
     // lenses (or the older 'connectivity'/'auto' names) load silently as File.
     state.clusterGroupBy = 'file';
   }
+  if (saved.sameFileEdgesOnly !== undefined) {
+    // Saves from before U1 have no key: they open with the current setting.
+    settings.sameFileEdgesOnly = !!saved.sameFileEdgesOnly;
+    const box = document.getElementById('toggle-same-file-edges');
+    if (box) { box.checked = settings.sameFileEdgesOnly; }
+    if (typeof applySameFileEdges === 'function') { applySameFileEdges(); }
+  }
   if (saved.gitMode !== undefined) {
     state.gitMode = saved.gitMode;
     document.getElementById('btn-git-mode')?.classList.toggle('active', saved.gitMode);
@@ -530,10 +544,6 @@ document.getElementById('btn-save-graph')?.addEventListener('click', () => {
     mode: 'save-as',
     payload: buildSavePayload(),
   });
-});
-
-document.getElementById('btn-open-chat')?.addEventListener('click', () => {
-  vscode.postMessage({ type: 'open-chat' });
 });
 
 window.addEventListener('message', (event) => {
@@ -631,15 +641,8 @@ if (complexitySlider) {
       window.markDirty?.();
       return;
     }
-    if (state.viewMode === 'workflow') {
-      // Workflow mode reinterprets the 0..1 slider as 10 discrete detail levels.
-      const levels = (typeof WORKFLOW_LEVELS !== 'undefined') ? WORKFLOW_LEVELS : 10;
-      state.workflowLevel = Math.round(raw * (levels - 1));
-      if (complexityVal) complexityVal.textContent = String(state.workflowLevel);
-    } else {
-      state.complexityLevel = raw;
-      if (complexityVal) complexityVal.textContent = raw.toFixed(2);
-    }
+    state.complexityLevel = raw;
+    if (complexityVal) complexityVal.textContent = raw.toFixed(2);
     state.expandedClusters = new Set();
     clearTimeout(state.clusterTimer);
     state.clusterTimer = setTimeout(applyComplexity, 80);

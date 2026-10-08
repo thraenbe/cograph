@@ -1,29 +1,8 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import type {
-  GraphIntelligenceProvider, GraphIntelligenceRequest, GraphIntelligenceResult, JsonRequest, JsonResult,
-} from './provider';
+import type { GraphIntelligenceProvider, JsonRequest, JsonResult } from './provider';
 import { ProgressEvent } from './progressParser';
-import { extractCographResult, extractJsonObject } from './jsonRepair';
+import { extractJsonObject } from './jsonRepair';
 import { runCliStream, ensureCliBinary } from './cliProcess';
-
-const WRAPPER_PROMPT = `Read ./.cograph/.intelligence-request.json. It holds the user's request under "prompt" and the current code graph under "graph" (nodes and edges). Fulfill the user's request.
-
-Your final reply MUST be a single JSON object matching:
-  {"graph":{"nodes":[...],"edges":[...]},"text":"<markdown>"}
-
-The "text" field MUST be concise, skimmable markdown. Use:
-  - short paragraphs (2-3 sentences max)
-  - "##" / "###" headings when the answer has more than one section
-  - "-" bullet lists for enumerations and trade-offs
-  - fenced code blocks with a language tag (\`\`\`ts, \`\`\`py, \`\`\`bash) for code, file paths, symbol names that benefit from monospace, and shell snippets
-  - backticks for inline identifiers, file paths, and flags
-  - **bold** for the single most important takeaway, sparingly
-
-Do NOT repeat the user's question. Do NOT restate the graph. Lead with the answer. If the change is trivial, a one-line answer is best.
-
-Do not wrap the JSON object in a code fence. Do not include any prose outside the JSON.`;
 
 /**
  * Parses OpenAI Codex CLI's `--json` event stream (newline-delimited JSON).
@@ -31,7 +10,7 @@ Do not wrap the JSON object in a code fence. Do not include any prose outside th
  * Each line is shaped roughly like:
  *   {"id":"…","msg":{"type":"agent_message_delta","delta":"…"}}
  * Notable msg.type values we map onto our generic `ProgressEvent`:
- *   - session_configured  → init  (also captures session_id for resume)
+ *   - session_configured  → init
  *   - agent_reasoning(_delta) → thinking
  *   - agent_message_delta → text
  *   - exec_command_begin  → tool-use (Bash)
@@ -78,9 +57,8 @@ export class CodexStreamParser {
 
     switch (t) {
       case 'session_configured': {
-        const sessionId = typeof msg.session_id === 'string' ? msg.session_id : undefined;
         const model = String(msg.model ?? '');
-        this.onEvent({ kind: 'init', model, tools: [], sessionId });
+        this.onEvent({ kind: 'init', model, tools: [] });
         return;
       }
       case 'agent_reasoning':
@@ -154,42 +132,6 @@ export class CodexCliProvider implements GraphIntelligenceProvider {
 
   constructor(private readonly outputChannel: vscode.OutputChannel) {}
 
-  async run(req: GraphIntelligenceRequest, signal?: AbortSignal): Promise<GraphIntelligenceResult> {
-    ensureCliBinary('codex', CODEX_NOT_FOUND);
-
-    const cographDir = path.join(req.workspaceRoot, '.cograph');
-    const tempFile = path.join(cographDir, '.intelligence-request.json');
-    fs.mkdirSync(cographDir, { recursive: true });
-    fs.writeFileSync(tempFile, JSON.stringify({ prompt: req.prompt, graph: req.graph }), 'utf8');
-
-    let finalEvent: (ProgressEvent & { kind: 'result' }) | null = null;
-    let errorEvent: (ProgressEvent & { kind: 'error' }) | null = null;
-    let latestSessionId: string | null = req.sessionId ?? null;
-
-    const parser = new CodexStreamParser((ev) => {
-      if (ev.kind === 'init' && ev.sessionId) { latestSessionId = ev.sessionId; }
-      if (ev.kind === 'result') { finalEvent = ev; }
-      else if (ev.kind === 'error') { errorEvent = ev; }
-      req.onProgress?.(ev);
-    });
-
-    try {
-      await this.spawnStream(req, parser, signal);
-    } finally {
-      try { fs.unlinkSync(tempFile); } catch { /* already cleaned up */ }
-    }
-
-    if (errorEvent) {
-      const e = errorEvent as ProgressEvent & { kind: 'error' };
-      throw new Error(`Codex: ${e.subtype} — ${e.message}`);
-    }
-    if (!finalEvent) {
-      throw new Error('Codex closed without emitting a result.');
-    }
-    const base = extractCographResult(finalEvent, 'Codex');
-    return { ...base, sessionId: latestSessionId };
-  }
-
   /**
    * Narrow structured call. Codex has no schema flag we rely on and no way to
    * switch tools off, so the JSON shape is enforced by the prompt and the CLI
@@ -228,45 +170,5 @@ export class CodexCliProvider implements GraphIntelligenceProvider {
     }
     if (!finalEvent) { throw new Error('Codex closed without emitting a result.'); }
     return { data: extractJsonObject(finalEvent as ProgressEvent & { kind: 'result' }, 'Codex') };
-  }
-
-  private spawnStream(req: GraphIntelligenceRequest, parser: CodexStreamParser, signal?: AbortSignal): Promise<void> {
-    const config = vscode.workspace.getConfiguration('cograph');
-    const timeoutMs = config.get<number>('graphIntelligence.timeoutMs', 300_000);
-    const model = req.model ?? config.get<string>('graphIntelligence.codex.model', 'gpt-5-codex');
-
-    // Codex CLI invocation:
-    //   codex exec [resume <id>] --json --full-auto --skip-git-repo-check --cd <ws> --model M -- "<prompt>"
-    // `--full-auto` gives workspace-write sandbox + auto-approval, matching Claude's
-    // `--permission-mode dontAsk` so the chat stays non-interactive.
-    const args: string[] = ['exec'];
-    if (req.sessionId) {
-      args.push('resume', req.sessionId);
-    }
-    args.push(
-      '--json',
-      '--full-auto',
-      '--skip-git-repo-check',
-      '--cd', req.workspaceRoot,
-    );
-    if (model && model !== 'default') {
-      args.push('--model', model);
-    }
-    args.push(WRAPPER_PROMPT);
-
-    return runCliStream({
-      command: 'codex',
-      args,
-      cwd: req.workspaceRoot,
-      label: 'Codex',
-      timeoutMs,
-      signal,
-      onStdout: (text) => {
-        this.outputChannel.append(text);
-        parser.feed(text);
-      },
-      onStderr: (text) => this.outputChannel.append(`[codex stderr] ${text}`),
-      onEnd: () => parser.flush(),
-    });
   }
 }

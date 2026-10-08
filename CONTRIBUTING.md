@@ -46,6 +46,10 @@ npm run package      # produce a .vsix (sanity-check packaging)
 `npm test` downloads a pinned VS Code build and runs the suite headlessly. On Linux it
 needs a display server — use `xvfb-run -a npm test` (this is what CI does).
 
+`tsc` never deletes the output of a source file that no longer exists, so after pulling a change
+that deletes source files, a local `npm test` can fail in tests whose sources are gone. Run
+`rm -rf out` once after such a pull; CI is unaffected because it builds from a clean checkout.
+
 ## Project conventions
 
 - **Naming:** `camelCase` variables, `PascalCase` components/classes, `snake_case` only
@@ -64,6 +68,20 @@ runtime. On snap-packaged VS Code this pins an old `libstdc++`, so **prebuilt na
 (`node-gyp`/`.node`) modules fail to load and the graph silently comes back empty**.
 Any new language support **must use pure-JS or WebAssembly parsers** (like the
 `web-tree-sitter` WASM grammar used for C++) — never native node modules.
+
+### VS Code API floor (do not loosen)
+
+`engines.vscode` is `^1.75.0`, and `@types/vscode` is pinned to `~1.75.0` **on purpose**: the
+compiler is what enforces the floor. It was previously declared `^1.64.0`, which quietly resolved
+to `@types/vscode` 1.109 — so `tsc` accepted APIs that do not exist on the VS Code versions we
+claim to support, and nothing would have caught it until a user on an older VS Code hit a runtime
+failure. Note that `vsce` compares the *declared* range against `engines.vscode`, not the
+installed version, so a caret range hides this rather than failing the package step.
+
+To use a newer API, do **not** bump the typings to match: declaring `@types/vscode` above
+`engines.vscode` makes `vsce package` fail outright. Instead declare the minimal local interface
+for the API you need and call it behind a runtime capability check
+(`typeof (vscode as any).someNewApi === 'function'`), so older hosts simply skip the feature.
 
 ### Packaging gotcha
 

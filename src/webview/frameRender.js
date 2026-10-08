@@ -165,15 +165,15 @@ function renderFrameLayout(allLinks, visibleSet) {
   ]);
   const reshelve = __fr.scopeSig !== undefined && __fr.scopeSig !== scopeSig;
   __fr.scopeSig = scopeSig;
-  if (reshelve && !state.userZoomed && !state._frameInteracting
-    && typeof setTimeout === 'function') {
+  if (reshelve && !state._frameInteracting && typeof setTimeout === 'function') {
     // A scope change that SHRINKS the layout leaves the view hanging over
     // empty space (growth is already covered by shouldRefit). Re-fit once
-    // after the re-pack glide — never when the user owns the viewport (F2).
+    // after the re-pack glide. A user-owned viewport (F2) is kept unless the
+    // re-pack moved everything out of it (F26: Only show while zoomed in).
     if (__fr.scopeRefit) { clearTimeout(__fr.scopeRefit); }
     __fr.scopeRefit = setTimeout(() => {
       __fr.scopeRefit = null;
-      if (!state.userZoomed && !state._frameInteracting) { fitToView(); }
+      if (typeof refitAfterScope === 'function') { refitAfterScope(); }
     }, 230);
   }
   const members = collectMembers(state.currentNodes, tree, settings.nodeSize, allow);
@@ -818,6 +818,9 @@ const FR_LOD_NODES_AT = 0.3;
 // at fit-to-view 1 300 translucent viewport-spanning lines cost 45 ms per frame
 // (10k fixture: 16 → 50 fps without them) and read as a hairball anyway.
 const FR_LOD_MAX_BUNDLES = 200;
+// F31: a frame narrower than this on screen has its title and counts parked: at django's
+// fit (k 0.03) 1 416 titles rendered at about 0.3 px, unreadable, for about 9.5 ms a frame.
+const FR_TITLE_MIN_PX = 40;
 // Gesture LOD: a viewport full of full-detail content (fmt: 4 300 labels + 13 800
 // lines in four giant frames at k 0.66) repaints at 4 fps. While a pan/zoom
 // gesture runs, labels/links over the element budget are parked; they return
@@ -832,9 +835,24 @@ const __cull = {
   raf: 0,
   frameSelFor: null,             // the frameSel map the culler state belongs to
   zoomLinks: true,               // links drawn at this zoom level (drives the bundle cap)
+  titles: new Map(),             // F31: frame path -> title wide enough to draw (last applied)
+  k: 1,                          // zoom of the last culling pass
   gesture: false,                // a pan/zoom gesture is running
   idleTimer: 0,
 };
+
+/** F31: is this frame wide enough on screen to draw its title? */
+function frameTitleWide(path) {
+  const f = state.frames && state.frames.byPath.get(path);
+  return !f || !f.abs || f.abs.w * (__cull.k || 1) >= FR_TITLE_MIN_PX;
+}
+
+/** The zoom LOD plus this frame's title verdict (recorded, so a pass only touches flips). */
+function lodWantFor(path) {
+  const titles = frameTitleWide(path);
+  __cull.titles.set(path, titles);
+  return { ...__cull.want, titles };
+}
 
 /** Called by the zoom handler: at most one culling pass per animation frame. */
 function onFramesZoom() {
@@ -849,10 +867,16 @@ function applyFrameCulling() {
   if (!state.frames || !usesFrames() || !__cull.dom || typeof viewportRect !== 'function') { return; }
   if (typeof svg === 'undefined' || typeof d3 === 'undefined') { return; }   // DOM-less unit tests
   const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
-  if (__cull.frameSelFor !== __fr.frameSel) {       // re-render: fresh, attached, full-detail <g>s
+  // A re-render hands us fresh, attached, FULL-detail <g>s. The zoom LOD may
+  // still want layers parked, and nothing else changed (same zoom, same
+  // visible frames), so the LOD must be re-applied here (F29: it stayed at full
+  // detail until the zoom crossed a threshold the other way).
+  const freshDom = __cull.frameSelFor !== __fr.frameSel;
+  if (freshDom) {
     __cull.frameSelFor = __fr.frameSel;
     __cull.culler.reset();
     __cull.stale.clear();
+    __cull.titles.clear();
     __cull.dom.reset(frameG.node(), [...__fr.frameSel].map(([path, sel]) => [path, sel.node()]));
   }
   const svgEl = svg.node();
@@ -870,18 +894,26 @@ function applyFrameCulling() {
   }
   const wantChanged = ['labels', 'links', 'nodes', 'slotLabels'].some(k => want[k] !== __cull.want[k]);
   __cull.want = want;
+  __cull.k = t.k;
 
   for (const path of hidden) { __cull.dom.hide(path); }
   for (const path of shown) {
-    __cull.dom.applyLod(path, __cull.want);         // while still detached: no layout work
+    __cull.dom.applyLod(path, lodWantFor(path));    // while still detached: no layout work
     __cull.dom.show(path);
     __cull.stale.delete(path);
     tickFrame(path);                                // chrome + positions may both be stale
   }
-  if (wantChanged || hidden.length || shown.length) {
+  if (freshDom || wantChanged || hidden.length || shown.length) {
     for (const path of __cull.dom.paths()) {
-      if (__cull.culler.isVisible(path)) { __cull.dom.applyLod(path, __cull.want); }
+      if (__cull.culler.isVisible(path)) { __cull.dom.applyLod(path, lodWantFor(path)); }
     }
+  }
+  // F31: titles follow each frame's ON-SCREEN width, so re-check them on every pass
+  // (only frames whose verdict flipped are touched).
+  for (const path of __cull.dom.paths()) {
+    if (!__cull.culler.isVisible(path)) { continue; }
+    const wide = frameTitleWide(path);
+    if (freshDom || __cull.titles.get(path) !== wide) { __cull.dom.applyLod(path, lodWantFor(path)); }
   }
   if (bundlesChanged) { updateCrossBundles(); }
   if (shown.length && __fr.sched) { __fr.sched.wake(); }
@@ -1047,7 +1079,7 @@ function teardownFrames() {
   }
   if (state.slotPlacedIds) { state.slotPlacedIds.clear(); }
   __fr.slotRects = null;
-  // state.frames is kept: returning from workflow/global restores stable rects.
+  // state.frames is kept: returning from global restores stable rects.
 }
 
 /** Drop every packed rect so the next render re-packs from scratch. */
@@ -1292,6 +1324,7 @@ function renderFrameSlots(f, sub) {
       const st = fgs ? (fgs.unstaged ?? fgs.staged) : null;
       if (st === 'added') { color = '#4caf50'; changed = true; }
       else if (st === 'modified') { color = '#ff9800'; changed = true; }
+      else if (st === 'deleted' && typeof gitDeletedColor === 'function') { color = gitDeletedColor(); changed = true; }
     }
     grp.select('.file-slot-shape')
       .attr('x', d.x).attr('y', d.y).attr('width', d.w).attr('height', d.h)
@@ -1305,7 +1338,12 @@ function renderFrameSlots(f, sub) {
       .attr('x', d.x + 6).attr('y', d.y + 11)
       .attr('font-size', `${9 * settings.textSize}px`)
       .attr('fill', color).attr('fill-opacity', 0.9)
-      .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize));
+      .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize))
+      .each(function () {
+        // X3: calls leaving this file, shown only while the same-file rule hides them (CSS)
+        const out = state.xfileCue && state.xfileCue.outByFile.get(d.file);
+        if (out) { d3.select(this).append('tspan').attr('class', 'slot-xout').text(' ↗' + out); }
+      });
   });
   // Every frame's slots are draggable, INCLUDING the root frame's: a handle
   // without a drag behavior lets the mousedown fall through to the zoom

@@ -22,6 +22,7 @@ function makeDOM() {
     <input id="toggle-orphans" type="checkbox" checked />
     <input id="toggle-libraries" type="checkbox" />
     <input id="toggle-arrows" type="checkbox" checked />
+    <input id="toggle-same-file-edges" type="checkbox" checked />
     <input id="slider-text-fade" type="range" value="0.5" /><span id="val-text-fade">0.5</span>
     <input id="slider-node-size" type="range" value="2.5" /><span id="val-node-size">2.5</span>
     <input id="slider-text-size" type="range" value="1" /><span id="val-text-size">1</span>
@@ -78,7 +79,6 @@ function makeDOM() {
     <input id="slider-file-cluster" type="range" value="0.2" /><span id="val-file-cluster">0.2</span>
     <button id="btn-reset-layout"></button>
     <button id="btn-save-graph"></button>
-    <button id="btn-open-chat"></button>
   </body></html>`;
   return new JSDOM(html);
 }
@@ -93,7 +93,6 @@ const dom = makeDOM();
   languageMode: false,
   folderMode: true,
   classMode: true,
-  viewMode: 'cluster',
   clusterGroupBy: 'file',
   hasFitted: false,
   complexityLevel: 0.99,
@@ -120,6 +119,8 @@ const dom = makeDOM();
 (global as any).applyFilters = () => {};
 (global as any).applyComplexity = () => {};
 (global as any).applyDisplaySettings = () => {};
+let sameFileApplied = 0;
+(global as any).applySameFileEdges = () => { sameFileApplied++; };
 // wireSlider captures its onInput callback by value at load time, so the stub
 // counts calls into a module-level variable that suites can reset and read.
 let rerunLayoutCallCount = 0;
@@ -483,6 +484,30 @@ suite('Advanced forces (show more forces)', () => {
     assert.strictEqual((global as any).settings.repelRange, 800, 'old saves without the key change nothing');
   });
 
+  test('U1: "Only calls within a file" toggle, save payload and restore (old saves keep the current setting)', () => {
+    const box = document.getElementById('toggle-same-file-edges') as HTMLInputElement;
+    let dirty = 0;
+    (window as any).markDirty = () => { dirty++; };
+    (global as any).settings.sameFileEdgesOnly = true;
+    sameFileApplied = 0;
+    box.checked = false;
+    box.dispatchEvent(new (window as any).Event('change'));
+    assert.strictEqual((global as any).settings.sameFileEdgesOnly, false);
+    assert.strictEqual(sameFileApplied, 1, 'applied at once (a CSS class, no re-render)');
+    assert.strictEqual(dirty, 1, 'counts as an unsaved change');
+
+    (global as any).state.currentNodes = [];
+    const wire = JSON.parse(JSON.stringify(buildSavePayload()));
+    assert.strictEqual(wire.settings.sameFileEdgesOnly, false);
+    (global as any).settings.sameFileEdgesOnly = true; box.checked = true;
+    applySavedViewSettings(wire.settings);
+    assert.strictEqual((global as any).settings.sameFileEdgesOnly, false, 'restored');
+    assert.strictEqual(box.checked, false, 'checkbox follows');
+    applySavedViewSettings({});
+    assert.strictEqual((global as any).settings.sameFileEdgesOnly, false, 'a save without the key changes nothing');
+    delete (window as any).markDirty;
+  });
+
   test('reset restores every force to its canonical default (D1: centerForce 0.08)', () => {
     Object.assign((global as any).settings, {
       centerForce: 0.9, fileClusterForce: 0.9, folderRepelForce: 9, fileRepelForce: 9,
@@ -543,6 +568,7 @@ suite('Save Graph Layout button', () => {
     (global as any).state.gitMode = true;
     (global as any).state.folderMode = true;
     (global as any).state.classMode = false;
+    (global as any).settings.sameFileEdgesOnly = true;
 
     dom.window.document.getElementById('btn-save-graph')!.click();
 
@@ -561,6 +587,7 @@ suite('Save Graph Layout button', () => {
       detailDepth: undefined, // not set in this stub state (v2 adds it)
       layoutEngine: undefined, // not set in this stub state (two-axis adds it)
       repelRange: 850,
+      sameFileEdgesOnly: true, // U1
     });
     assert.deepStrictEqual(msg.payload.nodePositions, {
       'a::fn::1': { x: 10, y: 20 },
@@ -637,36 +664,6 @@ suite('Save Graph Layout button', () => {
     assert.deepStrictEqual(posted[0].payload.nodePositions, {});
     // settings payload should still be populated
     assert.strictEqual(posted[0].payload.settings.clusterGroupBy, 'file');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Suite: Open Chat button (btn-open-chat click handler)
-// ---------------------------------------------------------------------------
-
-suite('Open Chat button', () => {
-  const originalVscode = (global as any).vscode;
-  const posted: any[] = [];
-
-  setup(() => {
-    posted.length = 0;
-    (global as any).vscode = { postMessage: (msg: any) => posted.push(msg) };
-  });
-
-  teardown(() => {
-    (global as any).vscode = originalVscode;
-  });
-
-  test('click → postMessage with type open-chat', () => {
-    dom.window.document.getElementById('btn-open-chat')!.click();
-    assert.strictEqual(posted.length, 1);
-    assert.deepStrictEqual(posted[0], { type: 'open-chat' });
-  });
-
-  test('click does not carry any payload (focus-only signal)', () => {
-    dom.window.document.getElementById('btn-open-chat')!.click();
-    assert.strictEqual(posted.length, 1);
-    assert.strictEqual(Object.keys(posted[0]).length, 1, 'message has exactly one key');
   });
 });
 

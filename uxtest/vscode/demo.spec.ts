@@ -141,21 +141,46 @@ test('demo', async () => {
     const fill = (): Promise<number> => g.evaluate(`(() => {
       const want = ${JSON.stringify(process.env.UXTEST_DEMO_FRAME ?? '')};
       const f = want ? [...state.frames.byPath.values()].find(x => x.abs && x.path.endsWith(want)) : null;
-      if (!f) { return 1; }
+      if (!f) { return 0; }   // a missing frame is "not zoomed", never "fully zoomed"
       const k = d3.zoomTransform(svg.node()).k, r = svg.node().getBoundingClientRect();
-      return Math.max(f.abs.w * k / r.width, f.abs.h * k / r.height);
+      const panel = document.querySelector('#top-left-controls')?.getBoundingClientRect();
+      const W = r.right - (panel ? panel.right + 12 : r.left) - 12, H = r.height - 24;   // the canvas area right of the panel
+      return Math.max(f.abs.w * k / W, f.abs.h * k / H);
     })()`) as Promise<number>;
+    // Aim only at a settled layout: frame positions unchanged for 1 s (a big repo is still placing frames after Detail).
+    {
+      const sig = (): Promise<string> => g.evaluate(`(() => { let h = 0; for (const f of state.frames.byPath.values()) { if (f.abs) { h = (h * 31 + Math.round(f.abs.x) * 7 + Math.round(f.abs.y)) | 0; } } return String(h); })()`) as Promise<string>;
+      let last = await sig(), since = Date.now();
+      for (let i = 0; i < 120 && Date.now() - since < 1000; i++) { await page.waitForTimeout(100); log(); const cur = await sig(); if (cur !== last) { last = cur; since = Date.now(); } }
+    }
     if (process.env.UXTEST_DEMO_FRAME) {
       const present = await g.evaluate(`[...state.frames.byPath.values()].some(x => x.abs && x.path.endsWith(${JSON.stringify(process.env.UXTEST_DEMO_FRAME)}))`);
       if (!present) { throw new Error(`UXTEST_DEMO_FRAME ${process.env.UXTEST_DEMO_FRAME} is not a frame on screen`); }   // never zoom at nothing
     }
-    for (let i = 0; i < 16; i++) {
-      if (process.env.UXTEST_DEMO_FRAME ? await fill() >= 0.85 : i >= 8) { break; }
-      const p = await busiest();
-      await glide(p.x, p.y, i === 0 ? 600 : 70);
-      await page.mouse.wheel(0, -120); log(); await page.waitForTimeout(100);
+    if (process.env.UXTEST_DEMO_FRAME) {
+      // An animated zoom onto the folder, centred in the canvas area right of the controls panel. Wheel steps were
+      // unreliable: when the folder lies under the panel at overview zoom, the wheel scrolls the panel, not the graph.
+      const plan = await g.evaluate(`(() => {
+        const f = [...state.frames.byPath.values()].find(x => x.abs && x.path.endsWith(${JSON.stringify(process.env.UXTEST_DEMO_FRAME)}));
+        const r = svg.node().getBoundingClientRect(), t = d3.zoomTransform(svg.node());
+        const panel = document.querySelector('#top-left-controls')?.getBoundingClientRect();
+        const left = (panel ? panel.right + 12 : r.left) - r.left, W = r.width - left - 12, H = r.height - 24;
+        const k = Math.min(W * 0.85 / f.abs.w, H * 0.85 / f.abs.h);
+        const cx = left + W / 2, cy = 12 + H / 2;
+        const now = { x: r.left + t.x + (f.abs.x + f.abs.w / 2) * t.k, y: r.top + t.y + (f.abs.y + f.abs.h / 2) * t.k };
+        window.__demoZoom = { x: cx - (f.abs.x + f.abs.w / 2) * k, y: cy - (f.abs.y + f.abs.h / 2) * k, k };
+        return { px: Math.max(now.x, r.left + left + 20), py: now.y, tx: r.left + cx, ty: r.top + cy };
+      })()`) as { px: number; py: number; tx: number; ty: number };
+      await glide(off.x + plan.px, off.y + plan.py, 700);
+      await g.evaluate(`(() => { const z = window.__demoZoom; svg.transition().duration(1400).call(zoomBehavior.transform, d3.zoomIdentity.translate(z.x, z.y).scale(z.k)); })()`);
+      await glide(off.x + plan.tx, off.y + plan.ty, 1400);   // the pointer travels with the zoom to the folder's centre
+      await hold(300);
+    } else {
+      for (let i = 0; i < 8; i++) { const p = await busiest(); await glide(p.x, p.y, i === 0 ? 600 : 70); await page.mouse.wheel(0, -120); log(); await page.waitForTimeout(100); }
     }
-    await hold(1200);
+    if (process.env.UXTEST_DEMO_FRAME && await fill() < 0.8) { throw new Error(`zoom did not reach ${process.env.UXTEST_DEMO_FRAME} (fill ${(await fill()).toFixed(2)})`); }
+    mark('rings + counts');
+    await hold(2000);   // X3: dashed rings + per-file outgoing counts - what tells a viewer the dots are connected
     // The hover beat (F28: names only on hover; 216's card adds signature + code): rest on the folder's
     // best-connected visible function long enough to read, then leave it so the card closes before Dynamic.
     const hub = await g.evaluate(`(() => {
@@ -177,7 +202,7 @@ test('demo', async () => {
       await hold(3200);
       await glide(off.x + hub.x + 40, Math.max(off.y + 70, off.y + hub.y - 160), 500);   // off the node: the card closes
       await hold(500);
-    } else { await hold(800); }
+    } else { throw new Error('hover beat: no visible, connected function in the zoomed frame'); }   // never skip a beat silently
 
     // 3. Shelf + Dynamic, still zoomed in: the slots reflow, a node dragged out snaps back.
     mark('shelf dynamic');

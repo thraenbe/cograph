@@ -21,6 +21,8 @@ ap.add_argument('--trim-end', type=float, default=0.0)
 ap.add_argument('--out', default=None)
 ap.add_argument('--crop169', action='store_true', help='centre-crop the frame to 16:9 (the window manager may clamp the window to 16:10)')
 ap.add_argument('--gif-cut', nargs=2, type=float, metavar=('START', 'DUR'), default=None, help='GIF only: the highlight cut, seconds into the take')
+ap.add_argument('--mp4-segments', default=None, help='edit list for the mp4, seconds into the take: "0.5-11,17.2-38,..." (cuts dead time)')
+ap.add_argument('--gif-segments', default=None, help='edit list for the GIF hero (same form); overrides --gif-cut')
 ap.add_argument('--pin-colors', default='255,150,0;79,167,78;229,83,75',
                 help='colours that must survive the GIF palette (legend: modified orange, new green, deleted red); "" for none')
 a = ap.parse_args()
@@ -86,7 +88,25 @@ if pins:
         i = a.gif_colors - len(pins) + k; px[i % W, i // W] = c
     pim.save(pal)
 run('ffmpeg', '-y', *cut, '-i', mp4, '-i', pal, '-lavfi', f'{vf}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle', gif)
+def select(segs):
+    parts = '+'.join(f'between(t,{a},{b})' for a, b in (tuple(map(float, x.split('-'))) for x in segs.split(',')))
+    return f"select='{parts}',setpts=N/FRAME_RATE/TB"
+if a.mp4_segments:   # re-cut the full mp4 into the edited one; the full take stays as demo-full.mp4
+    full = os.path.join(out, 'demo-full.mp4'); os.replace(mp4, full)
+    run('ffmpeg', '-y', '-i', full, '-vf', select(a.mp4_segments), '-c:v', 'libx264', '-preset', 'slow', '-crf', str(a.crf),
+        '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', mp4)
+if a.gif_segments:
+    src = os.path.join(out, 'demo-full.mp4') if a.mp4_segments else mp4
+    vfs = f"fps={a.gif_fps},{select(a.gif_segments)},scale={a.gif_width}:-1:flags=lanczos"
+    run('ffmpeg', '-y', '-i', src, '-vf', f'{vfs},palettegen=max_colors={a.gif_colors - len(pins)}:stats_mode=diff', pal)
+    if pins:
+        pim = Image.open(pal).convert('RGB'); px = pim.load(); W = pim.width
+        for k, c in enumerate(pins):
+            i = a.gif_colors - len(pins) + k; px[i % W, i // W] = c
+        pim.save(pal)
+    run('ffmpeg', '-y', '-i', src, '-i', pal, '-lavfi', f'[0:v]{vfs}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle', gif)
 shutil.rmtree(tmp)
+probe = lambda p: float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', p], capture_output=True, text=True).stdout or 0)
 mb = lambda p: os.path.getsize(p) / 1048576
-print(json.dumps({'duration_s': round(n / FPS, 1), 'source_frames': len(frames), 'mp4': mp4, 'mp4_MiB': round(mb(mp4), 2),
-                  'gif': gif, 'gif_MiB': round(mb(gif), 2), 'gif_settings': {'width': a.gif_width, 'fps': a.gif_fps, 'colors': a.gif_colors}}))
+print(json.dumps({'take_s': round(n / FPS, 1), 'source_frames': len(frames), 'mp4': mp4, 'mp4_s': round(probe(mp4), 1), 'mp4_MiB': round(mb(mp4), 2),
+                  'gif': gif, 'gif_s': round(probe(gif), 1), 'gif_MiB': round(mb(gif), 2), 'gif_settings': {'width': a.gif_width, 'fps': a.gif_fps, 'colors': a.gif_colors}}))

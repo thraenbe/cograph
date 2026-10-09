@@ -93,6 +93,23 @@ function stubFastBackoff(sandbox: sinon.SinonSandbox, realSetTimeout: typeof set
     realSetTimeout(fn, ms && (RETRY_BACKOFF_MS as number[]).includes(ms) ? 0 : (ms as number)));
 }
 
+/**
+ * Every fake panel a test creates. `GraphProvider` kills its AnalyzerRunner only
+ * when its panel is disposed, and these tests never dispose a provider — so each
+ * `provider.show()` left a retry loop running into whatever test came next. It was
+ * hidden while the tests waited out a fixed delay; once they began resolving as
+ * soon as their condition held, a leaked loop landed inside a later test and
+ * `analyzerRunner.test.ts` counted 30 spawns where it expected 20.
+ */
+const livePanels: { _disposeCallback?: () => void }[] = [];
+
+/** Fire each live panel's dispose callback, which stops the provider's analyzer. */
+function disposeLivePanels() {
+  for (const panel of livePanels.splice(0)) {
+    try { panel._disposeCallback?.(); } catch { /* a half-built provider is fine to drop */ }
+  }
+}
+
 /** Build a fake webview panel. */
 function makeFakePanel() {
   const webview = {
@@ -111,6 +128,7 @@ function makeFakePanel() {
     }),
     dispose: sinon.stub(),
   };
+  livePanels.push(panel as { _disposeCallback?: () => void });
   return panel;
 }
 
@@ -126,6 +144,7 @@ suite('GraphProvider', () => {
   });
 
   teardown(() => {
+    disposeLivePanels();   // before restore(): the callbacks run against these stubs
     sandbox.restore();
   });
 
@@ -541,6 +560,7 @@ suite('parseGitStatus()', () => {
   });
 
   teardown(() => {
+    disposeLivePanels();   // before restore(): the callbacks run against these stubs
     sandbox.restore();
   });
 
@@ -696,6 +716,7 @@ suite('resolvePythonBin() - venv path selection', () => {
   });
 
   teardown(() => {
+    disposeLivePanels();   // before restore(): the callbacks run against these stubs
     sandbox.restore();
   });
 
@@ -1090,6 +1111,7 @@ suite('loadGraph()', () => {
   });
 
   teardown(() => {
+    disposeLivePanels();   // before restore(): the callbacks run against these stubs
     sandbox.restore();
   });
 

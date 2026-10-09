@@ -191,7 +191,12 @@ suite('frames.js — buildFrames invariants', () => {
     const fs = fr.buildFrames(structure, expanded, members);
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
     console.log(`      buildFrames(100 folders): ${ms.toFixed(1)} ms`);
-    assert.ok(ms < 50, `buildFrames too slow: ${ms} ms`); // generous CI margin
+    // SMOKE bound only: it trips on an algorithmic regression (an accidental O(n^2) blows
+    // through 1 s at once), never on a slow shared CI runner. A tight bound (50 ms) failed
+    // at 58 ms on macOS CI and turned a README-only PR red. Real performance is measured by
+    // the uxtest benchmark: medians over repetitions, interleaved builds, recorded machine
+    // load and a threshold fixed before the run. A single wall-clock sample cannot do that.
+    assert.ok(ms < 1000, `buildFrames took ${ms} ms: an algorithmic regression, not CI noise`);
     assert.strictEqual(fs.byPath.size, 100);
     assertInvariants(fs);
   });

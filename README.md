@@ -16,6 +16,10 @@ When AI writes the code, humans need a better way to understand it. CoGraph is t
 counts of calls leaving each file, hovering `relPath` shows what it is and what calls it, then the
 same graph settling live and in the Global engine.*
 
+<video src="https://github.com/thraenbe/cograph/releases/download/v1.4.0/demo.mp4" controls width="900" title="CoGraph 1.4.0 — the full demo, 36 seconds"></video>
+
+[Watch the full 36-second version](https://github.com/thraenbe/cograph/releases/download/v1.4.0/demo.mp4) at full quality — the animation above is a shortened, lower-frame-rate cut.
+
 ## Install
 
 - **VS Code Marketplace:** [marketplace.visualstudio.com/items?itemName=thraenbe.cograph](https://marketplace.visualstudio.com/items?itemName=thraenbe.cograph)

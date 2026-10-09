@@ -85,9 +85,19 @@ suite('gitService async path', () => {
   test('large files: definition end lines are computed once per file (no indexOf per node)', async () => {
     stubGit(sandbox, { status: ' M big.py\0', diff: ['+++ b/big.py', '@@ -0,0 +4999,1 @@', ''].join('\n') });
     const nodes = Array.from({ length: 5000 }, (_, i) => ({ id: `f${i}`, name: `f${i}`, file: '/ws/big.py', line: i + 1 })) as any[];
+    // The claim is structural, so the check is too: no linear search over a large array
+    // per node (the old code did an indexOf per node over the file's node list). A wall-clock
+    // bound could not tell: at 5 000 nodes the quadratic version takes about 5 ms against
+    // 0.9 ms, far below any bound a shared CI runner can hold. The time is printed, not
+    // asserted; real performance is measured by the uxtest benchmark.
+    const indexOf = sandbox.spy(Array.prototype, 'indexOf');
     const t0 = Date.now();
     await new GitService().applyGitStatusesAsync(nodes, '/ws');
-    assert.ok(Date.now() - t0 < 1500, 'linear, not quadratic');
+    const ms = Date.now() - t0;
+    const bigSearches = indexOf.getCalls().filter(c => Array.isArray(c.thisValue) && (c.thisValue as unknown[]).length >= 1000).length;
+    indexOf.restore();
+    console.log(`      applyGitStatusesAsync(5 000 nodes): ${ms} ms`);
+    assert.strictEqual(bigSearches, 0, 'no indexOf over a large array: end lines are computed once per file');
     assert.strictEqual(nodes[4998].gitStatus.unstaged, 'added');
     assert.strictEqual(nodes[10].gitStatus.unstaged, null);
   });

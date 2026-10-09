@@ -61,10 +61,53 @@ function stubSpawnAuto(
 }
 
 /** Collapse RETRY_BACKOFF_MS waits to ~0 so retry-driven tests run fast. */
+/** The real timer, captured before any test stubs `setTimeout`. */
+const REAL_SET_TIMEOUT = setTimeout;
+
+/**
+ * Wait until `ready()` is true, then resolve. Rejects if it never becomes true.
+ *
+ * These tests used to assert inside `setTimeout(..., 250)` and hope the work had
+ * finished. It had not, on Windows: the path covers four analysis attempts, a fake
+ * spawn per language per attempt, and the ready gate's 150 ms fallback, each hop a
+ * macrotask — and Windows' ~15.6 ms timer granularity makes a hop cost what a dozen
+ * cost on Linux. The budget was fine here and on the edge there, so the suite went
+ * red intermittently on one platform only. Waiting for the condition the test is
+ * about cannot race on any platform at any load, and finishes as soon as it is true.
+ */
+function waitUntil(ready: () => boolean, timeoutMs = 4000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    const poll = () => {
+      if (ready()) { resolve(); return; }
+      if (Date.now() > deadline) { reject(new Error(`waitUntil: condition still false after ${timeoutMs} ms`)); return; }
+      REAL_SET_TIMEOUT(poll, 10);
+    };
+    poll();
+  });
+}
+
 function stubFastBackoff(sandbox: sinon.SinonSandbox, realSetTimeout: typeof setTimeout) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sandbox.stub(global, 'setTimeout').callsFake((fn: any, ms?: number) =>
     realSetTimeout(fn, ms && (RETRY_BACKOFF_MS as number[]).includes(ms) ? 0 : (ms as number)));
+}
+
+/**
+ * Every fake panel a test creates. `GraphProvider` kills its AnalyzerRunner only
+ * when its panel is disposed, and these tests never dispose a provider — so each
+ * `provider.show()` left a retry loop running into whatever test came next. It was
+ * hidden while the tests waited out a fixed delay; once they began resolving as
+ * soon as their condition held, a leaked loop landed inside a later test and
+ * `analyzerRunner.test.ts` counted 30 spawns where it expected 20.
+ */
+const livePanels: { _disposeCallback?: () => void }[] = [];
+
+/** Fire each live panel's dispose callback, which stops the provider's analyzer. */
+function disposeLivePanels() {
+  for (const panel of livePanels.splice(0)) {
+    try { panel._disposeCallback?.(); } catch { /* a half-built provider is fine to drop */ }
+  }
 }
 
 /** Build a fake webview panel. */
@@ -85,6 +128,7 @@ function makeFakePanel() {
     }),
     dispose: sinon.stub(),
   };
+  livePanels.push(panel as { _disposeCallback?: () => void });
   return panel;
 }
 
@@ -100,6 +144,7 @@ suite('GraphProvider', () => {
   });
 
   teardown(() => {
+    disposeLivePanels();   // before restore(): the callbacks run against these stubs
     sandbox.restore();
   });
 
@@ -208,7 +253,7 @@ suite('GraphProvider', () => {
       fakeProc.emit('close', 0);
 
       // postMessage is delayed by 150 ms
-      setTimeout(() => {
+      waitUntil(() => fakePanel.webview.postMessage.getCalls().some((c: sinon.SinonSpyCall) => c.args[0]?.type === 'graph')).then(() => {
         const graphCall = fakePanel.webview.postMessage.getCalls().find(
           c => c.args[0]?.type === 'graph'
         );
@@ -217,7 +262,7 @@ suite('GraphProvider', () => {
         assert.strictEqual(msg.type, 'graph');
         assert.deepStrictEqual(msg.data, { ...graph, files: [] });
         done();
-      }, 300);
+      }, done);
     });
   });
 
@@ -262,7 +307,7 @@ suite('GraphProvider', () => {
       fakeProc.emit('close', 0);
 
       // postMessage is delayed by 150 ms
-      setTimeout(() => {
+      waitUntil(() => fakePanel.webview.postMessage.getCalls().some((c: sinon.SinonSpyCall) => c.args[0]?.type === 'graph')).then(() => {
         const graphCall = fakePanel.webview.postMessage.getCalls().find(
           c => c.args[0]?.type === 'graph'
         );
@@ -271,7 +316,7 @@ suite('GraphProvider', () => {
         assert.strictEqual(msg.type, 'graph');
         assert.deepStrictEqual(msg.data, { ...graph, files: [] });
         done();
-      }, 300);
+      }, done);
     });
 
     test('zero nodes after retries → actionable empty-state with a Retry button', function (done) {
@@ -287,10 +332,10 @@ suite('GraphProvider', () => {
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
 
-      realSetTimeout(() => {
+      waitUntil(() => fakePanel.webview.html.includes('Retry analysis')).then(() => {
         assert.ok(fakePanel.webview.html.includes('Retry analysis'), 'empty-state offers a Retry button');
         done();
-      }, 250);
+      }, done);
     });
 
     test('all analyzers fail → empty-state surfaces per-language diagnostics', function (done) {
@@ -306,13 +351,13 @@ suite('GraphProvider', () => {
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
 
-      realSetTimeout(() => {
+      waitUntil(() => fakePanel.webview.html.includes('Analysis could not complete')).then(() => {
         const html = fakePanel.webview.html;
         assert.ok(html.includes('Analysis could not complete'), 'failure headline shown');
         assert.ok(html.includes('exit-nonzero'), 'diagnostic lists the failure status, not swallowed');
         assert.ok(html.includes('Retry analysis'), 'retry offered');
         done();
-      }, 250);
+      }, done);
     });
 
     test('handleAnalysisResult with unparseable merged stdout → shows parse error', () => {
@@ -434,14 +479,14 @@ suite('GraphProvider', () => {
       const provider = new GraphProvider(makeFakeContext());
       provider.show();
 
-      setTimeout(() => {
+      waitUntil(() => fakePanel.webview.postMessage.getCalls().some((c: sinon.SinonSpyCall) => c.args[0]?.type === 'graph')).then(() => {
         const graphCall = fakePanel.webview.postMessage.getCalls().find(c => c.args[0]?.type === 'graph');
         assert.ok(graphCall, 'graph posted from cache');
         assert.strictEqual(graphCall!.args[0].data.nodes[0].id, 'cached');
         assert.ok(spawn.notCalled, 'analyzer not spawned when the cache is valid');
         fs.rmSync(tmp, { recursive: true, force: true });
         done();
-      }, 250);
+      }, done);
     });
   });
 
@@ -515,6 +560,7 @@ suite('parseGitStatus()', () => {
   });
 
   teardown(() => {
+    disposeLivePanels();   // before restore(): the callbacks run against these stubs
     sandbox.restore();
   });
 
@@ -670,6 +716,7 @@ suite('resolvePythonBin() - venv path selection', () => {
   });
 
   teardown(() => {
+    disposeLivePanels();   // before restore(): the callbacks run against these stubs
     sandbox.restore();
   });
 
@@ -1064,6 +1111,7 @@ suite('loadGraph()', () => {
   });
 
   teardown(() => {
+    disposeLivePanels();   // before restore(): the callbacks run against these stubs
     sandbox.restore();
   });
 

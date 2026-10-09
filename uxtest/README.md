@@ -88,14 +88,18 @@ Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 | `30-git-language` | git panel + `git-update`, legend, language swatches |
 | `40-folder-panel` | folder mode, every force slider incl. the ux "show more forces" set, folder filters via context menu |
 | `45-force-reheat` | Shelf+Dynamic: a force change must move the layout, promptly, also after a Detail re-render (F13 / F7) |
+| `46-force-defaults` | Global force box ships the sweep defaults, the inert sliders are gone, Reset Layout restores the defaults (D1-D3) |
+| `47-hide-entirely` | hiding a folder/file removes its frame/slot and re-packs; every hide is a reversible chip; Show all restores (W1/W2) |
+| `48-glyph-label` | a collapsed folder's name sits inside its glyph, both engines (W3) |
+| `49-subgraph` | panel opened inside a subgraph scope: only included frames, Visualize / Exit subgraph post to the host (W4) |
 | `50-class-groupby` | class overlay; group-by lens (optional — removed by ux) |
 | `60-settings` | search / Ctrl+F / clear / count, filter toggles, display sliders, global forces, reset |
 | `70-canvas` | pan, zoom, drag node, drag folder, resize frame, context menus — with collateral-movement check (H4) and hover-overlay churn under a resting pointer (F10) |
 | `75-lazy-expand` | lazy host: skeleton → `expand-folder` → `graph-patch` → background graph keeps the drill-down |
 | `80-popups` | function popup (drag, resize, edit + Ctrl+S, close, Escape), navigate fallback, libraries (F5), `save-request` |
 | `85-hover-card` | annotate's hover card (optional; canned `annotations`, AI off) |
+| `87-same-file-edges` | U1: two seeded boots (setting on vs off) settle to the same layout and orphan set; toggling keeps elements and positions; hover reveals cross-file lines |
 | `90-timeline` | timeline HTML + `timeline-data`, transport |
-| `95-workflow` | workflow graph, levels 0–9, back to folders |
 | `99-save-roundtrip` | v2 save → fresh panel → `graph-loaded` delta (R5), v1 payload migration |
 
 Rule scoping: `static-grid-overlap` (high) only fires for a GRID-BORN Shelf+Static layout (first load, Detail change,

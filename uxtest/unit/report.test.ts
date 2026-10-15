@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { esc, page, plain } from '../report/html';
-import { flattenFindings, loadRuns, newestRun, reportHtml, transportLabel, writeRunReport } from '../report/build';
+import { baselineDiff, flattenFindings, loadRuns, newestRun, reportHtml, transportLabel, writeRunReport } from '../report/build';
 import { contactSheetHtml, findSamples, writeSweepReport } from '../report/sweepReport';
 import { groupSamples, rescore, type SweepSample } from '../sweep/analyze';
 import { computeMetrics } from '../metrics/compute';
@@ -43,6 +43,25 @@ test('html helpers escape and strip ANSI', () => {
   expect(page('T', 'b')).not.toContain('<script>');
 });
 
+test('baseline comparison lists runs that are MISSING now (and new ones), never drops them silently', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uxtest-diff-'));
+  const runDir = path.join(root, 'after'), baseDir = path.join(root, 'before');
+  for (const rel of ['click/smoke-shelf-static', 'click/canvas-shelf-static']) { writeRun(runDir, rel, run()); writeRun(baseDir, rel, run()); }
+  writeRun(baseDir, 'click/workflow-shelf-static', run({ scenario: 'workflow' }));     // removed since the baseline
+  writeRun(baseDir, 'click/sweep-01-shelf-dynamic', run({ scenario: 'sweep-01' }));    // sweeps are filtered on BOTH sides
+  writeRun(runDir, 'click/newcheck-shelf-static', run({ scenario: 'newcheck' }));      // added since the baseline
+  const d = baselineDiff(loadRuns(runDir), loadRuns(baseDir).filter(r => !/^sweep-/.test(r.run.scenario)));
+  expect({ matched: d.matched, missing: d.missing.map(r => r.rel), added: d.added.map(r => r.rel) })
+    .toEqual({ matched: 2, missing: ['click/workflow-shelf-static'], added: ['click/newcheck-shelf-static'] });
+  const files = writeRunReport(runDir, baseDir);
+  const html = fs.readFileSync(files[0], 'utf8');
+  expect(html).toContain('1 missing vs baseline');
+  expect(html).toContain('click · workflow · shelf/static');
+  expect(html).toContain('click · newcheck · shelf/static');
+  expect(html).not.toContain('sweep-01');
+  expect(JSON.parse(fs.readFileSync(files[2], 'utf8'))).toMatchObject({ matched: 2, missing: ['click/workflow-shelf-static'], added: ['click/newcheck-shelf-static'] });
+});
+
 test('run report: findings, matrix, seekable steps, baseline deltas', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'uxtest-rep-'));
   const runDir = path.join(root, 'run-b'), baseDir = path.join(root, 'run-a');
@@ -60,7 +79,7 @@ test('run report: findings, matrix, seekable steps, baseline deltas', () => {
   expect(flat[0]).toMatchObject({ repo: 'click', step: 1, videoAtMs: 1500, screenshot: 'click/smoke-shelf-static/steps/01-overview.png' });
 
   const files = writeRunReport(runDir, baseDir, ['contact-sheet.html']);
-  expect(files.map(f => path.basename(f))).toEqual(['index.html', 'findings.json']);
+  expect(files.map(f => path.basename(f))).toEqual(['index.html', 'findings.json', 'baseline-diff.json']);
   const html = fs.readFileSync(files[0], 'utf8');
   expect(html).toContain('Overview &lt;C1&gt;');
   expect(html).toContain('data-t="1.50"');
@@ -78,7 +97,10 @@ test('run report: findings, matrix, seekable steps, baseline deltas', () => {
   expect(html).toContain('contact-sheet.html');
   expect(html).not.toContain('sweep-01');           // sweep samples live on the contact sheet
   expect(JSON.parse(fs.readFileSync(files[1], 'utf8'))).toHaveLength(2);
+  expect(html).toContain('1 recordings matched');
+  expect(html).toContain('0 missing vs baseline');
   expect(reportHtml('empty', [])).toContain('No findings.');
+  expect(reportHtml('empty', [])).not.toContain('Compared with the baseline');   // no baseline, no section
   expect(writeRunReport(path.join(root, 'missing'))).toEqual([]);
   expect(newestRun(root)).toBeTruthy();
   expect(newestRun(path.join(root, 'missing'))).toBeNull();

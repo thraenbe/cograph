@@ -210,7 +210,7 @@ export function offscreenRatio(snap: Snapshot): number {
 /** Frames/slots only describe the picture while the shelf engine is drawing it;
  *  under the global engine state.frames is stale and must not be scored. */
 export function forEngine(snap: Snapshot): Snapshot {
-  if (snap.engine === 'shelf' && snap.viewMode !== 'workflow') { return snap; } // the workflow view is not drawn by the frames engine
+  if (snap.engine === 'shelf') { return snap; }
   return { ...snap, frames: [], slots: [], nodes: snap.nodes.map(n => ({ ...n, frame: null, slot: null })) };
 }
 

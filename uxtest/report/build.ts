@@ -133,6 +133,22 @@ const SEEK_SCRIPT = `document.querySelectorAll('section.card').forEach(function 
 sec.querySelectorAll('tr[data-t]').forEach(function (tr) { tr.addEventListener('click', function (e) { if (e.target.closest('a')) { return; }
 v.currentTime = parseFloat(tr.getAttribute('data-t')); v.play(); }); }); });`;
 
+/** Pair a run with its baseline by recording path. Runs only in the baseline are MISSING (deleted, renamed,
+ *  crashed before writing, never started): a comparison must list them, or it silently looks complete. */
+export function baselineDiff(runs: LoadedRun[], baseline: LoadedRun[]): { matched: number; missing: LoadedRun[]; added: LoadedRun[] } {
+  const now = new Set(runs.map(r => r.rel)), before = new Set(baseline.map(b => b.rel));
+  return { matched: runs.filter(r => before.has(r.rel)).length, missing: baseline.filter(b => !now.has(b.rel)), added: runs.filter(r => !before.has(r.rel)) };
+}
+
+function baselineDiffHtml(runs: LoadedRun[], baseline: LoadedRun[]): string {
+  if (!baseline.length) { return ''; }
+  const d = baselineDiff(runs, baseline);
+  const list = (xs: LoadedRun[]): string => xs.map(x => `<li><code>${esc(x.run.repo)} · ${esc(x.run.scenario)} · ${esc(x.run.engine)}/${esc(x.run.motion)}</code></li>`).join('');
+  return `<h2>Compared with the baseline</h2><p>${d.matched} recordings matched · <span class="${d.missing.length ? 'failed' : 'ok'}">${d.missing.length} missing vs baseline</span> · ${d.added.length} new.</p>`
+    + (d.missing.length ? `<p class="failed">Missing vs baseline (in the baseline run, absent from this one):</p><ul>${list(d.missing)}</ul>` : '')
+    + (d.added.length ? `<p class="dim">New in this run (no baseline to compare):</p><ul>${list(d.added)}</ul>` : '');
+}
+
 export function reportHtml(runId: string, runs: LoadedRun[], baseline: LoadedRun[] = [], extraLinks: string[] = []): string {
   const findings = flattenFindings(runs);
   const steps = runs.reduce((n, r) => n + r.run.steps.length, 0);
@@ -143,17 +159,22 @@ export function reportHtml(runId: string, runs: LoadedRun[], baseline: LoadedRun
 <p class="dim">${runs.length} recordings · ${steps} steps · <span class="${failed ? 'failed' : 'ok'}">${failed} failed</span> · ${findings.length} findings
 (${findings.filter(f => f.severity === 'high').length} high). Reviewer guide: <a href="../../report/rubric.md">rubric.md</a>, <a href="../../report/review-prompt.md">review-prompt.md</a>.
 ${links ? `Sweep: ${links}.` : ''} Machine-readable: <a href="findings.json">findings.json</a>.</p>
-<h2>Findings</h2>${findingsSummaryHtml(findings)}<h2>Matrix</h2>${matrixHtml(runs)}<h2>Recordings</h2>${runs.map(r => runSectionHtml(r, baseOf(r))).join('')}`;
+${baselineDiffHtml(runs, baseline)}<h2>Findings</h2>${findingsSummaryHtml(findings)}<h2>Matrix</h2>${matrixHtml(runs)}<h2>Recordings</h2>${runs.map(r => runSectionHtml(r, baseOf(r))).join('')}`;
   return page(`CoGraph uxtest ${runId}`, body, SEEK_SCRIPT);
 }
 
 /** Writes index.html + findings.json into the run dir; returns the files written. */
 export function writeRunReport(runDir: string, baselineDir?: string, extraLinks: string[] = []): string[] {
-  const runs = loadRuns(runDir).filter(r => !/^sweep-\d+/.test(r.run.scenario));
+  const notSweep = (r: LoadedRun): boolean => !/^sweep-\d+/.test(r.run.scenario);   // sweep samples live on the contact sheet
+  const runs = loadRuns(runDir).filter(notSweep);
   if (!runs.length && !extraLinks.length) { return []; }
-  const baseline = baselineDir ? loadRuns(baselineDir) : [];
+  const baseline = baselineDir ? loadRuns(baselineDir).filter(notSweep) : [];   // same filter both sides, or sweeps read as 'missing'
   const index = path.join(runDir, 'index.html'), fjson = path.join(runDir, 'findings.json');
   fs.writeFileSync(index, reportHtml(path.basename(runDir), runs, baseline, extraLinks));
   fs.writeFileSync(fjson, JSON.stringify(flattenFindings(runs), null, 2));
-  return [index, fjson];
+  if (!baselineDir) { return [index, fjson]; }
+  const d = baselineDiff(runs, baseline), fdiff = path.join(runDir, 'baseline-diff.json');
+  const ids = (xs: LoadedRun[]): string[] => xs.map(x => x.rel);
+  fs.writeFileSync(fdiff, JSON.stringify({ baseline: baselineDir, matched: d.matched, missing: ids(d.missing), added: ids(d.added) }, null, 2));
+  return [index, fjson, fdiff];
 }

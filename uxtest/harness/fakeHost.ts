@@ -29,6 +29,15 @@ export interface FakeHostOpts {
   scope?: { name: string | null; root: string; include: string[]; exclude?: string[] };
   /** Function-end scanner for the source popup. Default: out/funcEnd.js of the checkout under test (null = none). */
   funcEnd?: FuncEndLib | null;
+  /** A pull request on screen (the Version Control pane's click, src/vcs/prController.ts). Its `pr-view` message goes
+   *  out after `subgraph` and before `structure`, its statuses replace the working tree's, and `subgraph-exit` leaves
+   *  it the way GraphProvider.exitPullRequest does: `subgraph` back to the whole project, then `pr-view` inactive. */
+  pullRequest?: PullRequestFixture;
+}
+
+export interface PullRequestFixture {
+  /** The exact `pr-view` message the host sends (PrViewMessage): name, refs, tree, diff, expand, fileGitStatus, counts. */
+  message: HostMessage & { fileGitStatus: Record<string, { unstaged: string | null; staged: string | null }> };
 }
 
 export interface AnnotationsFixture {
@@ -73,6 +82,7 @@ export class FakeHost {
 
   constructor(private readonly opts: FakeHostOpts) {
     this.scope = opts.scope ?? null;
+    this.pr = opts.pullRequest ?? null;
     this.sources = opts.funcEnd === undefined ? new VirtualSources() : new VirtualSources(opts.funcEnd);
   }
 
@@ -80,6 +90,22 @@ export class FakeHost {
 
   /** The current scope (mutable: subgraph-include / -exclude / -exit change it like the real host). */
   scope: FakeHostOpts['scope'] | null = null;
+
+  /** The pull request on screen, until `subgraph-exit` leaves it. */
+  pr: PullRequestFixture | null = null;
+
+  /** gitAvailable + fileGitStatus as the host sends them: the PR's statuses while one is shown. */
+  private git(): { gitAvailable: boolean; fileGitStatus: Record<string, unknown> } {
+    if (this.pr) { return { gitAvailable: true, fileGitStatus: this.pr.message.fileGitStatus }; }
+    return { gitAvailable: this.opts.gitAvailable ?? false, fileGitStatus: this.opts.fileGitStatus ?? {} };
+  }
+
+  /** The PR's file statuses on its nodes, as GitService.setOverride + applyGitStatuses put them there. */
+  private withPrStatuses(graph: GraphLite): GraphLite {
+    const statuses = this.pr?.message.fileGitStatus;
+    if (!statuses) { return graph; }
+    return { ...graph, nodes: graph.nodes.map(n => (n.file && statuses[n.file] ? { ...n, gitStatus: statuses[n.file] } : n)) };
+  }
 
   /** The graph as the real host sends it: only files inside the scope. */
   scopedGraph(): GraphLite {
@@ -96,20 +122,20 @@ export class FakeHost {
 
   /** Messages a real host sends right after the panel opens. */
   openingMessages(): HostReply[] {
-    const git = { gitAvailable: this.opts.gitAvailable ?? false, fileGitStatus: this.opts.fileGitStatus ?? {} };
+    const git = this.git();
     const structure: HostReply = { message: { type: 'structure', tree: this.opts.structure, autoEngage: true } };
     const pre: HostReply[] = this.scope ? [this.subgraphMessage()] : []; // scope first: no flash of the full project
+    if (this.pr) { pre.push({ message: this.pr.message }); } // before structure: the first build opens the PR's folders
     if (this.mode === 'lazy') {
       return [...pre, structure, { message: { type: 'analysis-state', backgroundParsing: true } }];
     }
-    return [...pre, structure, { message: { type: 'graph', data: this.scopedGraph(), ...git, isReanalysis: false } }];
+    return [...pre, structure, { message: { type: 'graph', data: this.withPrStatuses(this.scopedGraph()), ...git, isReanalysis: false } }];
   }
 
   /** Lazy mode: the background pass finishing (full graph arrives). */
   backgroundDone(): HostReply[] {
     return [
-      { message: { type: 'graph', data: this.opts.graph, gitAvailable: this.opts.gitAvailable ?? false,
-        fileGitStatus: this.opts.fileGitStatus ?? {}, isReanalysis: false } },
+      { message: { type: 'graph', data: this.withPrStatuses(this.opts.graph), ...this.git(), isReanalysis: false } },
       { message: { type: 'analysis-state', backgroundParsing: false } },
     ];
   }
@@ -138,6 +164,7 @@ export class FakeHost {
       case 'subgraph-include': return this.changeScope(String(msg.path ?? ''), true);
       case 'subgraph-exclude': return this.changeScope(String(msg.path ?? ''), false);
       case 'subgraph-exit': { // session-178: NOT a fresh `graph` - the cached nodes of the files that were out of scope come back as a patch
+        if (this.pr) { return this.leavePullRequest(); }
         if (!this.scope) { return []; }
         const inScope = new Set(this.scopedGraph().files ?? []);
         const back = this.allFiles().filter(f => !inScope.has(f));
@@ -149,6 +176,18 @@ export class FakeHost {
       default:
         return []; // navigate, dirty-state, open-docs, perf-report, … are record-only
     }
+  }
+
+  /** GraphProvider.exitPullRequest on the main panel: the scope goes back, then `pr-view` inactive with restore. */
+  private leavePullRequest(): HostReply[] {
+    this.pr = null;
+    this.scope = null;
+    const fileGitStatus = this.opts.fileGitStatus ?? {};
+    return [
+      this.subgraphMessage(),
+      { message: { type: 'git-update', nodes: this.opts.graph.nodes.filter(n => !n.isLibrary).map(n => ({ id: n.id, gitStatus: n.gitStatus ?? { unstaged: null, staged: null } })), fileGitStatus } },
+      { message: { type: 'pr-view', active: false, restore: true, fileGitStatus } },
+    ];
   }
 
   private allFiles(): string[] {
@@ -192,8 +231,8 @@ export class FakeHost {
     if (!files.length) { return []; }
     return [
       { message: { type: 'analysis-state', parsingFolder: folderTag } },
-      { message: { type: 'graph-patch', patch: cutPatch(this.opts.graph, files), parsedFolder: folderTag,
-        replacedFiles: files, fileGitStatus: this.opts.fileGitStatus ?? {} }, delayMs: this.opts.parseDelayMs ?? 150 },
+      { message: { type: 'graph-patch', patch: this.withPrStatuses(cutPatch(this.opts.graph, files)), parsedFolder: folderTag,
+        replacedFiles: files, fileGitStatus: this.git().fileGitStatus }, delayMs: this.opts.parseDelayMs ?? 150 },
     ];
   }
 }

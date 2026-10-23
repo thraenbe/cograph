@@ -239,9 +239,11 @@ The private host owns these routes (all under the public server's token check):
 The public server owns `GET /tour/:id` (the page), `GET /tour/:id/graph` (the replay), `/events`,
 `/msg`, `/ext/*`, `/tour-assets/*` (section 4).
 
-**Cache**: `<headDir>/.cograph/tour/<baseSha>-<configHash>.json` (a copy's `.cograph/` already
-holds its graph cache). `configHash` is sha1 over the merged configuration. `prepare` reuses a
-cached script when present; `rerun-ai` rebuilds the AI parts and rewrites it.
+**Cache**: `<headDir>/.cograph/tour/<baseSha>-<key>.json` (a copy's `.cograph/` already holds its
+graph cache). `key` is sha1 over the merged configuration AND the target (kind, pull-request number
+or branch, dirty), so the same commits toured as a branch and later as their pull request get two
+scripts. `prepare` reuses a cached script when present; `rerun-ai` rebuilds the AI parts and
+rewrites it. Nothing on the public side reads these files.
 
 ## 4. The browser page and the public server
 

@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A tour opens the pull request's panel in VS Code and the tour page in the browser. In a build
   without the tour component the buttons stay hidden and the commands say so in one sentence.
   Settings `cograph.tour.*`; the AI mode is `cograph.tour.ai.mode`.
+- **Licence wording for the PR Tour.** Marketplace and Open VSX builds bundle the PR Tour, a
+  commercial component with private source (`COMMERCIAL-COMPONENT.md`); the extension and this
+  repository stay MIT.
 - **Hooks for a guided view of the graph** (`window.stageApi`): camera fits that leave room for
   overlays, a spotlight, a pulse, ghost nodes for removed functions, overlay edges, folder
   expansion and hiding the controls. Documented in `docs/tour-protocol.md`.

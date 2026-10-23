@@ -193,3 +193,8 @@ Found a vulnerability? Please report it privately — see **[SECURITY.md](SECURI
 ## License
 
 [MIT](LICENSE) © Bela Thrän
+
+The Marketplace and Open VSX builds of CoGraph also contain the PR Tour, a commercial component
+whose source is private. It is not under the MIT licence; see
+[COMMERCIAL-COMPONENT.md](COMMERCIAL-COMPONENT.md). Everything in this repository is MIT, and a
+build made from it simply has no PR Tour.

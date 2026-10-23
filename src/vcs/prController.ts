@@ -4,13 +4,17 @@ import type { FileStatus, GitStatusOverride } from '../gitService';
 import type { StructureTree } from '../structureScanner';
 import type { ScopeSpec } from '../subgraphScope';
 import { statusesFromDiff } from './engine/diffStatuses';
-import { diffGraphs } from './engine/graphDiff';
 import type { StructuralDiff } from './engine/graphDiff';
-import { DEFAULT_BUDGET, HeadTreeError, branchRefs, evictTrees, fetchBranch, fetchPullRequestHead, githubRemote, lockTree, materializeCommit, mergeBase, pullRequestRefs, unlockTree } from './engine/headTree';
+import { DEFAULT_BUDGET, HeadTreeError, evictTrees, lockTree, unlockTree } from './engine/headTree';
 import type { TreeBudget } from './engine/headTree';
-import { analyzeTreeCached } from './engine/treeAnalysis';
 import { flushCacheWrites } from '../cacheStore';
-import type { AnalyzedTree, TreeAnalyzer } from './engine/treeAnalysis';
+import type { TreeAnalyzer } from './engine/treeAnalysis';
+import type { TourProgress, TourTarget, TourTrees } from '../tour/tourApi';
+import { analysePullRequest, materializeBaseWithGit, materializeHeadWithGit, prepareTourTrees } from './tourTrees';
+import type { MaterializeBase, MaterializeHead } from './tourTrees';
+
+export { materializeBaseWithGit, materializeHeadWithGit } from './tourTrees';
+export type { MaterializeBase, MaterializeHead } from './tourTrees';
 import { defaultExec } from './ghCliSource';
 import type { Exec } from './ghCliSource';
 import { buildPrView, gitBlobSha, prViewName } from './prView';
@@ -99,36 +103,6 @@ export interface PrControllerDeps {
   analyzer?: TreeAnalyzer;
 }
 
-export type MaterializeBase = (opts: {
-  repoRoot: string; storageDir: string; baseRef: string; headSha: string; exec: Exec; log: (line: string) => void;
-  report: (message: string) => void; signal: AbortSignal;
-}) => Promise<{ sha: string; dir: string }>;
-
-export const materializeBaseWithGit: MaterializeBase = async ({ repoRoot, storageDir, baseRef, headSha, exec, log, report, signal }) => {
-  const treeDeps = { repoRoot, storageDir, exec, log, signal };
-  report('fetching its base…');
-  const remote = await githubRemote(treeDeps);
-  const tip = await fetchBranch(treeDeps, baseRef, remote);
-  const sha = await mergeBase(treeDeps, headSha, tip);
-  const copied = await materializeCommit(treeDeps, sha, branchRefs(baseRef, tip));
-  return { sha, dir: copied.dir };
-};
-
-export type MaterializeHead = (opts: {
-  repoRoot: string; storageDir: string; prNumber: number; exec: Exec; log: (line: string) => void;
-  report: (message: string) => void; signal: AbortSignal;
-}) => Promise<{ sha: string; dir: string }>;
-
-/** The engine's way: fetch the ref, then copy the commit's analysable files. */
-export const materializeHeadWithGit: MaterializeHead = async ({ repoRoot, storageDir, prNumber, exec, log, report, signal }) => {
-  const treeDeps = { repoRoot, storageDir, exec, log, signal };
-  report('fetching the pull request…');
-  const sha = await fetchPullRequestHead(treeDeps, prNumber, await githubRemote(treeDeps));
-  report('copying its files…');
-  const copied = await materializeCommit(treeDeps, sha, pullRequestRefs(prNumber, sha));
-  return { sha, dir: copied.dir };
-};
-
 /** What the sidebar shows of the structural diff. */
 export interface PrDiffDetail {
   summary: StructuralDiff['summary'];
@@ -148,6 +122,8 @@ export interface PrOpened {
   /** The source stopped before the PR's last file. */
   truncated: boolean;
   diff?: PrDiffDetail;
+  /** The whole structural diff against the merge base (the sidebar's `diff` is its summary). */
+  structuralDiff?: StructuralDiff;
 }
 
 export type PrOpenResult = { ok: true; opened: PrOpened } | { ok: false; problem: PrProblem };
@@ -288,13 +264,9 @@ export class PrController {
       materialised = await progress(`Pull request #${pr.number}`, async (report, signal) => {
         signal.addEventListener('abort', () => { cancelled = true; });
         const common = { repoRoot, storageDir, exec: this.exec, log: this.deps.log, report, signal };
-        const head = await (this.deps.materializeHead ?? materializeHeadWithGit)({ ...common, prNumber: pr.number });
-        copied = true;
-        if (!this.deps.analyzer) { return { ...head, diff: null }; }
-        report('analysing the pull request…');
-        const headTree = await analyzeTreeCached(head.dir, this.deps.analyzer, head.sha, signal);
-        const base = await this.baseTree(pr, head.sha, common);
-        return { ...head, diff: base ? diffGraphs(base, headTree) : null, baseSha: base?.sha };
+        const analysed = await analysePullRequest(pr, common, this.hooks(() => { copied = true; }));
+        this.pendingBaseDir = analysed.base?.root;
+        return { sha: analysed.sha, dir: analysed.dir, diff: analysed.diff, baseSha: analysed.base?.sha };
       });
     } catch (err) {
       // A cancel anywhere — fetch, copy, either analysis — ends the open with nothing shown; a
@@ -340,6 +312,7 @@ export class PrController {
       ok: true,
       opened: {
         number: pr.number, tree, counts: view.counts, files: view.files, truncated: fetched.ok ? fetched.truncated : false,
+        ...(diff ? { structuralDiff: diff } : {}),
         ...(diff && baseSha ? { diff: {
           summary: diff.summary, base: baseSha,
           removed: removed.slice(0, MAX_REMOVED).map(i => ({ key: i.key, callers: i.callers })),
@@ -349,23 +322,26 @@ export class PrController {
     };
   }
 
-  /** The merge base, materialised and analysed; null (logged) when it cannot be had — the head is still shown. */
-  private async baseTree(pr: PullRequest, headSha: string, common: {
-    repoRoot: string; storageDir: string; exec: Exec; log: (line: string) => void; report: (m: string) => void; signal: AbortSignal;
-  }): Promise<AnalyzedTree | null> {
-    if (!pr.baseRef) { return null; }
-    try {
-      const base = await (this.deps.materializeBase ?? materializeBaseWithGit)({ ...common, baseRef: pr.baseRef, headSha });
-      common.report('analysing the base…');
-      const analysed = await analyzeTreeCached(base.dir, this.deps.analyzer as TreeAnalyzer, base.sha, common.signal);
-      this.pendingBaseDir = base.dir;
-      return analysed;
-    } catch (err) {
-      // A cancel is the user's, not the base's: it ends the whole open.
-      if (common.signal.aborted || (err instanceof HeadTreeError && err.kind === 'cancelled')) { throw err; }
-      this.deps.log(`[vcs] base of #${pr.number} unavailable, colouring from the PR's file list: ${(err as Error).message}`);
-      return null;
-    }
+  private hooks(onCopied?: () => void) {
+    return {
+      materializeHead: this.deps.materializeHead ?? materializeHeadWithGit,
+      materializeBase: this.deps.materializeBase ?? materializeBaseWithGit,
+      analyzer: this.deps.analyzer,
+      onCopied,
+    };
+  }
+
+  /**
+   * Head and base of a tour target, materialised, analysed and diffed (TourHostApi.prepareTrees).
+   * No panel opens and nothing is evicted here; `pr` skips the lookup when the caller has the record.
+   */
+  async prepareDiff(target: TourTarget, progress: TourProgress, signal: AbortSignal, pr?: PullRequest): Promise<TourTrees> {
+    const root = this.deps.workspaceRoot();
+    if (!root) { throw new HeadTreeError('error', NO_WORKSPACE.message); }
+    if (!this.deps.storageDir || !this.deps.analyzer) { throw new HeadTreeError('error', 'This window cannot copy commits (no extension storage), so there is nothing to tour.'); }
+    const repoRoot = await this.repoRoot(root);
+    const common = { repoRoot, storageDir: this.deps.storageDir, exec: this.exec, log: this.deps.log, report: progress, signal };
+    return prepareTourTrees(target, common, { ...this.hooks(), analyzer: this.deps.analyzer, workspaceRoot: root, source: this.source }, pr);
   }
 
   private pendingBaseDir: string | undefined;

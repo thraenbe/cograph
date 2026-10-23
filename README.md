@@ -108,6 +108,14 @@ The tab mirrors the panel: it shows the same graph, the same scope and the same 
 - In Remote-SSH and Codespaces, VS Code forwards the port for you.
 - An administrator can switch the feature off with `cograph.browserView.enabled: false`.
 
+## The PR tour
+
+The PR tour walks a reviewer, or you before you open the pull request, through a change on the graph in your browser: an overview, where the change lives, each changed function in reading order, who calls it, what was removed, which tests reach it, a security check that always runs, and a drafted description. The tour itself is a component of the Marketplace build of CoGraph; it is not in this repository, and a build from source shows no tour buttons.
+
+Start it from the blue **Take the PR tour** button over the graph (shown when your branch is ahead of its base or has an open pull request), from **Tour** on a pull request in the Version Control pane, or with **CoGraph: Tour This Pull Request…** or **CoGraph: Tour Your Branch**. CoGraph copies and analyses the head and the base as a pull-request click does, opens the pull request's panel in VS Code and the tour in your browser on `127.0.0.1` (the same server as **Open in browser**). A branch tour covers your commits, not uncommitted changes.
+
+Nothing is pushed, created or commented on GitHub without a VS Code confirmation that shows the exact command and text. AI narration uses the provider of Graph Intelligence and only when AI features are on. The tour's settings are under `cograph.tour.*`; the button follows `cograph.tour.button` (`auto`, `always`, `never`).
+
 ## Requirements
 
 - VS Code 1.75+

@@ -123,7 +123,9 @@ function watchAvailability(d: TourWiringDeps, availability: TourAvailability): {
 export function registerTour(d: TourWiringDeps): TourEntry {
   const available = () => resolveTourPackage(d.context.extensionPath) !== null;
   const tours = runner(d, tourLoader(d));
-  const run = async (target: TourTarget) => { await tours.run(target); };
+  const run = async (target: TourTarget) => {
+    try { await tours.run(target); } catch (err) { d.channel.appendLine(`[tour] run failed: ${(err as Error)?.stack ?? String(err)}`); }
+  };
   const availability = new TourAvailability({
     workspaceRoot, exec: defaultExec, bundled: available, setting,
     pullRequests: () => d.vcsSidebar.loadedPullRequests(),

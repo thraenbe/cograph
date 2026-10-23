@@ -96,7 +96,30 @@ async function withBodyFile<T>(body: string, run: (file: string) => Promise<T>):
   }
 }
 
+/** A git action never rejects: an exception (no remote, a body file that cannot be written) is a reason. */
+function guarded<A extends unknown[], R>(what: string, log: (l: string) => void, fn: (...args: A) => Promise<R>): (...args: A) => Promise<R | { ok: false; reason: string }> {
+  return async (...args: A) => {
+    try {
+      return await fn(...args);
+    } catch (err) {
+      const reason = (err as Error)?.message ?? String(err);
+      log(`${what} failed: ${reason}`);
+      return { ok: false, reason };
+    }
+  };
+}
+
 function createGit(deps: TourHostDeps, log: (l: string) => void): TourGitActions {
+  const actions = createGitActions(deps, log);
+  return {
+    push: guarded('git push', log, actions.push),
+    createPr: guarded('gh pr create', log, actions.createPr),
+    editPrBody: guarded('gh pr edit', log, actions.editPrBody),
+    commentPr: guarded('gh pr comment', log, actions.commentPr),
+  };
+}
+
+function createGitActions(deps: TourHostDeps, log: (l: string) => void): TourGitActions {
   const cancelled = { ok: false as const, reason: 'cancelled' };
   const ask = (message: string, command: string, extra = '') => deps.confirm(message, `${command}${extra}`, 'Run');
   const failed = (what: string, stderr: string, stdout: string) => {
@@ -182,10 +205,12 @@ export function createTourHostApi(deps: TourHostDeps): TourHostApi {
     // A getter: switching AI off in the settings takes it away from a running tour at once.
     get ai() { return ai.enabled() ? ai : null; },
     git: createGit(deps, log),
-    navigate: (absPath, line) => navigate(deps, absPath, line, log),
+    navigate: async (absPath, line) => {
+      try { await navigate(deps, absPath, line, log); } catch (err) { log(`navigate failed: ${(err as Error)?.message ?? String(err)}`); }
+    },
     openExternal: async (url) => {
       if (!/^https?:\/\//i.test(url)) { log(`openExternal refused a non-web URL`); return; }
-      await deps.openExternal(url);
+      try { await deps.openExternal(url); } catch (err) { log(`openExternal failed: ${(err as Error)?.message ?? String(err)}`); }
     },
     notify: (message) => deps.notify(String(message)),
   };

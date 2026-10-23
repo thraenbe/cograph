@@ -255,4 +255,18 @@ suite('tour — the TourHostApi the extension injects', () => {
     ]);
     assert.ok(h.lines.some(l => /navigate refused/.test(l)) && h.lines.some(l => /openExternal refused/.test(l)));
   });
+
+  test('git actions, navigate and openExternal never reject: an exception comes back as a reason, logged', async () => {
+    const h = harness(repo, storage, () => ({ code: 0, stdout: '', stderr: '', notFound: false })); // git remote -v: no remote at all
+    h.deps.openFile = async () => { throw new Error('file is gone'); };
+    h.deps.openExternal = async () => { throw new Error('no browser'); };
+    const api = createTourHostApi(h.deps);
+    const pushed = await api.git.push('feat/x');
+    assert.deepStrictEqual([pushed.ok, (pushed as any).reason], [false, 'The repository has no remote to fetch the pull request from.']);
+    const own = path.join(repo, 'a.ts');
+    await api.navigate(own, 1);
+    await api.openExternal('https://x.y');
+    assert.ok(h.lines.some(l => l === '[tour] git push failed: The repository has no remote to fetch the pull request from.'));
+    assert.ok(h.lines.some(l => l === '[tour] navigate failed: file is gone') && h.lines.some(l => l === '[tour] openExternal failed: no browser'));
+  });
 });

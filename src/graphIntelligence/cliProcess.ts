@@ -20,6 +20,11 @@ export interface CliStreamOptions {
 }
 
 const KILL_GRACE_MS = 1000;
+/** How much of the CLI's stderr a failed call carries (err.stderr), from the end. */
+export const STDERR_TAIL_BYTES = 4096;
+
+/** The rejection of a CLI that exited non-zero: the message as before, plus why, in the CLI's words. */
+export interface CliExitError extends Error { stderr: string }
 
 /**
  * Spawn a provider CLI and stream its stdout, with the guards every Graph
@@ -37,6 +42,7 @@ export function runCliStream(opts: CliStreamOptions): Promise<void> {
 
     let totalBytes = 0;
     let killed = false;
+    let stderrTail = '';
 
     const cleanup = () => {
       clearTimeout(timer);
@@ -73,7 +79,9 @@ export function runCliStream(opts: CliStreamOptions): Promise<void> {
     });
 
     proc.stderr?.on('data', (chunk: Buffer) => {
-      opts.onStderr?.(chunk.toString());
+      const text = chunk.toString();
+      stderrTail = (stderrTail + text).slice(-STDERR_TAIL_BYTES);
+      opts.onStderr?.(text);
     });
 
     proc.on('error', (err) => {
@@ -86,7 +94,7 @@ export function runCliStream(opts: CliStreamOptions): Promise<void> {
       if (killed) { return; }
       opts.onEnd?.();
       if (code !== 0 && code !== null) {
-        reject(new Error(`${opts.label} exited with code ${code}.`));
+        reject(Object.assign(new Error(`${opts.label} exited with code ${code}.`), { stderr: stderrTail }) as CliExitError);
         return;
       }
       resolve();

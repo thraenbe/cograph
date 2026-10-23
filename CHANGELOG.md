@@ -5,6 +5,20 @@ All notable changes to CoGraph are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Open in browser.** A button in the graph panel (and **CoGraph: Open in Browser**) opens the
+  graph in your default browser, served by the extension on `127.0.0.1` with a random token. The
+  tab mirrors the panel: same graph, scope and colours, live, with expand, hover card, navigate,
+  edit and Save Layout working through VS Code. A line under the button counts the open tabs;
+  closing the panel disconnects the tab, which says so. The setting `cograph.browserView.enabled`
+  (on by default) switches the loopback server off.
+- **The doorway of the PR tour.** The loopback server also serves tour pages, and the graph panel
+  gets the blue **Take the PR tour** button for a branch or pull request with something to tour
+  (hidden in pull-request panels, dismissible for the session). The tour itself is a separate
+  component.
+
 ## [1.4.0] - 2026-10-09
 
 The release that took things away. Two of the three AI features were measured rather than

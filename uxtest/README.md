@@ -149,6 +149,8 @@ copy, `$UXTEST_VSCODE`, or a download) with `--extensionDevelopmentPath`, a thro
 Visualize (T_first / T_functions), panel alive after 15 s (B7), metrics inside the real webview frame, engine /
 motion toggles, source popup from the real host, Ctrl+S keybinding + InputBox, sidebar view, on-save incremental
 re-parse, Open or Reload Layout. The CoGraph output channel + exthost log are saved as `vscode-output.log`.
+`--scenario open-in-browser` (`vscode/open-in-browser.spec.ts`) clicks the panel's Open in browser button; a stand-in
+`xdg-open` on PATH records the URL instead of opening your browser, and Playwright's Chromium checks the tab.
 `--scenario cold-open` (`vscode/cold-open.spec.ts`) launches N fresh profiles (`UXTEST_COLD_ATTEMPTS`, default 5), runs
 Visualize immediately and flags `blank-graph-on-cold-open` (F11) / `panel-vanished` (B7) on video.
 Gotchas baked into the driver: Electron pages get an explicit default timeout; `frame.evaluate` on a webview hidden behind

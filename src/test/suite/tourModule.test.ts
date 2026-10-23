@@ -72,7 +72,9 @@ suite('tour — the private package resolver and its stub', () => {
     assert.ok(loaded);
     assert.strictEqual(loaded.source, 'env');
     assert.strictEqual((loaded.host as any).got, 1, 'createTour received the api');
-    assert.strictEqual(path.resolve(loaded.webAssetsDir), path.join(dev, 'dist/web'));
+    // Node loads a module through its real path (macOS: /var/folders → /private/var/folders), so the host's
+    // __dirname-based directory is compared by real path, as the server serves it.
+    assert.strictEqual(fs.realpathSync(loaded.webAssetsDir), fs.realpathSync(path.join(dev, 'dist/web')));
     assert.deepStrictEqual(logs, ['[tour] tour package loaded (env)']);
   });
 

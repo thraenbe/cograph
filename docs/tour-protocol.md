@@ -260,9 +260,9 @@ Pages and routes the public server serves:
 |---|---|
 | `GET /?token=` | the stage of the main panel, mirror mode ("Open in browser", free) |
 | `GET /tour/:id?token=` | the stage of the tour's provider, plus the tour layer: `<link rel="stylesheet" href="/tour-assets/tour.css?token=">`, `<script src="/tour-assets/tour.js?token=">` after every stage script, and before them an inline `window.COGRAPH_TOUR = { tourId, scriptUrl, graphUrl, actionUrl, eventsUrl, msgUrl, theme: 'dark' | 'light', stageRoot, version: 1 }` (`stageRoot` = the absolute directory the stage's graph is rooted at, the head copy; every URL carries `?token=`) |
-| `GET /tour/:id/graph?token=` | `{ messages: [...] }`: the provider's replay in panel order: `subgraph`, `pr-view`, `structure`, `graph`, `git-update`, `config`, each the exact object the panel would receive |
-| `GET /events?token=&view=<id>` | SSE of host-to-view messages for that view (after the replay) |
-| `POST /msg?token=&view=<id>` | one view-to-host message as JSON |
+| `GET /tour/:id/graph?token=` | `{ messages: [...] }`: the provider's replay in panel order: `subgraph`, `pr-view`, `structure`, `graph`, `git-update`, each the exact object the panel would receive. No `config`: the page's boot config already carries those values, and a `config` message would force the layout engine past the Global guard. The bridge feeds this replay to the stage over SSE itself; the tour layer may read the route but never re-posts it into the stage |
+| `GET /events?token=&view=<id>&client=<id>` | SSE of host-to-view messages for that view (after the replay); `client` is a random id per tab, each with its own ready gate and `__seq` space |
+| `POST /msg?token=&view=<id>&client=<id>` | one view-to-host message as JSON |
 | `GET /ext/src/webview/*`, `GET /ext/dist/webview/*` | the stage's scripts and styles |
 | `GET /tour-assets/*` | `TourHost.webAssetsDir`, files only, no traversal |
 
@@ -302,8 +302,8 @@ stageApi.version                                   // 1
 stageApi.ready()                                   // Promise<void>: after the first graph is ingested and laid out
 stageApi.nodes()                                   // [{ id, kind: 'function'|'file'|'folder', name, file, line, className, gitStatus }]
 stageApi.resolve({ file, name, line })             // string|null; file repo-relative POSIX or absolute; line optional, nearest wins
-stageApi.fit(ids, { padding = 80, ms = 600 })      // Promise<void>; camera onto the nodes' bounding box (frames for folders)
-stageApi.fitAll({ ms })                            // Promise<void>
+stageApi.fit(ids, { padding = 80, ms = 600, inset }) // Promise<void>; camera onto the nodes' bounding box (frames for folders); inset = { top, right, bottom, left } pixels of the viewport covered by the layer's overlays, so the box is centred in the visible region (default 0)
+stageApi.fitAll({ ms, inset })                     // Promise<void>; same inset
 stageApi.spotlight(ids | null, { edges = true })   // dims everything else to 0.25; null clears
 stageApi.pulse(id | null)                          // one ring animation on the node; null stops
 stageApi.ghost(list | null)                        // [{ id, file, name, line, callers: [ids] }]; id any unique string, file absolute or repo-relative POSIX (resolved like resolve()); dashed nodes in the file's slot, or the folder's margin when the file is gone
@@ -421,8 +421,12 @@ inside a PR panel (that graph is a pull request; its banner gets a Tour action i
 **Team file** `.cograph/tour.json` (private host reads it through `fs` under `api.repoRoot`;
 validated with zod, unknown keys ignored, a bad file is one sentence on the overview card):
 `{ "version": 1, "chapters": [...], "maxStepsPerChapter": 8, "security": { "rules": [ { "id", "language", "pattern", "severity", "message" } ], "allow": [...], "blockCreateOnHigh": true }, "ai": { "mode": "on", "maxBudgetUsd": 0.25 } }`.
-Precedence: `tour.json` > workspace settings > user settings > defaults. `tour.json` cannot set
-`ai.mode` to `on` when `cograph.graphIntelligence.enabled` is false (the api's `ai` is null then).
+Precedence: `tour.json` > workspace settings > user settings > defaults, with two exceptions that
+protect the person running the tour from a cloned repository's file: `ai.mode` and `ai.maxBudgetUsd`
+may only be tightened by `tour.json` (`off` < `ask` < `on`, capped at the user's setting; the budget is
+the minimum of both). Custom security rules are the union of file and settings; on the same id the
+file wins. `tour.json` cannot set `ai.mode` to `on` when `cograph.graphIntelligence.enabled` is false
+(the api's `ai` is null then).
 
 ## 8. Fixtures shared by the test suites
 

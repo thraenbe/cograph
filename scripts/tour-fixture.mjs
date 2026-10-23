@@ -10,9 +10,8 @@
 // Every absolute path into a copy is rewritten to fixtures/trees/<name>/head|base,
 // and repoRoot to fixtures/trees/<name>, so a fixture names nothing of this machine.
 //
-// A merged pull request is diffed against the base as it was when it merged (the
-// merge commit's first parent), as GitHub shows it; the live merge base of a merged
-// head is the head itself.
+// A merged pull request is diffed against the base as it was when it merged, as GitHub
+// shows it (the engine's rule: materializeMergedBaseWithGit in src/vcs/tourTrees.ts).
 
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -31,7 +30,7 @@ if (!fs.existsSync(path.join(out, 'vcs', 'tourTrees.js'))) {
 const { prepareTourTrees, materializeHeadWithGit, materializeBaseWithGit } = require(path.join(out, 'vcs', 'tourTrees.js'));
 const { defaultExec, GhCliSource } = require(path.join(out, 'vcs', 'ghCliSource.js'));
 const { spawnAnalyzers } = require(path.join(out, 'analyzerSpawn.js'));
-const { HeadTreeError, branchRefs, dropTreeRefs, fetchBranch, githubRemote, listTrees, materializeCommit, mergeBase } = require(path.join(out, 'vcs', 'engine', 'headTree.js'));
+const { HeadTreeError, dropTreeRefs, listTrees } = require(path.join(out, 'vcs', 'engine', 'headTree.js'));
 
 const [targetArg, outDirArg] = process.argv.slice(2);
 if (!targetArg || !outDirArg) {
@@ -61,23 +60,6 @@ async function analyzer(dir, signal) {
   for (const s of failed) { log(`[fixture] analyzer ${s.lang} ${s.status}${s.detail ? `: ${s.detail}` : ''}`); }
   if (graph.nodes.length === 0 && failed.length) { throw new Error(`Analysis failed in ${dir}`); }
   return graph;
-}
-
-/** For a merged pull request: the base as it was at the merge, not the live merge base. */
-function mergedBase(pr) {
-  if (!isPr) { return materializeBaseWithGit; }
-  const view = JSON.parse(execFileSync('gh', ['pr', 'view', String(pr), '--json', 'state,mergeCommit'], { cwd: repoRoot, encoding: 'utf8' }));
-  if (view.state !== 'MERGED' || !view.mergeCommit?.oid) { return materializeBaseWithGit; }
-  return async ({ repoRoot: root, storageDir: storage, baseRef, headSha, exec, log: say, report, signal }) => {
-    const deps = { repoRoot: root, storageDir: storage, exec, log: say, signal };
-    report('fetching its base…');
-    const tip = await fetchBranch(deps, baseRef, await githubRemote(deps));
-    const parent = execFileSync('git', ['rev-parse', `${view.mergeCommit.oid}^1`], { cwd: root, encoding: 'utf8' }).trim();
-    const sha = await mergeBase(deps, headSha, parent);
-    say(`[fixture] #${pr} merged in ${view.mergeCommit.oid.slice(0, 7)}: base ${sha.slice(0, 7)} (merge base with its first parent)`);
-    const copied = await materializeCommit(deps, sha, branchRefs(baseRef, tip));
-    return { sha, dir: copied.dir };
-  };
 }
 
 /** Copy a tree's source files (not the marker, lock or analysis cache). */
@@ -112,7 +94,7 @@ async function main() {
   const common = { repoRoot, storageDir, exec: defaultExec, log, report: (m) => log(`[fixture] ${m}`), signal: new AbortController().signal };
   const deps = {
     workspaceRoot: repoRoot, analyzer, source: new GhCliSource(),
-    materializeHead: materializeHeadWithGit, materializeBase: mergedBase(targetArg),
+    materializeHead: materializeHeadWithGit, materializeBase: materializeBaseWithGit,
   };
   const trees = await prepareTourTrees(target, common, deps);
   const rel = `fixtures/trees/${name}`;

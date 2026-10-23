@@ -82,10 +82,10 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
   // The PR tour (src/tour): its Tour buttons need the entry, which needs the pane's list.
-  let tour: TourEntry | undefined;
+  const tourRef: { entry?: TourEntry } = {};
   const vcsSidebar = new VcsSidebar(prController, {
-    tourAvailable: () => !!tour?.available(),
-    tour: (pr) => { void tour?.runPullRequest(pr); },
+    tourAvailable: () => !!tourRef.entry?.available(),
+    tour: (pr) => { void tourRef.entry?.runPullRequest(pr); },
     openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)); },
     openTerminal: (command) => {
       const terminal = vscode.window.createTerminal('GitHub CLI');
@@ -99,7 +99,8 @@ export function activate(context: vscode.ExtensionContext) {
   provider.setBrowserOpener((p) => openInBrowser(p));
   const openInBrowserCommand = vscode.commands.registerCommand('cograph.openInBrowser', () => openInBrowser(provider));
 
-  tour = registerTour({ context, provider, prController, vcsSidebar, channel: vcsLog, storageDir: treeStorage });
+  const tour = registerTour({ context, provider, prController, vcsSidebar, channel: vcsLog, storageDir: treeStorage });
+  tourRef.entry = tour;
   context.subscriptions.push(...tour.disposables);
 
   const sidebarProvider = new SidebarProvider(context.extensionUri, provider, context.workspaceState, vcsSidebar);
@@ -158,7 +159,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Re-push the AI-enabled state to the sidebar whenever the user toggles it,
   // so the gray-out clears/reapplies without reopening the view.
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
-    tour?.onConfigurationChanged(e);
+    tour.onConfigurationChanged(e);
     if (e.affectsConfiguration('cograph.graphIntelligence.enabled')) {
       sidebarProvider.refreshAiEnabled();
       // Switching AI off mid-run stops the run; the summaries already saved are kept.

@@ -219,4 +219,39 @@ suite('vcs — PrController.prepareDiff: the tour\'s trees for both target kinds
     const plain = new PrController(new Source(PR), new Graph() as PrGraph, { workspaceRoot: () => work, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined });
     assert.strictEqual(plain.openTourPanel(view(0), dir, 'x'), null, 'a window without panels of its own');
   });
+
+  test('a merged pull request is diffed against its base at the merge, not the live merge base (which is its head)', async function () {
+    this.timeout(30_000);
+    const before = sh(work, ['rev-parse', 'origin/main']);
+    const other = path.join(root, 'merger');
+    sh(root, ['clone', '--quiet', origin, other]);
+    sh(other, ['fetch', '--quiet', 'origin', 'refs/pull/1/head']);
+    sh(other, ['merge', '--quiet', '--no-ff', '-m', 'Merge pull request #1', 'FETCH_HEAD']);
+    sh(other, ['push', '--quiet', 'origin', 'main']);
+    const mergeSha = sh(other, ['rev-parse', 'HEAD']);
+    try {
+      let merge = mergeSha;
+      const exec: typeof defaultExec = async (c, a, cwd, o) =>
+        (c === 'gh' && a[0] === 'pr' && a[1] === 'view' ? { code: merge ? 0 : 1, stdout: merge + '\n', stderr: merge ? '' : 'no', notFound: false } : defaultExec(c, a, cwd, o));
+      const ctl = (state: PullRequest['state']) => new PrController(new Source({ ...PR, state }), new Graph() as PrGraph, {
+        workspaceRoot: () => work, scanStructure, unchangedFolders: () => 'collapse', log: (l) => log.push(l), exec,
+        storageDir: fs.mkdtempSync(path.join(root, 'storage-')), createHeadGraph: () => new Graph(), analyzer: regexAnalyzer,
+      });
+      const merged = await ctl('merged').prepareDiff({ kind: 'pr', number: 1 }, () => undefined, new AbortController().signal);
+      assert.strictEqual(merged.base?.sha, branchPoint, 'the base as it was when the pull request merged');
+      assert.strictEqual(merged.diff?.summary.added, 1);
+      assert.deepStrictEqual(merged.commits.map(c => c.sha), [head]);
+      // The other direction: an open PR (and a merged one whose merge commit gh cannot name) uses the live merge base.
+      const open = await ctl('open').prepareDiff({ kind: 'pr', number: 1 }, () => undefined, new AbortController().signal);
+      assert.strictEqual(open.base?.sha, head, 'live merge base of a merged head is the head itself');
+      assert.strictEqual(open.diff?.summary.added, 0);
+      merge = '';
+      const unknown = await ctl('merged').prepareDiff({ kind: 'pr', number: 1 }, () => undefined, new AbortController().signal);
+      assert.strictEqual(unknown.base?.sha, head);
+      assert.ok(log.some(l => /gh gave no merge commit/.test(l)));
+    } finally {
+      sh(other, ['push', '--quiet', '--force', 'origin', `${before}:refs/heads/main`]);
+      sh(work, ['fetch', '--quiet', 'origin']);
+    }
+  });
 });

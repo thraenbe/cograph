@@ -43,6 +43,31 @@ export const materializeBaseWithGit: MaterializeBase = async ({ repoRoot, storag
   return { sha, dir: copied.dir };
 };
 
+/**
+ * A merged pull request's base as GitHub shows it: the merge base of its head with the base branch
+ * as it was at the merge (the merge commit's first parent). The live merge base of a merged head is
+ * the head itself, which would make every merged pull request look empty. Falls back to the live
+ * merge base when the merge commit is not known.
+ */
+export const materializeMergedBaseWithGit = (prNumber: number): MaterializeBase => async (opts) => {
+  const { repoRoot, storageDir, baseRef, headSha, exec, log, report, signal } = opts;
+  const treeDeps = { repoRoot, storageDir, exec, log, signal };
+  const view = await exec('gh', ['pr', 'view', String(prNumber), '--json', 'mergeCommit', '--jq', '.mergeCommit.oid'], repoRoot, { timeoutMs: 30_000, signal });
+  const merge = view.code === 0 ? view.stdout.trim() : '';
+  if (!/^[0-9a-f]{40}$/.test(merge)) {
+    log(`[tour] #${prNumber} is merged but gh gave no merge commit; diffing against the live merge base`);
+    return materializeBaseWithGit(opts);
+  }
+  report('fetching its base…');
+  const tip = await fetchBranch(treeDeps, baseRef, await githubRemote(treeDeps));
+  const parent = await exec('git', ['rev-parse', '--verify', `${merge}^1`], repoRoot, { signal });
+  if (parent.code !== 0) { return materializeBaseWithGit(opts); }
+  const sha = await mergeBase(treeDeps, headSha, parent.stdout.trim());
+  log(`[tour] #${prNumber} merged in ${merge.slice(0, 7)}: base ${sha.slice(0, 7)}`);
+  const copied = await materializeCommit(treeDeps, sha, branchRefs(baseRef, tip));
+  return { sha, dir: copied.dir };
+};
+
 export interface HeadAnalysis {
   sha: string;
   dir: string;
@@ -124,7 +149,8 @@ async function history(deps: HeadTreeDeps, baseSha: string | null, headSha: stri
 async function prTrees(target: TourTarget, common: TreeCommon, deps: TourTreesDeps, pr?: PullRequest): Promise<TourTrees> {
   if (!target.number) { throw new HeadTreeError('error', 'That is not a pull request number.'); }
   const resolved = pr ?? await findPullRequest(deps.source, deps.workspaceRoot, target.number);
-  const analysed = await analysePullRequest(resolved, common, deps);
+  const merged = resolved.state === 'merged' && deps.materializeBase === materializeBaseWithGit;
+  const analysed = await analysePullRequest(resolved, common, merged ? { ...deps, materializeBase: materializeMergedBaseWithGit(resolved.number) } : deps);
   const head = analysed.head as AnalyzedTree;
   const treeDeps: HeadTreeDeps = { repoRoot: common.repoRoot, storageDir: common.storageDir, exec: common.exec, log: common.log, signal: common.signal };
   const baseSha = analysed.base?.sha ?? null;

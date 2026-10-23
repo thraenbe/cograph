@@ -176,10 +176,17 @@ export class BrowserServer {
     return false;
   }
 
-  /** A registered view whose panel is still open. */
+  /**
+   * A registered view whose panel is still open. A closed one other than the main view is
+   * dropped with its tours: a pull-request provider is never shown again (a new one is made),
+   * and keeping it would keep its graph alive until VS Code quits.
+   */
   private openView(viewId: string): MirroredView | undefined {
     const view = this.views.get(viewId);
-    return view && (view.isOpen?.() ?? true) ? view : undefined;
+    if (!view) { return undefined; }
+    if (view.isOpen?.() ?? true) { return view; }
+    if (viewId !== MAIN_VIEW) { this.unregisterView(viewId); }
+    return undefined;
   }
 
   private sendPage(res: http.ServerResponse, viewId: string, tour?: { tourId: string; assets: boolean }): void {

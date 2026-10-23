@@ -302,6 +302,11 @@ suite('browserView: BrowserServer', () => {
     assert.strictEqual((await request(server.port, { path: q('/') })).body, 'This view is not open in VS Code.');
     assert.strictEqual((await request(server.port, { method: 'POST', path: q('/msg', '&view=main&client=c'), body: '{"type":"navigate"}' })).status, 404);
     assert.strictEqual(view.received.length, 0);
+    assert.strictEqual(server.hasView('pr'), false, 'a closed view other than main is dropped, its tours with it');
+    assert.strictEqual(server.hasView(MAIN_VIEW), true, 'main stays: the same provider shows its panel again');
+    view.open = true;
+    assert.strictEqual((await request(server.port, { path: q('/') })).status, 200);
+    assert.strictEqual((await request(server.port, { path: q('/tour/t') })).status, 404);
   });
 
   test('POST /msg refuses a malformed client id (it would land in log lines)', async () => {

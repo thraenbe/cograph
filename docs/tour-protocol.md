@@ -259,7 +259,7 @@ Pages and routes the public server serves:
 | Route | What |
 |---|---|
 | `GET /?token=` | the stage of the main panel, mirror mode ("Open in browser", free) |
-| `GET /tour/:id?token=` | the stage of the tour's provider, plus the tour layer: `<link rel="stylesheet" href="/tour-assets/tour.css?token=">`, `<script src="/tour-assets/tour.js?token=">` after every stage script, and before them an inline `window.COGRAPH_TOUR = { tourId, scriptUrl, graphUrl, actionUrl, eventsUrl, msgUrl, theme: 'dark' | 'light', version: 1 }` |
+| `GET /tour/:id?token=` | the stage of the tour's provider, plus the tour layer: `<link rel="stylesheet" href="/tour-assets/tour.css?token=">`, `<script src="/tour-assets/tour.js?token=">` after every stage script, and before them an inline `window.COGRAPH_TOUR = { tourId, scriptUrl, graphUrl, actionUrl, eventsUrl, msgUrl, theme: 'dark' | 'light', stageRoot, version: 1 }` (`stageRoot` = the absolute directory the stage's graph is rooted at, the head copy; every URL carries `?token=`) |
 | `GET /tour/:id/graph?token=` | `{ messages: [...] }`: the provider's replay in panel order: `subgraph`, `pr-view`, `structure`, `graph`, `git-update`, `config`, each the exact object the panel would receive |
 | `GET /events?token=&view=<id>` | SSE of host-to-view messages for that view (after the replay) |
 | `POST /msg?token=&view=<id>` | one view-to-host message as JSON |
@@ -306,7 +306,7 @@ stageApi.fit(ids, { padding = 80, ms = 600 })      // Promise<void>; camera onto
 stageApi.fitAll({ ms })                            // Promise<void>
 stageApi.spotlight(ids | null, { edges = true })   // dims everything else to 0.25; null clears
 stageApi.pulse(id | null)                          // one ring animation on the node; null stops
-stageApi.ghost(list | null)                        // [{ id, file, name, line, callers: [ids] }]; dashed nodes in the file's slot, or the folder's margin when the file is gone
+stageApi.ghost(list | null)                        // [{ id, file, name, line, callers: [ids] }]; id any unique string, file absolute or repo-relative POSIX (resolved like resolve()); dashed nodes in the file's slot, or the folder's margin when the file is gone
 stageApi.edges(list | null)                        // [{ source, target, kind: 'added'|'removed'|'path' }] on an overlay layer, independent of bundling
 stageApi.expand(folderPaths)                       // Promise<void>; absolute tree paths; posts expand-folder through the host when needed
 stageApi.chrome(visible)                           // hides/shows toolbar, forces box, PR banner, panel actions
@@ -342,7 +342,8 @@ navigate, expand.
     "filesScanned": 12, "modelReview": true, "blockCreate": false
   },
   "chapters": [ { "id": "overview", "title": "Overview", "always": false, "steps": [ /* Step */ ] } ],
-  "description": { "title": "…", "body": "markdown", "source": "model" }   // source "model" | "template"
+  "description": { "title": "…", "body": "markdown", "source": "model" },  // source "model" | "template"
+  "playback": { "autoplay": false, "seconds": 8 }     // optional, from cograph.tour.autoplay / autoplaySeconds; absent = off, 8 s
 }
 ```
 

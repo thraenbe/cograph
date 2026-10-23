@@ -271,25 +271,54 @@ provider (Q11: the panel opens in VS Code as a pull-request click does today, an
 it). The CSP of the page: `default-src 'none'; script-src 'nonce-…' 'self'; style-src
 'unsafe-inline' 'self'; img-src 'self' data:; worker-src blob:; connect-src 'self'`.
 
-**Internal seams the two public sessions agree on** (not part of the private contract):
+**Internal seams the two public sessions agree on** (not part of the private contract; as built on
+`feat/pr-tour-tour-doorway`, session tour-doorway owns this block):
 
 ```ts
-// src/browserView/browserServer.ts
-export class BrowserServer {
-  static start(deps): Promise<BrowserServer>;        // lazily, once per extension host
-  url(path: string, query?: Record<string, string>): string;  // adds the token
-  registerView(id: string, provider: GraphProvider): void;    // a mirrored provider
-  mount(routes: TourRoute[]): void;                   // private routes, after the auth gate
-  serveStatic(prefix: string, dir: string): void;     // '/tour-assets', webAssetsDir
-  serveTourPage(tourId: string, viewId: string, opts: { assets: boolean }): void;  // GET /tour/:id and /tour/:id/graph
-  dispose(): void;
+// src/browserView/browserServer.ts (no vscode, no GraphProvider import)
+export const MAIN_VIEW = 'main';                      // GET / mirrors this view
+export interface MirroredView {                       // GraphProvider has these members
+  attachView(clientId: string, sink: ClientSink): () => void;   // a tab's SSE stream opened; returns detach
+  receiveFromView(clientId: string, message: Record<string, unknown>): void;  // POST /msg, `ready` included
+  replayMessages(): object[];
+  viewRoot(): string;                                 // COGRAPH_TOUR.stageRoot
 }
+export class BrowserServer {
+  static start(deps: { extensionRoot: string; renderPage(p: PageRequest): string; log(line: string): void }): Promise<BrowserServer>;
+  readonly port: number;
+  url(path: string, query?: Record<string, string>): string;   // http://127.0.0.1:<port><path>?token=…&query, not through asExternalUri
+  registerView(id: string, view: MirroredView): void;          // a provider to mirror; register before serveTourPage
+  unregisterView(id: string): void;                            // also drops the tours of that view
+  hasView(id: string): boolean;
+  mount(routes: TourRoute[]): void;                            // after the gate; a public route of the same path wins
+  serveStatic(prefix: string, dir: string): void;              // '/tour-assets', webAssetsDir: files only, realpath inside dir
+  serveTourPage(tourId: string, viewId: string, opts: { assets: boolean }): void;  // throws when viewId is not registered
+  dispose(): void;                                             // ends every stream, closes the port
+}
+// src/browserView/routes.ts: TourRoute, TourRouteRequest (query without the token), TourRouteResponse (section 3)
+// src/browserView/browserLifetime.ts: one server per extension host
+getBrowserServer(): Promise<BrowserServer | null>    // starts on first use; null when cograph.browserView.enabled is false; rejects when it cannot listen
+stopBrowserServer(): Promise<void>                   // deactivate, and the setting switched off
+// src/browserView/openInBrowser.ts
+openInBrowser(provider: GraphProvider, viewId = MAIN_VIEW): Promise<void>   // the panel button and cograph.openInBrowser
+openExternalUrl(server, path, query?): Promise<{ url: string; opened: boolean }>  // asExternalUri + openExternal; the url carries the token: clipboard only
+showOpenedToast(message: string, url: string, opened: boolean): Promise<void>     // "… opened in your browser" + Copy URL
 // src/graphProvider.ts
-provider.postToViews(msg)            // replaces the 30 panel.webview.postMessage sites
-provider.replayMessages(): object[]  // the ordered replay (section 4) for a late view
-provider.onViewMessage(msg, viewId)  // the existing handler, reachable for browser views
-provider.onTourStart(cb: () => void) // the pill's tour-start
+provider.postToViews(msg)            // every host → view message: the panel and each tab; tour-availability is kept
+                                     // (re-sent after each panel ready) and dropped by a read-only provider and after tour-dismiss
+provider.replayMessages(): object[]  // subgraph, pr-view (when active), structure (skeleton), graph, git-update; scoped
+provider.onViewMessage(msg, viewId)  // the existing handler; viewId 'panel' or a tab's client id
+provider.onTourStart(cb: () => void): { dispose(): void }   // the pill's tour-start
+provider.attachView / receiveFromView / viewRoot            // MirroredView
+provider.browserTabs(): number; provider.postBrowserNote(text); provider.setBrowserOpener(fn)
 ```
+
+A tab's life: the page config `window.COGRAPH_BROWSER = { view, eventsUrl, msgUrl }` precedes
+`browserBridge.js`; the bridge opens `/events?…&client=<16 hex>` after DOMContentLoaded and says `ready`;
+the hub then delivers the replay and live messages through that tab's own gate. A new panel document
+sends the tab `event: control` `{"kind":"reload"}`, a closed panel `{"kind":"closed"}` (the tab shows a
+banner); a reconnect reloads the tab. The stageApi.js tag goes right before `${inject.after}` at the end
+of `getWebviewHtml`, so the tour layer's tags stay last.
 
 ## 5. `window.stageApi` (public stage, private layer)
 

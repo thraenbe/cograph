@@ -147,7 +147,7 @@ test('tour-eval', async () => {
     console.log('TOUR-EVAL', JSON.stringify(results));
     await s.close();
     for (const f of fs.readdirSync(s.outDir).filter(f => f === 'vscode-output.log')) {
-      fs.copyFileSync(path.join(s.outDir, f), path.join(out, `vscode-output-${path.basename(repo)}.log`));
+      fs.copyFileSync(path.join(s.outDir, f), path.join(out, `vscode-output-${path.basename(repo)}${process.env.UXTEST_EVAL_SUFFIX ?? ''}.log`));
     }
   }
 });

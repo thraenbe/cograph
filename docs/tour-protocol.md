@@ -391,8 +391,13 @@ always present. A chapter with no content (no removals, no tests) is omitted, ex
   "why": "…", "fix": "…",
   "reach": ["cograph.tourBranch", "prepare", "push"],        // entry point first; [] when none
   "node": { "key": "…", "file": "…", "name": "…", "line": 41 },   // or null for non-source files
-  "dismissReason": null                                       // set when status is "dismissed" (model)
+  "dismissReason": null,                                      // set when status is "dismissed" (model)
+  "modelNote": null                                           // the model's objection to an OPEN rule finding it may not dismiss (medium, high), or null
 }
+// A model dismissal never changes the verdict or the counts: it may set status "dismissed" only on
+// low and info rule findings (the layer folds those); on a medium or high finding the objection goes
+// to modelNote and the finding stays open and counted. Learned in the evaluation run of 2026-10-23,
+// where the model dismissed a planted high deserialisation finding with a plausible reason.
 ```
 
 Keys: `relFile::Class.name#n` as `graphDiff.ts` makes them; the layer calls `stageApi.resolve`

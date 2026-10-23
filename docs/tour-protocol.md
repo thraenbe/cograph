@@ -412,7 +412,7 @@ inside a PR panel (that graph is a pull request; its banner gets a Tour action i
 
 **Settings** (all `cograph.`): `tour.button` (`auto` | `always` | `never`, `auto`),
 `tour.chapters` (string[], the eight in order), `tour.maxStepsPerChapter` (12),
-`tour.ai` (`ask` | `on` | `off`, `ask`), `tour.ai.model` (`inherit` | `default` | `opus` |
+`tour.ai.mode` (`ask` | `on` | `off`, `ask`; a leaf key, because VS Code drops values under a key that is also a prefix), `tour.ai.model` (`inherit` | `default` | `opus` |
 `sonnet` | `haiku` | `gpt-5-codex` | `gpt-5` | `gpt-5-mini`, `inherit`), `tour.ai.maxBudgetUsd`
 (0.5), `tour.ai.readSource` (false), `tour.security.rules` (array, []), `tour.security.allow`
 (glob[], []), `tour.security.blockCreateOnHigh` (false), `tour.autoplay` (false),
@@ -421,8 +421,12 @@ inside a PR panel (that graph is a pull request; its banner gets a Tour action i
 **Team file** `.cograph/tour.json` (private host reads it through `fs` under `api.repoRoot`;
 validated with zod, unknown keys ignored, a bad file is one sentence on the overview card):
 `{ "version": 1, "chapters": [...], "maxStepsPerChapter": 8, "security": { "rules": [ { "id", "language", "pattern", "severity", "message" } ], "allow": [...], "blockCreateOnHigh": true }, "ai": { "mode": "on", "maxBudgetUsd": 0.25 } }`.
-Precedence: `tour.json` > workspace settings > user settings > defaults. `tour.json` cannot set
-`ai.mode` to `on` when `cograph.graphIntelligence.enabled` is false (the api's `ai` is null then).
+Precedence: `tour.json` > workspace settings > user settings > defaults, with two exceptions that
+protect the person running the tour from a cloned repository's file: `ai.mode` and `ai.maxBudgetUsd`
+may only be tightened by `tour.json` (`off` < `ask` < `on`, capped at the user's setting; the budget is
+the minimum of both). Custom security rules are the union of file and settings; on the same id the
+file wins. `tour.json` cannot set `ai.mode` to `on` when `cograph.graphIntelligence.enabled` is false
+(the api's `ai` is null then).
 
 ## 8. Fixtures shared by the test suites
 

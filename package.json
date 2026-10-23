@@ -99,6 +99,10 @@
         "title": "CoGraph: Only visualize folder…"
       },
       {
+        "command": "cograph.openInBrowser",
+        "title": "CoGraph: Open in Browser"
+      },
+      {
         "command": "cograph.clearPullRequestTrees",
         "title": "CoGraph: Clear pull-request trees"
       },
@@ -266,6 +270,12 @@
           ],
           "default": "collapse",
           "description": "What a pull request opened from the Version Control view does with folders it does not change."
+        },
+        "cograph.browserView.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Serve the graph to your browser on 127.0.0.1 (Open in browser, the PR tour). Off: the loopback server never starts."
         },
         "cograph.display.sameFileEdgesOnly": {
           "type": "boolean",

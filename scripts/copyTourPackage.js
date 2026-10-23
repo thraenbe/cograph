@@ -2,7 +2,8 @@
 //
 // When node_modules/@thraenbe/pr-tour is installed (the release workflow installs it with
 // `npm install --no-save` before packaging), its dist/host and dist/web are copied to
-// dist/tour/host and dist/tour/web, the first place src/tour/tourModule.ts looks. When it is
+// dist/tour/host and dist/tour/web, the first place src/tour/tourModule.ts looks, with the
+// package's LICENSE next to them (its notice must travel with the component). When it is
 // not installed, a dist/tour left by an earlier build is removed, so a build without the
 // package is exactly the public extension. Source maps are not copied: the source is private.
 
@@ -33,6 +34,9 @@ function copyTourPackage(opts) {
       filter: (src) => !src.endsWith('.map'),
     });
   }
+  const licence = path.join(from, '..', 'LICENSE');
+  if (fs.existsSync(licence)) { fs.copyFileSync(licence, path.join(to, 'LICENSE')); }
+  else { log(`[tour] ${PACKAGE} has no LICENSE file: dist/tour ships without its notice`); }
   log(`[tour] ${PACKAGE} copied into dist/tour`);
   return 'copied';
 }

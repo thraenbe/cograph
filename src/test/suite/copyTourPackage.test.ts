@@ -22,6 +22,7 @@ function installPackage(dir: string): void {
   write(path.join(dir, 'dist', 'web', 'tour.css'), '/* css */');
   write(path.join(dir, 'dist', 'web', 'tour.js.map'), '{}');
   write(path.join(dir, 'package.json'), '{"name":"@thraenbe/pr-tour","version":"0.1.0"}');
+  write(path.join(dir, 'LICENSE'), 'CoGraph PR Tour. All rights reserved.');
 }
 
 const listed = (dir: string): string[] => fs.existsSync(dir)
@@ -42,7 +43,8 @@ suite('build: copyTourPackage (esbuild.js)', () => {
   test('package present: host and web land in dist/tour, without source maps; the resolver finds the bundled build', () => {
     installPackage(pkgDir());
     assert.strictEqual(copyTourPackage({ root, log: (l: string) => logs.push(l) }), 'copied');
-    assert.deepStrictEqual(listed(path.join(root, 'dist', 'tour')), ['host', 'host/index.js', 'web', 'web/tour.css', 'web/tour.js']);
+    assert.deepStrictEqual(listed(path.join(root, 'dist', 'tour')), ['LICENSE', 'host', 'host/index.js', 'web', 'web/tour.css', 'web/tour.js']);
+    assert.strictEqual(fs.readFileSync(path.join(root, 'dist', 'tour', 'LICENSE'), 'utf8'), 'CoGraph PR Tour. All rights reserved.', 'the notice travels with the component');
     assert.deepStrictEqual(resolveTourPackage(root, { env: {}, resolve: () => { throw new Error('not here'); } }), {
       source: 'bundled', hostEntry: path.join(root, 'dist', 'tour', 'host', 'index.js'),
     });
@@ -58,6 +60,14 @@ suite('build: copyTourPackage (esbuild.js)', () => {
     assert.strictEqual(fs.existsSync(path.join(root, 'dist', 'extension.js')), true, 'only dist/tour is touched');
     assert.strictEqual(resolveTourPackage(root, { env: {}, resolve: () => { throw new Error('not here'); } }), null);
     assert.ok(logs.some(l => l.includes('not installed')));
+  });
+
+  test('a package without a LICENSE is still copied, and the missing notice is said', () => {
+    installPackage(pkgDir());
+    fs.rmSync(path.join(pkgDir(), 'LICENSE'));
+    assert.strictEqual(copyTourPackage({ root, log: (l: string) => logs.push(l) }), 'copied');
+    assert.strictEqual(fs.existsSync(path.join(root, 'dist', 'tour', 'LICENSE')), false);
+    assert.ok(logs.some(l => l.includes('no LICENSE')));
   });
 
   test('a half package (host without web) counts as absent', () => {

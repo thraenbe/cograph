@@ -302,8 +302,8 @@ stageApi.version                                   // 1
 stageApi.ready()                                   // Promise<void>: after the first graph is ingested and laid out
 stageApi.nodes()                                   // [{ id, kind: 'function'|'file'|'folder', name, file, line, className, gitStatus }]
 stageApi.resolve({ file, name, line })             // string|null; file repo-relative POSIX or absolute; line optional, nearest wins
-stageApi.fit(ids, { padding = 80, ms = 600 })      // Promise<void>; camera onto the nodes' bounding box (frames for folders)
-stageApi.fitAll({ ms })                            // Promise<void>
+stageApi.fit(ids, { padding = 80, ms = 600, inset }) // Promise<void>; camera onto the nodes' bounding box (frames for folders); inset = { top, right, bottom, left } pixels of the viewport covered by the layer's overlays, so the box is centred in the visible region (default 0)
+stageApi.fitAll({ ms, inset })                     // Promise<void>; same inset
 stageApi.spotlight(ids | null, { edges = true })   // dims everything else to 0.25; null clears
 stageApi.pulse(id | null)                          // one ring animation on the node; null stops
 stageApi.ghost(list | null)                        // [{ id, file, name, line, callers: [ids] }]; id any unique string, file absolute or repo-relative POSIX (resolved like resolve()); dashed nodes in the file's slot, or the folder's margin when the file is gone

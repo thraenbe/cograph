@@ -421,8 +421,12 @@ inside a PR panel (that graph is a pull request; its banner gets a Tour action i
 **Team file** `.cograph/tour.json` (private host reads it through `fs` under `api.repoRoot`;
 validated with zod, unknown keys ignored, a bad file is one sentence on the overview card):
 `{ "version": 1, "chapters": [...], "maxStepsPerChapter": 8, "security": { "rules": [ { "id", "language", "pattern", "severity", "message" } ], "allow": [...], "blockCreateOnHigh": true }, "ai": { "mode": "on", "maxBudgetUsd": 0.25 } }`.
-Precedence: `tour.json` > workspace settings > user settings > defaults. `tour.json` cannot set
-`ai.mode` to `on` when `cograph.graphIntelligence.enabled` is false (the api's `ai` is null then).
+Precedence: `tour.json` > workspace settings > user settings > defaults, with two exceptions that
+protect the person running the tour from a cloned repository's file: `ai.mode` and `ai.maxBudgetUsd`
+may only be tightened by `tour.json` (`off` < `ask` < `on`, capped at the user's setting; the budget is
+the minimum of both). Custom security rules are the union of file and settings; on the same id the
+file wins. `tour.json` cannot set `ai.mode` to `on` when `cograph.graphIntelligence.enabled` is false
+(the api's `ai` is null then).
 
 ## 8. Fixtures shared by the test suites
 

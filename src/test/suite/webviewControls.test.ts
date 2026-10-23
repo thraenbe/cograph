@@ -79,6 +79,12 @@ function makeDOM() {
     <input id="slider-file-cluster" type="range" value="0.2" /><span id="val-file-cluster">0.2</span>
     <button id="btn-reset-layout"></button>
     <button id="btn-save-graph"></button>
+    <button id="btn-open-browser"></button>
+    <p id="browser-status" style="display:none"></p>
+    <div id="tour-pill" hidden>
+      <button id="tour-pill-start"><span id="tour-pill-sub"></span></button>
+      <button id="tour-pill-dismiss"></button>
+    </div>
   </body></html>`;
   return new JSDOM(html);
 }
@@ -137,7 +143,7 @@ require('../../../src/webview/controls.js');
 
 // Also get applyResizeDelta / applySavedViewSettings / buildSavePayload for direct testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, applySavedFileFilters, fileFilterAllows, buildSavePayload, clearSearch, updateSearchCount, updateFolderPanel } = require('../../../src/webview/controls.js');
+const { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, applySavedFileFilters, fileFilterAllows, buildSavePayload, clearSearch, updateSearchCount, updateFolderPanel, tourPillSubline } = require('../../../src/webview/controls.js');
 
 // Load popups.js factory for textarea handler tests
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1252,5 +1258,98 @@ suite('Subgraph block (W4)', () => {
     st().scope = null;
     updateFolderPanel();
     assert.strictEqual(doc.querySelector('#folder-filters-body .subgraph-head'), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: Open in browser and the PR tour pill (src/browserView, src/tour)
+// ---------------------------------------------------------------------------
+
+suite('Open in browser and the tour pill', () => {
+  const doc = dom.window.document;
+  const $ = (id: string) => doc.getElementById(id) as any;
+  const hostSays = (data: unknown) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+  let posted: any[];
+  let realPost: unknown;
+
+  setup(() => {
+    posted = [];
+    realPost = (global as any).vscode.postMessage;
+    (global as any).vscode.postMessage = (m: unknown) => { posted.push(m); };
+  });
+  teardown(() => {
+    (global as any).vscode.postMessage = realPost;
+    (global as any).state.prView = undefined;
+    doc.body.classList.remove('cg-browser');
+  });
+
+  test('the button posts open-browser', () => {
+    $('btn-open-browser').click();
+    assert.deepStrictEqual(posted, [{ type: 'open-browser' }]);
+  });
+
+  test('browser-status: hidden until the first status, then tabs, not connected, or the note', () => {
+    assert.strictEqual($('browser-status').style.display, 'none');
+    hostSays({ type: 'browser-status', tabs: 1 });
+    assert.strictEqual($('browser-status').style.display, '');
+    assert.strictEqual($('browser-status').textContent, 'Browser: 1 tab');
+    hostSays({ type: 'browser-status', tabs: 3 });
+    assert.strictEqual($('browser-status').textContent, 'Browser: 3 tabs');
+    hostSays({ type: 'browser-status', tabs: 0 });
+    assert.strictEqual($('browser-status').textContent, 'Browser: not connected');
+    hostSays({ type: 'browser-status', tabs: 0, note: 'Open in browser is switched off.' });
+    assert.strictEqual($('browser-status').textContent, 'Open in browser is switched off.');
+  });
+
+  test('subline per state: PR number and files, the host label, or branch vs base with counts', () => {
+    assert.strictEqual(tourPillSubline({ state: 'pr', number: 104, counts: { files: 12 } }), 'PR #104 · 12 files');
+    assert.strictEqual(tourPillSubline({ state: 'pr', number: 5, counts: { files: 1 } }), 'PR #5 · 1 file');
+    assert.strictEqual(tourPillSubline({ state: 'branch', label: 'feat/x vs main · 3 commits · 7 files' }), 'feat/x vs main · 3 commits · 7 files');
+    assert.strictEqual(tourPillSubline({ state: 'branch', branch: 'feat/x', baseRef: 'main', counts: { commits: 1, files: 2 } }), 'feat/x vs main · 1 commit · 2 files');
+  });
+
+  test('none, not-bundled and disabled hide the pill; branch and pr show it with a drop-in once', () => {
+    for (const st of ['none', 'not-bundled', 'disabled']) {
+      hostSays({ type: 'tour-availability', state: st });
+      assert.strictEqual($('tour-pill').hidden, true, st);
+    }
+    hostSays({ type: 'tour-availability', state: 'branch', branch: 'feat/x', baseRef: 'main', counts: { commits: 3, files: 7 } });
+    assert.strictEqual($('tour-pill').hidden, false);
+    assert.strictEqual($('tour-pill-sub').textContent, 'feat/x vs main · 3 commits · 7 files');
+    assert.ok($('tour-pill').classList.contains('tour-pill--drop'));
+    hostSays({ type: 'tour-availability', state: 'pr', number: 104, counts: { files: 12 } });
+    assert.strictEqual($('tour-pill-sub').textContent, 'PR #104 · 12 files');
+    hostSays({ type: 'tour-availability', state: 'none' });
+    assert.strictEqual($('tour-pill').hidden, true);
+  });
+
+  test('never inside a pull-request view: hidden on pr-view, back after leaving it', () => {
+    hostSays({ type: 'tour-availability', state: 'branch', label: 'x' });
+    assert.strictEqual($('tour-pill').hidden, false);
+    (global as any).state.prView = { number: 3 };
+    hostSays({ type: 'pr-view', active: true });
+    assert.strictEqual($('tour-pill').hidden, true);
+    hostSays({ type: 'tour-availability', state: 'branch', label: 'x' });
+    assert.strictEqual($('tour-pill').hidden, true, 'a re-sent availability does not bring it back in the PR view');
+    (global as any).state.prView = null;
+    hostSays({ type: 'pr-view', active: false });
+    assert.strictEqual($('tour-pill').hidden, false);
+  });
+
+  test('never in a browser tab', () => {
+    doc.body.classList.add('cg-browser');
+    hostSays({ type: 'tour-availability', state: 'pr', number: 1 });
+    assert.strictEqual($('tour-pill').hidden, true);
+  });
+
+  test('click posts tour-start; the × posts tour-dismiss and keeps it hidden for the session', () => {
+    hostSays({ type: 'tour-availability', state: 'branch', label: 'x' });
+    $('tour-pill-start').click();
+    assert.deepStrictEqual(posted, [{ type: 'tour-start' }]);
+    $('tour-pill-dismiss').click();
+    assert.deepStrictEqual(posted, [{ type: 'tour-start' }, { type: 'tour-dismiss' }]);
+    assert.strictEqual($('tour-pill').hidden, true);
+    hostSays({ type: 'tour-availability', state: 'pr', number: 9 });
+    assert.strictEqual($('tour-pill').hidden, true);
   });
 });

@@ -403,6 +403,7 @@
     "uxtest:report": "node uxtest/run.mjs --project report",
     "uxtest:unit": "npm run compile && c8 --config uxtest/.c8rc.json playwright test -c uxtest/playwright.config.ts --project=unit",
     "uxtest:typecheck": "tsc -p uxtest/tsconfig.json --noEmit",
+    "test:browser": "npm run compile && npm run bundle && tsc -p test/browser/tsconfig.json && playwright test -c test/browser/playwright.config.ts",
     "uxtest:install": "playwright install chromium ffmpeg"
   },
   "dependencies": {

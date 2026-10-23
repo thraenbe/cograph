@@ -241,11 +241,40 @@ suite('GraphProvider — browser views', () => {
     assert.deepStrictEqual(p.webview.postMessage.getCalls().map((c: any) => c.args[0].type), ['git-update']);
   });
 
+  test("a tab's file-carrying message outside the view's root is refused and logged; inside, it goes through", async () => {
+    await open();
+    joinTab();
+    const handler = sandbox.spy(provider, 'onViewMessage');
+    provider.receiveFromView('t1', { type: 'get-func-source', file: path.join(os.tmpdir(), 'elsewhere.ts'), line: 1, reqId: 1 });
+    provider.receiveFromView('t1', { type: 'save-func-source', file: path.join(root, '..', 'x.ts'), line: 1, newSource: 'x', reqId: 2 });
+    assert.strictEqual(handler.callCount, 0);
+    assert.strictEqual(logged.filter(l => l.startsWith('[browser] refused')).length, 2);
+    provider.receiveFromView('t1', { type: 'get-func-source', file: abs('src/main.ts'), line: 1, reqId: 3, maxLines: 5 });
+    assert.strictEqual(handler.callCount, 1);
+  });
+
+  test('the panel is not confined: the guard is for tabs only', async () => {
+    await open();
+    const p0 = posted('func-source').length;
+    // The panel's webview runs in VS Code's own isolation; its messages take the path they always did.
+    await onMessage()({ type: 'get-func-source', file: path.join(os.tmpdir(), 'not-in-root.ts'), line: 1, reqId: 9, maxLines: 5 });
+    assert.strictEqual(posted('func-source').length, p0 + 1, 'answered (with the read error), not refused');
+    assert.ok(!logged.some(l => l.startsWith('[browser] refused')));
+  });
+
+  test('browserViewId: main for the workspace graph, a fresh id for every provider with its own root', () => {
+    const a = new GraphProvider({ extensionPath: '/x', extensionUri: vscode.Uri.file('/x') } as any, { root });
+    const b = new GraphProvider({ extensionPath: '/x', extensionUri: vscode.Uri.file('/x') } as any, { root });
+    assert.strictEqual(provider.browserViewId, 'main');
+    assert.match(a.browserViewId, /^view-\d+$/);
+    assert.notStrictEqual(a.browserViewId, b.browserViewId);
+  });
+
   test("a failing handler for a tab's message is logged, not thrown into the server", async () => {
     await open();
     joinTab();
     sandbox.stub(provider, 'onViewMessage').rejects(new Error('kaput'));
-    assert.doesNotThrow(() => provider.receiveFromView('t1', { type: 'navigate', file: '/x', line: 1 }));
+    assert.doesNotThrow(() => provider.receiveFromView('t1', { type: 'navigate', file: abs('src/main.ts'), line: 1 }));
     await waitFor(() => logged.some(l => l.includes('[browser] navigate from t1 failed: kaput')));
   });
 });

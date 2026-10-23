@@ -3,10 +3,11 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { BrowserServer, MAIN_VIEW, type MirroredView, type PageRequest } from '../../browserView/browserServer';
+import { BrowserServer, MAIN_VIEW, viewPath, type MirroredView, type PageRequest } from '../../browserView/browserServer';
 import { ViewHub, type ClientSink } from '../../browserView/viewHub';
 import { compilePattern, matchPattern } from '../../browserView/routes';
 import { hostAllowed, postOriginAllowed, MAX_BODY_BYTES } from '../../browserView/serverIo';
+import { pathOutsideRoot, isUserMessage } from '../../browserView/messageGuard';
 
 // Real sockets on 127.0.0.1; vscode-free, so this suite also runs under plain mocha (coverage).
 
@@ -51,6 +52,7 @@ function dataOf(frames: string[]): unknown[] {
 }
 
 class FakeView implements MirroredView {
+  open = true;
   readonly received: { clientId: string; message: Record<string, unknown> }[] = [];
   readonly hub: ViewHub;
   constructor(private readonly replay: object[] = [{ type: 'subgraph' }, { type: 'graph', data: { nodes: [] } }]) {
@@ -60,6 +62,7 @@ class FakeView implements MirroredView {
   receiveFromView(clientId: string, message: Record<string, unknown>) { this.hub.receive(clientId, message); }
   replayMessages() { return this.replay; }
   viewRoot() { return '/repo'; }
+  isOpen() { return this.open; }
 }
 
 suite('browserView: BrowserServer', () => {
@@ -279,6 +282,41 @@ suite('browserView: BrowserServer', () => {
     assert.ok(logs.some(l => l.includes('bad <token>')));
   });
 
+  test('any other view is served at /view/<id>; viewPath names the URL', async () => {
+    server.registerView('view-3', new FakeView());
+    const r = await request(server.port, { path: q('/view/view-3') });
+    assert.deepStrictEqual([r.status, r.body], [200, '<html>view-3</html>']);
+    assert.strictEqual((await request(server.port, { path: q('/view/nope') })).status, 404);
+    assert.strictEqual(viewPath(MAIN_VIEW), '/');
+    assert.strictEqual(viewPath('pr 1'), '/view/pr%201');
+  });
+
+  test('a view whose panel closed: page, replay, stream and POST all answer 404', async () => {
+    server.registerView('pr', view);
+    server.serveTourPage('t', 'pr', { assets: false });
+    view.open = false;
+    for (const p of [q('/'), q('/view/pr'), q('/tour/t'), q('/tour/t/graph'), q('/events', '&view=pr&client=c')]) {
+      const r = await request(server.port, { path: p });
+      assert.strictEqual(r.status, 404, p);
+    }
+    assert.strictEqual((await request(server.port, { path: q('/') })).body, 'This view is not open in VS Code.');
+    assert.strictEqual((await request(server.port, { method: 'POST', path: q('/msg', '&view=main&client=c'), body: '{"type":"navigate"}' })).status, 404);
+    assert.strictEqual(view.received.length, 0);
+    assert.strictEqual(server.hasView('pr'), false, 'a closed view other than main is dropped, its tours with it');
+    assert.strictEqual(server.hasView(MAIN_VIEW), true, 'main stays: the same provider shows its panel again');
+    view.open = true;
+    assert.strictEqual((await request(server.port, { path: q('/') })).status, 200);
+    assert.strictEqual((await request(server.port, { path: q('/tour/t') })).status, 404);
+  });
+
+  test('POST /msg refuses a malformed client id (it would land in log lines)', async () => {
+    for (const client of ['', 'a%0Ab', 'x'.repeat(65), 'a/b']) {
+      const r = await request(server.port, { method: 'POST', path: q('/msg', `&view=main&client=${client}`), body: '{"type":"navigate"}' });
+      assert.strictEqual(r.status, 400, client);
+    }
+    assert.strictEqual(view.received.length, 0);
+  });
+
   test('other methods are 405; the token never appears in any log line', async () => {
     assert.strictEqual((await request(server.port, { method: 'PUT', path: q('/') })).status, 405);
     assert.ok(logs.length > 0);
@@ -318,5 +356,37 @@ suite('browserView: request guards', () => {
     assert.strictEqual(matchPattern(c, '/tour/a/b/script'), null);
     assert.strictEqual(matchPattern(c, '/tour/%E0%A4%A/script'), null);
     assert.strictEqual(matchPattern(compilePattern('/a.b'), '/aXb'), null);
+  });
+});
+
+suite('browserView: message guard', () => {
+  const root = path.resolve('/work/repo');
+  const at = (...p: string[]) => path.join(root, ...p);
+
+  test('paths under the root pass, in every field', () => {
+    assert.strictEqual(pathOutsideRoot({ type: 'save-func-source', file: at('src', 'a.ts') }, root), null);
+    assert.strictEqual(pathOutsideRoot({ type: 'request-new-file', folderPath: root }, root), null);
+    assert.strictEqual(pathOutsideRoot({ type: 'expand-folder', folderPath: at('src'), files: [at('src', 'a.ts'), at('src', 'b.ts')] }, root), null);
+    assert.strictEqual(pathOutsideRoot({ type: 'navigate', file: null, line: 1 }, root), null, 'library nodes carry no file');
+    assert.strictEqual(pathOutsideRoot({ type: 'open-docs', libraryName: 'x' }, root), null);
+  });
+
+  test('a path outside the root, or escaping it, is named', () => {
+    const outside = path.resolve('/etc/passwd');
+    assert.strictEqual(pathOutsideRoot({ type: 'get-func-source', file: outside }, root), outside);
+    assert.strictEqual(pathOutsideRoot({ type: 'save-func-source', file: at('..', 'other', 'x.ts') }, root), at('..', 'other', 'x.ts'));
+    assert.strictEqual(pathOutsideRoot({ type: 'parse-file', filePath: path.resolve('/work/repo-evil/x.ts') }, root), path.resolve('/work/repo-evil/x.ts'), 'a sibling with the same prefix is outside');
+    assert.strictEqual(pathOutsideRoot({ type: 'expand-folder', folderPath: at('src'), files: [at('src', 'a.ts'), outside] }, root), outside);
+    assert.strictEqual(pathOutsideRoot({ type: 'request-rename-folder', folderPath: path.resolve('/work') }, root), path.resolve('/work'));
+  });
+
+  test('no root: nothing to confine to', () => {
+    assert.strictEqual(pathOutsideRoot({ type: 'navigate', file: '/anything' }, ''), null);
+  });
+
+  test('diagnostics are passive, everything else is the user', () => {
+    for (const t of ['ready', 'perf-report', 'webview-log', 'get-annotations']) { assert.strictEqual(isUserMessage({ type: t }), false, t); }
+    for (const t of ['navigate', 'save-graph', 'dirty-state', 'expand-folder', 'subgraph-include']) { assert.strictEqual(isUserMessage({ type: t }), true, t); }
+    assert.strictEqual(isUserMessage({}), false);
   });
 });

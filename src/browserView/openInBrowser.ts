@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { GraphProvider } from '../graphProvider';
-import { MAIN_VIEW, type BrowserServer } from './browserServer';
+import { viewPath, type BrowserServer } from './browserServer';
 import { getBrowserServer } from './browserLifetime';
 
 /** Said under the panel's button (and in a toast from the command) when the setting is off. */
@@ -27,9 +27,10 @@ export async function showOpenedToast(message: string, url: string, opened: bool
 
 /**
  * The panel's Open in browser button and the cograph.openInBrowser command: show the panel
- * when it is closed (it owns the analysis), mirror it on the server as `viewId`, open the tab.
+ * when it is closed (it owns the analysis), mirror it on the server as `viewId` (the main
+ * graph at `/`, a pull-request panel at `/view/<id>`), open the tab.
  */
-export async function openInBrowser(provider: GraphProvider, viewId: string = MAIN_VIEW): Promise<void> {
+export async function openInBrowser(provider: GraphProvider, viewId: string = provider.browserViewId): Promise<void> {
   let server: BrowserServer | null;
   try {
     server = await getBrowserServer();
@@ -46,7 +47,7 @@ export async function openInBrowser(provider: GraphProvider, viewId: string = MA
   if (!provider.isOpen()) { return; } // no workspace: show() already said so
   server.registerView(viewId, provider);
   try {
-    const { url, opened } = await openExternalUrl(server, '/');
+    const { url, opened } = await openExternalUrl(server, viewPath(viewId));
     await showOpenedToast('CoGraph: Graph opened in your browser.', url, opened);
   } catch (err) {
     void vscode.window.showErrorMessage(`CoGraph: Could not open the browser — ${(err as Error).message}`);

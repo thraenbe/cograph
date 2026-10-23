@@ -33,6 +33,7 @@ function fakeProvider(open = true) {
     receiveFromView: () => undefined,
     replayMessages: () => [{ type: 'subgraph' }],
     viewRoot: () => '/repo',
+    browserViewId: 'main',
   };
   return p;
 }
@@ -110,6 +111,19 @@ suite('browserView: lifetime and Open in browser', () => {
     assert.ok(!String(info.firstCall.args[0]).includes('token'));
     assert.strictEqual((vscode.env.clipboard.writeText as sinon.SinonStub).firstCall.args[0], opened, 'Copy URL copies the tokened URL');
     for (const l of logs) { assert.ok(!/[0-9a-f]{64}/.test(l), l); }
+  });
+
+  test('Open in browser from another provider (a pull-request panel) opens its own /view/<id>, never the main view', async () => {
+    sandbox.stub(vscode.env, 'asExternalUri').callsFake(async (u: vscode.Uri) => u);
+    const openExt = sandbox.stub(vscode.env, 'openExternal').resolves(true);
+    sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
+    const pr = { ...fakeProvider(), browserViewId: 'view-7' };
+    pr.isOpen = () => true;
+    await openInBrowser(pr as unknown as GraphProvider);
+    assert.match(openExt.firstCall.args[0].toString(true), /^http:\/\/127\.0\.0\.1:\d+\/view\/view-7\?token=[0-9a-f]{64}$/);
+    const server = await getBrowserServer();
+    assert.ok(server?.hasView('view-7'));
+    assert.strictEqual(server?.hasView(MAIN_VIEW), false);
   });
 
   test('Open in browser when the browser refuses: the toast says so and still offers Copy URL', async () => {

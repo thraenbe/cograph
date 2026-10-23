@@ -461,4 +461,22 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
     p.send(vcsState());
     assert.strictEqual((p.q('.vcs-filter') as HTMLInputElement).style.display, 'none', 'a short list needs no filter');
   });
+
+  test('Tour: a button on every row and on the open card when the tour is in the build, none otherwise', () => {
+    const p = sidebarPage();
+    p.send(vcsState({ pullRequests: [PR, { ...PR, number: 70, title: 'second' }] }));
+    assert.strictEqual(p.all('button').filter(b => b.textContent === 'Tour').length, 0, 'public build: no Tour button');
+    p.send(vcsState({ pullRequests: [PR, { ...PR, number: 70, title: 'second' }], tourAvailable: true, active: 69, activePr: PR,
+      detail: { number: 69, tree: { kind: 'head', sha: 'abc' }, counts: { total: 1, inGraph: 1, exact: 1, fileLevel: 0, missing: 0, other: 0 }, files: [], filesCut: false } }));
+    const tours = p.all('button').filter(b => b.textContent === 'Tour') as HTMLButtonElement[];
+    assert.strictEqual(tours.length, 3, 'two rows and the open card');
+    p.posted.length = 0;
+    tours[1].click();
+    assert.deepStrictEqual(p.posted, [{ type: 'vcs-tour', number: 69 }], 'the open card\'s Tour, and the row is not opened by the same click');
+    tours[2].click();
+    assert.deepStrictEqual(p.posted[1], { type: 'vcs-tour', number: 70 });
+    p.send(vcsState({ pullRequests: [PR], tourAvailable: true, opening: 69 }));
+    const busy = p.all('button').find(b => b.textContent === 'Tour') as HTMLButtonElement;
+    assert.deepStrictEqual([busy.disabled, busy.title], [true, 'Wait until the pull request has opened.']);
+  });
 });

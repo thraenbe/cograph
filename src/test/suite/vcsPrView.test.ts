@@ -269,6 +269,34 @@ suite('vcs — controller and sidebar host', () => {
   });
   teardown(() => fs.rmSync(root, { recursive: true, force: true }));
 
+  test('vcs-tour: the record from the loaded list goes to the tour; nothing without the tour or for an unknown number', async () => {
+    const toured: number[] = [];
+    let available = false;
+    const controller = new PrController(source, graph, {
+      workspaceRoot: () => workspace, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined,
+      exec: async () => ({ code: 0, stdout: '\n', stderr: '', notFound: false }),
+    });
+    const loaded: number[] = [];
+    const pane = new VcsSidebar(controller, {
+      openExternal: () => undefined, openTerminal: () => undefined,
+      tourAvailable: () => available, tour: (pr) => toured.push(pr.number),
+    });
+    pane.onLoaded(() => loaded.push(pane.loadedPullRequests().length));
+    const seen: VcsStateMessage[] = [];
+    pane.attach((m) => seen.push(m));
+    await pane.handle({ type: 'vcs-ready' });
+    assert.deepStrictEqual(loaded, [2], 'listeners hear about every successful load');
+    assert.strictEqual(seen[seen.length - 1].tourAvailable, false);
+    await pane.handle({ type: 'vcs-tour', number: 69 });
+    assert.deepStrictEqual(toured, [], 'not in this build');
+    available = true;
+    await pane.handle({ type: 'vcs-tour', number: 69 });
+    await pane.handle({ type: 'vcs-tour', number: 999 });
+    await pane.handle({ type: 'vcs-tour', number: '69; rm' });
+    assert.deepStrictEqual(toured, [69]);
+    assert.strictEqual(pane.state().tourAvailable, true);
+  });
+
   test('messages that are not the pane\'s are left alone', async () => {
     assert.strictEqual(await sidebar.handle({ type: 'open-graph' }), false);
     assert.strictEqual(await sidebar.handle({}), false);

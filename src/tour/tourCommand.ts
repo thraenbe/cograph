@@ -107,7 +107,8 @@ export class TourRunner {
         server.serveStatic('/tour-assets', tour.webAssetsDir);
         this.prepared.add(server);
       }
-      const viewId = `tour-${prepared.tourId}`;
+      // The panel's own browser id ('view-<n>' for a PR panel; never 'main', the workspace graph's URL).
+      const viewId = (panel as MirroredView & { browserViewId?: string }).browserViewId ?? `tour-${prepared.tourId}`;
       server.registerView(viewId, panel);
       server.serveTourPage(prepared.tourId, viewId, { assets: true });
       const { url, opened } = await this.deps.openUrl(server, `/tour/${encodeURIComponent(prepared.tourId)}`);

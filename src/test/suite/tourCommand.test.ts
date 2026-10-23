@@ -83,7 +83,11 @@ suite('tour — from a click to the browser tab', () => {
       'mount:1', 'static:/tour-assets:/pkg/dist/web', `view:tour-${PREPARED.tourId}`, `page:${PREPARED.tourId}:tour-${PREPARED.tourId}:true`,
     ]);
     assert.strictEqual(t.server()!.views.get(`tour-${PREPARED.tourId}`), t.panel, 'the PR panel\'s provider is what the tab mirrors');
-    assert.deepStrictEqual(t.out.urls, [`/tour/${PREPARED.tourId}`]);
+    (t.panel as any).browserViewId = 'view-3';
+    await runner.run({ kind: 'pr', number: 104 });
+    assert.ok(t.server()!.calls.includes(`page:${PREPARED.tourId}:view-3:true`), 'registered under the panel\'s own browser id');
+    assert.strictEqual(t.server()!.views.get('view-3'), t.panel);
+    assert.strictEqual(t.out.urls[0], `/tour/${PREPARED.tourId}`);
     assert.deepStrictEqual(t.out.toasts[0], ['CoGraph: Tour opened in your browser.', `http://127.0.0.1:1/tour/${PREPARED.tourId}?token=t`, true]);
     assert.ok(!t.out.log.some(l => l.includes('token')), 'the token never reaches the log');
     await runner.run({ kind: 'pr', number: 104 });

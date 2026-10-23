@@ -94,4 +94,17 @@ suite('build: copyTourPackage (esbuild.js)', () => {
     assert.strictEqual(pkg.dependencies?.[PACKAGE], undefined, 'the public package.json never lists the private package');
     assert.strictEqual(pkg.devDependencies?.[PACKAGE], undefined);
   });
+
+  test('the release workflow installs the pinned package from GitHub Packages, only when the secret is set', () => {
+    const wf = fs.readFileSync(path.join(REPO, '.github', 'workflows', 'release.yml'), 'utf8');
+    const step = wf.slice(wf.indexOf('- name: Install the PR Tour package'));
+    assert.ok(step.length > 0 && wf.includes('- name: Install the PR Tour package'));
+    assert.match(step, /if: \$\{\{ env\.TOUR_PACKAGE_TOKEN != '' \}\}/);
+    assert.match(step, /TOUR_PACKAGE_TOKEN: \$\{\{ secrets\.TOUR_PACKAGE_TOKEN \}\}/);
+    assert.match(step, /npm\.pkg\.github\.com/);
+    assert.match(step, /require\('\.\/package\.json'\)\.cograph\.tourPackage/);
+    assert.match(step, /npm install --no-save "@thraenbe\/pr-tour@\$\{version\}"/);
+    assert.ok(wf.indexOf('- name: Install the PR Tour package') < wf.indexOf('- name: Package extension'), 'installed before the package is bundled');
+    assert.ok(!/_authToken=[^$]/.test(wf), 'the token is never written literally');
+  });
 });

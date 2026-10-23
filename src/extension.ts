@@ -18,6 +18,8 @@ import { createTreeAnalyzer } from './vcs/headAnalyzer';
 import { prDocumentUri, registerPrDocuments, showPrText } from './vcs/prDocuments';
 import { configureBrowserServer, stopBrowserServer } from './browserView/browserLifetime';
 import { openInBrowser } from './browserView/openInBrowser';
+import { registerTour } from './tour/tourWiring';
+import type { TourEntry } from './tour/tourWiring';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
@@ -79,7 +81,11 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showErrorMessage(`CoGraph: Could not clear pull-request trees — ${(err as Error).message}`);
     }
   });
+  // The PR tour (src/tour): its Tour buttons need the entry, which needs the pane's list.
+  let tour: TourEntry | undefined;
   const vcsSidebar = new VcsSidebar(prController, {
+    tourAvailable: () => !!tour?.available(),
+    tour: (pr) => { void tour?.runPullRequest(pr); },
     openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)); },
     openTerminal: (command) => {
       const terminal = vscode.window.createTerminal('GitHub CLI');
@@ -92,6 +98,9 @@ export function activate(context: vscode.ExtensionContext) {
   configureBrowserServer({ extensionRoot: context.extensionPath, log: (line) => vcsLog.appendLine(line) });
   provider.setBrowserOpener((p) => openInBrowser(p));
   const openInBrowserCommand = vscode.commands.registerCommand('cograph.openInBrowser', () => openInBrowser(provider));
+
+  tour = registerTour({ context, provider, prController, vcsSidebar, channel: vcsLog, storageDir: treeStorage });
+  context.subscriptions.push(...tour.disposables);
 
   const sidebarProvider = new SidebarProvider(context.extensionUri, provider, context.workspaceState, vcsSidebar);
   context.subscriptions.push(
@@ -149,6 +158,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Re-push the AI-enabled state to the sidebar whenever the user toggles it,
   // so the gray-out clears/reapplies without reopening the view.
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
+    tour?.onConfigurationChanged(e);
     if (e.affectsConfiguration('cograph.graphIntelligence.enabled')) {
       sidebarProvider.refreshAiEnabled();
       // Switching AI off mid-run stops the run; the summaries already saved are kept.

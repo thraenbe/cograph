@@ -42,7 +42,7 @@ function setup(over: { tour?: LoadedTour | null; prepare?: (t: TourTarget, repor
       prepare: over.prepare ?? (async (_t, report) => { report('fetching the base…'); report('security check…'); return PREPARED; }) },
   } : over.tour;
   const deps: TourRunnerDeps = {
-    loadTour: () => tour,
+    loadTour: async () => tour,
     getServer: async () => server,
     openUrl: async (_s, urlPath) => { out.urls.push(urlPath); return { url: `http://127.0.0.1:1${urlPath}?token=t`, opened: true }; },
     showOpened: async (message, url, opened) => { out.toasts.push([message, url, opened]); },

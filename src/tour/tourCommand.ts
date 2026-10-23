@@ -24,7 +24,7 @@ export interface TourServer {
 
 export interface TourRunnerDeps {
   /** The private package's host, created once; null in the public build. */
-  loadTour(): LoadedTour | null;
+  loadTour(): Promise<LoadedTour | null>;
   /** The loopback server; null when cograph.browserView.enabled is off. Rejects when it cannot listen. */
   getServer(): Promise<TourServer | null>;
   /** server.url(path) through asExternalUri, opened in the default browser. */
@@ -66,7 +66,7 @@ export class TourRunner {
   }
 
   private async runOnce(target: TourTarget): Promise<TourOutcome> {
-    const tour = this.deps.loadTour();
+    const tour = await this.deps.loadTour();
     if (!tour) { this.deps.info(`CoGraph: ${STUB_SENTENCE}`); return 'unavailable'; }
     let server: TourServer | null;
     try {

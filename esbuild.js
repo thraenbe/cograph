@@ -11,6 +11,7 @@
 const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
+const { copyTourPackage } = require('./scripts/copyTourPackage');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -84,6 +85,8 @@ async function main() {
   ]) {
     fs.copyFileSync(path.join(__dirname, src), path.join(__dirname, dest));
   }
+  // The commercial PR Tour component, when its package is installed (release builds): dist/tour.
+  copyTourPackage({ root: __dirname, log: (line) => console.log(line) });
 
   if (watch) {
     await Promise.all([extension.watch(), analyzers.watch(), simWorker.watch(), mcpServer.watch()]);

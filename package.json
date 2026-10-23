@@ -14,6 +14,9 @@
   },
   "homepage": "https://github.com/thraenbe/cograph#readme",
   "license": "MIT",
+  "cograph": {
+    "tourPackage": "0.1.0"
+  },
   "keywords": [
     "python",
     "typescript",

@@ -347,7 +347,7 @@ export class PrController {
   private pendingBaseDir: string | undefined;
 
   /** One pull-request panel at a time: the same tree's panel is reused, any other is closed first. */
-  private panelFor(pr: PullRequest, m: { sha: string; dir: string }, kind: PrTree['kind'], editorLabel: string): PrHeadGraph {
+  private panelFor(pr: Pick<PullRequest, 'number'>, m: { sha: string; dir: string }, kind: PrTree['kind'], editorLabel: string, title?: string): PrHeadGraph {
     const baseDir = this.pendingBaseDir;
     this.pendingBaseDir = undefined;
     if (this.head && this.head.sha === m.sha && this.head.graph.isOpen()) {
@@ -356,8 +356,8 @@ export class PrController {
       return this.head.graph;
     }
     if (this.head) { this.head.sub.dispose(); this.head.graph.close(); }
-    const title = prViewName(pr, kind === 'head' ? { kind, sha: m.sha } : { kind: 'checkout' });
-    const graph = (this.deps.createHeadGraph as NonNullable<PrControllerDeps['createHeadGraph']>)(m.dir, title, kind, editorLabel);
+    const panelTitle = title ?? prViewName(pr, kind === 'head' ? { kind, sha: m.sha } : { kind: 'checkout' });
+    const graph = (this.deps.createHeadGraph as NonNullable<PrControllerDeps['createHeadGraph']>)(m.dir, panelTitle, kind, editorLabel);
     // While shown, the copy is held: another window's eviction or clear leaves it alone.
     if (kind === 'head') { lockTree(m.dir); if (baseDir) { lockTree(baseDir); } }
     const release = () => { if (kind === 'head') { unlockTree(m.dir); if (baseDir) { unlockTree(baseDir); } } };
@@ -398,6 +398,22 @@ export class PrController {
     } catch (err) {
       return this.unexpected(`file ${relPath} of #${pr.number}`, err);
     }
+  }
+
+  /**
+   * A tour's stage (Q11): the head copy the tour package prepared, in the pull-request panel
+   * exactly as a click opens one (one panel at a time, the copy held while shown). Null when
+   * this window cannot open panels of its own.
+   */
+  openTourPanel(view: PrGraphView, headDir: string, title: string): PrHeadGraph | null {
+    if (!this.deps.createHeadGraph) { return null; }
+    this.pendingBaseDir = undefined;
+    const sha = view.message.tree.kind === 'head' ? view.message.tree.sha : 'checkout';
+    const graph = this.panelFor({ number: view.number }, { sha, dir: headDir }, 'head', title, title);
+    if (!graph.showPullRequest(view)) { return null; }
+    this.deps.log(`[tour] stage panel on ${sha.slice(0, 7)}: ${view.name}`);
+    this.emit();
+    return graph;
   }
 
   /** Leave: close the pull-request panel when one is open, otherwise end a checkout view on the main panel. */

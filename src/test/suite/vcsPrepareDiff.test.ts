@@ -197,4 +197,26 @@ suite('vcs — PrController.prepareDiff: the tour\'s trees for both target kinds
     assert.ok(res.opened.structuralDiff?.functions.some(f => f.name === 'extra' && f.kind === 'added'));
     assert.ok(res.opened.structuralDiff?.edges.length, 'edges are kept, not only counted');
   });
+
+  test('openTourPanel opens the head copy in a pull-request panel of its own, reuses it for the same commit, holds the copy', () => {
+    const made: Array<{ root: string; title: string; kind: string; graph: Graph }> = [];
+    const ctl = new PrController(new Source(PR), new Graph() as PrGraph, {
+      workspaceRoot: () => work, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined, exec: defaultExec,
+      createHeadGraph: (r, title, kind) => { const graph = new Graph(); made.push({ root: r, title, kind, graph }); return graph; },
+    });
+    const dir = fs.mkdtempSync(path.join(root, 'copy-'));
+    const view = (number: number): PrGraphView => ({
+      number, name: 'feat/x vs main', spec: { include: ['.'], exclude: [] }, override: { files: new Map(), hunks: new Map() },
+      message: { type: 'pr-view', active: true, number, name: 'feat/x vs main', title: 't', headRef: 'feat/x', baseRef: 'main', tree: { kind: 'head', sha: head }, expand: [], fileGitStatus: {}, counts: { total: 0, inGraph: 0, exact: 0, fileLevel: 0, missing: 0, other: 0 } },
+    });
+    const first = ctl.openTourPanel(view(0), dir, 'feat/x vs main');
+    assert.ok(first);
+    assert.deepStrictEqual(made.map(m => [m.root, m.title, m.kind]), [[dir, 'feat/x vs main', 'head']]);
+    assert.strictEqual(made[0].graph.shown.length, 1);
+    assert.ok(fs.existsSync(path.join(dir, '.cograph-tree.lock')), 'held while shown');
+    assert.strictEqual(ctl.openTourPanel(view(0), dir, 'feat/x vs main'), first, 'same commit: the same panel');
+    assert.strictEqual(made.length, 1);
+    const plain = new PrController(new Source(PR), new Graph() as PrGraph, { workspaceRoot: () => work, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined });
+    assert.strictEqual(plain.openTourPanel(view(0), dir, 'x'), null, 'a window without panels of its own');
+  });
 });

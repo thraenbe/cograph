@@ -412,7 +412,7 @@ inside a PR panel (that graph is a pull request; its banner gets a Tour action i
 
 **Settings** (all `cograph.`): `tour.button` (`auto` | `always` | `never`, `auto`),
 `tour.chapters` (string[], the eight in order), `tour.maxStepsPerChapter` (12),
-`tour.ai` (`ask` | `on` | `off`, `ask`), `tour.ai.model` (`inherit` | `default` | `opus` |
+`tour.ai.mode` (`ask` | `on` | `off`, `ask`; a leaf key, because VS Code drops values under a key that is also a prefix), `tour.ai.model` (`inherit` | `default` | `opus` |
 `sonnet` | `haiku` | `gpt-5-codex` | `gpt-5` | `gpt-5-mini`, `inherit`), `tour.ai.maxBudgetUsd`
 (0.5), `tour.ai.readSource` (false), `tour.security.rules` (array, []), `tour.security.allow`
 (glob[], []), `tour.security.blockCreateOnHigh` (false), `tour.autoplay` (false),

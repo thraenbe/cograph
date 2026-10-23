@@ -276,12 +276,14 @@ it). The CSP of the page: `default-src 'none'; script-src 'nonce-…' 'self'; st
 
 ```ts
 // src/browserView/browserServer.ts (no vscode, no GraphProvider import)
-export const MAIN_VIEW = 'main';                      // GET / mirrors this view
+export const MAIN_VIEW = 'main';                      // GET / mirrors this view (the workspace graph)
+export function viewPath(viewId: string): string;     // '/' for MAIN_VIEW, else '/view/<id>' (the mirror page of any other provider)
 export interface MirroredView {                       // GraphProvider has these members
   attachView(clientId: string, sink: ClientSink): () => void;   // a tab's SSE stream opened; returns detach
   receiveFromView(clientId: string, message: Record<string, unknown>): void;  // POST /msg, `ready` included
   replayMessages(): object[];
   viewRoot(): string;                                 // COGRAPH_TOUR.stageRoot
+  isOpen?(): boolean;                                 // false: page, /graph, /events and /msg answer 404 "not open in VS Code"
 }
 export class BrowserServer {
   static start(deps: { extensionRoot: string; renderPage(p: PageRequest): string; log(line: string): void }): Promise<BrowserServer>;
@@ -300,7 +302,7 @@ export class BrowserServer {
 getBrowserServer(): Promise<BrowserServer | null>    // starts on first use; null when cograph.browserView.enabled is false; rejects when it cannot listen
 stopBrowserServer(): Promise<void>                   // deactivate, and the setting switched off
 // src/browserView/openInBrowser.ts
-openInBrowser(provider: GraphProvider, viewId = MAIN_VIEW): Promise<void>   // the panel button and cograph.openInBrowser
+openInBrowser(provider: GraphProvider, viewId = provider.browserViewId): Promise<void>   // the panel button and cograph.openInBrowser
 openExternalUrl(server, path, query?): Promise<{ url: string; opened: boolean }>  // asExternalUri + openExternal; the url carries the token: clipboard only
 showOpenedToast(message: string, url: string, opened: boolean): Promise<void>     // "… opened in your browser" + Copy URL
 // src/graphProvider.ts
@@ -310,8 +312,14 @@ provider.replayMessages(): object[]  // subgraph, pr-view (when active), structu
 provider.onViewMessage(msg, viewId)  // the existing handler; viewId 'panel' or a tab's client id
 provider.onTourStart(cb: () => void): { dispose(): void }   // the pill's tour-start
 provider.attachView / receiveFromView / viewRoot            // MirroredView
+provider.browserViewId               // 'main' for the workspace graph, 'view-<n>' for a provider with its own root (a PR panel)
 provider.browserTabs(): number; provider.postBrowserNote(text); provider.setBrowserOpener(fn)
 ```
+
+A tab's messages that carry paths (`file`, `filePath`, `folderPath`, `files`) must lie under the
+view's root (`viewRoot()`); anything else is refused and logged. The panel is not confined. The
+active view (where `save-request` goes) is the last one with a user message; `ready`,
+`perf-report`, `webview-log` and `get-annotations` do not count.
 
 A tab's life: the page config `window.COGRAPH_BROWSER = { view, eventsUrl, msgUrl }` precedes
 `browserBridge.js`; the bridge opens `/events?…&client=<16 hex>` after DOMContentLoaded and says `ready`;

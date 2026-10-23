@@ -26,7 +26,8 @@ import {
 } from './subgraphScope';
 import type { Scope, ScopeSpec, ScopeSource } from './subgraphScope';
 import type { PrGraphView } from './vcs/prController';
-import { ViewHub, PANEL_VIEW, type ClientSink } from './browserView/viewHub';
+import { ViewHub, PANEL_VIEW, MAIN_VIEW, type ClientSink } from './browserView/viewHub';
+import { pathOutsideRoot } from './browserView/messageGuard';
 
 export interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; }
 
@@ -102,6 +103,11 @@ export class GraphProvider {
     log: (line) => this.outputChannel.appendLine(line),
     replay: () => this.replayMessages(),
     forward: (message, viewId) => {
+      const outside = pathOutsideRoot(message, this.workspaceRoot());
+      if (outside !== null) {
+        this.outputChannel.appendLine(`[browser] refused ${String(message.type)} from ${viewId}: ${outside} is outside the view's root`);
+        return;
+      }
       this.onViewMessage(message, viewId).catch((err: unknown) =>
         this.outputChannel.appendLine(`[browser] ${String(message.type)} from ${viewId} failed: ${(err as Error).message}`));
     },
@@ -112,6 +118,9 @@ export class GraphProvider {
   private lastTourAvailability: object | undefined;
   private tourDismissed = false;
   private readonly tourStartListeners = new Set<() => void>();
+  /** This provider's id on the loopback server: 'main' for the workspace graph, its own for every other root. */
+  readonly browserViewId: string;
+  private static browserViewSeq = 0;
   /** Set by extension.ts: what the panel's Open in browser button does (src/browserView/openInBrowser.ts). */
   private browserOpener: ((provider: GraphProvider) => Promise<void>) | undefined;
   /** True while a background analysis (first full pass or cache reconcile) is still filling the graph. */
@@ -175,6 +184,7 @@ export class GraphProvider {
     this.readOnlyUri = opts.readOnlyUri;
     this.closeOnLeave = !!opts.closeOnLeave;
     this.readOnlyWhy = opts.readOnlyReason;
+    this.browserViewId = opts.root ? `view-${++GraphProvider.browserViewSeq}` : MAIN_VIEW;
     this._outputChannel = opts.outputChannel; // shared by every pull-request panel: not one "CoGraph" channel per PR
     this.analyzerRunner = new AnalyzerRunner(
       context,
@@ -298,7 +308,7 @@ export class GraphProvider {
 
     // Panel and browser tabs share one handler (src/browserView); the panel is the active view while it talks.
     this.panel.webview.onDidReceiveMessage((message) => {
-      this.views.markPanelActive();
+      this.views.notePanelMessage(message);
       return this.onViewMessage(message, PANEL_VIEW);
     });
 

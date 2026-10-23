@@ -1,4 +1,5 @@
 import { WebviewReadyGate } from '../webviewReadyGate';
+import { isUserMessage } from './messageGuard';
 
 /**
  * One provider's views: its VS Code panel and every browser tab that mirrors it
@@ -8,13 +9,16 @@ import { WebviewReadyGate } from '../webviewReadyGate';
  * delivery (its ready gate lives in graphProvider.ts); each browser client gets a
  * gate and a `__seq` space of its own, and starts with the provider's replay so a
  * late tab builds exactly what the panel shows. View → host messages from a tab are
- * handed to the provider with the tab's id; the last view that spoke is the active
- * one, which is where `save-request` goes.
+ * handed to the provider with the tab's id; the last view the user worked in (any
+ * message but the passive diagnostics) is the active one, where `save-request` goes.
  *
  * No vscode import: the hub runs in plain Node tests and in the lab.
  */
 
 export const PANEL_VIEW = 'panel';
+
+/** The workspace graph's id on the loopback server (`GET /`); every other provider has its own. */
+export const MAIN_VIEW = 'main';
 
 /** What the server tells a tab besides messages: the stage was rebuilt, or the view is gone. */
 export type ClientControl = 'reload' | 'closed';
@@ -89,12 +93,14 @@ export class ViewHub {
       else { this.opts.log(`[browser] ready from a tab without an event stream (${id}); ignored`); }
       return;
     }
-    this.active = id;
+    if (isUserMessage(message)) { this.active = id; }
     this.opts.forward(message, id);
   }
 
-  /** The panel posted a message: it is the active view again. */
-  markPanelActive(): void { this.active = PANEL_VIEW; }
+  /** The panel posted a message: a user one makes it the active view again. */
+  notePanelMessage(message: { type?: unknown }): void {
+    if (isUserMessage(message)) { this.active = PANEL_VIEW; }
+  }
 
   activeView(): string { return this.active; }
 

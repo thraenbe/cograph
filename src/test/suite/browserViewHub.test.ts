@@ -107,10 +107,23 @@ suite('browserView: ViewHub', () => {
     hub.postToActive({ type: 'save-request', mode: 'save' });
     assert.deepStrictEqual(types(a.lines), ['save-request']);
     assert.strictEqual(panel.length, 0, 'tab active: the panel is not asked');
-    hub.markPanelActive();
+    hub.notePanelMessage({ type: 'perf-report' });
+    hub.postToActive({ type: 'save-request', mode: 'save' });
+    assert.strictEqual(a.lines.length, 2, 'a diagnostic from the panel does not take the active role');
+    hub.notePanelMessage({ type: 'navigate' });
     hub.postToActive({ type: 'save-request', mode: 'save' });
     assert.deepStrictEqual(types(panel), ['save-request']);
-    assert.strictEqual(a.lines.length, 1, 'panel active: the tab is not asked');
+    assert.strictEqual(a.lines.length, 2, 'panel active: the tab is not asked');
+  });
+
+  test('passive diagnostics from a tab never make it active; a user message does', () => {
+    const { hub, forwarded } = makeHub();
+    hub.attachClient('a', sink());
+    for (const type of ['ready', 'perf-report', 'webview-log', 'get-annotations']) { hub.receive('a', { type }); }
+    assert.strictEqual(hub.activeView(), PANEL_VIEW);
+    assert.deepStrictEqual(forwarded.map(f => (f.message as { type: string }).type), ['perf-report', 'webview-log', 'get-annotations'], 'still forwarded');
+    hub.receive('a', { type: 'dirty-state', dirty: true });
+    assert.strictEqual(hub.activeView(), 'a');
   });
 
   test('a detached active tab hands the active role back to the panel', () => {

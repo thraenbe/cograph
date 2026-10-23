@@ -2,7 +2,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import type { AddressInfo } from 'net';
-import type { ClientSink } from './viewHub';
+import { MAIN_VIEW, type ClientSink } from './viewHub';
 import { compilePattern, matchPattern, type CompiledPattern, type TourRoute, type TourRouteRequest } from './routes';
 import {
   hostAllowed, postOriginAllowed, tokenMatches, sendStatus, sendBody, readJsonBody,
@@ -19,9 +19,15 @@ import {
  * anything with the `MirroredView` members (GraphProvider has them).
  */
 
-/** The main panel's view id: `GET /` mirrors it. */
-export const MAIN_VIEW = 'main';
+export { MAIN_VIEW };
+
+/** Where the mirror page of `viewId` is served: the main view at `/`, any other at `/view/<id>`. */
+export function viewPath(viewId: string): string {
+  return viewId === MAIN_VIEW ? '/' : `/view/${encodeURIComponent(viewId)}`;
+}
 const KEEPALIVE_MS = 15_000;
+/** The bridge's random tab id: it lands in log lines, so nothing but these characters. */
+const CLIENT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 export interface MirroredView {
   /** A tab's event stream opened; returns its detach. */
@@ -31,6 +37,8 @@ export interface MirroredView {
   replayMessages(): object[];
   /** The directory the view's graph is rooted at (the tour's `stageRoot`). */
   viewRoot(): string;
+  /** False once the view's panel is closed: its page and stream then say so instead of showing nothing. */
+  isOpen?(): boolean;
 }
 
 export interface PageRequest {
@@ -148,6 +156,8 @@ export class BrowserServer {
   /** The public GET routes; false when none matched. */
   private async handleGet(pathname: string, query: Record<string, string>, res: http.ServerResponse, req: http.IncomingMessage): Promise<boolean> {
     if (pathname === '/') { this.sendPage(res, MAIN_VIEW); return true; }
+    const mirror = /^\/view\/([^/]+)$/.exec(pathname);
+    if (mirror) { this.sendPage(res, safeDecode(mirror[1]) ?? ''); return true; }
     if (pathname === '/events') { this.openStream(req, res, query); return true; }
     const tour = /^\/tour\/([^/]+)(\/graph)?$/.exec(pathname);
     const known = tour ? this.tours.get(safeDecode(tour[1]) ?? '') : undefined;
@@ -166,8 +176,14 @@ export class BrowserServer {
     return false;
   }
 
-  private sendPage(res: http.ServerResponse, viewId: string, tour?: { tourId: string; assets: boolean }): void {
+  /** A registered view whose panel is still open. */
+  private openView(viewId: string): MirroredView | undefined {
     const view = this.views.get(viewId);
+    return view && (view.isOpen?.() ?? true) ? view : undefined;
+  }
+
+  private sendPage(res: http.ServerResponse, viewId: string, tour?: { tourId: string; assets: boolean }): void {
+    const view = this.openView(viewId);
     if (!view) { sendStatus(res, 404, 'This view is not open in VS Code.'); return; }
     let html: string;
     try {
@@ -181,7 +197,7 @@ export class BrowserServer {
   }
 
   private sendReplay(res: http.ServerResponse, viewId: string): void {
-    const view = this.views.get(viewId);
+    const view = this.openView(viewId);
     if (!view) { sendStatus(res, 404); return; }
     let json: string;
     try { json = JSON.stringify({ messages: view.replayMessages() }); }
@@ -195,9 +211,9 @@ export class BrowserServer {
 
   /** GET /events?view=&client=: the tab's stream of host → view messages, the replay first. */
   private openStream(req: http.IncomingMessage, res: http.ServerResponse, query: Record<string, string>): void {
-    const view = this.views.get(query.view ?? '');
+    const view = this.openView(query.view ?? '');
     const clientId = query.client ?? '';
-    if (!view || !/^[A-Za-z0-9_-]{1,64}$/.test(clientId)) { sendStatus(res, 404); return; }
+    if (!view || !CLIENT_ID.test(clientId)) { sendStatus(res, 404); return; }
     res.writeHead(200, { ...BASE_HEADERS, 'content-type': 'text/event-stream; charset=utf-8', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     res.write('retry: 2000\n\n');
     this.streams.add(res);
@@ -221,8 +237,9 @@ export class BrowserServer {
   private async handleMsg(req: http.IncomingMessage, res: http.ServerResponse, query: Record<string, string>): Promise<void> {
     const body = await readJsonBody(req);
     if (!body.ok) { sendStatus(res, body.status); return; }
-    const view = this.views.get(query.view ?? '');
+    const view = this.openView(query.view ?? '');
     if (!view) { sendStatus(res, 404); return; }
+    if (!CLIENT_ID.test(query.client ?? '')) { sendStatus(res, 400); return; }
     const msg = body.value as Record<string, unknown> | null;
     if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.type !== 'string') { sendStatus(res, 400); return; }
     try {

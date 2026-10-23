@@ -63,7 +63,7 @@ const FILES: Record<string, string> = {
     sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
     sandbox.stub(vscode.window, 'showInputBox').resolves('e2e layout');
     await openInBrowser(provider);
-    assert.match(opened, /^http:\/\/127\.0\.0\.1:\d+\/\?token=[0-9a-f]{64}$/);
+    assert.match(opened, /^http:\/\/127\.0\.0\.1:\d+\/view\/view-\d+\?token=[0-9a-f]{64}$/, 'a provider with its own root is its own view');
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { chromium } = require('@playwright/test');

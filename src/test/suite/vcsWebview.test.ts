@@ -116,6 +116,18 @@ suite('vcs — prView.js (graph webview)', () => {
     assert.deepStrictEqual(prView.prViewTreeLabel({ kind: 'head', sha: 'abc', base: 'def' }).title.includes('compared with def'), true);
   });
 
+  test('a branch tour\'s panel says branch commit, one chip per tree kind, and is read-only like a head', () => {
+    const p = graphPage();
+    const chip = () => p.doc.querySelector('#pr-view-banner .pr-tree') as HTMLElement;
+    p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'branch', sha: '75d0ca93963a334dfd73', branch: 'feat/x' } });
+    assert.deepStrictEqual([chip().textContent, chip().className], ['branch commit 75d0ca9', 'pr-tree head']);
+    assert.ok(chip().title.includes('last commit of feat/x') && chip().title.includes('Uncommitted changes are not part of it'));
+    assert.strictEqual(p.state.prView.readOnly, true, 'a copy of a commit takes no edits');
+    const labels = ['head', 'branch', 'checkout'].map(kind => prView.prViewTreeLabel({ kind, sha: 'abcdef12345', branch: 'b' }).text);
+    assert.deepStrictEqual(labels, ['PR commit abcdef1', 'branch commit abcdef1', 'your checkout · b']);
+    assert.match(prView.prViewSummary({ total: 2, inGraph: 2, fileLevel: 1 }, null, { kind: 'branch' }).text, /\(not told apart\)/);
+  });
+
   test('in a head panel the function popups take no edits; in a checkout view they do', () => {
     const p = graphPage();
     const ta = p.doc.createElement('textarea');

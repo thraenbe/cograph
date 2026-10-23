@@ -72,8 +72,12 @@ function prViewExpansion(tree, expand) {
   return out;
 }
 
-/** The chip that says WHICH tree is on screen: the PR's own commit, or the user's checkout. */
+/** The chip that says WHICH tree is on screen: the PR's own commit, a branch's commit (a tour), or the user's checkout. */
 function prViewTreeLabel(tree) {
+  if (tree && tree.kind === 'branch') {
+    const sha = String(tree.sha || '').slice(0, 7);
+    return { text: `branch commit ${sha}`, cls: 'head', title: `This is the last commit of ${tree.branch || 'your branch'} at ${tree.sha}, compared with the base it branched from. Uncommitted changes are not part of it. Files you open from here are read-only copies of that commit.` };
+  }
   if (tree && tree.kind === 'head') {
     const sha = String(tree.sha || '').slice(0, 7);
     return { text: `PR commit ${sha}`, cls: 'head', title: `This is the pull request's own code at ${tree.sha}${tree.base ? `, compared with ${String(tree.base).slice(0, 7)}` : ''}. Files you open from here are read-only copies of that commit.` };
@@ -97,7 +101,7 @@ function prViewSummary(counts, diff, tree) {
   const base = `${c.inGraph} of ${total} file${total === 1 ? '' : 's'} in the graph`;
   if (c.fileLevel > 0) {
     // The warning first: it is the only sign that the colours are approximate, and a narrow panel cuts the end.
-    const why = tree && tree.kind === 'head' ? 'no patch from GitHub' : 'checkout differs';
+    const why = tree && tree.kind === 'head' ? 'no patch from GitHub' : tree && tree.kind === 'branch' ? 'not told apart' : 'checkout differs';
     return { text: `${c.fileLevel} coloured as whole file${c.fileLevel === 1 ? '' : 's'} (${why}) · ${base}`, warn: true };
   }
   return { text: base, warn: false };
@@ -243,7 +247,7 @@ function prViewEnter(message) {
     counts: message.counts || {},
     tree: message.tree || { kind: 'checkout', branch: '' },
     diff: message.diff || null,
-    readOnly: message.readOnly !== undefined ? !!message.readOnly : !!(message.tree && message.tree.kind === 'head'),
+    readOnly: message.readOnly !== undefined ? !!message.readOnly : !!(message.tree && (message.tree.kind === 'head' || message.tree.kind === 'branch')),
     // Going from one pull request to the next keeps what was there before the first.
     snapshot: previous ? previous.snapshot : prViewSnapshot(),
     prevGitMode: previous ? previous.prevGitMode : state.gitMode,

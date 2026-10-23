@@ -12,19 +12,22 @@ import type { TreeAnalyzer } from './engine/treeAnalysis';
 import type { TourProgress, TourTarget, TourTrees } from '../tour/tourApi';
 import { analysePullRequest, materializeBaseWithGit, materializeHeadWithGit, prepareTourTrees } from './tourTrees';
 import type { MaterializeBase, MaterializeHead } from './tourTrees';
-
-export { materializeBaseWithGit, materializeHeadWithGit } from './tourTrees';
-export type { MaterializeBase, MaterializeHead } from './tourTrees';
 import { defaultExec } from './ghCliSource';
 import type { Exec } from './ghCliSource';
 import { buildPrView, gitBlobSha, prViewName } from './prView';
 import type { PrViewCounts, PrViewFile, UnchangedFolders } from './prView';
 import type { PrFile, PrFileStatus, PrListOptions, PrListResult, PrProblem, PullRequest, PullRequestSource } from './types';
 
+export { materializeBaseWithGit, materializeHeadWithGit } from './tourTrees';
+export type { MaterializeBase, MaterializeHead } from './tourTrees';
+
 /** Which tree a pull-request view shows. The panel title and the banner always say. */
 export type PrTree =
   | { kind: 'checkout'; branch: string }
   | { kind: 'head'; sha: string; base?: string };
+
+/** A tour of the checked-out branch (src/tour): its last commit, copied like a PR head. */
+export interface BranchTree { kind: 'branch'; sha: string; branch: string }
 
 /** Host → graph webview: enter a pull-request view. Leaving is `{type:'pr-view', active:false}`. */
 export interface PrViewMessage {
@@ -35,7 +38,7 @@ export interface PrViewMessage {
   title: string;
   headRef: string;
   baseRef: string;
-  tree: PrTree;
+  tree: PrTree | BranchTree;
   /** Set by the panel that shows the view: its popups take no edits. */
   readOnly?: boolean;
   /** Present when the colours come from the structural diff against the merge base. */
@@ -408,7 +411,8 @@ export class PrController {
   openTourPanel(view: PrGraphView, headDir: string, title: string): PrHeadGraph | null {
     if (!this.deps.createHeadGraph) { return null; }
     this.pendingBaseDir = undefined;
-    const sha = view.message.tree.kind === 'head' ? view.message.tree.sha : 'checkout';
+    const tree = view.message.tree;
+    const sha = tree.kind === 'checkout' ? 'checkout' : tree.sha;
     const graph = this.panelFor({ number: view.number }, { sha, dir: headDir }, 'head', title, title);
     if (!graph.showPullRequest(view)) { return null; }
     this.deps.log(`[tour] stage panel on ${sha.slice(0, 7)}: ${view.name}`);

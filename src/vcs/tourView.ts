@@ -36,7 +36,7 @@ export function tourGraphView(prepared: TourPrepared, target: TourTarget): PrGra
     override: { files, hunks },
     message: {
       type: 'pr-view', active: true, number, name: v.name, title: v.title, headRef: v.headRef, baseRef: v.baseRef,
-      tree: { kind: 'head', sha }, expand: absFolders(prepared.headDir, v.expand), fileGitStatus: Object.fromEntries(files),
+      tree: target.kind === 'branch' ? { kind: 'branch', sha, branch: target.branch ?? v.headRef } : { kind: 'head', sha }, expand: absFolders(prepared.headDir, v.expand), fileGitStatus: Object.fromEntries(files),
       counts: { total: v.counts.total, inGraph: v.counts.inGraph, exact: v.counts.inGraph, fileLevel: 0, missing: 0, other: v.counts.other },
     },
   };

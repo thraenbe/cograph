@@ -162,6 +162,8 @@ suite('tour — the stage view of a prepared tour', () => {
     assert.deepStrictEqual(v.message.counts, { total: 9, inGraph: 7, exact: 7, fileLevel: 0, missing: 0, other: 2 });
     assert.deepStrictEqual([v.message.type, v.message.active, v.message.title, v.spec], ['pr-view', true, 'The doorway', { include: ['.'], exclude: [] }]);
     assert.deepStrictEqual(v.message.fileGitStatus, { [`${HEAD_DIR}/src/a.ts`]: { unstaged: 'modified', staged: null } });
-    assert.strictEqual(tourGraphView(PREPARED, { kind: 'branch', branch: 'feat/x' }).number, 0);
+    const branch = tourGraphView(PREPARED, { kind: 'branch', branch: 'feat/x' });
+    assert.deepStrictEqual([branch.number, branch.message.tree], [0, { kind: 'branch', sha: SHA, branch: 'feat/x' }]);
+    assert.deepStrictEqual(tourGraphView(PREPARED, { kind: 'branch' }).message.tree, { kind: 'branch', sha: SHA, branch: 'feat/x' }, 'the head ref when the target names no branch');
   });
 });

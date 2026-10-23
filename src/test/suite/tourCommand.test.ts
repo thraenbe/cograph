@@ -118,6 +118,15 @@ suite('tour — from a click to the browser tab', () => {
     assert.deepStrictEqual([s.out.urls, s.out.error], [[], ['CoGraph: The tour could not be opened: serveTourPage: view "x" is not registered']]);
   });
 
+  test('the opened toast stays until dismissed, and the next tour does not wait for it', async () => {
+    const t = setup();
+    t.deps.showOpened = () => new Promise(() => undefined); // never dismissed
+    const runner = new TourRunner(t.deps);
+    assert.strictEqual(await runner.run({ kind: 'branch' }), 'opened');
+    assert.strictEqual(await runner.run({ kind: 'pr', number: 104 }), 'opened');
+    assert.deepStrictEqual(t.out.info, []);
+  });
+
   test('one tour at a time', async () => {
     let release!: () => void;
     const t = setup({ prepare: () => new Promise((res) => { release = () => res(PREPARED); }) });
@@ -143,7 +152,9 @@ suite('tour — the stage view of a prepared tour', () => {
     assert.strictEqual(headShaOf(HEAD_DIR + path.sep), SHA);
     assert.deepStrictEqual([...v.override.files], [[`${HEAD_DIR}/src/a.ts`, { unstaged: 'modified', staged: null }]]);
     assert.deepStrictEqual([...v.override.hunks], [[`${HEAD_DIR}/src/a.ts`, [{ start: 3, end: 5, isNew: false }]]]);
-    assert.deepStrictEqual(v.message.expand, [path.join(HEAD_DIR, 'src'), path.join(HEAD_DIR, 'src', 'vcs'), `${HEAD_DIR}/lib`]);
+    assert.deepStrictEqual(v.message.expand, [HEAD_DIR, path.join(HEAD_DIR, 'src'), path.join(HEAD_DIR, 'src', 'vcs'), `${HEAD_DIR}/lib`],
+      'the root first, or nothing under it shows');
+    assert.deepStrictEqual(tourGraphView({ ...PREPARED, view: { ...PREPARED.view, expand: [] } }, { kind: 'branch' }).message.expand, [HEAD_DIR]);
     assert.deepStrictEqual(v.message.counts, { total: 9, inGraph: 7, exact: 7, fileLevel: 0, missing: 0, other: 2 });
     assert.deepStrictEqual([v.message.type, v.message.active, v.message.title, v.spec], ['pr-view', true, 'The doorway', { include: ['.'], exclude: [] }]);
     assert.deepStrictEqual(v.message.fileGitStatus, { [`${HEAD_DIR}/src/a.ts`]: { unstaged: 'modified', staged: null } });

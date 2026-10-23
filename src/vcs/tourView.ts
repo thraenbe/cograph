@@ -14,9 +14,13 @@ export function headShaOf(headDir: string): string {
   return path.basename(path.resolve(headDir));
 }
 
-/** Absolute folder paths under the copy; the host may hand them relative to it. */
+/**
+ * Absolute folder paths under the copy (the host may hand them relative to it), the copy's root
+ * first: like buildPrView, the root is always open, or nothing under it shows.
+ */
 function absFolders(headDir: string, folders: string[]): string[] {
-  return folders.map(f => (path.isAbsolute(f) ? f : path.join(headDir, ...f.split('/').filter(s => s && s !== '.'))));
+  const out = [headDir, ...folders.map(f => (path.isAbsolute(f) ? f : path.join(headDir, ...f.split('/').filter(s => s && s !== '.'))))];
+  return [...new Set(out)];
 }
 
 export function tourGraphView(prepared: TourPrepared, target: TourTarget): PrGraphView {

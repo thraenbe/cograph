@@ -112,7 +112,9 @@ export class TourRunner {
       server.serveTourPage(prepared.tourId, viewId, { assets: true });
       const { url, opened } = await this.deps.openUrl(server, `/tour/${encodeURIComponent(prepared.tourId)}`);
       this.deps.log(`[tour] ${prepared.tourId} opened in the browser`);
-      await this.deps.showOpened('CoGraph: Tour opened in your browser.', url, opened);
+      // Not awaited: the toast stays until dismissed, and the next tour must not wait for that.
+      this.deps.showOpened('CoGraph: Tour opened in your browser.', url, opened)
+        .catch((err: unknown) => this.deps.log(`[tour] toast failed: ${(err as Error)?.message ?? String(err)}`));
       return 'opened';
     } catch (err) {
       this.deps.log(`[tour] open failed: ${(err as Error)?.stack ?? String(err)}`);

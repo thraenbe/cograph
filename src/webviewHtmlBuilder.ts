@@ -538,6 +538,8 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${funcCardUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${fnNamesUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${hoverPinUri}?v=${nonce}"></script>
+  <!-- window.stageApi (docs/tour-protocol.md section 5): last, after every stage script it drives. -->
+  <script nonce="${nonce}" src="${webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'stageApi.js'))}?v=${nonce}"></script>
 </body>
 </html>`;
 }

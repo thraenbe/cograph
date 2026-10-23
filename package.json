@@ -99,6 +99,10 @@
         "title": "CoGraph: Only visualize folder…"
       },
       {
+        "command": "cograph.openInBrowser",
+        "title": "CoGraph: Open in Browser"
+      },
+      {
         "command": "cograph.clearPullRequestTrees",
         "title": "CoGraph: Clear pull-request trees"
       },
@@ -267,6 +271,12 @@
           "default": "collapse",
           "description": "What a pull request opened from the Version Control view does with folders it does not change."
         },
+        "cograph.browserView.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Serve the graph to your browser on 127.0.0.1 (Open in browser, the PR tour). Off: the loopback server never starts."
+        },
         "cograph.display.sameFileEdgesOnly": {
           "type": "boolean",
           "default": true,
@@ -294,6 +304,7 @@
     "uxtest:report": "node uxtest/run.mjs --project report",
     "uxtest:unit": "npm run compile && c8 --config uxtest/.c8rc.json playwright test -c uxtest/playwright.config.ts --project=unit",
     "uxtest:typecheck": "tsc -p uxtest/tsconfig.json --noEmit",
+    "test:browser": "npm run compile && npm run bundle && tsc -p test/browser/tsconfig.json && playwright test -c test/browser/playwright.config.ts",
     "uxtest:install": "playwright install chromium ffmpeg"
   },
   "dependencies": {

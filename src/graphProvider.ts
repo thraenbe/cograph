@@ -26,6 +26,8 @@ import {
 } from './subgraphScope';
 import type { Scope, ScopeSpec, ScopeSource } from './subgraphScope';
 import type { PrGraphView } from './vcs/prController';
+import { ViewHub, PANEL_VIEW, MAIN_VIEW, type ClientSink } from './browserView/viewHub';
+import { pathOutsideRoot } from './browserView/messageGuard';
 
 export interface GraphEdge { source: string; target: string; isLibraryEdge?: boolean; }
 
@@ -96,6 +98,31 @@ export class GraphProvider {
   /** Set while a pull-request view (src/vcs) is on screen: what to go back to, and its webview message. */
   private prView: { view: PrGraphView; back: { scope: Scope; title: string; savedGraphPath: string | undefined; dirty: boolean } } | undefined;
   private readonly prListeners = new Set<(active: number | null) => void>();
+  /** The panel and every browser tab mirroring it (src/browserView): host → view messages go through here. */
+  private readonly views = new ViewHub({
+    log: (line) => this.outputChannel.appendLine(line),
+    replay: () => this.replayMessages(),
+    forward: (message, viewId) => {
+      const outside = pathOutsideRoot(message, this.workspaceRoot());
+      if (outside !== null) {
+        this.outputChannel.appendLine(`[browser] refused ${String(message.type)} from ${viewId}: ${outside} is outside the view's root`);
+        return;
+      }
+      this.onViewMessage(message, viewId).catch((err: unknown) =>
+        this.outputChannel.appendLine(`[browser] ${String(message.type)} from ${viewId} failed: ${(err as Error).message}`));
+    },
+  });
+  /** gitAvailable of the last graph the panel got, for a late tab's replay. */
+  private lastGitAvailable = false;
+  /** The pill (src/tour): the last tour-availability, re-sent after every panel ready; none after the ×. */
+  private lastTourAvailability: object | undefined;
+  private tourDismissed = false;
+  private readonly tourStartListeners = new Set<() => void>();
+  /** This provider's id on the loopback server: 'main' for the workspace graph, its own for every other root. */
+  readonly browserViewId: string;
+  private static browserViewSeq = 0;
+  /** Set by extension.ts: what the panel's Open in browser button does (src/browserView/openInBrowser.ts). */
+  private browserOpener: ((provider: GraphProvider) => Promise<void>) | undefined;
   /** True while a background analysis (first full pass or cache reconcile) is still filling the graph. */
   private backgroundParsing = false;
   private readonly analysisIdleListeners = new Set<() => void>();
@@ -104,7 +131,7 @@ export class GraphProvider {
     getRoot: () => this.workspaceRoot() || undefined,
     getStructure: () => this.currentStructure,
     getGraph: () => this.cachedGraph,
-    post: (msg) => { this.panel?.webview.postMessage(msg); },
+    post: (msg) => { this.postToViews(msg); },
     log: (line) => this.outputChannel.appendLine(line),
     createProvider: (id) => (this._providerFactory ?? createProvider)(id, this.outputChannel),
     isAnalyzing: () => this.backgroundParsing,
@@ -157,6 +184,7 @@ export class GraphProvider {
     this.readOnlyUri = opts.readOnlyUri;
     this.closeOnLeave = !!opts.closeOnLeave;
     this.readOnlyWhy = opts.readOnlyReason;
+    this.browserViewId = opts.root ? `view-${++GraphProvider.browserViewSeq}` : MAIN_VIEW;
     this._outputChannel = opts.outputChannel; // shared by every pull-request panel: not one "CoGraph" channel per PR
     this.analyzerRunner = new AnalyzerRunner(
       context,
@@ -178,6 +206,9 @@ export class GraphProvider {
       () => this.analyzerRunner.resolvePythonBin(),
       () => this.outputChannel,
     );
+    // Read at post time: whatever panel is open then (tests assign one directly).
+    this.views.setPanel((m) => { void this.panel?.webview.postMessage(m); });
+    this.views.onClientCount((tabs) => { void this.panel?.webview.postMessage({ type: 'browser-status', tabs }); });
   }
 
   show() {
@@ -272,213 +303,13 @@ export class GraphProvider {
       this.currentSavedGraphPath = undefined;
       this.scope = NO_SCOPE;
       if (this.prView) { this.leavePullRequest(NO_SCOPE, false); }
+      this.views.closeClients(); // the panel owns the analysis: its tabs show their banner (webview.md D2)
     });
 
-    this.panel.webview.onDidReceiveMessage(async (message) => {
-      if (message.type === 'ready') {
-        this.readyGate?.markReady();   // webview listeners attached → deliver what waited
-      } else if (message.type === 'navigate') {
-        this.navigateTo(message.file, message.line);
-      } else if (message.type === 'open-docs') {
-        const { libraryName, language } = message;
-        let url: string;
-        if (language === 'python') {
-          url = `https://docs.python.org/3/library/${libraryName.split('.')[0]}`;
-        } else if (language === 'java') {
-          if (libraryName.startsWith('java.') || libraryName.startsWith('javax.')) {
-            const pkgPath = libraryName.replace(/\./g, '/');
-            url = `https://docs.oracle.com/en/java/javase/21/docs/api/java.base/${pkgPath}/package-summary.html`;
-          } else {
-            url = `https://javadoc.io/doc/${libraryName}`;
-          }
-        } else if (language === 'cpp') {
-          const q = encodeURIComponent(`${libraryName}::${message.functionName ?? ''}`);
-          url = `https://en.cppreference.com/mwiki/index.php?search=${q}`;
-        } else {
-          url = `https://www.npmjs.com/package/${libraryName}`;
-        }
-        vscode.env.openExternal(vscode.Uri.parse(url));
-      } else if (message.type === 'get-lib-description') {
-        const { libraryName, functionName, language, reqId } = message;
-        this.libraryDescriber.fetchLibDescription(libraryName, functionName, language, workspaceRoot)
-          .then(description => {
-            this.panel?.webview.postMessage({ type: 'lib-description', description, reqId });
-          });
-      } else if (message.type === 'get-func-source' && typeof message.maxLines === 'number') {
-        // Hover card peek (U3): signature, doc and the first body lines via funcBrief, no colorize.
-        const { file, line, reqId, maxLines } = message;
-        const r = readFuncSlice(file, (p) => fs.readFileSync(p, 'utf8'), { startLine: line, maxLines: Math.max(1, Math.min(80, maxLines)) });
-        this.panel?.webview.postMessage(r.ok
-          ? { type: 'func-source', reqId, source: r.source, signature: r.signature, doc: r.doc, body: r.body,
-            endLine: r.endLine, totalLines: r.totalLines, endReason: r.endReason }
-          : { type: 'func-source', reqId, source: '', error: r.error });
-      } else if (message.type === 'get-func-source') {
-        const { file, line, reqId } = message;
-        try {
-          const source = getFuncSource(file, line);
-          const endLine = line + source.split('\n').length - 1;
-          const ext = file.split('.').pop() ?? '';
-          const languageId = ext === 'py' ? 'python'
-            : ext === 'js' ? 'javascript'
-            : ext === 'java' ? 'java'
-            : (ext === 'cpp' || ext === 'cc' || ext === 'cxx' || ext === 'c++'
-                || ext === 'hpp' || ext === 'hh' || ext === 'hxx' || ext === 'h++'
-                || ext === 'h') ? 'cpp'
-            : 'typescript';
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const colorize = (vscode.languages as any).colorize;
-          if (typeof colorize === 'function') {
-            colorize(source, languageId, { tabSize: 4 }).then(
-              (colorizedHtml: string) => {
-                this.panel?.webview.postMessage({ type: 'func-source', source, colorizedHtml, endLine, reqId });
-              },
-              () => {
-                this.panel?.webview.postMessage({ type: 'func-source', source, endLine, reqId });
-              }
-            );
-          } else {
-            this.panel?.webview.postMessage({ type: 'func-source', source, endLine, reqId });
-          }
-        } catch (err: unknown) {
-          this.panel?.webview.postMessage({ type: 'func-source', source: '', error: (err as Error).message, reqId });
-        }
-      } else if (message.type === 'save-func-source') {
-        const { file, line, newSource, original, reqId } = message;
-        if (this.readOnly) {
-          this.panel?.webview.postMessage({ type: 'func-source-saved', reqId, ok: false, reason: this.readOnlyReason() });
-          return;
-        }
-        // The popup waits for this answer (funcSave.js) and keeps the edit on a refusal.
-        const reply = (m: object) => this.panel?.webview.postMessage({ type: 'func-source-saved', reqId, ...m });
-        try {
-          saveFuncSource(file, line, newSource, original);
-          this.refreshGitStatus(workspaceRoot);
-          this.analyzerRunner.scheduleReanalysis(workspaceRoot);
-          if (reqId !== undefined) { reply({ ok: true }); }
-        } catch (err: unknown) {
-          // The webview already coloured the node as modified: undo that.
-          this.refreshGitStatus(workspaceRoot);
-          const reason = (err as Error).message;
-          if (reqId === undefined) {
-            vscode.window.showErrorMessage(`CoGraph: Failed to save — ${reason}`);
-          } else {
-            let found: { line: number; source: string } | null = null;
-            try { found = typeof original === 'string' ? relocateFuncSource(file, line, original) : null; } catch { found = null; }
-            reply({ ok: false, reason, current: found?.source, line: found?.line });
-          }
-        }
-      } else if (message.type === 'request-rename-folder' || message.type === 'request-new-file') {
-        if (this.readOnly) { vscode.window.showInformationMessage(`CoGraph: ${this.readOnlyReason()}`); return; }
-        if (message.type === 'request-new-file') { await this.createFileIn(workspaceRoot, String(message.folderPath ?? '')); return; }
-        const { folderPath } = message;
-        const newName = await vscode.window.showInputBox({
-          prompt: 'Rename folder',
-          value: path.basename(folderPath),
-          validateInput: v => v.trim() ? null : 'Name cannot be empty',
-        });
-        if (newName?.trim() && newName !== path.basename(folderPath)) {
-          const newFolderUri = vscode.Uri.file(path.join(path.dirname(folderPath), newName.trim()));
-          await vscode.workspace.fs.rename(vscode.Uri.file(folderPath), newFolderUri);
-          this.analyzerRunner.scheduleReanalysis(workspaceRoot);
-        }
-      } else if (message.type === 'perf-report') {
-        // Local-only instrumentation (cograph.debug.perfLog) — see src/webview/perf.js.
-        this.outputChannel.appendLine(`[perf] ${JSON.stringify(message.report)}`);
-      } else if (message.type === 'webview-log') {
-        // Structured webview diagnostics (e.g. simulation workers falling back).
-        this.outputChannel.appendLine(`[webview] ${JSON.stringify(message.entry)}`);
-      } else if (message.type === 'dirty-state') {
-        if (!this.readOnly) { this.setDirty(!!message.dirty); } // a read-only view is never "unsaved"
-      } else if (message.type === 'retry-analysis') {
-        // Triggered from the empty-state Retry button: re-run as a fresh initial
-        // load (with backoff) so a transient/unready failure can recover.
-        this.cachedNodes = [];
-        this.cachedGraph = undefined;
-        if (this.panel) { this.panel.webview.html = getLoadingHtml(); }
-        this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
-      } else if (message.type === 'expand-folder') {
-        // Lazy per-folder parse: analyze just this folder's files on demand.
-        this.parseSubset(workspaceRoot, this.inScope(message.files ?? []), message.folderPath);
-      } else if (message.type === 'parse-file') {
-        const filePath: string = message.filePath ?? '';
-        this.parseSubset(workspaceRoot, this.inScope(filePath ? [filePath] : []), path.dirname(filePath));
-      } else if (message.type === 'subgraph-include' || message.type === 'subgraph-exclude') {
-        this.editScope(message.type === 'subgraph-include', String(message.path ?? ''));
-      } else if (message.type === 'subgraph-exit') {
-        this.exitScope();
-      } else if (message.type === 'cancel-analysis') {
-        this.analyzerRunner.killAll();
-        this.setBackgroundParsing(false);
-        this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false, cancelled: true });
-      } else if (message.type === 'get-annotations') {
-        // The hover card asks once it has loaded, so this can never race `graph`/`structure`.
-        this.annotations.refresh();
-      } else if (message.type === 'save-graph') {
-        if (this.readOnly) { vscode.window.showInformationMessage(`CoGraph: ${this.readOnlyReason()}`); return; }
-        if (this.prView) {
-          vscode.window.showInformationMessage('CoGraph: A pull-request view is not saved — it follows the pull request. Leave it to save a layout.');
-          return;
-        }
-        const isSaveAs = message.mode === 'save-as' || !this.currentSavedGraphPath;
-        let targetPath: string;
-        let name: string;
-
-        if (isSaveAs) {
-          const currentClean = this.getCleanTitle();
-          const defaultName = this.scope.source === 'folder'
-            ? path.basename(this.scope.spec.include[0] ?? '') || 'Subgraph'
-            : currentClean && currentClean !== 'CoGraph' ? currentClean : 'My Layout';
-          const input = await vscode.window.showInputBox({
-            prompt: 'Name this graph layout',
-            value: defaultName,
-            validateInput: v => v.trim() ? null : 'Name cannot be empty',
-          });
-          if (!input?.trim()) { return; }
-          name = input.trim();
-          const dir = path.join(workspaceRoot, '.cograph');
-          if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-          const filename = name.replace(/[^a-zA-Z0-9_\- ]/g, '_') + '.json';
-          targetPath = path.join(dir, filename);
-        } else {
-          targetPath = this.currentSavedGraphPath!;
-          try {
-            const existing = JSON.parse(fs.readFileSync(targetPath, 'utf8'));
-            name = existing.name ?? path.basename(targetPath, '.json');
-          } catch {
-            name = path.basename(targetPath, '.json');
-          }
-        }
-
-        const data = {
-          version: SAVED_LAYOUT_VERSION,
-          name,
-          description: '',
-          savedAt: new Date().toISOString(),
-          ...message.payload,
-          // The host's scope is authoritative; a webview-provided copy is overwritten, never merged.
-          ...(hasScope(this.scope) ? { subgraph: this.scope.spec } : {}),
-        };
-        try {
-          fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), 'utf8');
-        } catch (err: unknown) {
-          vscode.window.showErrorMessage(`CoGraph: Failed to save — ${(err as Error).message}`);
-          return;
-        }
-        this.currentSavedGraphPath = targetPath;
-        this.isDirty = false;
-        this.setPanelTitle(name);
-        if (hasScope(this.scope)) {
-          // A saved scope is a subgraph now; re-send so the panel's section header shows the name.
-          this.scope = { ...this.scope, source: 'subgraph', name };
-          this.postSubgraph();
-        }
-        this.panel?.webview.postMessage({ type: 'clear-dirty' });
-        this._sidebar?.refresh();
-        this._sidebar?.setCurrentGraph({ name, file: targetPath });
-        vscode.window.showInformationMessage(
-          isSaveAs ? `CoGraph: Layout saved as "${name}".` : `CoGraph: Saved "${name}".`,
-        );
-      }
+    // Panel and browser tabs share one handler (src/browserView); the panel is the active view while it talks.
+    this.panel.webview.onDidReceiveMessage((message) => {
+      this.views.notePanelMessage(message);
+      return this.onViewMessage(message, PANEL_VIEW);
     });
 
     // Cheap, parse-free structure scan → instant folder skeleton for large repos.
@@ -513,6 +344,222 @@ export class GraphProvider {
       this.panel.webview.html = getLoadingHtml();
     }
     this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
+  }
+
+  /**
+   * A message from one of this provider's views: the panel (`PANEL_VIEW`) or a browser
+   * tab (its client id). Moved unchanged out of show(); `ready` of a tab never gets here,
+   * the hub opens that tab's own gate.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async onViewMessage(message: any, viewId: string): Promise<void> {
+    const workspaceRoot = this.workspaceRoot();
+    if (this.onDoorwayMessage(message, viewId)) { return; }
+    if (message.type === 'ready') {
+      this.readyGate?.markReady();   // webview listeners attached → deliver what waited
+      this.resendTourAvailability();
+    } else if (message.type === 'navigate') {
+      this.navigateTo(message.file, message.line);
+    } else if (message.type === 'open-docs') {
+      const { libraryName, language } = message;
+      let url: string;
+      if (language === 'python') {
+        url = `https://docs.python.org/3/library/${libraryName.split('.')[0]}`;
+      } else if (language === 'java') {
+        if (libraryName.startsWith('java.') || libraryName.startsWith('javax.')) {
+          const pkgPath = libraryName.replace(/\./g, '/');
+          url = `https://docs.oracle.com/en/java/javase/21/docs/api/java.base/${pkgPath}/package-summary.html`;
+        } else {
+          url = `https://javadoc.io/doc/${libraryName}`;
+        }
+      } else if (language === 'cpp') {
+        const q = encodeURIComponent(`${libraryName}::${message.functionName ?? ''}`);
+        url = `https://en.cppreference.com/mwiki/index.php?search=${q}`;
+      } else {
+        url = `https://www.npmjs.com/package/${libraryName}`;
+      }
+      vscode.env.openExternal(vscode.Uri.parse(url));
+    } else if (message.type === 'get-lib-description') {
+      const { libraryName, functionName, language, reqId } = message;
+      this.libraryDescriber.fetchLibDescription(libraryName, functionName, language, workspaceRoot)
+        .then(description => {
+          this.postToViews({ type: 'lib-description', description, reqId });
+        });
+    } else if (message.type === 'get-func-source' && typeof message.maxLines === 'number') {
+      // Hover card peek (U3): signature, doc and the first body lines via funcBrief, no colorize.
+      const { file, line, reqId, maxLines } = message;
+      const r = readFuncSlice(file, (p) => fs.readFileSync(p, 'utf8'), { startLine: line, maxLines: Math.max(1, Math.min(80, maxLines)) });
+      this.postToViews(r.ok
+        ? { type: 'func-source', reqId, source: r.source, signature: r.signature, doc: r.doc, body: r.body,
+          endLine: r.endLine, totalLines: r.totalLines, endReason: r.endReason }
+        : { type: 'func-source', reqId, source: '', error: r.error });
+    } else if (message.type === 'get-func-source') {
+      const { file, line, reqId } = message;
+      try {
+        const source = getFuncSource(file, line);
+        const endLine = line + source.split('\n').length - 1;
+        const ext = file.split('.').pop() ?? '';
+        const languageId = ext === 'py' ? 'python'
+          : ext === 'js' ? 'javascript'
+          : ext === 'java' ? 'java'
+          : (ext === 'cpp' || ext === 'cc' || ext === 'cxx' || ext === 'c++'
+              || ext === 'hpp' || ext === 'hh' || ext === 'hxx' || ext === 'h++'
+              || ext === 'h') ? 'cpp'
+          : 'typescript';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const colorize = (vscode.languages as any).colorize;
+        if (typeof colorize === 'function') {
+          colorize(source, languageId, { tabSize: 4 }).then(
+            (colorizedHtml: string) => {
+              this.postToViews({ type: 'func-source', source, colorizedHtml, endLine, reqId });
+            },
+            () => {
+              this.postToViews({ type: 'func-source', source, endLine, reqId });
+            }
+          );
+        } else {
+          this.postToViews({ type: 'func-source', source, endLine, reqId });
+        }
+      } catch (err: unknown) {
+        this.postToViews({ type: 'func-source', source: '', error: (err as Error).message, reqId });
+      }
+    } else if (message.type === 'save-func-source') {
+      const { file, line, newSource, original, reqId } = message;
+      if (this.readOnly) {
+        this.postToViews({ type: 'func-source-saved', reqId, ok: false, reason: this.readOnlyReason() });
+        return;
+      }
+      // The popup waits for this answer (funcSave.js) and keeps the edit on a refusal.
+      const reply = (m: object) => this.postToViews({ type: 'func-source-saved', reqId, ...m });
+      try {
+        saveFuncSource(file, line, newSource, original);
+        this.refreshGitStatus(workspaceRoot);
+        this.analyzerRunner.scheduleReanalysis(workspaceRoot);
+        if (reqId !== undefined) { reply({ ok: true }); }
+      } catch (err: unknown) {
+        // The webview already coloured the node as modified: undo that.
+        this.refreshGitStatus(workspaceRoot);
+        const reason = (err as Error).message;
+        if (reqId === undefined) {
+          vscode.window.showErrorMessage(`CoGraph: Failed to save — ${reason}`);
+        } else {
+          let found: { line: number; source: string } | null = null;
+          try { found = typeof original === 'string' ? relocateFuncSource(file, line, original) : null; } catch { found = null; }
+          reply({ ok: false, reason, current: found?.source, line: found?.line });
+        }
+      }
+    } else if (message.type === 'request-rename-folder' || message.type === 'request-new-file') {
+      if (this.readOnly) { vscode.window.showInformationMessage(`CoGraph: ${this.readOnlyReason()}`); return; }
+      if (message.type === 'request-new-file') { await this.createFileIn(workspaceRoot, String(message.folderPath ?? '')); return; }
+      const { folderPath } = message;
+      const newName = await vscode.window.showInputBox({
+        prompt: 'Rename folder',
+        value: path.basename(folderPath),
+        validateInput: v => v.trim() ? null : 'Name cannot be empty',
+      });
+      if (newName?.trim() && newName !== path.basename(folderPath)) {
+        const newFolderUri = vscode.Uri.file(path.join(path.dirname(folderPath), newName.trim()));
+        await vscode.workspace.fs.rename(vscode.Uri.file(folderPath), newFolderUri);
+        this.analyzerRunner.scheduleReanalysis(workspaceRoot);
+      }
+    } else if (message.type === 'perf-report') {
+      // Local-only instrumentation (cograph.debug.perfLog) — see src/webview/perf.js.
+      this.outputChannel.appendLine(`[perf] ${JSON.stringify(message.report)}`);
+    } else if (message.type === 'webview-log') {
+      // Structured webview diagnostics (e.g. simulation workers falling back).
+      this.outputChannel.appendLine(`[webview] ${JSON.stringify(message.entry)}`);
+    } else if (message.type === 'dirty-state') {
+      if (!this.readOnly) { this.setDirty(!!message.dirty); } // a read-only view is never "unsaved"
+    } else if (message.type === 'retry-analysis') {
+      // Triggered from the empty-state Retry button: re-run as a fresh initial
+      // load (with backoff) so a transient/unready failure can recover.
+      this.cachedNodes = [];
+      this.cachedGraph = undefined;
+      if (this.panel) { this.panel.webview.html = getLoadingHtml(); }
+      this.analyzerRunner.run(workspaceRoot, { allowRetry: true });
+    } else if (message.type === 'expand-folder') {
+      // Lazy per-folder parse: analyze just this folder's files on demand.
+      this.parseSubset(workspaceRoot, this.inScope(message.files ?? []), message.folderPath);
+    } else if (message.type === 'parse-file') {
+      const filePath: string = message.filePath ?? '';
+      this.parseSubset(workspaceRoot, this.inScope(filePath ? [filePath] : []), path.dirname(filePath));
+    } else if (message.type === 'subgraph-include' || message.type === 'subgraph-exclude') {
+      this.editScope(message.type === 'subgraph-include', String(message.path ?? ''));
+    } else if (message.type === 'subgraph-exit') {
+      this.exitScope();
+    } else if (message.type === 'cancel-analysis') {
+      this.analyzerRunner.killAll();
+      this.setBackgroundParsing(false);
+      this.postToViews({ type: 'analysis-state', backgroundParsing: false, cancelled: true });
+    } else if (message.type === 'get-annotations') {
+      // The hover card asks once it has loaded, so this can never race `graph`/`structure`.
+      this.annotations.refresh();
+    } else if (message.type === 'save-graph') {
+      if (this.readOnly) { vscode.window.showInformationMessage(`CoGraph: ${this.readOnlyReason()}`); return; }
+      if (this.prView) {
+        vscode.window.showInformationMessage('CoGraph: A pull-request view is not saved — it follows the pull request. Leave it to save a layout.');
+        return;
+      }
+      const isSaveAs = message.mode === 'save-as' || !this.currentSavedGraphPath;
+      let targetPath: string;
+      let name: string;
+
+      if (isSaveAs) {
+        const currentClean = this.getCleanTitle();
+        const defaultName = this.scope.source === 'folder'
+          ? path.basename(this.scope.spec.include[0] ?? '') || 'Subgraph'
+          : currentClean && currentClean !== 'CoGraph' ? currentClean : 'My Layout';
+        const input = await vscode.window.showInputBox({
+          prompt: 'Name this graph layout',
+          value: defaultName,
+          validateInput: v => v.trim() ? null : 'Name cannot be empty',
+        });
+        if (!input?.trim()) { return; }
+        name = input.trim();
+        const dir = path.join(workspaceRoot, '.cograph');
+        if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+        const filename = name.replace(/[^a-zA-Z0-9_\- ]/g, '_') + '.json';
+        targetPath = path.join(dir, filename);
+      } else {
+        targetPath = this.currentSavedGraphPath!;
+        try {
+          const existing = JSON.parse(fs.readFileSync(targetPath, 'utf8'));
+          name = existing.name ?? path.basename(targetPath, '.json');
+        } catch {
+          name = path.basename(targetPath, '.json');
+        }
+      }
+
+      const data = {
+        version: SAVED_LAYOUT_VERSION,
+        name,
+        description: '',
+        savedAt: new Date().toISOString(),
+        ...message.payload,
+        // The host's scope is authoritative; a webview-provided copy is overwritten, never merged.
+        ...(hasScope(this.scope) ? { subgraph: this.scope.spec } : {}),
+      };
+      try {
+        fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), 'utf8');
+      } catch (err: unknown) {
+        vscode.window.showErrorMessage(`CoGraph: Failed to save — ${(err as Error).message}`);
+        return;
+      }
+      this.currentSavedGraphPath = targetPath;
+      this.isDirty = false;
+      this.setPanelTitle(name);
+      if (hasScope(this.scope)) {
+        // A saved scope is a subgraph now; re-send so the panel's section header shows the name.
+        this.scope = { ...this.scope, source: 'subgraph', name };
+        this.postSubgraph();
+      }
+      this.postToViews({ type: 'clear-dirty' });
+      this._sidebar?.refresh();
+      this._sidebar?.setCurrentGraph({ name, file: targetPath });
+      vscode.window.showInformationMessage(
+        isSaveAs ? `CoGraph: Layout saved as "${name}".` : `CoGraph: Saved "${name}".`,
+      );
+    }
   }
 
   isOpen(): boolean {
@@ -583,13 +630,13 @@ export class GraphProvider {
   }
 
   reloadLayout(): void {
-    this.panel?.webview.postMessage({ type: 'reload-layout' });
+    this.postToViews({ type: 'reload-layout' });
   }
 
   /** Live-push cograph.layout.defaultMode to the open webview (no reopen needed). */
   pushLayoutConfig(): void {
     const cfg = vscode.workspace.getConfiguration('cograph');
-    this.panel?.webview.postMessage({
+    this.postToViews({
       type: 'config',
       defaultEngine: cfg.get<string>('layout.defaultEngine', 'shelf') ?? 'shelf',
       defaultMode: cfg.get<string>('layout.defaultMode', 'static') ?? 'static',
@@ -662,7 +709,7 @@ export class GraphProvider {
     // Through the ready gate when one exists: on a slow cold open the 2 s fallback
     // above can fire while `graph` is still queued — graph-loaded must stay behind it.
     const loaded = { type: 'graph-loaded', payload: data };
-    if (this.readyGate) { this.readyGate.post(loaded); } else { void this.panel?.webview.postMessage(loaded); }
+    if (this.readyGate) { this.readyGate.post(loaded); } else { this.postToViews(loaded); }
     if (name && filePath) {
       this._sidebar?.setCurrentGraph({ name, file: filePath });
     }
@@ -791,7 +838,7 @@ export class GraphProvider {
   /** Ask the webview to post a `save-graph` message back with the current state. */
   requestSave(mode: 'save' | 'save-as'): void {
     if (!this.panel) { return; }
-    this.panel.webview.postMessage({ type: 'save-request', mode });
+    this.views.postToActive({ type: 'save-request', mode });
   }
 
   /** Show error in the panel (if alive) and as a VS Code notification. */
@@ -807,7 +854,7 @@ export class GraphProvider {
     if (!this.panel || this.cachedNodes.length === 0) { return; }
     this.gitService.applyGitStatuses(this.cachedNodes, workspaceRoot);
     this.rememberSentGitStatus(this.cachedNodes);
-    this.panel.webview.postMessage(this.scopedGitUpdate(this.cachedNodes));
+    this.postToViews(this.scopedGitUpdate(this.cachedNodes));
   }
 
   /**
@@ -826,7 +873,7 @@ export class GraphProvider {
     const changed = nodes.filter(n => this.sentGitStatus.get(n.id) !== gitStatusKey(n));
     this.rememberSentGitStatus(changed);
     if (changed.length === 0 && !this.gitFileStatusChanged()) { return; }
-    this.panel.webview.postMessage(this.scopedGitUpdate(changed));
+    this.postToViews(this.scopedGitUpdate(changed));
   }
 
   private rememberSentGitStatus(nodes: GraphNode[]): void {
@@ -868,6 +915,7 @@ export class GraphProvider {
 
     const isReanalysis = this.cachedNodes.length > 0;
     const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, workspaceRoot);
+    this.lastGitAvailable = gitAvailable;
     const fileGitStatus = this.gitService.fileStatuses;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
     this.cachedGraph = graph;
@@ -880,10 +928,10 @@ export class GraphProvider {
 
     if (isReanalysis || this.skeletonActive) {
       // Webview already up (reanalysis) or showing the skeleton — deliver data without resetting the view.
-      this.panel.webview.postMessage(this.scoped({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: true }));
+      this.postToViews(this.scoped({ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: true }));
       if (this.skeletonActive) {
         // Background full pass finished — hide the Stop button / progress indicator.
-        this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
+        this.postToViews({ type: 'analysis-state', backgroundParsing: false });
       }
     } else {
       this.loadGraphHtml([{ type: 'graph', data: graph, gitAvailable, fileGitStatus, isReanalysis: false }]);
@@ -901,6 +949,7 @@ export class GraphProvider {
     this.readyGate ??= new WebviewReadyGate((m) => { void this.panel?.webview.postMessage(m); });
     panel.webview.html = getWebviewHtml(panel.webview, this.context.extensionUri);
     this.readyGate.arm();
+    this.views.reloadClients(); // a new document: open tabs rebuild from the replay, as the panel does
     // `subgraph` goes first so the webview's first frame build is already scoped (no flash of the whole project).
     this.readyGate.post(this.subgraphMessage(this.workspaceRoot()));
     if (this.prView) { this.readyGate.post(this.prView.view.message); } // before `structure`: the first build opens the PR's folders
@@ -929,7 +978,7 @@ export class GraphProvider {
    */
   private async parseSubset(workspaceRoot: string, files: string[], folderTag: string): Promise<void> {
     if (!this.panel || files.length === 0) { return; }
-    this.panel.webview.postMessage({ type: 'analysis-state', parsingFolder: folderTag });
+    this.postToViews({ type: 'analysis-state', parsingFolder: folderTag });
     try {
       const patch = await this.analyzerRunner.runSubset(workspaceRoot, files);
       // splice (not bare merge) so re-expanding a folder drops nodes for functions
@@ -939,7 +988,7 @@ export class GraphProvider {
       this.cachedNodes = this.cachedGraph.nodes.filter(n => !n.isLibrary);
       this.gitService.applyGitStatuses(this.cachedGraph.nodes, workspaceRoot);
       if (this.currentStructure) { scheduleCacheWrite(workspaceRoot, this.cachedGraph, this.currentStructure); }
-      this.panel?.webview.postMessage(this.scoped({
+      this.postToViews(this.scoped({
         type: 'graph-patch',
         patch,
         parsedFolder: folderTag,
@@ -948,7 +997,7 @@ export class GraphProvider {
       }));
     } catch (err: unknown) {
       this.outputChannel.appendLine(`Subset parse failed for ${folderTag}: ${(err as Error).message}`);
-      this.panel?.webview.postMessage({ type: 'analysis-state', parsingFolder: folderTag, error: (err as Error).message });
+      this.postToViews({ type: 'analysis-state', parsingFolder: folderTag, error: (err as Error).message });
     }
   }
 
@@ -968,6 +1017,7 @@ export class GraphProvider {
     this.cachedGraph = graph;
     this.cachedNodes = graph.nodes.filter(n => !n.isLibrary);
     const gitAvailable = this.gitService.applyGitStatuses(graph.nodes, workspaceRoot);
+    this.lastGitAvailable = gitAvailable;
     const fileGitStatus = this.gitService.fileStatuses;
     if (this.graphReadyResolve) { this.graphReadyResolve(); this.graphReadyResolve = undefined; }
 
@@ -991,7 +1041,7 @@ export class GraphProvider {
     if (structure) { scheduleCacheWrite(workspaceRoot, this.cachedGraph, structure); }
     // Files outside the scope are still parsed so the (unscoped) cache stays right; the post is scoped.
     const msg = this.scoped({ type: 'graph-patch', patch, replacedFiles: files, fileGitStatus: this.gitService.fileStatuses });
-    if (msg.patch.nodes.length || msg.replacedFiles.length) { this.panel?.webview.postMessage(msg); }
+    if (msg.patch.nodes.length || msg.replacedFiles.length) { this.postToViews(msg); }
     // Changed files only turn their summaries "outdated"; nothing is re-sent to the AI here.
     this.annotations.refresh();
   }
@@ -1000,14 +1050,14 @@ export class GraphProvider {
   private async reconcileChangedFiles(workspaceRoot: string, structure: StructureTree, changed: string[]): Promise<void> {
     if (!this.panel || changed.length === 0) { return; }
     this.setBackgroundParsing(true);
-    this.panel.webview.postMessage({ type: 'analysis-state', backgroundParsing: true });
+    this.postToViews({ type: 'analysis-state', backgroundParsing: true });
     try {
       await this.reparseAndPatch(workspaceRoot, changed, structure);
     } catch (err: unknown) {
       this.outputChannel.appendLine(`Cache reconcile failed: ${(err as Error).message}`);
     } finally {
       this.setBackgroundParsing(false);
-      this.panel?.webview.postMessage({ type: 'analysis-state', backgroundParsing: false });
+      this.postToViews({ type: 'analysis-state', backgroundParsing: false });
     }
   }
 
@@ -1183,7 +1233,7 @@ export class GraphProvider {
     const added = [...after].filter(f => !before.has(f));
     if (removed.length) {
       // Not through scoped(): the files to prune are, by definition, outside the new scope.
-      this.panel.webview.postMessage({
+      this.postToViews({
         type: 'graph-patch', patch: { nodes: [], edges: [] }, replacedFiles: removed,
         fileGitStatus: filterFileStatuses(this.gitService.fileStatuses, next.spec, root),
       });
@@ -1193,7 +1243,7 @@ export class GraphProvider {
     const cached = added.filter(f => known.has(f));
     const missing = added.filter(f => !known.has(f));
     if (cached.length) {
-      this.panel.webview.postMessage(this.scoped({
+      this.postToViews(this.scoped({
         type: 'graph-patch', patch: graphForFiles(graph, cached), replacedFiles: cached, fileGitStatus: this.gitService.fileStatuses,
       }));
     }
@@ -1252,7 +1302,7 @@ export class GraphProvider {
     } else {
       this.panel.reveal();
       // pr-view first: the webview snapshots the layout it will restore before the scope changes it.
-      this.panel.webview.postMessage(view.message);
+      this.postToViews(view.message);
       this.gitService.applyGitStatuses(this.cachedGraph?.nodes ?? [], this.workspaceRoot());
       this.setScope(scope);
       this.postAllGitStatuses();
@@ -1287,7 +1337,7 @@ export class GraphProvider {
       this.gitService.applyGitStatuses(this.cachedGraph?.nodes ?? [], root);
       this.setScope(next);
       this.postAllGitStatuses();
-      this.panel.webview.postMessage({
+      this.postToViews({
         type: 'pr-view', active: false, restore,
         fileGitStatus: filterFileStatuses(this.gitService.fileStatuses, next.spec, root),
       });
@@ -1301,7 +1351,7 @@ export class GraphProvider {
   private postAllGitStatuses(): void {
     if (!this.panel) { return; }
     this.rememberSentGitStatus(this.cachedNodes);
-    this.panel.webview.postMessage(this.scopedGitUpdate(this.cachedNodes));
+    this.postToViews(this.scopedGitUpdate(this.cachedNodes));
   }
 
   private scopeTitle(): string {
@@ -1320,7 +1370,7 @@ export class GraphProvider {
   }
 
   private postSubgraph(): void {
-    this.panel?.webview.postMessage(this.subgraphMessage(this.workspaceRoot()));
+    this.postToViews(this.subgraphMessage(this.workspaceRoot()));
   }
 
   /** Absolute file paths the current scope keeps. */
@@ -1355,6 +1405,90 @@ export class GraphProvider {
       nodes: kept.map(n => ({ id: n.id, gitStatus: n.gitStatus })),
       fileGitStatus: filterFileStatuses(this.gitService.fileStatuses, spec, root),
     };
+  }
+
+  // ── Browser views (src/browserView) and the tour pill ─────────────────────
+
+  /** Every host → view message: the panel and each browser tab mirroring it. */
+  postToViews(message: object): void {
+    if ((message as { type?: unknown }).type === 'tour-availability') {
+      // The pill belongs to the user's own graph: never in a pull-request panel, never again after its ×.
+      if (this.readOnly || this.tourDismissed) { return; }
+      this.lastTourAvailability = message;
+    }
+    this.views.post(message);
+  }
+
+  /**
+   * What a view opening now needs to show what the panel shows, in the panel's order
+   * (docs/tour-protocol.md section 4): subgraph first (no flash of the whole project), the
+   * PR view before structure (its first build opens the PR's folders), then graph and git,
+   * each through the scope.
+   */
+  replayMessages(): object[] {
+    const root = this.workspaceRoot();
+    const out: object[] = [this.subgraphMessage(root)];
+    if (this.prView) { out.push(this.prView.view.message); }
+    if (this.skeletonActive && this.currentStructure) { out.push({ type: 'structure', tree: this.currentStructure, autoEngage: true }); }
+    if (this.cachedGraph) {
+      out.push(this.scoped({
+        type: 'graph', data: this.cachedGraph, gitAvailable: this.lastGitAvailable,
+        fileGitStatus: this.gitService.fileStatuses, isReanalysis: false,
+      }));
+      out.push(this.scopedGitUpdate(this.cachedNodes));
+    }
+    return out;
+  }
+
+  /** BrowserServer's MirroredView: a tab's stream opened. */
+  attachView(clientId: string, sink: ClientSink): () => void { return this.views.attachClient(clientId, sink); }
+
+  /** BrowserServer's MirroredView: a tab posted a message. */
+  receiveFromView(clientId: string, message: Record<string, unknown>): void { this.views.receive(clientId, message); }
+
+  /** The directory this provider's graph is rooted at (a tour's stageRoot). */
+  viewRoot(): string { return this.workspaceRoot(); }
+
+  browserTabs(): number { return this.views.clientCount(); }
+
+  setBrowserOpener(opener: (provider: GraphProvider) => Promise<void>): void { this.browserOpener = opener; }
+
+  /** One sentence under the panel's Open in browser button (e.g. the feature is switched off). */
+  postBrowserNote(note: string): void {
+    void this.panel?.webview.postMessage({ type: 'browser-status', tabs: this.views.clientCount(), note });
+  }
+
+  /** The pill's click (tour-start); src/tour runs the tour from here. */
+  onTourStart(listener: () => void): { dispose(): void } {
+    this.tourStartListeners.add(listener);
+    return { dispose: () => this.tourStartListeners.delete(listener) };
+  }
+
+  /** open-browser, tour-start, tour-dismiss; true when handled. */
+  private onDoorwayMessage(message: { type?: unknown }, viewId: string): boolean {
+    if (message.type === 'open-browser') {
+      if (!this.browserOpener) { this.postBrowserNote('Open in browser is not available in this window.'); return true; }
+      this.browserOpener(this).catch((err: unknown) =>
+        this.outputChannel.appendLine(`[browser] open from ${viewId} failed: ${(err as Error).message}`));
+      return true;
+    }
+    if (message.type === 'tour-start') {
+      for (const listener of [...this.tourStartListeners]) {
+        try { listener(); } catch (err) { this.outputChannel.appendLine(`[tour] start failed: ${(err as Error).message}`); }
+      }
+      return true;
+    }
+    if (message.type === 'tour-dismiss') {
+      this.tourDismissed = true; // for this session: the webview already hid it
+      this.lastTourAvailability = undefined;
+      return true;
+    }
+    return false;
+  }
+
+  /** After a panel ready: the panel's document is new, the pill state is not. */
+  private resendTourAvailability(): void {
+    if (this.lastTourAvailability) { void this.panel?.webview.postMessage(this.lastTourAvailability); }
   }
 
   // ── Thin delegates kept for test compatibility ────────────────────────────

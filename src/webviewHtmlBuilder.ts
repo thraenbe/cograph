@@ -169,12 +169,32 @@ function bundledWebviewAssets(
   };
 }
 
+/** Tags a browser page adds around the stage (src/browserView/browserHtml.ts); `nonce` is this page's. */
+export interface WebviewHtmlInject {
+  /** Inside <head>, after the stylesheet (theme variables). */
+  head?: string;
+  /** Before every stage script (inline page config). */
+  before?: string;
+  /** After every stage script (the tour layer). */
+  after?: string;
+}
+
+export interface WebviewHtmlOptions {
+  timelineMode?: boolean;
+  /** 'browser': the page is served by the loopback server (docs/tour-protocol.md section 4). */
+  transport?: 'vscode' | 'browser';
+  /** Browser transport: the theme kind the page stands in for (VS Code sets the body class itself). */
+  theme?: 'dark' | 'light';
+  inject?: (nonce: string) => WebviewHtmlInject;
+}
+
 export function getWebviewHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
-  opts: { timelineMode?: boolean } = {},
+  opts: WebviewHtmlOptions = {},
 ): string {
   const timelineMode = opts.timelineMode === true;
+  const browser = opts.transport === 'browser';
   const webviewDir = vscode.Uri.joinPath(extensionUri, 'src', 'webview');
   const stateUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'state.js'));
   const aggregateUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'aggregate.js'));
@@ -221,6 +241,19 @@ export function getWebviewHtml(
   const hoverPinUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverPin.js'));
   const stylesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
   const nonce = crypto.randomBytes(16).toString('hex');
+  // Cache-busting suffix; a browser-transport URI already carries `?token=`.
+  const bust = (uri: { toString(): string }): string => {
+    const s = uri.toString();
+    return `${s}${s.includes('?') ? '&' : '?'}v=${nonce}`;
+  };
+  const inject = opts.inject?.(nonce) ?? {};
+  const bridgeTag = browser
+    ? `<script nonce="${nonce}" src="${bust(webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'browserBridge.js')))}"></script>`
+    : '';
+  // The panel opens a browser tab; inside that tab the button would open a second copy of itself.
+  const browserButtonHtml = browser ? '' : `
+      <button id="btn-open-browser" class="tl-btn" title="Open this graph in your browser">Open in browser</button>
+      <p id="browser-status" class="browser-status" style="display:none"></p>`;
 
   // Boot config injected before state.js — no message-ordering race. Settings
   // that do not exist yet fall back to their defaults.
@@ -260,7 +293,7 @@ export function getWebviewHtml(
       </div>
     </div>` : '';
   const timelineScriptTag = timelineMode
-    ? `<script nonce="${nonce}" src="${timelineUri}?v=${nonce}"></script>`
+    ? `<script nonce="${nonce}" src="${bust(timelineUri)}"></script>`
     : '';
 
   return `<!DOCTYPE html>
@@ -269,19 +302,24 @@ export function getWebviewHtml(
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none';
-             script-src 'nonce-${nonce}'${bundled.d3IsLocal ? '' : ' https://cdnjs.cloudflare.com'};
+             script-src 'nonce-${nonce}'${browser ? " 'self'" : ''}${bundled.d3IsLocal ? '' : ' https://cdnjs.cloudflare.com'};
              style-src 'unsafe-inline' ${webview.cspSource};
              img-src ${webview.cspSource} data:;
              worker-src blob:;
              connect-src ${webview.cspSource};" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CoGraph</title>
-  <link rel="stylesheet" href="${stylesUri}?v=${nonce}" />
+  <link rel="stylesheet" href="${bust(stylesUri)}" />
+  ${inject.head ?? ''}
   <script nonce="${nonce}" src="${bundled.d3Src}"></script>
 </head>
-<body>
+<body${browser ? ` class="vscode-${opts.theme === 'light' ? 'light' : 'dark'} cg-browser"` : ''}>
   <div id="graph"></div>
   <div id="flow-notice">Dagre layout not available in D3 mode</div>
+  <div id="tour-pill" role="group" aria-label="PR tour" hidden>
+    <button id="tour-pill-start" type="button"><span class="tour-pill-label">Take the PR tour</span><span id="tour-pill-sub" class="tour-pill-sub"></span></button>
+    <button id="tour-pill-dismiss" type="button" title="Hide for this session" aria-label="Hide the PR tour button">&#x2715;</button>
+  </div>
   <div id="top-left-controls">
     <div id="panel-layout" class="tl-panel">
       <div class="layout-group">
@@ -392,7 +430,7 @@ export function getWebviewHtml(
       <button id="btn-class-mode" class="tl-btn active" title="Toggle class structure overlay">Class</button>
     </div>
     <div id="panel-actions" class="tl-panel">
-      <button id="btn-save-graph" class="tl-btn" title="Save graph layout">Save Layout</button>
+      <button id="btn-save-graph" class="tl-btn" title="Save graph layout">Save Layout</button>${browserButtonHtml}
     </div>
   </div>
   ${timelinePanelHtml}
@@ -493,51 +531,55 @@ export function getWebviewHtml(
 <div id="ctx-menu" style="display:none">
     <ul id="ctx-menu-list"></ul>
   </div>
+  ${inject.before ?? ''}
+  ${bridgeTag}
   <script nonce="${nonce}">window.COGRAPH_CONFIG = ${JSON.stringify(bootConfig)};</script>
-  <script nonce="${nonce}" src="${stateUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${perfUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${hotCacheUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${hoverIndexUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${visibilityUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${viewCullUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${frameCullUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${aggregateUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${clusteringUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${highlightUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${renderingUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${folderUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${drilldownUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${fileClustersUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${classUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${colorsUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${popupsUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${frameChromeUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${scopeUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${framesUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${crossLinksUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${localSimUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${frameSchedulerUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${simPoolUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${localSimWorkerUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${simBackendUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${frameRenderUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${frameInteractUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${globalGuardUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${readyHandshakeUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${scriptUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${controlsUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${forcesPanelUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${slotDragUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${bust(stateUri)}"></script>
+  <script nonce="${nonce}" src="${bust(perfUri)}"></script>
+  <script nonce="${nonce}" src="${bust(hotCacheUri)}"></script>
+  <script nonce="${nonce}" src="${bust(hoverIndexUri)}"></script>
+  <script nonce="${nonce}" src="${bust(visibilityUri)}"></script>
+  <script nonce="${nonce}" src="${bust(viewCullUri)}"></script>
+  <script nonce="${nonce}" src="${bust(frameCullUri)}"></script>
+  <script nonce="${nonce}" src="${bust(aggregateUri)}"></script>
+  <script nonce="${nonce}" src="${bust(clusteringUri)}"></script>
+  <script nonce="${nonce}" src="${bust(highlightUri)}"></script>
+  <script nonce="${nonce}" src="${bust(renderingUri)}"></script>
+  <script nonce="${nonce}" src="${bust(folderUri)}"></script>
+  <script nonce="${nonce}" src="${bust(drilldownUri)}"></script>
+  <script nonce="${nonce}" src="${bust(fileClustersUri)}"></script>
+  <script nonce="${nonce}" src="${bust(classUri)}"></script>
+  <script nonce="${nonce}" src="${bust(colorsUri)}"></script>
+  <script nonce="${nonce}" src="${bust(popupsUri)}"></script>
+  <script nonce="${nonce}" src="${bust(frameChromeUri)}"></script>
+  <script nonce="${nonce}" src="${bust(scopeUri)}"></script>
+  <script nonce="${nonce}" src="${bust(framesUri)}"></script>
+  <script nonce="${nonce}" src="${bust(crossLinksUri)}"></script>
+  <script nonce="${nonce}" src="${bust(localSimUri)}"></script>
+  <script nonce="${nonce}" src="${bust(frameSchedulerUri)}"></script>
+  <script nonce="${nonce}" src="${bust(simPoolUri)}"></script>
+  <script nonce="${nonce}" src="${bust(localSimWorkerUri)}"></script>
+  <script nonce="${nonce}" src="${bust(simBackendUri)}"></script>
+  <script nonce="${nonce}" src="${bust(frameRenderUri)}"></script>
+  <script nonce="${nonce}" src="${bust(frameInteractUri)}"></script>
+  <script nonce="${nonce}" src="${bust(globalGuardUri)}"></script>
+  <script nonce="${nonce}" src="${bust(readyHandshakeUri)}"></script>
+  <script nonce="${nonce}" src="${bust(scriptUri)}"></script>
+  <script nonce="${nonce}" src="${bust(controlsUri)}"></script>
+  <script nonce="${nonce}" src="${bust(forcesPanelUri)}"></script>
+  <script nonce="${nonce}" src="${bust(slotDragUri)}"></script>
   ${timelineScriptTag}
-  <script nonce="${nonce}" src="${hoverCardUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${funcSaveUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${bust(hoverCardUri)}"></script>
+  <script nonce="${nonce}" src="${bust(funcSaveUri)}"></script>
   <!-- Pull-request view (Version Control pane): declarations only, called from main.js / fileClusters.js at message time. -->
-  <script nonce="${nonce}" src="${prViewUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${bust(prViewUri)}"></script>
 
-  <script nonce="${nonce}" src="${scopeFitUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${funcCardUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${fnNamesUri}?v=${nonce}"></script>
-  <script nonce="${nonce}" src="${hoverPinUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${bust(scopeFitUri)}"></script>
+  <script nonce="${nonce}" src="${bust(funcCardUri)}"></script>
+  <script nonce="${nonce}" src="${bust(fnNamesUri)}"></script>
+  <script nonce="${nonce}" src="${bust(hoverPinUri)}"></script>
+  <!-- Injected tags (the tour layer) stay after every stage script, stageApi.js included. -->
+  ${inject.after ?? ''}
 </body>
 </html>`;
 }

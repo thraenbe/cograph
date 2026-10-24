@@ -95,6 +95,27 @@ On VS Code 1.101 and later, agent mode (Copilot) sees CoGraph without any setup.
 - It answers from CoGraph's last analysis. Open the project in CoGraph once to create it. Every answer says how old the analysis is and whether files have changed since.
 - The graph comes from static analysis, so calls made through dynamic dispatch, callbacks or reflection can be missing. An empty `callers` result is a hint, not proof that nothing uses the function.
 
+## Open in browser
+
+Click **Open in browser** under **Save Layout** in the graph panel, or run **CoGraph: Open in Browser** from the Command Palette, and the graph opens in your default browser. VS Code says "Graph opened in your browser"; **Copy URL** puts the address on the clipboard if you want it in another browser.
+
+The tab mirrors the panel: it shows the same graph, the same scope and the same git colours, and it follows the panel as the graph changes. Expanding folders, the hover card, opening a function in the editor, editing it and **Save Layout** all work from the tab, because the extension does the work behind it. Zoom, open folders and hidden folders belong to each view. **Save Layout** saves the view you used last. A line under the button counts the open tabs.
+
+**How it works, and what it does not do:**
+- The extension serves the graph on `127.0.0.1` only, on a random port, with a new random token every time VS Code starts. A request without the token, from another host name, or a cross-site POST is refused. The token is in the URL and therefore in your browser history, but never in a log or a notification. Pages load nothing from the internet.
+- The panel stays the source of truth. Closing the panel or VS Code disconnects the tab, and the tab says so. Opening the graph again gives a new address.
+- Colours follow VS Code's theme kind (Dark+ or Light+), not the exact colours of a custom theme.
+- In Remote-SSH and Codespaces, VS Code forwards the port for you.
+- An administrator can switch the feature off with `cograph.browserView.enabled: false`.
+
+## The PR tour
+
+The PR tour walks a reviewer, or you before you open the pull request, through a change on the graph in your browser: an overview, where the change lives, each changed function in reading order, who calls it, what was removed, which tests reach it, a security check that always runs, and a drafted description. The tour itself is a component of the Marketplace build of CoGraph; it is not in this repository, and a build from source shows no tour buttons.
+
+Start it from the blue **Take the PR tour** button over the graph (shown when your branch is ahead of its base or has an open pull request), from **Tour** on a pull request in the Version Control pane, or with **CoGraph: Tour This Pull Request…** or **CoGraph: Tour Your Branch**. CoGraph copies and analyses the head and the base as a pull-request click does, opens the pull request's panel in VS Code and the tour in your browser on `127.0.0.1` (the same server as **Open in browser**). A branch tour covers your commits, not uncommitted changes.
+
+Nothing is pushed, created or commented on GitHub without a VS Code confirmation that shows the exact command and text. AI narration uses the provider of Graph Intelligence and only when AI features are on. The tour's settings are under `cograph.tour.*`; the button follows `cograph.tour.button` (`auto`, `always`, `never`).
+
 ## Requirements
 
 - VS Code 1.75+
@@ -172,3 +193,8 @@ Found a vulnerability? Please report it privately — see **[SECURITY.md](SECURI
 ## License
 
 [MIT](LICENSE) © Bela Thrän
+
+The Marketplace and Open VSX builds of CoGraph also contain the PR Tour, a commercial component
+whose source is private. It is not under the MIT licence; see
+[COMMERCIAL-COMPONENT.md](COMMERCIAL-COMPONENT.md). Everything in this repository is MIT, and a
+build made from it simply has no PR Tour.

@@ -141,6 +141,30 @@ test.describe('fake host', () => {
     expect(host().openingMessages().map(r => r.message.type)).toEqual(['structure', 'graph']); // unscoped hosts are unchanged
   });
 
+  test('pull request: subgraph, pr-view, structure, graph with the PR statuses; Leave restores like exitPullRequest', async () => {
+    const g: GraphLite = { nodes: [{ id: 'a', file: '/r/src/a.ts', line: 1 }, { id: 'b', file: '/r/lib/b.ts', line: 1 }], edges: [], files: ['/r/src/a.ts', '/r/lib/b.ts'] };
+    const fileGitStatus = { '/r/src/a.ts': { unstaged: 'added', staged: null } };
+    const message = { type: 'pr-view', active: true, number: 7, name: 'PR #7 · head abc1234', expand: ['/r', '/r/src'], fileGitStatus };
+    const h = new FakeHost({ graph: g, structure: { root: '/r' }, mode: 'eager', scope: { name: 'PR #7 · head abc1234', root: '/r', include: ['.'] }, pullRequest: { message } });
+    const open = h.openingMessages().map(r => r.message);
+    expect(open.map(m => m.type)).toEqual(['subgraph', 'pr-view', 'structure', 'graph']);
+    expect(open[1]).toBe(message);
+    expect(open[3]).toMatchObject({ gitAvailable: true, fileGitStatus });
+    const nodes = (open[3].data as GraphLite).nodes;
+    expect(nodes.find(n => n.id === 'a')?.gitStatus).toEqual({ unstaged: 'added', staged: null });
+    expect(nodes.find(n => n.id === 'b')?.gitStatus).toBeUndefined();
+    const lazy = new FakeHost({ graph: g, structure: { root: '/r' }, mode: 'lazy', pullRequest: { message } });
+    const patch = await lazy.onMessage({ type: 'expand-folder', folderPath: '/r/src', files: ['/r/src/a.ts'] });
+    expect(patch[1].message.fileGitStatus).toEqual(fileGitStatus);
+    expect((patch[1].message.patch as GraphLite).nodes[0].gitStatus).toEqual({ unstaged: 'added', staged: null });
+    const leave = await h.onMessage({ type: 'subgraph-exit' });
+    expect(leave.map(r => r.message.type)).toEqual(['subgraph', 'git-update', 'pr-view']);
+    expect(leave[0].message).toMatchObject({ name: null, include: [] });
+    expect(leave[2].message).toMatchObject({ active: false, restore: true, fileGitStatus: {} });
+    expect(h.pr).toBeNull();
+    expect(h.openingMessages().map(r => r.message.type)).toEqual(['structure', 'graph']);
+  });
+
   test('source round-trip never touches disk (pre-guard host: fixed slice, silent unguarded save)', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uxtest-'));
     const file = path.join(dir, 'f.py');

@@ -557,6 +557,81 @@ window.addEventListener('message', (event) => {
   }
 });
 
+// ── Open in browser (src/browserView) ─────────────────────────────────────────
+// The button exists in the panel only (webviewHtmlBuilder leaves it out of a tab).
+document.getElementById('btn-open-browser')?.addEventListener('click', () => {
+  vscode.postMessage({ type: 'open-browser' });
+});
+
+/** `browser-status` { tabs, note? }: one line under the button, shown from the first status on. */
+function renderBrowserStatus(msg) {
+  const el = document.getElementById('browser-status');
+  if (!el || !msg) { return; }
+  const tabs = Math.max(0, Number(msg.tabs) || 0);
+  el.textContent = msg.note
+    ? String(msg.note)
+    : tabs > 0 ? `Browser: ${tabs} tab${tabs === 1 ? '' : 's'}` : 'Browser: not connected';
+  el.style.display = '';
+}
+
+// ── PR tour pill (src/tour; docs/tour-protocol.md section 7) ─────────────────
+// Shown for tour-availability state 'branch' or 'pr'; never in a pull-request
+// panel (that graph IS a pull request, its banner gets the Tour action), never
+// in a browser tab (the tour opens there), and not again after its × this session.
+let tourPillLast = null;
+let tourPillDismissed = false;
+
+/** The subline: `PR #104 · 12 files`, else the host's label, else `branch vs base · n commits · n files`. */
+function tourPillSubline(msg) {
+  const c = msg.counts || {};
+  const files = c.files != null ? ` · ${c.files} file${c.files === 1 ? '' : 's'}` : '';
+  if (msg.state === 'pr' && msg.number != null) { return `PR #${msg.number}${files}`; }
+  if (msg.label) { return String(msg.label); }
+  const commits = c.commits != null ? ` · ${c.commits} commit${c.commits === 1 ? '' : 's'}` : '';
+  return `${msg.branch || 'your branch'} vs ${msg.baseRef || 'base'}${commits}${files}`;
+}
+
+function tourPillVisible(msg) {
+  if (!msg || tourPillDismissed) { return false; }
+  if (msg.state !== 'branch' && msg.state !== 'pr') { return false; }
+  if (typeof state !== 'undefined' && state.prView) { return false; }
+  return !document.body.classList.contains('cg-browser');
+}
+
+function renderTourPill(msg) {
+  tourPillLast = msg || tourPillLast;
+  const pill = document.getElementById('tour-pill');
+  if (!pill) { return; }
+  if (!tourPillVisible(tourPillLast)) { pill.hidden = true; return; }
+  const sub = document.getElementById('tour-pill-sub');
+  if (sub) { sub.textContent = tourPillSubline(tourPillLast); }
+  pill.title = tourPillLast.state === 'pr' ? 'Take the guided tour of this pull request in your browser' : 'Take the guided tour of your branch in your browser';
+  const firstShow = !pill.dataset.shown;
+  pill.hidden = false;
+  if (firstShow) {
+    pill.dataset.shown = '1';
+    pill.classList.add('tour-pill--drop'); // 240 ms, none under reduced motion (styles.css)
+  }
+}
+
+document.getElementById('tour-pill-start')?.addEventListener('click', () => {
+  vscode.postMessage({ type: 'tour-start' });
+});
+document.getElementById('tour-pill-dismiss')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  tourPillDismissed = true;
+  renderTourPill(null);
+  vscode.postMessage({ type: 'tour-dismiss' });
+});
+
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+  if (!msg) { return; }
+  if (msg.type === 'browser-status') { renderBrowserStatus(msg); }
+  else if (msg.type === 'tour-availability') { renderTourPill(msg); }
+  else if (msg.type === 'pr-view') { renderTourPill(null); } // main.js already set state.prView
+});
+
 // ── Context menu global dismiss ────────────────────────────────────────────────
 document.addEventListener('mousedown', e => {
   const menu = document.getElementById('ctx-menu');
@@ -610,7 +685,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 if (typeof module !== 'undefined') {
-  module.exports = { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, applySavedFileFilters, fileFilterAllows, buildSavePayload, clearSearch, updateSearchCount, updateFolderPanel };
+  module.exports = { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, applySavedFileFilters, fileFilterAllows, buildSavePayload, clearSearch, updateSearchCount, updateFolderPanel, renderBrowserStatus, renderTourPill, tourPillSubline };
 }
 
 // ── Resize math helper ────────────────────────────────────────────────────────

@@ -25,6 +25,10 @@ scripts/**
 # All runtime dependencies are inlined by esbuild.
 node_modules/**
 
+# The PR Tour component (release builds only): esbuild.js copies the private package's
+# dist/host and dist/web here from node_modules, without source maps. It must ship.
+!dist/tour/**
+
 **/*.ts
 **/*.map
 **/*.swp

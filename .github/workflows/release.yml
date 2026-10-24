@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  # Read access to GitHub Packages for the PR Tour component (used with GITHUB_TOKEN, see below).
+  packages: read
 
 jobs:
   release:
@@ -28,8 +30,34 @@ jobs:
       - name: Run tests (Linux needs xvfb)
         run: xvfb-run -a npm test
 
+      # The commercial PR Tour component: the private package @thraenbe/pr-tour on GitHub
+      # Packages, at the version pinned in package.json under "cograph": { "tourPackage" }.
+      # esbuild (vscode:prepublish) copies it into dist/tour, so it ships in this .vsix only.
+      # TOUR_PACKAGE_TOKEN: a token that can read the package (read:packages). Once the
+      # package grants this repository Actions access, secrets.GITHUB_TOKEN works instead
+      # (this workflow has packages: read); set TOUR_PACKAGE_TOKEN to it or swap the
+      # expression below. Skipped while the secret is empty, so forks and dry-run tags build
+      # the public extension, which hides the tour buttons.
+      # The .npmrc holds ${TOUR_PACKAGE_TOKEN} literally; npm expands it at install time,
+      # so the token is never written to disk.
+      - name: Install the PR Tour package
+        if: ${{ env.TOUR_PACKAGE_TOKEN != '' }}
+        env:
+          TOUR_PACKAGE_TOKEN: ${{ secrets.TOUR_PACKAGE_TOKEN }}
+        run: |
+          version=$(node -p "require('./package.json').cograph.tourPackage")
+          printf '%s\n' '@thraenbe:registry=https://npm.pkg.github.com' '//npm.pkg.github.com/:_authToken=${TOUR_PACKAGE_TOKEN}' > "$RUNNER_TEMP/tour.npmrc"
+          NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/tour.npmrc" npm install --no-save "@thraenbe/pr-tour@${version}"
+          test -f node_modules/@thraenbe/pr-tour/dist/host/index.js
+
       - name: Package extension
         run: npm run package
+
+      - name: Check the PR Tour component is in the .vsix
+        if: ${{ env.TOUR_PACKAGE_TOKEN != '' }}
+        env:
+          TOUR_PACKAGE_TOKEN: ${{ secrets.TOUR_PACKAGE_TOKEN }}
+        run: unzip -l "$(ls *.vsix | head -n1)" | grep -q 'extension/dist/tour/host/index.js'
 
       - name: Locate .vsix
         id: vsix

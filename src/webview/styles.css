@@ -85,6 +85,100 @@ body.vscode-light {
   white-space: nowrap;
 }
 
+/* ── PR tour pill (top-center, src/tour feeds it with tour-availability) ──
+   Same stacking level as #flow-notice: below the PR banner (150) and the popups. */
+#tour-pill {
+  --tour-blue: #4a9eff;
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 4px;
+  /* Clear of the left toolbar (10 + 190 px) and the gear on both sides of the centre. */
+  max-width: calc(100vw - 440px);
+  min-width: 0;
+  border-radius: 999px;
+  background: var(--tour-blue);
+  box-shadow: 0 8px 24px rgba(74, 158, 255, 0.4);
+  white-space: nowrap;
+}
+body.vscode-light #tour-pill { --tour-blue: #1f6fe5; box-shadow: 0 8px 24px rgba(31, 111, 229, 0.35); }
+#tour-pill[hidden],
+body.cg-browser #tour-pill { display: none; }
+#tour-pill button {
+  font: inherit;
+  color: #ffffff;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+#tour-pill-start {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 5px 4px 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+#tour-pill .tour-pill-sub {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.88;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#tour-pill-dismiss {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.18) !important;
+}
+#tour-pill button:hover { filter: brightness(1.12); }
+#tour-pill button:focus-visible { outline: 2px solid #ffffff; outline-offset: 1px; }
+#tour-pill.tour-pill--drop { animation: tour-pill-drop 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes tour-pill-drop {
+  from { transform: translate(-50%, -12px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+/* A panel squeezed beside an editor has no room between the toolbar and the gear: bottom centre instead. */
+@media (max-width: 660px) {
+  #tour-pill { top: auto; bottom: 16px; max-width: calc(100vw - 32px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #tour-pill.tour-pill--drop { animation: none; }
+}
+
+/* ── Open in browser: the status line under the button, and a tab's connection banner ── */
+.browser-status {
+  margin: 4px 2px 0;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+  white-space: normal;
+}
+#browser-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 1100;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--vscode-foreground, #cccccc);
+  background: var(--vscode-notificationCenterHeader-background, #252526);
+  border: 1px solid var(--vscode-errorForeground, #f85149);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
 /* ── Settings button (top-right) ── */
 #settings-btn {
   position: fixed;

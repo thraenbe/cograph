@@ -41,6 +41,8 @@ export interface PrViewMessage {
   tree: PrTree | BranchTree;
   /** Set by the panel that shows the view: its popups take no edits. */
   readOnly?: boolean;
+  /** The banner offers the PR tour (the tour package is in this build and Open in browser is on). */
+  tourAvailable?: boolean;
   /** Present when the colours come from the structural diff against the merge base. */
   diff?: StructuralDiff['summary'];
   /** Structure-tree folder paths to open; everything else is closed. */
@@ -98,6 +100,8 @@ export interface PrControllerDeps {
   showText?: (label: string, relPath: string, text: string) => Promise<void>;
   progress?: ProgressRunner;
   budget?: TreeBudget;
+  /** The PR tour can run (src/tour); the banner's Tour button shows only then. */
+  tourAvailable?: () => boolean;
   /** Fetch + copy a PR head (the engine by default; tests hand in a directory of their own). */
   materializeHead?: MaterializeHead;
   /** Fetch the base branch, find the merge base with the head, copy it (the engine by default). */
@@ -380,6 +384,7 @@ export class PrController {
       message: {
         type: 'pr-view', active: true, number: pr.number, name, title: pr.title, headRef: pr.headRef, baseRef: pr.baseRef,
         tree, ...(diff ? { diff } : {}), expand: view.expand, fileGitStatus: Object.fromEntries(view.override.files), counts: view.counts,
+        tourAvailable: !!this.deps.tourAvailable?.(),
       },
     };
   }
@@ -414,6 +419,7 @@ export class PrController {
     const tree = view.message.tree;
     const sha = tree.kind === 'checkout' ? 'checkout' : tree.sha;
     const graph = this.panelFor({ number: view.number }, { sha, dir: headDir }, 'head', title, title);
+    view = { ...view, message: { ...view.message, tourAvailable: !!this.deps.tourAvailable?.() } };
     if (!graph.showPullRequest(view)) { return null; }
     this.deps.log(`[tour] stage panel on ${sha.slice(0, 7)}: ${view.name}`);
     this.emit();

@@ -11,7 +11,7 @@
 // PR colours are the only ones that should carry meaning (TypeScript's pink
 // sits right next to "deleted" red), so untouched functions go neutral.
 //
-// state.prView = { number, name, title, headRef, baseRef, tree, diff, readOnly,
+// state.prView = { number, name, title, headRef, baseRef, tree, diff, readOnly, tourAvailable,
 //                  expand, counts, snapshot, prevGitMode, prevLanguageMode } | null —
 // never saved with a layout. `readOnly` is true for the PR's own commit: the
 // function popups then take no edits (the host would refuse the save anyway,
@@ -26,7 +26,8 @@ const PR_BANNER_CSS = `
      the name and the chip on the first (the chip goes when the banner is narrower than
      300 px - the name already says which tree), the summary or warning ALWAYS on its own
      second row so it can never be the part that renders 0 px, and Leave in a fixed slot
-     at the right edge that nothing else can take. A user must always be able to leave. */
+     at the right edge that nothing else can take. A user must always be able to leave.
+     Tour (when the host offers it) sits left of Leave in the same slot, which then grows. */
   #pr-view-banner {
     position: fixed; top: 10px; left: 212px; right: 56px; z-index: 150;
     display: flex; flex-direction: column; gap: 3px; min-width: 0;
@@ -40,8 +41,9 @@ const PR_BANNER_CSS = `
   #pr-view-banner .pr-name { flex: 0 1 auto; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #pr-view-banner.narrow .pr-tree { display: none; }
   /* Narrower than 300 px: Leave takes a row of its own at the bottom right, so the text gets the width. */
+  #pr-view-banner.has-tour { padding-right: 112px; }
   #pr-view-banner.narrow { padding-right: 10px; }
-  #pr-view-banner.narrow button { position: static; transform: none; align-self: flex-end; }
+  #pr-view-banner.narrow .pr-actions { position: static; transform: none; align-self: flex-end; }
   /* The tree chip is structural, never a status colour: in this panel green, orange and
      red mean added, modified and deleted, and nothing else may borrow them. */
   #pr-view-banner .pr-tree {
@@ -55,8 +57,8 @@ const PR_BANNER_CSS = `
   #pr-view-banner .pr-sub { display: block; min-width: 0; color: var(--vscode-descriptionForeground, #999); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* A warning wraps rather than ellipsizes: hidden, it would be worse than none. */
   #pr-view-banner .pr-sub.warn { color: var(--vscode-editorWarning-foreground, #cca700); white-space: normal; overflow-wrap: anywhere; }
+  #pr-view-banner .pr-actions { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: flex; gap: 4px; }
   #pr-view-banner button {
-    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
     font: inherit; font-size: 11px; padding: 2px 9px; border-radius: 3px; cursor: pointer;
     color: var(--vscode-button-foreground, #fff); background: var(--vscode-button-background, #0e639c);
     border: none;
@@ -200,15 +202,32 @@ function prViewRenderBanner() {
   sub.className = 'pr-sub' + (summary.warn ? ' warn' : '');
   sub.textContent = summary.text;
   sub.title = summary.text; // the row ellipsizes in a narrow panel; the full sentence is one hover away
+  const actions = document.createElement('div');
+  actions.className = 'pr-actions';
+  if (pv.tourAvailable) {
+    // The host tours the change this panel shows (a pull request, or the branch); the webview names none.
+    const tour = document.createElement('button');
+    tour.type = 'button';
+    tour.className = 'pr-tour';
+    tour.textContent = 'Tour';
+    tour.title = pv.tree && pv.tree.kind === 'branch'
+      ? 'Take the guided tour of this branch in your browser'
+      : 'Take the guided tour of this pull request in your browser';
+    tour.addEventListener('click', () => vscode.postMessage({ type: 'pr-view-tour' }));
+    actions.appendChild(tour);
+  }
   const exit = document.createElement('button');
   exit.type = 'button';
+  exit.className = 'pr-leave';
   exit.textContent = 'Leave';
   exit.title = 'Back to the graph you had before';
   exit.addEventListener('click', () => vscode.postMessage({ type: 'subgraph-exit' }));
+  actions.appendChild(exit);
+  banner.classList.toggle('has-tour', !!pv.tourAvailable);
   const row = document.createElement('div');
   row.className = 'pr-row';
   row.append(name, tree);
-  banner.append(row, sub, exit);
+  banner.append(row, sub, actions);
   prViewWatchWidth(banner);
 }
 
@@ -247,6 +266,7 @@ function prViewEnter(message) {
     counts: message.counts || {},
     tree: message.tree || { kind: 'checkout', branch: '' },
     diff: message.diff || null,
+    tourAvailable: !!message.tourAvailable,
     readOnly: message.readOnly !== undefined ? !!message.readOnly : !!(message.tree && (message.tree.kind === 'head' || message.tree.kind === 'branch')),
     // Going from one pull request to the next keeps what was there before the first.
     snapshot: previous ? previous.snapshot : prViewSnapshot(),

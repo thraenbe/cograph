@@ -203,6 +203,7 @@ suite('vcs — PrController.prepareDiff: the tour\'s trees for both target kinds
     const ctl = new PrController(new Source(PR), new Graph() as PrGraph, {
       workspaceRoot: () => work, scanStructure, unchangedFolders: () => 'collapse', log: () => undefined, exec: defaultExec,
       createHeadGraph: (r, title, kind) => { const graph = new Graph(); made.push({ root: r, title, kind, graph }); return graph; },
+      tourAvailable: () => true,
     });
     const dir = fs.mkdtempSync(path.join(root, 'copy-'));
     const view = (number: number): PrGraphView => ({
@@ -213,6 +214,7 @@ suite('vcs — PrController.prepareDiff: the tour\'s trees for both target kinds
     assert.ok(first);
     assert.deepStrictEqual(made.map(m => [m.root, m.title, m.kind]), [[dir, 'feat/x vs main', 'head']]);
     assert.strictEqual(made[0].graph.shown.length, 1);
+    assert.strictEqual(made[0].graph.shown[0].message.tourAvailable, true, 'the stage panel\'s banner offers the tour again');
     assert.ok(fs.existsSync(path.join(dir, '.cograph-tree.lock')), 'held while shown');
     assert.strictEqual(ctl.openTourPanel(view(0), dir, 'feat/x vs main'), first, 'same commit: the same panel');
     assert.strictEqual(made.length, 1);

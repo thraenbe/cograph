@@ -2,7 +2,7 @@
   "name": "cograph",
   "displayName": "CoGraph",
   "description": "See your Python, TypeScript, JavaScript, Java or C++ project as a living map — functions are nodes, calls are edges",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "publisher": "thraenbe",
   "icon": "media/icon.png",
   "repository": {

@@ -26,6 +26,7 @@ import {
 } from './subgraphScope';
 import type { Scope, ScopeSpec, ScopeSource } from './subgraphScope';
 import type { PrGraphView } from './vcs/prController';
+import type { TourTarget } from './tour/tourApi';
 import { ViewHub, PANEL_VIEW, MAIN_VIEW, type ClientSink } from './browserView/viewHub';
 import { pathOutsideRoot } from './browserView/messageGuard';
 
@@ -117,7 +118,7 @@ export class GraphProvider {
   /** The pill (src/tour): the last tour-availability, re-sent after every panel ready; none after the ×. */
   private lastTourAvailability: object | undefined;
   private tourDismissed = false;
-  private readonly tourStartListeners = new Set<() => void>();
+  private readonly tourStartListeners = new Set<(target?: TourTarget) => void>();
   /** This provider's id on the loopback server: 'main' for the workspace graph, its own for every other root. */
   readonly browserViewId: string;
   private static browserViewSeq = 0;
@@ -1458,8 +1459,11 @@ export class GraphProvider {
     void this.panel?.webview.postMessage({ type: 'browser-status', tabs: this.views.clientCount(), note });
   }
 
-  /** The pill's click (tour-start); src/tour runs the tour from here. */
-  onTourStart(listener: () => void): { dispose(): void } {
+  /**
+   * The pill's click (tour-start, no target) or a pull-request banner's Tour button (pr-view-tour:
+   * the change this panel shows); src/tour runs the tour from here.
+   */
+  onTourStart(listener: (target?: TourTarget) => void): { dispose(): void } {
     this.tourStartListeners.add(listener);
     return { dispose: () => this.tourStartListeners.delete(listener) };
   }
@@ -1472,9 +1476,12 @@ export class GraphProvider {
         this.outputChannel.appendLine(`[browser] open from ${viewId} failed: ${(err as Error).message}`));
       return true;
     }
-    if (message.type === 'tour-start') {
+    if (message.type === 'tour-start' || message.type === 'pr-view-tour') {
+      // The banner's target comes from the view this panel shows, never from the webview.
+      const target = message.type === 'pr-view-tour' ? this.prViewTourTarget() : undefined;
+      if (message.type === 'pr-view-tour' && !target) { return true; }
       for (const listener of [...this.tourStartListeners]) {
-        try { listener(); } catch (err) { this.outputChannel.appendLine(`[tour] start failed: ${(err as Error).message}`); }
+        try { listener(target); } catch (err) { this.outputChannel.appendLine(`[tour] start failed: ${(err as Error).message}`); }
       }
       return true;
     }
@@ -1484,6 +1491,14 @@ export class GraphProvider {
       return true;
     }
     return false;
+  }
+
+  /** The change the shown pull-request view is about: its branch for a branch tree, else its pull request. */
+  private prViewTourTarget(): TourTarget | undefined {
+    const view = this.prView?.view;
+    if (!view) { return undefined; }
+    const tree = view.message.tree;
+    return tree.kind === 'branch' ? { kind: 'branch', branch: tree.branch } : { kind: 'pr', number: view.number };
   }
 
   /** After a panel ready: the panel's document is new, the pill state is not. */

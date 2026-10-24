@@ -36,6 +36,8 @@ export function activate(context: vscode.ExtensionContext) {
     evictTrees(treeStorage, undefined, [], defaultExec, (l) => vcsLog.appendLine(l))
       .catch((err: unknown) => vcsLog.appendLine(`[vcs] eviction on activation failed: ${(err as Error).message}`));
   }
+  // The PR tour (src/tour): its Tour buttons need the entry, which needs the pane's list.
+  const tourRef: { entry?: TourEntry } = {};
   const prController = new PrController(new GhCliSource(), provider, {
     workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     scanStructure,
@@ -49,13 +51,19 @@ export function activate(context: vscode.ExtensionContext) {
     // opens the user's real files, but takes no edits itself (a PR view is transient).
     // Both kinds open files as read-only documents labelled with where they come from — the copy, or
     // the checkout "(not PR #N)" — so no file is ever mistaken for the PR's version or for one to edit.
-    createHeadGraph: (root, title, kind, editorLabel) => new GraphProvider(context, {
-      root, readOnly: true, title, closeOnLeave: true, readOnlyUri: (file: string) => prDocumentUri(root, editorLabel, file),
-      readOnlyReason: kind === 'head'
-        ? `${title} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`
-        : `${title} is a pull-request view and takes no edits — open the file from the Explorer to edit it.`,
-      outputChannel: vcsLog,
-    }),
+    createHeadGraph: (root, title, kind, editorLabel) => {
+      const graph = new GraphProvider(context, {
+        root, readOnly: true, title, closeOnLeave: true, readOnlyUri: (file: string) => prDocumentUri(root, editorLabel, file),
+        readOnlyReason: kind === 'head'
+          ? `${title} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`
+          : `${title} is a pull-request view and takes no edits — open the file from the Explorer to edit it.`,
+        outputChannel: vcsLog,
+      });
+      // The banner's Tour button tours the change this panel shows.
+      graph.onTourStart((target) => { if (target) { void tourRef.entry?.run(target); } });
+      return graph;
+    },
+    tourAvailable: () => !!tourRef.entry?.canTour(),
     showText: showPrText,
     analyzer: createTreeAnalyzer(context, (line) => vcsLog.appendLine(line)),
     progress: (title, task) => Promise.resolve(vscode.window.withProgress(
@@ -81,8 +89,6 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showErrorMessage(`CoGraph: Could not clear pull-request trees — ${(err as Error).message}`);
     }
   });
-  // The PR tour (src/tour): its Tour buttons need the entry, which needs the pane's list.
-  const tourRef: { entry?: TourEntry } = {};
   const vcsSidebar = new VcsSidebar(prController, {
     tourAvailable: () => !!tourRef.entry?.available(),
     tour: (pr) => { void tourRef.entry?.runPullRequest(pr); },

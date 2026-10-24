@@ -219,6 +219,22 @@ suite('GraphProvider — browser views', () => {
     assert.ok(logged.some(l => l.includes('[tour] start failed: boom')));
   });
 
+  test('pr-view-tour tours the change the panel shows (its PR, or a branch tree\'s branch); without a PR view nothing runs', async () => {
+    await open();
+    const targets: unknown[] = [];
+    provider.onTourStart((t) => targets.push(t));
+    await onMessage()({ type: 'pr-view-tour', number: 999 });
+    assert.deepStrictEqual(targets, [], 'no pull request on screen');
+    (provider as any).prView = { view: { number: 7, message: { type: 'pr-view', active: true, number: 7, tree: { kind: 'head', sha: 'abc' } } }, back: {} };
+    await onMessage()({ type: 'pr-view-tour', number: 999 });
+    (provider as any).prView = { view: { number: 0, message: { type: 'pr-view', active: true, number: 0, tree: { kind: 'branch', sha: 'abc', branch: 'feat/x' } } }, back: {} };
+    await onMessage()({ type: 'pr-view-tour' });
+    await onMessage()({ type: 'tour-start' });
+    (provider as any).prView = undefined;
+    assert.deepStrictEqual(targets, [{ kind: 'pr', number: 7 }, { kind: 'branch', branch: 'feat/x' }, undefined],
+      'the number is the host\'s, never the webview\'s; the pill names no target');
+  });
+
   test('tour-availability is kept and re-sent after a panel ready; after tour-dismiss it is dropped', async () => {
     await open();
     const avail = { type: 'tour-availability', state: 'branch', label: 'feat/x vs main · 3 commits · 7 files' };

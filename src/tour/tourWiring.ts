@@ -36,6 +36,8 @@ export interface TourWiringDeps {
 export interface TourEntry {
   /** The private package is in this build (cheap: resolves, does not load). */
   available(): boolean;
+  /** The tour can run now: the package is in this build and Open in browser is on (a pull-request banner's Tour button). */
+  canTour(): boolean;
   run(target: TourTarget): Promise<void>;
   runPullRequest(pr: PullRequest): Promise<void>;
   /** From the extension's one configuration listener: the pill follows its settings. */
@@ -148,7 +150,8 @@ export function registerTour(d: TourWiringDeps): TourEntry {
   const disposables = [
     vscode.commands.registerCommand('cograph.tourPullRequest', () => pick()),
     vscode.commands.registerCommand('cograph.tourBranch', () => run({ kind: 'branch' })),
-    d.provider.onTourStart(() => {
+    d.provider.onTourStart((target) => {
+      if (target) { void run(target); return; } // a pull-request banner in this panel
       const a = availability.current();
       void run(a.state === 'pr' && a.number ? { kind: 'pr', number: a.number } : { kind: 'branch' });
     }),
@@ -157,5 +160,6 @@ export function registerTour(d: TourWiringDeps): TourEntry {
   const onConfigurationChanged = (e: vscode.ConfigurationChangeEvent) => {
     if (e.affectsConfiguration('cograph.tour.button') || e.affectsConfiguration('cograph.browserView.enabled')) { watching.soon(); }
   };
-  return { available, run, runPullRequest: (pr) => run({ kind: 'pr', number: pr.number }), onConfigurationChanged, disposables };
+  const canTour = () => available() && setting<boolean>('browserView.enabled', true);
+  return { available, canTour, run, runPullRequest: (pr) => run({ kind: 'pr', number: pr.number }), onConfigurationChanged, disposables };
 }

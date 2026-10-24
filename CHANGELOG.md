@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   component.
 - **PR tour entry points.** **CoGraph: Tour This Pull Request…** (open pull requests plus your
   branch against its base), **CoGraph: Tour Your Branch**, and a **Tour** button on every pull
-  request in the Version Control pane. The blue button appears for a branch ahead of its base or
+  request in the Version Control pane and in a pull-request panel's banner, next to Leave (a
+  branch tour's panel tours the branch). The blue button appears for a branch ahead of its base or
   with an open pull request, computed from local git and the pane's list, no extra network call.
   A tour opens the pull request's panel in VS Code and the tour page in the browser. In a build
   without the tour component the buttons stay hidden and the commands say so in one sentence.

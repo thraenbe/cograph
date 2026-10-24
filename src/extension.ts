@@ -16,6 +16,10 @@ import { setDeclarationErrorHandler } from './projectScope';
 import { defaultExec } from './vcs/ghCliSource';
 import { createTreeAnalyzer } from './vcs/headAnalyzer';
 import { prDocumentUri, registerPrDocuments, showPrText } from './vcs/prDocuments';
+import { configureBrowserServer, stopBrowserServer } from './browserView/browserLifetime';
+import { openInBrowser } from './browserView/openInBrowser';
+import { registerTour } from './tour/tourWiring';
+import type { TourEntry } from './tour/tourWiring';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
@@ -32,6 +36,8 @@ export function activate(context: vscode.ExtensionContext) {
     evictTrees(treeStorage, undefined, [], defaultExec, (l) => vcsLog.appendLine(l))
       .catch((err: unknown) => vcsLog.appendLine(`[vcs] eviction on activation failed: ${(err as Error).message}`));
   }
+  // The PR tour (src/tour): its Tour buttons need the entry, which needs the pane's list.
+  const tourRef: { entry?: TourEntry } = {};
   const prController = new PrController(new GhCliSource(), provider, {
     workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     scanStructure,
@@ -45,13 +51,19 @@ export function activate(context: vscode.ExtensionContext) {
     // opens the user's real files, but takes no edits itself (a PR view is transient).
     // Both kinds open files as read-only documents labelled with where they come from — the copy, or
     // the checkout "(not PR #N)" — so no file is ever mistaken for the PR's version or for one to edit.
-    createHeadGraph: (root, title, kind, editorLabel) => new GraphProvider(context, {
-      root, readOnly: true, title, closeOnLeave: true, readOnlyUri: (file: string) => prDocumentUri(root, editorLabel, file),
-      readOnlyReason: kind === 'head'
-        ? `${title} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`
-        : `${title} is a pull-request view and takes no edits — open the file from the Explorer to edit it.`,
-      outputChannel: vcsLog,
-    }),
+    createHeadGraph: (root, title, kind, editorLabel) => {
+      const graph = new GraphProvider(context, {
+        root, readOnly: true, title, closeOnLeave: true, readOnlyUri: (file: string) => prDocumentUri(root, editorLabel, file),
+        readOnlyReason: kind === 'head'
+          ? `${title} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`
+          : `${title} is a pull-request view and takes no edits — open the file from the Explorer to edit it.`,
+        outputChannel: vcsLog,
+      });
+      // The banner's Tour button tours the change this panel shows.
+      graph.onTourStart((target) => { if (target) { void tourRef.entry?.run(target); } });
+      return graph;
+    },
+    tourAvailable: () => !!tourRef.entry?.canTour(),
     showText: showPrText,
     analyzer: createTreeAnalyzer(context, (line) => vcsLog.appendLine(line)),
     progress: (title, task) => Promise.resolve(vscode.window.withProgress(
@@ -78,6 +90,8 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
   const vcsSidebar = new VcsSidebar(prController, {
+    tourAvailable: () => !!tourRef.entry?.available(),
+    tour: (pr) => { void tourRef.entry?.runPullRequest(pr); },
     openExternal: (url) => { void vscode.env.openExternal(vscode.Uri.parse(url)); },
     openTerminal: (command) => {
       const terminal = vscode.window.createTerminal('GitHub CLI');
@@ -85,6 +99,15 @@ export function activate(context: vscode.ExtensionContext) {
       terminal.sendText(command, false); // typed, not run: the developer presses Enter
     },
   });
+
+  // Open in browser (src/browserView): one loopback server per extension host, started on first use.
+  configureBrowserServer({ extensionRoot: context.extensionPath, log: (line) => vcsLog.appendLine(line) });
+  provider.setBrowserOpener((p) => openInBrowser(p));
+  const openInBrowserCommand = vscode.commands.registerCommand('cograph.openInBrowser', () => openInBrowser(provider));
+
+  const tour = registerTour({ context, provider, prController, vcsSidebar, channel: vcsLog, storageDir: treeStorage });
+  tourRef.entry = tour;
+  context.subscriptions.push(...tour.disposables);
 
   const sidebarProvider = new SidebarProvider(context.extensionUri, provider, context.workspaceState, vcsSidebar);
   context.subscriptions.push(
@@ -142,6 +165,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Re-push the AI-enabled state to the sidebar whenever the user toggles it,
   // so the gray-out clears/reapplies without reopening the view.
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
+    tour.onConfigurationChanged(e);
     if (e.affectsConfiguration('cograph.graphIntelligence.enabled')) {
       sidebarProvider.refreshAiEnabled();
       // Switching AI off mid-run stops the run; the summaries already saved are kept.
@@ -150,16 +174,21 @@ export function activate(context: vscode.ExtensionContext) {
       }
       provider.refreshAnnotations();
     }
+    if (e.affectsConfiguration('cograph.browserView.enabled')
+        && !vscode.workspace.getConfiguration('cograph').get<boolean>('browserView.enabled', true)) {
+      void stopBrowserServer(); // switched off: open tabs lose their connection and say so
+    }
     if (e.affectsConfiguration('cograph.layout.defaultEngine')
         || e.affectsConfiguration('cograph.layout.defaultMode')) {
       provider.pushLayoutConfig();
     }
   });
 
+  context.subscriptions.push(openInBrowserCommand);
   context.subscriptions.push(vcsLog, clearTreesCommand, command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener, annotateCommand, visualizeFolderCommand);
 }
 
-// VS Code awaits a returned promise on shutdown: persist a still-debounced graph cache.
+// VS Code awaits a returned promise on shutdown: persist a still-debounced graph cache, close the loopback server.
 export function deactivate(): Promise<void> {
-  return flushCacheWrites();
+  return Promise.all([flushCacheWrites(), stopBrowserServer()]).then(() => undefined);
 }

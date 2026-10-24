@@ -41,6 +41,8 @@
     "onView:cograph.savedGraphs",
     "onCommand:cograph.annotateGraph",
     "onCommand:cograph.visualizeFolder",
+    "onCommand:cograph.tourPullRequest",
+    "onCommand:cograph.tourBranch",
     "onCommand:cograph.clearPullRequestTrees",
     "onCommand:cograph.connectAgent",
     "onMcpCollection:cograph"
@@ -97,6 +99,18 @@
       {
         "command": "cograph.visualizeFolder",
         "title": "CoGraph: Only visualize folder…"
+      },
+      {
+        "command": "cograph.openInBrowser",
+        "title": "CoGraph: Open in Browser"
+      },
+      {
+        "command": "cograph.tourPullRequest",
+        "title": "CoGraph: Tour This Pull Request…"
+      },
+      {
+        "command": "cograph.tourBranch",
+        "title": "CoGraph: Tour Your Branch"
       },
       {
         "command": "cograph.clearPullRequestTrees",
@@ -267,6 +281,101 @@
           "default": "collapse",
           "description": "What a pull request opened from the Version Control view does with folders it does not change."
         },
+        "cograph.browserView.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "Serve the graph to your browser on 127.0.0.1 (Open in browser, the PR tour). Off: the loopback server never starts."
+        },
+        "cograph.tour.button": {
+          "type": "string",
+          "enum": ["auto", "always", "never"],
+          "enumDescriptions": [
+            "Show the blue \"Take the PR tour\" button when the branch is ahead of its base or has an open pull request.",
+            "Show it on every branch other than the base, muted when there is nothing to tour yet.",
+            "Never show it; the tour stays in the Version Control pane and the command palette."
+          ],
+          "default": "auto",
+          "description": "When the blue PR tour button shows over the graph."
+        },
+        "cograph.tour.chapters": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["overview", "map", "changes", "blastRadius", "removed", "tests", "security", "description"] },
+          "default": ["overview", "map", "changes", "blastRadius", "removed", "tests", "security", "description"],
+          "markdownDescription": "Which chapters the PR tour runs, in this order. Overview is always first and Description always last; Security is added when missing. A team's `.cograph/tour.json` takes precedence."
+        },
+        "cograph.tour.maxStepsPerChapter": {
+          "type": "number",
+          "default": 12,
+          "minimum": 1,
+          "description": "Steps per chapter of the PR tour; the rest are folded into one \"and N more\" step."
+        },
+        "cograph.tour.ai.mode": {
+          "type": "string",
+          "enum": ["ask", "on", "off"],
+          "enumDescriptions": [
+            "Ask once per tour before anything is sent.",
+            "Send without asking (still only when AI features are on).",
+            "No AI: the tour uses its own text."
+          ],
+          "default": "ask",
+          "markdownDescription": "Whether the PR tour asks the AI for narration, a security review and the description. Only with `#cograph.graphIntelligence.enabled#` on; a repository's `.cograph/tour.json` can make this stricter, never looser."
+        },
+        "cograph.tour.ai.model": {
+          "type": "string",
+          "enum": ["inherit", "default", "opus", "sonnet", "haiku", "gpt-5-codex", "gpt-5", "gpt-5-mini"],
+          "default": "inherit",
+          "markdownDescription": "Model for the PR tour. `inherit` uses the Annotate Graph model of the selected provider."
+        },
+        "cograph.tour.ai.maxBudgetUsd": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0,
+          "description": "Spend cap (USD) for the AI calls of one tour. When it is reached the tour keeps its own text. Not enforceable with Codex, which reports no cost."
+        },
+        "cograph.tour.ai.readSource": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let the AI open other files read-only during a tour. The changed functions' hunks are always sent when AI is on."
+        },
+        "cograph.tour.security.rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "language": { "type": "string" },
+              "pattern": { "type": "string" },
+              "severity": { "type": "string", "enum": ["high", "medium", "low", "info"] },
+              "message": { "type": "string" }
+            },
+            "required": ["id", "pattern", "severity", "message"]
+          },
+          "default": [],
+          "description": "Extra security rules for the PR tour: a regular expression, a language, a severity and a message."
+        },
+        "cograph.tour.security.allow": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Globs whose security findings are listed but not counted (tests, fixtures)."
+        },
+        "cograph.tour.security.blockCreateOnHigh": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disable Create pull request at the end of a tour while a high-severity finding stands."
+        },
+        "cograph.tour.autoplay": {
+          "type": "boolean",
+          "default": false,
+          "description": "Advance the PR tour on a timer."
+        },
+        "cograph.tour.autoplaySeconds": {
+          "type": "number",
+          "default": 8,
+          "minimum": 2,
+          "description": "Seconds per step when the PR tour plays on its own."
+        },
         "cograph.display.sameFileEdgesOnly": {
           "type": "boolean",
           "default": true,
@@ -294,6 +403,7 @@
     "uxtest:report": "node uxtest/run.mjs --project report",
     "uxtest:unit": "npm run compile && c8 --config uxtest/.c8rc.json playwright test -c uxtest/playwright.config.ts --project=unit",
     "uxtest:typecheck": "tsc -p uxtest/tsconfig.json --noEmit",
+    "test:browser": "npm run compile && npm run bundle && tsc -p test/browser/tsconfig.json && playwright test -c test/browser/playwright.config.ts",
     "uxtest:install": "playwright install chromium ffmpeg"
   },
   "dependencies": {

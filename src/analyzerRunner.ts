@@ -5,9 +5,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { walkProjectFiles } from './projectScope';
 import { listProjectSourceFiles } from './structureScanner';
+import { spawnAnalyzer } from './analyzerSpawn';
+import type { AnalyzerResult } from './analyzerSpawn';
 
-export const MAX_OUTPUT_BYTES = 500 * 1024 * 1024; // 500 MB guard
-export const ANALYSIS_TIMEOUT_MS = 300_000;         // 5 min
+export { MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from './analyzerSpawn';
 
 /** How many times the initial analysis is retried when it comes back empty. */
 export const MAX_ANALYSIS_RETRIES = 3;
@@ -20,21 +21,7 @@ const SOURCE_EXTS = new Set([
   '.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hh', '.hxx', '.h++', '.h',
 ]);
 
-export type AnalyzerStatus =
-  | 'ok'             // produced ≥1 node
-  | 'empty'          // ran cleanly, 0 nodes
-  | 'timeout'        // killed at ANALYSIS_TIMEOUT_MS
-  | 'spawn-error'    // failed to start
-  | 'exit-nonzero'   // exited with a non-zero code
-  | 'parse-error'    // stdout was not valid JSON
-  | 'output-too-large'; // exceeded MAX_OUTPUT_BYTES
-
-export interface AnalyzerResult {
-  graph: GraphData;
-  status: AnalyzerStatus;
-  lang: string;
-  detail?: string;
-}
+export type { AnalyzerStatus, AnalyzerResult } from './analyzerSpawn';
 
 /** Metadata accompanying a finished analysis run, so the UI can react to failures. */
 export interface AnalyzerRunMeta {
@@ -316,85 +303,10 @@ export class AnalyzerRunner {
   }
 
   private spawnAnalyzerProcess(bin: string, args: string[], lang: string): Promise<AnalyzerResult> {
-    const empty: GraphData = { nodes: [], edges: [], files: [] };
-    const fail = (status: AnalyzerStatus, detail?: string): AnalyzerResult => ({ graph: empty, status, lang, detail });
-    return new Promise((resolve) => {
-      let proc: cp.ChildProcess;
-      try {
-        proc = cp.spawn(bin, args);
-      } catch (err: unknown) {
-        resolve(fail('spawn-error', (err as Error).message));
-        return;
-      }
-      
-      if (!proc) {
-        resolve(fail('spawn-error', 'spawn returned undefined'));
-        return;
-      }
-
-      if (!proc.stdout || !proc.stderr) {
-        if (typeof proc.kill === 'function') { try { proc.kill(); } catch { /* ignore */ } }
-        resolve(fail('spawn-error', 'missing stdio streams'));
-        return;
-      }
-
-      this.activeProcs.push(proc);
-
-      let stdout = '';
-      let stdoutBytes = 0;
-      let stderr = '';
-      let timedOut = false;
-      let tooLarge = false;
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        if (proc && typeof proc.kill === 'function') { try { proc.kill(); } catch { /* ignore */ } }
-        resolve(fail('timeout', `exceeded ${ANALYSIS_TIMEOUT_MS / 1000}s`));
-      }, ANALYSIS_TIMEOUT_MS);
-
-      proc.stdout.on('data', (chunk: Buffer) => {
-        stdoutBytes += chunk.length;
-        if (stdoutBytes > MAX_OUTPUT_BYTES) {
-          tooLarge = true;
-          if (proc && typeof proc.kill === 'function') { try { proc.kill(); } catch { /* ignore */ } }
-          resolve(fail('output-too-large', '> 500 MB'));
-          return;
-        }
-        stdout += chunk.toString();
-      });
-
-      proc.stderr.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString();
-      });
-
-      proc.on('error', (err: Error) => {
-        clearTimeout(timer);
-        this.activeProcs = this.activeProcs.filter(p => p !== proc);
-        resolve(fail('spawn-error', err.message));
-      });
-
-      proc.on('close', (code: number | null) => {
-        clearTimeout(timer);
-        this.activeProcs = this.activeProcs.filter(p => p !== proc);
-        if (timedOut || tooLarge) { return; } // already resolved above
-        if (code !== 0) {
-          resolve(fail('exit-nonzero', `exit ${code}${stderr ? ` — ${stderr.slice(0, 300).trim()}` : ''}`));
-          return;
-        }
-        try {
-          const graph = JSON.parse(stdout) as GraphData;
-          // D6: analyzers report how many ambiguous call names they narrowed /
-          // dropped (only present when > 0) — make the effect visible in the log.
-          const stats = (graph as { stats?: { ambiguousNarrowed?: number; ambiguousDropped?: number } }).stats;
-          if (stats) {
-            this.log(`Analyzer [${lang}]: ${stats.ambiguousNarrowed ?? 0} ambiguous calls narrowed, `
-              + `${stats.ambiguousDropped ?? 0} dropped (names with more than 8 definitions)`);
-          }
-          resolve({ graph, status: graph.nodes.length > 0 ? 'ok' : 'empty', lang });
-        } catch {
-          resolve(fail('parse-error', stderr ? stderr.slice(0, 300).trim() : 'invalid JSON'));
-        }
-      });
+    return spawnAnalyzer(bin, args, lang, {
+      log: this.log,
+      onStart: (proc) => { this.activeProcs.push(proc); },
+      onEnd: (proc) => { this.activeProcs = this.activeProcs.filter(p => p !== proc); },
     });
   }
 }

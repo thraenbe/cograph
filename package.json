@@ -324,6 +324,6 @@
     "sinon": "^17.0.0",
     "tree-sitter-cli": "0.26.9",
     "tree-sitter-cpp": "^0.22.3",
-    "zod": "3.25.76"
+    "zod": "4.6.7"
   }
 }

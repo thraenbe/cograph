@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { EventEmitter } from 'events';
-import { runCliStream, ensureCliBinary } from '../../graphIntelligence/cliProcess';
+import { runCliStream, ensureCliBinary, STDERR_TAIL_BYTES } from '../../graphIntelligence/cliProcess';
 import { ClaudeCodeProvider, buildJsonArgs, JSON_CALL_ENV } from '../../graphIntelligence/claudeCodeProvider';
 import { CodexCliProvider, buildCodexJsonArgs, buildCodexJsonPrompt } from '../../graphIntelligence/codexCliProvider';
 import { extractJsonObject } from '../../graphIntelligence/jsonRepair';
@@ -97,6 +97,22 @@ suite('cliProcess.runCliStream', () => {
     const p = runCliStream(baseOpts());
     proc.emit('close', 2);
     await assert.rejects(p, /Tool exited with code 2\./);
+  });
+
+  test('a non-zero exit carries the last 4 KB of stderr as err.stderr; the message is unchanged', async () => {
+    const p = runCliStream(baseOpts());
+    proc.stderr.emit('data', Buffer.from('x'.repeat(5000)));
+    proc.stderr.emit('data', Buffer.from('\nError: credit balance is too low'));
+    proc.emit('close', 1);
+    const err = await p.then(() => null, (e: Error & { stderr?: string }) => e);
+    assert.strictEqual(err?.message, 'Tool exited with code 1.');
+    assert.strictEqual(err?.stderr?.length, STDERR_TAIL_BYTES);
+    assert.ok(err?.stderr?.endsWith('\nError: credit balance is too low'), 'the end is what says why');
+    const quiet = makeFakeProc();
+    spawn.returns(quiet);
+    const q = runCliStream(baseOpts());
+    quiet.emit('close', 3);
+    assert.strictEqual(((await q.then(() => null, (e: Error & { stderr?: string }) => e)) as { stderr?: string }).stderr, '', 'nothing on stderr: an empty tail');
   });
 
   test('rejects when the process cannot start', async () => {

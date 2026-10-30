@@ -92,6 +92,7 @@ Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 | `47-hide-entirely` | hiding a folder/file removes its frame/slot and re-packs; every hide is a reversible chip; Show all restores (W1/W2) |
 | `48-glyph-label` | a collapsed folder's name sits inside its glyph, both engines (W3) |
 | `49-subgraph` | panel opened inside a subgraph scope: only included frames, Visualize / Exit subgraph post to the host (W4) |
+| `51-pr-view` | a pull request shown in the graph (1.4.0): banner (name, tree chip, diff summary), the PR's folders open, PR statuses with language colours off, read-only, Leave posts `subgraph-exit` and restores |
 | `50-class-groupby` | class overlay; group-by lens (optional — removed by ux) |
 | `60-settings` | search / Ctrl+F / clear / count, filter toggles, display sliders, global forces, reset |
 | `70-canvas` | pan, zoom, drag node, drag folder, resize frame, context menus — with collateral-movement check (H4) and hover-overlay churn under a resting pointer (F10) |
@@ -99,6 +100,7 @@ Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 | `80-popups` | function popup (drag, resize, edit + Ctrl+S, close, Escape), navigate fallback, libraries (F5), `save-request` |
 | `85-hover-card` | annotate's hover card (optional; canned `annotations`, AI off) |
 | `87-same-file-edges` | U1: two seeded boots (setting on vs off) settle to the same layout and orphan set; toggling keeps elements and positions; hover reveals cross-file lines |
+| `88-stage-api` | `window.stageApi`, the hooks a tour drives (both engines): ready after the first layout, a fit that leaves the overlays' inset free, spotlight, ghosts, overlay edges, pulse, expand, chrome |
 | `90-timeline` | timeline HTML + `timeline-data`, transport |
 | `99-save-roundtrip` | v2 save → fresh panel → `graph-loaded` delta (R5), v1 payload migration |
 
@@ -148,6 +150,8 @@ copy, `$UXTEST_VSCODE`, or a download) with `--extensionDevelopmentPath`, a thro
 Visualize (T_first / T_functions), panel alive after 15 s (B7), metrics inside the real webview frame, engine /
 motion toggles, source popup from the real host, Ctrl+S keybinding + InputBox, sidebar view, on-save incremental
 re-parse, Open or Reload Layout. The CoGraph output channel + exthost log are saved as `vscode-output.log`.
+`--scenario open-in-browser` (`vscode/open-in-browser.spec.ts`) clicks the panel's Open in browser button; a stand-in
+`xdg-open` on PATH records the URL instead of opening your browser, and Playwright's Chromium checks the tab.
 `--scenario cold-open` (`vscode/cold-open.spec.ts`) launches N fresh profiles (`UXTEST_COLD_ATTEMPTS`, default 5), runs
 Visualize immediately and flags `blank-graph-on-cold-open` (F11) / `panel-vanished` (B7) on video.
 Gotchas baked into the driver: Electron pages get an explicit default timeout; `frame.evaluate` on a webview hidden behind

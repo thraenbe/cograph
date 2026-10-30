@@ -96,6 +96,24 @@ suite('browserView: ViewHub', () => {
     assert.strictEqual(hub.activeView(), 'a');
   });
 
+  test('postTo reaches one view only; a tab gone since it asked gets nothing', () => {
+    const { hub } = makeHub();
+    const panel: object[] = [];
+    hub.setPanel((m) => panel.push(m));
+    const a = sink(); const b = sink();
+    const detach = hub.attachClient('a', a);
+    hub.attachClient('b', b);
+    hub.receive('a', { type: 'ready' }); hub.receive('b', { type: 'ready' });
+    hub.postTo('a', { type: 'func-source', reqId: 1 });
+    hub.postTo(PANEL_VIEW, { type: 'func-source', reqId: 2 });
+    const ids = (msgs: object[]) => msgs.map(m => (m as { reqId?: number }).reqId);
+    assert.deepStrictEqual(ids(a.lines), [1]);
+    assert.deepStrictEqual(ids(b.lines), []);
+    assert.deepStrictEqual(ids(panel), [2]);
+    detach();
+    assert.doesNotThrow(() => hub.postTo('a', { type: 'func-source', reqId: 3 }));
+  });
+
   test('postToActive goes to the last view that spoke, in both directions', () => {
     const { hub } = makeHub();
     const panel: object[] = [];

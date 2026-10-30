@@ -5,10 +5,11 @@ import { isUserMessage } from './messageGuard';
  * One provider's views: its VS Code panel and every browser tab that mirrors it
  * (.ai/plans/webview.md D1, docs/tour-protocol.md section 4).
  *
- * Host → view messages fan out to all of them. The panel keeps the provider's own
- * delivery (its ready gate lives in graphProvider.ts); each browser client gets a
- * gate and a `__seq` space of its own, and starts with the provider's replay so a
- * late tab builds exactly what the panel shows. View → host messages from a tab are
+ * Host → view messages fan out to all of them; only the reply to a view's own request
+ * goes back to that view, because request ids are counted per page. The panel keeps
+ * the provider's own delivery (its ready gate lives in graphProvider.ts); each browser
+ * client gets a gate and a `__seq` space of its own, and starts with the provider's
+ * replay so a late tab builds exactly what the panel shows. View → host messages from a tab are
  * handed to the provider with the tab's id; the last view the user worked in (any
  * message but the passive diagnostics) is the active one, where `save-request` goes.
  *
@@ -58,6 +59,12 @@ export class ViewHub {
   post(message: object): void {
     this.panelSend?.(message);
     for (const client of this.clients.values()) { client.gate.post(message); }
+  }
+
+  /** One view, the panel or a tab: the reply to its request. A tab gone since it asked gets nothing. */
+  postTo(viewId: string, message: object): void {
+    if (viewId === PANEL_VIEW) { this.panelSend?.(message); return; }
+    this.clients.get(viewId)?.gate.post(message);
   }
 
   /** Only the view the user last worked in (save-request: the hides of THAT view are saved). */

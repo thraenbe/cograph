@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { activate, deactivate } from '../../extension';
 import { SidebarProvider } from '../../sidebarProvider';
 import { GraphProvider } from '../../graphProvider';
+import { BROWSER_DISABLED_NOTE } from '../../browserView/openInBrowser';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -83,6 +84,28 @@ suite('extension activate()', () => {
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  test('REGRESSION: a pull-request panel can open in the browser too', async () => {
+    /* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
+    const prModule = require('../../vcs/prController');
+    const lifetime = require('../../browserView/browserLifetime');
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    let deps: any;
+    const Real = prModule.PrController;
+    sandbox.stub(prModule, 'PrController').value(class extends Real {
+      constructor(source: any, provider: any, d: any) { super(source, provider, d); deps = d; }
+    });
+    sandbox.stub(lifetime, 'getBrowserServer').resolves(null); // what openInBrowser says when switched off: proof that it ran
+    const note = sandbox.stub(GraphProvider.prototype, 'postBrowserNote');
+    sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
+    activate(context);
+    const panel: GraphProvider = deps.createHeadGraph(os.tmpdir(), 'PR #7', 'head', 'PR 7');
+    await panel.onViewMessage({ type: 'open-browser' }, 'panel');
+    await new Promise(r => setTimeout(r, 0));
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+    assert.strictEqual(note.callCount, 1);
+    assert.strictEqual(note.firstCall.args[0], BROWSER_DISABLED_NOTE);
   });
 
   test('registers the sidebar webview view provider under its viewType', () => {

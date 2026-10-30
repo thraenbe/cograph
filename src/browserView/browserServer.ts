@@ -13,7 +13,8 @@ import {
  * The loopback server behind "Open in browser" and the PR tour (docs/tour-protocol.md
  * section 4). Bound to 127.0.0.1 only, a fresh 32-byte token per start, and every
  * request passes the same gate before anything runs: loopback Host (403), the token
- * (blank 401), and for POST a same-origin Origin / Sec-Fetch-Site (403).
+ * (blank 401), and for POST a same-origin Origin / Sec-Fetch-Site (403). The Host and
+ * Origin that asExternalUri named count as the server's own (`allowForwarded`).
  *
  * No vscode and no GraphProvider import: pages come from `deps.renderPage`, views are
  * anything with the `MirroredView` members (GraphProvider has them).
@@ -65,6 +66,8 @@ export class BrowserServer {
   private readonly statics: { prefix: string; dir: string }[];
   private readonly mounted: Mounted[] = [];
   private readonly streams = new Set<http.ServerResponse>();
+  private readonly forwardedHosts = new Set<string>();
+  private readonly forwardedOrigins = new Set<string>();
   private disposed = false;
 
   private constructor(
@@ -99,6 +102,18 @@ export class BrowserServer {
   url(urlPath: string, query: Record<string, string> = {}): string {
     const q = new URLSearchParams({ token: this.token, ...query });
     return `http://127.0.0.1:${this.port}${urlPath}?${q.toString()}`;
+  }
+
+  /**
+   * What asExternalUri made of this server's URL. Behind Codespaces or a tunnel the tab's
+   * origin is the forwarded one, and the proxy either passes that Host on or rewrites it to
+   * the loopback. Exactly this origin joins the gate; the token still decides.
+   */
+  allowForwarded(externalUrl: string): void {
+    const { protocol, host, origin } = new URL(externalUrl);
+    if (protocol !== 'http:' && protocol !== 'https:') { return; }
+    this.forwardedHosts.add(host);
+    this.forwardedOrigins.add(origin);
   }
 
   registerView(id: string, view: MirroredView): void { this.views.set(id, view); }
@@ -141,12 +156,14 @@ export class BrowserServer {
   private log(line: string): void { this.deps.log(line.split(this.token).join('<token>')); }
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    // Node 16 (VS Code 1.75) has no closeAllConnections: a kept-alive socket can still bring a request.
+    if (this.disposed) { req.socket.destroy(); return; }
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    if (!hostAllowed(req.headers.host)) { sendStatus(res, 403); return; }
+    if (!hostAllowed(req.headers.host, this.forwardedHosts)) { sendStatus(res, 403); return; }
     if (!tokenMatches(url.searchParams.get('token'), this.token)) { sendStatus(res, 401); return; }
     const method = req.method === 'POST' ? 'POST' : req.method === 'GET' ? 'GET' : null;
     if (!method) { sendStatus(res, 405); return; }
-    if (method === 'POST' && !postOriginAllowed(req.headers)) { sendStatus(res, 403); return; }
+    if (method === 'POST' && !postOriginAllowed(req.headers, this.forwardedOrigins)) { sendStatus(res, 403); return; }
     const query = Object.fromEntries([...url.searchParams].filter(([k]) => k !== 'token'));
     if (method === 'GET' && await this.handleGet(url.pathname, query, res, req)) { return; }
     if (method === 'POST' && url.pathname === '/msg') { await this.handleMsg(req, res, query); return; }

@@ -1,40 +1,34 @@
 // Tier B: Open in browser from the real panel in real VS Code (src/browserView).
 //   npm run uxtest:vscode -- --repo click --scenario open-in-browser
 // The button click goes through the real extension host: openInBrowser starts the loopback server and
-// calls vscode.env.openExternal. On Linux that runs xdg-open; a stand-in first on PATH records the URL
-// instead of opening the developer's own browser, and Playwright's Chromium opens it. The tab must show
+// calls vscode.env.openExternal. Electron's shell.openExternal is replaced in VS Code's main process by a
+// recorder, so nothing opens on the desktop, and Playwright's Chromium opens the URL. The tab must show
 // the panel's graph, the panel must count the tab, and a tab's expand must reach the host.
 import { test, expect, chromium } from '@playwright/test';
-import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import type { ElectronApplication } from '@playwright/test';
 import { launchVsCode } from './launch';
-import { frameElementCenter, runCommand, waitForGraph } from './drive';
+import { runCommand, waitForGraph } from './drive';
 import { SkipStep } from '../lib/step';
 
 const repo = (process.env.UXTEST_REPOS ?? 'click').split(',')[0].trim();
 
-/** A fake xdg-open (and sensible-browser) that appends the URL to `log` and exits 0. */
-function fakeOpener(): { bin: string; log: string } {
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'uxtest-opener-'));
-  const log = path.join(bin, 'opened.txt');
-  for (const name of ['xdg-open', 'sensible-browser', 'x-www-browser', 'gio']) {
-    const script = name === 'gio' ? `#!/bin/sh\n[ "$1" = open ] && shift\nprintf '%s\\n' "$1" >> '${log}'\n` : `#!/bin/sh\nprintf '%s\\n' "$1" >> '${log}'\n`;
-    fs.writeFileSync(path.join(bin, name), script, { mode: 0o755 });
-  }
-  return { bin, log };
+/** In VS Code's main process: shell.openExternal records instead of opening the desktop browser. */
+async function recordExternal(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ shell }) => {
+    const g = globalThis as any;
+    g.__openedUrls = [];
+    shell.openExternal = async (url: string) => { g.__openedUrls.push(url); };
+  });
 }
+
+const openedUrl = (app: ElectronApplication): Promise<string> =>
+  app.evaluate(() => ((globalThis as any).__openedUrls as string[])[0] ?? '');
 
 test(`vscode open-in-browser · ${repo}`, async () => {
   test.setTimeout(6 * 60 * 1000);
-  const opener = fakeOpener();
-  const savedPath = process.env.PATH;
-  const savedBrowser = process.env.BROWSER;
-  process.env.PATH = `${opener.bin}${path.delimiter}${savedPath ?? ''}`;
-  process.env.BROWSER = path.join(opener.bin, 'xdg-open');
   const s = await launchVsCode(repo, 'open-in-browser');
-  process.env.PATH = savedPath;
-  if (savedBrowser === undefined) { delete process.env.BROWSER; } else { process.env.BROWSER = savedBrowser; }
+  await recordExternal(s.app);
   const { page, ux, graphFrame } = s;
   const browser = await chromium.launch();
   let url = '';
@@ -48,12 +42,12 @@ test(`vscode open-in-browser · ${repo}`, async () => {
     await ux.step('Click "Open in browser" in the panel → openExternal with the tokened loopback URL, toast', async () => {
       const f = await graphFrame();
       if (!f) { throw new Error('no webview'); }
-      const c = await frameElementCenter(f, '#btn-open-browser');
-      if (!c) { throw new SkipStep('no Open in browser button in this panel'); }
-      await page.mouse.move(c.x, c.y, { steps: 10 });
-      await page.mouse.click(c.x, c.y);
-      await expect.poll(() => (fs.existsSync(opener.log) ? fs.readFileSync(opener.log, 'utf8').trim() : ''), { timeout: 20000 }).toMatch(/^http:\/\/(127\.0\.0\.1|localhost):\d+\/\?token=[0-9a-f]{64}$/);
-      url = fs.readFileSync(opener.log, 'utf8').trim().split('\n')[0];
+      const button = f.locator('#btn-open-browser');
+      if (await button.count() === 0) { throw new SkipStep('no Open in browser button in this panel'); }
+      // A locator click: the panel still grows as the legend arrives, and a click at measured coordinates misses.
+      await button.click();
+      await expect.poll(() => openedUrl(s.app), { timeout: 20000 }).toMatch(/^http:\/\/(127\.0\.0\.1|localhost):\d+\/\?token=[0-9a-f]{64}$/);
+      url = await openedUrl(s.app);
       await expect(page.locator('.notifications-toasts').getByText('Graph opened in your browser')).toBeVisible({ timeout: 10000 });
       expect(await page.locator('.notifications-toasts').innerText()).not.toMatch(/[0-9a-f]{64}/);
     }, { settle: false, metrics: false });
@@ -85,7 +79,6 @@ test(`vscode open-in-browser · ${repo}`, async () => {
   } finally {
     await browser.close();
     const run = await s.close();
-    fs.rmSync(opener.bin, { recursive: true, force: true });
     expect(run.steps.filter(x => x.status === 'failed').map(x => `${x.index}. ${x.name}: ${x.note}`)).toEqual([]);
   }
 });

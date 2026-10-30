@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attributes, filters and line-ending rules do not apply. Line numbers match a checkout, but a
   source file kept in LFS now appears as its pointer text, and files are no longer executable
   in the copy. Copies made by earlier versions are made again.
+- **A file name cannot make an analyzer read outside the project.** A name holding a line break
+  became two lines of the analyzers' file list, and the second line could be any path. This
+  needs a commit with such a name and an attacker who knows the target's path, and it reads
+  source files only: their function, import and call names and their absolute path entered the
+  graph, not their bodies. It was reachable from pull request copies and from a local checkout
+  of such a branch; whether Git hosts accept such a name on push is not known. Such names now
+  stay out of the list and out of the copy, and every analyzer refuses a listed path outside
+  its root. A file of another workspace folder is therefore no longer added to this graph on save.
 
 ## [1.4.2] - 2026-10-27
 

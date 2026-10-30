@@ -10,6 +10,7 @@ import type { Exec } from '../../vcs/ghCliSource';
 import { BlobWriter } from '../../vcs/engine/blobWriter';
 import { HeadTreeError, listTrees, materializeCommit, treeDir } from '../../vcs/engine/headTree';
 import type { HeadTreeDeps } from '../../vcs/engine/headTree';
+import { DECLARED_TRACKED } from '../../projectScope';
 import { relPath } from '../../vcs/engine/treeAnalysis';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -396,4 +397,75 @@ suite('defaultExec with onStdout', () => {
     const res = await run('process.exit(0)', { stdin: 'x'.repeat(8 * 1024 * 1024) }).result;
     assert.strictEqual(res.code, 0);
   });
+});
+
+suite('vcs engine — a path cannot read outside the tree it names', () => {
+  const at = useRepo('cograph-paths-');
+  const PLANTED = 'PLANTED_OUTSIDE_THE_TREE';
+
+  for (const [name, separator] of [['a newline', '\n'], ['a carriage return', '\r']] as const) {
+    test(`a path with ${name} is left out of the copy, and the rest stays`, async function () {
+      if (process.platform === 'win32') { this.skip(); } // NTFS has no such name, and git refuses it
+      const planted = path.join(at.root, 'planted.py');
+      fs.writeFileSync(planted, `def ${PLANTED}():\n    pass\n`);
+      const hostile = `x${separator}${planted.slice(1)}`;
+      const log: string[] = [];
+      const tree = await materializeCommit({ ...at.deps, log: l => log.push(l) }, commitOf(at.repo, { 'src/app.py': 'def real():\n    pass\n', [hostile]: 'def hidden():\n    pass\n' }));
+      assert.strictEqual(tree.files, 1);
+      assert.deepStrictEqual(allFiles(tree.dir).filter(n => n.endsWith('.py')), ['app.py']);
+      assert.strictEqual(fs.readFileSync(path.join(tree.dir, DECLARED_TRACKED), 'utf8'), 'src/app.py');
+      assert.ok(log.some(l => l.includes('1 paths with control characters')), log.join('\n'));
+    });
+  }
+
+  test('other control characters go too; a tab, a space, a quote and unicode stay', async function () {
+    if (process.platform === 'win32') { this.skip(); } // none of the refused names can exist there
+    const kept = ['tab\there.py', 'with space.py', 'quo\'te.py', 'ünï.py'];
+    const refused = ['bell\u0007.py', 'del\u007f.py', 'next\u0085.py'];
+    const text = 'def a():\n    pass\n';
+    const tree = await materializeCommit(at.deps, commitOf(at.repo, Object.fromEntries([...kept, ...refused].map(n => [n, text]))));
+    assert.deepStrictEqual(allFiles(tree.dir).filter(n => n.endsWith('.py')).sort(), [...kept].sort());
+  });
+
+  /** One function inside the root and one outside it, for one language. */
+  const LANGUAGES: Array<[script: string, ext: string, source: (fn: string) => string]> = [
+    ['analyze.py', 'py', fn => `def ${fn}():\n    pass\n`],
+    ['analyze_ts.js', 'ts', fn => `export function ${fn}() {}\n`],
+    ['analyze_js.js', 'js', fn => `function ${fn}() {}\n`],
+    ['analyze_java.js', 'java', fn => `class K { void ${fn}() {} }\n`],
+    ['analyze_cpp.js', 'cpp', fn => `int ${fn}() { return 1; }\n`],
+    ['analyze_c.js', 'c', fn => `int ${fn}(void) { return 1; }\n`],
+  ];
+
+  for (const [script, ext, source] of LANGUAGES) {
+    test(`${script} refuses a listed path outside its root, in any spelling`, function () {
+      this.timeout(30_000);
+      const workspace = path.join(at.root, 'ws');
+      fs.mkdirSync(path.join(workspace, '..data'), { recursive: true });
+      fs.writeFileSync(path.join(workspace, `inside.${ext}`), source('insideFn'));
+      fs.writeFileSync(path.join(workspace, '..data', `dotted.${ext}`), source('dottedFn'));
+      const sibling = `${workspace}-sibling`;
+      fs.mkdirSync(sibling);
+      fs.writeFileSync(path.join(sibling, `prefix.${ext}`), source('prefixFn'));
+      fs.writeFileSync(path.join(at.root, `outside.${ext}`), source('outsideFn'));
+      const list = path.join(at.root, 'list.txt');
+      fs.writeFileSync(list, [
+        path.join(workspace, `inside.${ext}`),
+        path.join(workspace, '..data', `dotted.${ext}`),
+        path.join(at.root, `outside.${ext}`),
+        `${workspace}${path.sep}..${path.sep}outside.${ext}`,
+        path.join(sibling, `prefix.${ext}`),
+      ].join('\n'));
+      const bin = script === 'analyze.py' ? 'python3' : process.execPath;
+      let out: string;
+      try {
+        out = cp.execFileSync(bin, [path.join(SCRIPTS, script), workspace, '--files', list], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      } catch (err) {
+        if (bin === 'python3' && (err as NodeJS.ErrnoException).code === 'ENOENT') { this.skip(); }
+        throw err;
+      }
+      const names = (JSON.parse(out) as { nodes: any[] }).nodes.map(n => n.name).sort();
+      assert.deepStrictEqual(names, ['dottedFn', 'insideFn'], 'inside the root, a name that merely starts with dots included');
+    });
+  }
 });

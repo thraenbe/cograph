@@ -285,19 +285,25 @@ function writeMarker(dir: string, marker: TreeMarker): void {
 /**
  * The files of the commit the caller wants copied: regular files only (modes 100644, 100755). A
  * symlink (120000) stays out because the commit picks its target, and in the copy it would read a
- * file of this machine; a gitlink (160000) has nothing to copy.
+ * file of this machine; a gitlink (160000) has nothing to copy. A path with a control character
+ * stays out too: a newline would make it two lines of the analyzers' file list, and the second
+ * line is a path the commit picks. A tab splits no list, and a checkout analyses such a file.
  */
 async function listFiles(deps: HeadTreeDeps, sha: string): Promise<TreeFile[]> {
   const res = await git(deps, ['ls-tree', '-r', '-z', sha]);
   if (res.code !== 0) { throwFor(res, `Commit ${sha.slice(0, 7)}`); }
   const keep = deps.keep ?? analyzerKeepsPath;
   const files: TreeFile[] = [];
+  let refused = 0;
   for (const entry of res.stdout.split('\0')) {
     // `<mode> <type> <object>\t<path>`: the first tab ends the metadata, a path may hold more.
     const tab = entry.indexOf('\t');
     const file = entry.slice(tab + 1);
-    if (entry.startsWith('100') && keep(file)) { files.push({ oid: entry.slice(entry.lastIndexOf(' ', tab) + 1, tab), file }); }
+    if (!entry.startsWith('100') || !keep(file)) { continue; }
+    if (/(?!\t)\p{Cc}/u.test(file)) { refused++; continue; }
+    files.push({ oid: entry.slice(entry.lastIndexOf(' ', tab) + 1, tab), file });
   }
+  if (refused) { deps.log?.(`[vcs] commit ${sha.slice(0, 7)}: ${refused} paths with control characters left out of the copy`); }
   return files;
 }
 

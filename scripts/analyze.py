@@ -200,6 +200,11 @@ def _is_skipped_dir(name: str) -> bool:
 _EXPLICIT_FILES = None
 
 
+def _is_inside_root(filepath: str, root: str) -> bool:
+    base = os.path.join(os.path.normcase(os.path.abspath(root)), '')
+    return os.path.normcase(os.path.abspath(filepath)).startswith(base)
+
+
 def _walk_py_files(root: str):
     """Yield .py file paths, skipping hidden directories and common non-source dirs."""
     if _EXPLICIT_FILES is not None:
@@ -289,6 +294,14 @@ def main():
                 _EXPLICIT_FILES = []
 
     root = sys.argv[1]
+    if _EXPLICIT_FILES is not None:
+        # The list is one path per line, and a repository picks its file names: a listed path
+        # outside the root is refused before anything reads it.
+        inside = [f for f in _EXPLICIT_FILES if _is_inside_root(f, root)]
+        if len(inside) < len(_EXPLICIT_FILES):
+            print(f'Refused {len(_EXPLICIT_FILES) - len(inside)} listed paths outside the root', file=sys.stderr)
+        _EXPLICIT_FILES = inside
+
     definitions = collect_definitions(root)
     edges, library_nodes = collect_calls(root, definitions)
     entry_point_ids = collect_entry_points(root, definitions)

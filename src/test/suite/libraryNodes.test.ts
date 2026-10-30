@@ -127,6 +127,41 @@ suite('Library node generation', () => {
     assert.ok(!libNode, 'local function should take priority over library import');
   });
 
+  test('require() bindings in a .ts file are not library imports', () => {
+    const file = path.join(tmpDir, 'cjs.ts');
+    fs.writeFileSync(file, [
+      "const fs = require('fs');",
+      "function run() { fs.readFileSync('x'); }",
+    ].join('\n'));
+    const defs = collectDefinitions([file]);
+    const { libraryNodes } = collectCalls([file], defs);
+    assert.deepStrictEqual(libraryNodes, []);
+  });
+
+  test('Object.prototype names that were never imported are not library imports', () => {
+    const file = path.join(tmpDir, 'proto.ts');
+    fs.writeFileSync(file, [
+      "import { join } from 'path';",
+      'function has(o: object, k: string) { return hasOwnProperty.call(o, k); }',
+      'function str() { return toString() + valueOf(); }',
+      "function build() { return join('a', 'b'); }",
+    ].join('\n'));
+    const defs = collectDefinitions([file]);
+    const { libraryNodes } = collectCalls([file], defs);
+    assert.deepStrictEqual(libraryNodes.map((n: any) => n.id), ['library::path::join']);
+  });
+
+  test('toString really imported is still a library import', () => {
+    const file = path.join(tmpDir, 'imported-proto.ts');
+    fs.writeFileSync(file, [
+      "import { toString } from 'fmt';",
+      'function str() { return toString(); }',
+    ].join('\n'));
+    const defs = collectDefinitions([file]);
+    const { libraryNodes } = collectCalls([file], defs);
+    assert.deepStrictEqual(libraryNodes.map((n: any) => n.id), ['library::fmt::toString']);
+  });
+
   test('library edge has isLibraryEdge=true', () => {
     const file = path.join(tmpDir, 'libedge.ts');
     fs.writeFileSync(file, [

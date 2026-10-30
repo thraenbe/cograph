@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Context
 
-This is a solo-founder codebase. Fill in `.ai/context/architecture.md` and `.ai/context/product.md` as the project grows — they are currently empty templates.
+This is a solo-founder codebase. `.ai/context/architecture.md` and `.ai/context/product.md` describe the stack and the product; keep them current as the project grows.
 
 Key architectural decision: **monolith over microservices** (lower cognitive load for solo development).
 
@@ -34,7 +34,7 @@ All non-trivial tasks follow a three-phase pipeline defined in `.ai/workflow.md`
 
 **Logging:** Use structured logs. No `console.log` in production code.
 
-**Testing:** Minimum 80% coverage. Mock external APIs.
+**Testing:** Every behavior change comes with a test. Mock external APIs. Coverage is measured for the uxtest unit project (c8) but not yet gated in CI for the main Mocha suite.
 
 ## Context Files to Consult
 

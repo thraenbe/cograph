@@ -21,6 +21,9 @@ export class LibraryDescriber {
     if (language === 'cpp') {
       return Promise.resolve(this.fetchCppDescription(libraryName, functionName));
     }
+    if (language === 'c') {
+      return Promise.resolve(this.fetchCDescription(libraryName, functionName));
+    }
     return Promise.resolve(this.fetchTsDescription(libraryName, functionName, workspaceRoot));
   }
 
@@ -35,6 +38,12 @@ export class LibraryDescriber {
   private fetchCppDescription(libraryName: string, functionName: string): string {
     const q = encodeURIComponent(`${libraryName}::${functionName}`);
     return `See cppreference: https://en.cppreference.com/mwiki/index.php?search=${q}`;
+  }
+
+  /** `libraryName` is the header stem ("stdio"); cppreference's search knows the C pages by function name. */
+  private fetchCDescription(libraryName: string, functionName: string): string {
+    const q = encodeURIComponent(functionName || libraryName);
+    return `See cppreference (<${libraryName}.h>): https://en.cppreference.com/mwiki/index.php?search=${q}`;
   }
 
   private fetchPythonDescription(libraryName: string, functionName: string): Promise<string> {

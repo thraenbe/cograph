@@ -26,7 +26,7 @@ export type FuncLang = 'python' | 'js' | 'java' | 'cpp' | 'brace';
 export function funcLangOf(file: string): FuncLang {
   const ext = (file.split('.').pop() ?? '').toLowerCase();
   if (ext === 'py' || ext === 'pyi') { return 'python'; }
-  if (['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'cts'].includes(ext)) { return 'js'; }
+  if (['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'cts', 'vue', 'svelte'].includes(ext)) { return 'js'; }
   if (ext === 'java') { return 'java'; }
   if (['c', 'cc', 'cpp', 'cxx', 'c++', 'h', 'hh', 'hpp', 'hxx', 'h++'].includes(ext)) { return 'cpp'; }
   return 'brace';

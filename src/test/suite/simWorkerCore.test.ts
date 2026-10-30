@@ -41,6 +41,14 @@ function createMsg(frameId: string, gen: number, n = 6, over: any = {}) {
 }
 
 suite('simWorkerCore (worker host)', () => {
+  test('a message type naming an Object.prototype member is not a handler (alert #7)', () => {
+    const h = harness();
+    for (const type of ['constructor', 'toString', 'hasOwnProperty', 'valueOf', '__proto__']) {
+      assert.strictEqual(h.host.onMessage({ type }), false, type);
+    }
+    assert.strictEqual(h.host.onMessage({ type: 'bogus' }), false);
+  });
+
   test('create → free-running ticks → throttled positions → final settled post', () => {
     const h = harness();
     h.host.onMessage(createMsg('/a', 7));

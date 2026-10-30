@@ -76,6 +76,22 @@ suite('collectCppFiles', () => {
     assert.ok(!files.some(f => f.endsWith('.md')));
     assert.ok(!files.some(f => f.endsWith('.c')));
   });
+
+  test('a .h next to .c files only belongs to C → excluded here', () => {
+    fs.mkdirSync(path.join(tmpDir, 'clib'));
+    fs.writeFileSync(path.join(tmpDir, 'clib', 'sds.c'), '// stub\n');
+    fs.writeFileSync(path.join(tmpDir, 'clib', 'sds.h'), '// stub\n');
+    const files: string[] = collectCppFiles(tmpDir);
+    assert.ok(!files.some(f => f.endsWith(path.join('clib', 'sds.h'))), 'C header is the C analyzer\'s');
+    assert.ok(files.some(f => f.endsWith(path.join('src', 'Foo.h'))), 'header next to C++ sources stays C++');
+  });
+
+  test('a .h next to both .c and .cpp files stays C++', () => {
+    fs.mkdirSync(path.join(tmpDir, 'mixed'));
+    for (const name of ['a.c', 'b.cpp', 'api.h']) { fs.writeFileSync(path.join(tmpDir, 'mixed', name), '// stub\n'); }
+    const files: string[] = collectCppFiles(tmpDir);
+    assert.ok(files.some(f => f.endsWith(path.join('mixed', 'api.h'))));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -259,6 +275,85 @@ suite('collectDefinitions — declaration/definition dedup', () => {
     for (const d of Object.values(defs) as any[]) {
       assert.strictEqual(d.isDeclaration, undefined, `${d.name} must not carry isDeclaration`);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pointer / reference return types (regression)
+// ---------------------------------------------------------------------------
+// The declarator of `int* f()` is a pointer_declarator and that of `T& g()` a
+// reference_declarator; the function_declarator sits inside. Looking only at
+// the top-level declarator type dropped every such function and every call
+// into it. Each test here fails when the fix (findFunctionDeclarator) is
+// reverted, because the function node simply does not exist then.
+
+suite('collectDefinitions / collectCalls — pointer and reference returns', () => {
+  let tmpDir: string;
+
+  suiteSetup(async () => { await cppAnalyzer.init(); });
+  setup(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-cpp-ptr-')); });
+  teardown(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+  function analyse(lines: string[]) {
+    const file = path.join(tmpDir, 'Ptr.cpp');
+    fs.writeFileSync(file, lines.join('\n') + '\n');
+    const defs = collectDefinitions([file]);
+    const { edges } = collectCalls([file], defs, tmpDir);
+    const list = Object.values(defs) as any[];
+    const idOf = (name: string, className?: string) =>
+      list.find((d: any) => d.name === name && (className === undefined || d.className === className))?.id;
+    return { list, edges, idOf };
+  }
+
+  test('`int* make_ptr()` → free function detected, call into it linked', () => {
+    const { idOf, edges } = analyse([
+      'int* make_ptr() { static int x; return &x; }',
+      'void run() { int* p = make_ptr(); }',
+    ]);
+    const target = idOf('make_ptr');
+    assert.ok(target, 'make_ptr (pointer return) must be a node');
+    assert.ok(edges.some((e: any) => e.source === idOf('run') && e.target === target), 'run → make_ptr');
+  });
+
+  test('`const Widget& get_ref(const Widget&)` → free function detected, call linked', () => {
+    const { idOf, edges, list } = analyse([
+      'struct Widget {};',
+      'const Widget& get_ref(const Widget& w) { return w; }',
+      'void run() { Widget w; get_ref(w); }',
+    ]);
+    const target = idOf('get_ref');
+    assert.ok(target, 'get_ref (reference return) must be a node');
+    assert.strictEqual(list.find((d: any) => d.id === target).className, undefined, 'free function');
+    assert.ok(edges.some((e: any) => e.source === idOf('run') && e.target === target), 'run → get_ref');
+  });
+
+  test('`Widget& Widget::self()` → out-of-line method with className, call linked', () => {
+    const { idOf, edges, list } = analyse([
+      'struct Widget { Widget& self(); };',
+      'Widget& Widget::self() { return *this; }',
+      'void run() { Widget w; w.self(); }',
+    ]);
+    const selfs = list.filter((d: any) => d.name === 'self');
+    assert.strictEqual(selfs.length, 1, 'declaration pruned against the definition');
+    assert.strictEqual(selfs[0].className, 'Widget');
+    assert.strictEqual(selfs[0].line, 2, 'surviving node is the out-of-line definition');
+    assert.ok(edges.some((e: any) => e.source === idOf('run') && e.target === selfs[0].id), 'run → Widget::self');
+  });
+
+  test('in-class `int* get();` declaration → kept as a node when nothing defines it', () => {
+    const { list } = analyse(['class Store { public: int* get(); const Store& me() const; };']);
+    assert.ok(list.some((d: any) => d.name === 'get' && d.className === 'Store'), 'pointer-returning declaration');
+    assert.ok(list.some((d: any) => d.name === 'me' && d.className === 'Store'), 'reference-returning declaration');
+  });
+
+  test('`int (*pick(int))(int)` (returns a function pointer) → function named pick', () => {
+    const { idOf } = analyse(['int handler(int x) { return x; }', 'int (*pick(int n))(int) { return handler; }']);
+    assert.ok(idOf('pick'), 'the innermost function_declarator names the function');
+  });
+
+  test('`void (*cb)(int);` member is a function-pointer variable, not a method', () => {
+    const { list } = analyse(['struct Ops { void (*cb)(int); };']);
+    assert.ok(!list.some((d: any) => d.name === 'cb'), 'no node for a function-pointer field');
   });
 });
 

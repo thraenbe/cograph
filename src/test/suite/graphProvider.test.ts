@@ -416,6 +416,38 @@ suite('GraphProvider', () => {
     });
   });
 
+  // ── save trigger ───────────────────────────────────────────────────────────
+
+  suite('save trigger', () => {
+    test('saving a component re-analyses in any extension case (App.VUE); a non-source file does not', () => {
+      sandbox.stub(vscode.workspace, 'workspaceFolders').value([{ uri: { fsPath: '/ws' } }]);
+      sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
+      stubSpawnAuto(sandbox, setTimeout, () => { /* never completes → no retry churn */ });
+      sandbox.stub(vscode.window, 'createWebviewPanel').returns(makeFakePanel() as any);
+      sandbox.stub(vscode.workspace, 'getWorkspaceFolder').returns({ uri: vscode.Uri.file('/ws') } as any);
+      let onSave: ((doc: { uri: vscode.Uri }) => void) | undefined;
+      sandbox.stub(vscode.workspace, 'onDidSaveTextDocument').callsFake(((cb: (doc: { uri: vscode.Uri }) => void) => {
+        onSave = cb;
+        return { dispose: () => undefined };
+      }) as any);
+
+      const provider = new GraphProvider(makeFakeContext());
+      provider.show();
+      assert.ok(onSave, 'save listener registered');
+      sandbox.stub(provider as any, 'refreshGitStatusAsync').resolves();
+      const full = sandbox.stub((provider as any).analyzerRunner, 'scheduleReanalysis');
+      const incremental = sandbox.stub(provider as any, 'scheduleIncrementalReparse');
+      const analyses = () => full.callCount + incremental.callCount;
+
+      onSave!({ uri: vscode.Uri.file('/ws/src/App.VUE') });
+      assert.strictEqual(analyses(), 1, 'App.VUE triggers an analysis');
+      onSave!({ uri: vscode.Uri.file('/ws/src/Widget.svelte') });
+      assert.strictEqual(analyses(), 2, 'Widget.svelte triggers an analysis');
+      onSave!({ uri: vscode.Uri.file('/ws/README.md') });
+      assert.strictEqual(analyses(), 2, 'README.md does not');
+    });
+  });
+
   // ── file-cluster subset handlers ───────────────────────────────────────────
 
   suite('file-cluster subset handlers', () => {

@@ -13,6 +13,8 @@ function showLibDocPopup(d) {
     }
   } else if (d.language === 'cpp') {
     docsUrl = `https://en.cppreference.com/mwiki/index.php?search=${encodeURIComponent(d.libraryName + '::' + d.name)}`;
+  } else if (d.language === 'c') {
+    docsUrl = `https://en.cppreference.com/mwiki/index.php?search=${encodeURIComponent(d.name)}`;
   } else {
     docsUrl = `https://www.npmjs.com/package/${d.libraryName}`;
   }
@@ -22,6 +24,7 @@ function showLibDocPopup(d) {
     d.language === 'python' ? 'Python'
     : d.language === 'java' ? 'Java'
     : d.language === 'cpp' ? 'C++'
+    : d.language === 'c' ? 'C'
     : 'TypeScript';
   document.getElementById('lib-doc-lang-badge').className = `lang-badge lang-badge-${d.language}`;
   document.getElementById('lib-doc-function').textContent = d.name;
@@ -82,6 +85,7 @@ function bringToFront(inst) {
 
 function closeFuncPopupInstance(inst) {
   if (inst.saving && inst.saving.timer) { clearTimeout(inst.saving.timer); }
+  inst.docListeners.abort();
   inst.element.remove();
   state.funcPopups.delete(inst.node.id);
   if (typeof fnNameOn === 'function') { fnNameOn(inst.node.id, 'popup', false); }
@@ -194,6 +198,7 @@ function createFuncPopupInstance(d) {
     originalSource: null,
     colorizedHtml: null,
     endLine: null,
+    docListeners: new window.AbortController(),
   };
 
   // ── Initial position (cascade) ─────────────────────────────────────────────
@@ -286,9 +291,9 @@ function createFuncPopupInstance(d) {
     const newTop  = Math.max(0, Math.min(window.innerHeight - cardH, dragStartTop  + e.clientY - dragStartY));
     card.style.left = newLeft + 'px';
     card.style.top  = newTop  + 'px';
-  });
+  }, { signal: inst.docListeners.signal });
 
-  document.addEventListener('mouseup', () => { dragging = false; });
+  document.addEventListener('mouseup', () => { dragging = false; }, { signal: inst.docListeners.signal });
 
   // ── Resize ─────────────────────────────────────────────────────────────────
   let resizing = false;
@@ -315,9 +320,9 @@ function createFuncPopupInstance(d) {
   document.addEventListener('mousemove', (e) => {
     if (!resizing) return;
     applyResizeDelta(card, resizeDir, e.clientX - resStartX, e.clientY - resStartY, resStartLeft, resStartTop, resStartW, resStartH);
-  });
+  }, { signal: inst.docListeners.signal });
 
-  document.addEventListener('mouseup', () => { resizing = false; });
+  document.addEventListener('mouseup', () => { resizing = false; }, { signal: inst.docListeners.signal });
 
   document.body.appendChild(card);
   return inst;
@@ -348,5 +353,5 @@ function showFuncPopup(d) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { createFuncPopupInstance, showFuncPopup };
+  module.exports = { createFuncPopupInstance, closeFuncPopupInstance, showFuncPopup, showLibDocPopup };
 }

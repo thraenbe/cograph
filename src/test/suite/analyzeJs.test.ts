@@ -287,6 +287,30 @@ suite('collectCalls (JS)', () => {
     assert.ok(!libraryNodes.some((n: any) => n.libraryName === './utils'));
   });
 
+  test('Object.prototype names that were never imported → not treated as a library', () => {
+    const file = path.join(tmpDir, 'proto.js');
+    fs.writeFileSync(file, [
+      "const { join } = require('path');",
+      'function has(o, k) { return hasOwnProperty.call(o, k); }',
+      'function str() { return toString() + valueOf(); }',
+      "function build() { return join('a', 'b'); }",
+    ].join('\n'));
+    const defs = collectDefinitions([file]);
+    const { libraryNodes } = collectCalls([file], defs);
+    assert.deepStrictEqual(libraryNodes.map((n: any) => n.id), ['library::path::join']);
+  });
+
+  test('toString really imported with require() → still a library', () => {
+    const file = path.join(tmpDir, 'imported-proto.js');
+    fs.writeFileSync(file, [
+      "const { toString } = require('fmt');",
+      'function str() { return toString(); }',
+    ].join('\n'));
+    const defs = collectDefinitions([file]);
+    const { libraryNodes } = collectCalls([file], defs);
+    assert.deepStrictEqual(libraryNodes.map((n: any) => n.id), ['library::fmt::toString']);
+  });
+
   test('library node has correct metadata', () => {
     const file = path.join(tmpDir, 'libmeta.js');
     fs.writeFileSync(file, [

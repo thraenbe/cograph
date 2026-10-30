@@ -34,6 +34,30 @@ suite('analyzerSpawn', () => {
     }
   });
 
+  test('REGRESSION: a full pass runs every analyzer in scripts/, so a new language cannot be left out', () => {
+    const onDisk = fs.readdirSync(SCRIPTS).filter(f => /^analyze(_\w+)?\.(js|py)$/.test(f)).sort();
+    assert.deepStrictEqual(ANALYZER_SCRIPTS.map(s => s.script).sort(), onDisk);
+  });
+
+  test('a full pass outside VS Code reaches C, Vue and Svelte', async function () {
+    this.timeout(60_000);
+    const dir = tempProject({
+      'c/tool.c': 'static int step(void) { return 1; }\nint run(void) { return step(); }\n',
+      'web/Card.vue': '<script lang="ts">\nexport function cardSetup(): number { return 1; }\n</script>\n',
+      'web/Chip.svelte': '<script>\nexport function chipSetup() { return 1; }\n</script>\n',
+    });
+    try {
+      const { graph } = await spawnAnalyzers(dir, { scriptsDir: SCRIPTS, pythonBin: 'python3' });
+      const byName = new Map(graph.nodes.filter(n => !n.isLibrary).map(n => [n.name, n]));
+      assert.strictEqual(byName.get('run')?.language, 'c');
+      assert.strictEqual(byName.get('cardSetup')?.language, 'typescript');
+      assert.strictEqual(byName.get('chipSetup')?.language, 'javascript');
+      assert.ok(graph.edges.some(e => e.source === byName.get('run')?.id && e.target === byName.get('step')?.id));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('without a Python interpreter the Python analyzer is a spawn error, the rest still run', async function () {
     this.timeout(60_000);
     const dir = tempProject({ 'a.ts': 'export function f() {}\n' });

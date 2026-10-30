@@ -95,7 +95,8 @@ suite('vcs — prView.js (graph webview)', () => {
     assert.strictEqual(sub.textContent, '1 of 3 files in the graph');
     assert.strictEqual(sub.title, sub.textContent, 'the full sentence survives an ellipsis');
     assert.strictEqual(sub.parentElement, banner, 'the summary has a row of its own, never competing with the chip');
-    assert.deepStrictEqual([...banner.children].map(c => c.className || c.tagName), ['pr-row', 'pr-sub', 'BUTTON']);
+    assert.deepStrictEqual([...banner.children].map(c => c.className || c.tagName), ['pr-row', 'pr-sub', 'pr-actions']);
+    assert.deepStrictEqual([...banner.querySelectorAll('button')].map(b => b.textContent), ['Leave'], 'no Tour unless the host offers it');
   });
 
   test('the banner says which tree is on screen: the checkout, or the PR\'s own commit', () => {
@@ -114,6 +115,18 @@ suite('vcs — prView.js (graph webview)', () => {
     p.w.handlePrViewMessage({ ...ENTER, tree: undefined });
     assert.strictEqual(p.doc.querySelector('#pr-view-banner .pr-tree')!.textContent, 'your checkout', 'a message without a tree is the checkout');
     assert.deepStrictEqual(prView.prViewTreeLabel({ kind: 'head', sha: 'abc', base: 'def' }).title.includes('compared with def'), true);
+  });
+
+  test('a branch tour\'s panel says branch commit, one chip per tree kind, and is read-only like a head', () => {
+    const p = graphPage();
+    const chip = () => p.doc.querySelector('#pr-view-banner .pr-tree') as HTMLElement;
+    p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'branch', sha: '75d0ca93963a334dfd73', branch: 'feat/x' } });
+    assert.deepStrictEqual([chip().textContent, chip().className], ['branch commit 75d0ca9', 'pr-tree head']);
+    assert.ok(chip().title.includes('last commit of feat/x') && chip().title.includes('Uncommitted changes are not part of it'));
+    assert.strictEqual(p.state.prView.readOnly, true, 'a copy of a commit takes no edits');
+    const labels = ['head', 'branch', 'checkout'].map(kind => prView.prViewTreeLabel({ kind, sha: 'abcdef12345', branch: 'b' }).text);
+    assert.deepStrictEqual(labels, ['PR commit abcdef1', 'branch commit abcdef1', 'your checkout · b']);
+    assert.match(prView.prViewSummary({ total: 2, inGraph: 2, fileLevel: 1 }, null, { kind: 'branch' }).text, /\(not told apart\)/);
   });
 
   test('in a head panel the function popups take no edits; in a checkout view they do', () => {
@@ -143,8 +156,29 @@ suite('vcs — prView.js (graph webview)', () => {
   test('the banner\'s Leave button asks the host through the existing subgraph-exit', () => {
     const p = graphPage();
     p.w.handlePrViewMessage(ENTER);
-    (p.doc.querySelector('#pr-view-banner button') as HTMLButtonElement).click();
+    (p.doc.querySelector('#pr-view-banner button.pr-leave') as HTMLButtonElement).click();
     assert.deepStrictEqual(p.posted, [{ type: 'subgraph-exit' }]);
+  });
+
+  test('with tourAvailable the banner has Tour left of Leave, in Leave\'s slot; it asks the host to tour this panel\'s change', () => {
+    const p = graphPage();
+    p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'head', sha: 'abc' }, tourAvailable: true });
+    const banner = p.doc.getElementById('pr-view-banner')!;
+    assert.deepStrictEqual([...banner.children].map(c => c.className), ['pr-row', 'pr-sub', 'pr-actions'], 'still two rows and the action slot');
+    const buttons = [...banner.querySelectorAll('.pr-actions button')] as HTMLButtonElement[];
+    assert.deepStrictEqual(buttons.map(b => [b.className, b.textContent]), [['pr-tour', 'Tour'], ['pr-leave', 'Leave']]);
+    assert.strictEqual(buttons[0].title, 'Take the guided tour of this pull request in your browser');
+    assert.ok(banner.classList.contains('has-tour'), 'the text makes room for both buttons');
+    buttons[0].click();
+    assert.deepStrictEqual(p.posted, [{ type: 'pr-view-tour' }], 'the host picks the target from its own view');
+    p.w.handlePrViewMessage({ ...ENTER, tree: { kind: 'branch', sha: 'abc', branch: 'feat/x' }, tourAvailable: true });
+    assert.strictEqual((p.doc.querySelector('#pr-view-banner .pr-tour') as HTMLElement).title, 'Take the guided tour of this branch in your browser');
+    p.w.handlePrViewMessage({ ...ENTER, tourAvailable: false });
+    assert.strictEqual(p.doc.querySelector('#pr-view-banner .pr-tour'), null, 'absent when the host says no');
+    assert.ok(!banner.classList.contains('has-tour'));
+    // Layout rules: both buttons live in one slot at the right edge; a narrow banner moves the slot, not a button.
+    assert.match(PR_VIEW_SRC, /#pr-view-banner \.pr-actions \{ position: absolute; right: 6px;/);
+    assert.match(PR_VIEW_SRC, /#pr-view-banner\.narrow \.pr-actions \{ position: static;/);
   });
 
   test('a hostile PR title is text, never markup', () => {
@@ -460,5 +494,23 @@ suite('vcs — sidebar-vcs.js (Version Control pane)', () => {
     assert.deepStrictEqual(p.posted[1], { type: 'vcs-more' });
     p.send(vcsState());
     assert.strictEqual((p.q('.vcs-filter') as HTMLInputElement).style.display, 'none', 'a short list needs no filter');
+  });
+
+  test('Tour: a button on every row and on the open card when the tour is in the build, none otherwise', () => {
+    const p = sidebarPage();
+    p.send(vcsState({ pullRequests: [PR, { ...PR, number: 70, title: 'second' }] }));
+    assert.strictEqual(p.all('button').filter(b => b.textContent === 'Tour').length, 0, 'public build: no Tour button');
+    p.send(vcsState({ pullRequests: [PR, { ...PR, number: 70, title: 'second' }], tourAvailable: true, active: 69, activePr: PR,
+      detail: { number: 69, tree: { kind: 'head', sha: 'abc' }, counts: { total: 1, inGraph: 1, exact: 1, fileLevel: 0, missing: 0, other: 0 }, files: [], filesCut: false } }));
+    const tours = p.all('button').filter(b => b.textContent === 'Tour') as HTMLButtonElement[];
+    assert.strictEqual(tours.length, 3, 'two rows and the open card');
+    p.posted.length = 0;
+    tours[1].click();
+    assert.deepStrictEqual(p.posted, [{ type: 'vcs-tour', number: 69 }], 'the open card\'s Tour, and the row is not opened by the same click');
+    tours[2].click();
+    assert.deepStrictEqual(p.posted[1], { type: 'vcs-tour', number: 70 });
+    p.send(vcsState({ pullRequests: [PR], tourAvailable: true, opening: 69 }));
+    const busy = p.all('button').find(b => b.textContent === 'Tour') as HTMLButtonElement;
+    assert.deepStrictEqual([busy.disabled, busy.title], [true, 'Wait until the pull request has opened.']);
   });
 });

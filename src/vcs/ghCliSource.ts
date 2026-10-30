@@ -2,7 +2,7 @@ import * as cp from 'child_process';
 import { parsePatchHunks } from './prPatch';
 import type {
   PrChecks, PrFile, PrFileStatus, PrFilesResult, PrListOptions, PrListResult, PrProblem, PrState, PrTextResult,
-  PullRequest, PullRequestSource,
+  PrViewResult, PullRequest, PullRequestSource,
 } from './types';
 
 export interface ExecResult {
@@ -283,6 +283,17 @@ export class GhCliSource implements PullRequestSource {
     } catch (err) {
       return { ok: false, problem: { kind: 'error', message: 'GitHub did not return that file.', detail: (err as Error).message } };
     }
+  }
+
+  async view(root: string, prNumber: number): Promise<PrViewResult> {
+    if (!Number.isInteger(prNumber) || prNumber <= 0) {
+      return { ok: false, problem: { kind: 'error', message: 'That is not a pull request number.' } };
+    }
+    const res = await this.exec('gh', ['pr', 'view', String(prNumber), '--json', LIST_FIELDS.join(',')], root);
+    if (res.code !== 0) { return { ok: false, problem: classifyGhFailure(res, null) }; }
+    let pr: PullRequest | null = null;
+    try { pr = toPullRequest(JSON.parse(res.stdout)); } catch { pr = null; }
+    return pr ? { ok: true, pullRequest: pr } : { ok: false, problem: { kind: 'error', message: `Pull request #${prNumber} could not be read.` } };
   }
 
   async files(root: string, prNumber: number): Promise<PrFilesResult> {

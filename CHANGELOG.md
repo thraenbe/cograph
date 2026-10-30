@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Open in browser.** A button in the graph panel (and **CoGraph: Open in Browser**) opens the
+  graph in your default browser, served by the extension on `127.0.0.1` with a random token. The
+  tab mirrors the panel: same graph, scope and colours, live, with expand, hover card, navigate,
+  edit and Save Layout working through VS Code. A line under the button counts the open tabs;
+  closing the panel disconnects the tab, which says so. The setting `cograph.browserView.enabled`
+  (on by default) switches the loopback server off.
+- **The doorway of the PR tour.** The loopback server also serves tour pages, and the graph panel
+  gets the blue **Take the PR tour** button for a branch or pull request with something to tour
+  (hidden in pull-request panels, dismissible for the session). The tour itself is a separate
+  component.
+- **PR tour entry points.** **CoGraph: Tour This Pull Request…** (open pull requests plus your
+  branch against its base), **CoGraph: Tour Your Branch**, and a **Tour** button on every pull
+  request in the Version Control pane and in a pull-request panel's banner, next to Leave (a
+  branch tour's panel tours the branch). The blue button appears for a branch ahead of its base or
+  with an open pull request, computed from local git and the pane's list, no extra network call.
+  A tour opens the pull request's panel in VS Code and the tour page in the browser. In a build
+  without the tour component the buttons stay hidden and the commands say so in one sentence.
+  Settings `cograph.tour.*`; the AI mode is `cograph.tour.ai.mode`.
+- **Hooks for a guided view of the graph** (`window.stageApi`): camera fits that leave room for
+  overlays, a spotlight, a pulse, ghost nodes for removed functions, overlay edges, folder
+  expansion and hiding the controls. Documented in `docs/tour-protocol.md`.
+
+### Changed
+- The analyzer subprocesses can be run without VS Code (`src/analyzerSpawn.ts`); the extension's
+  analysis is unchanged.
+
 ## [1.4.2] - 2026-10-27
 
 A patch release with two new languages and a round of analyzer work from

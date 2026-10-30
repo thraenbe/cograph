@@ -96,6 +96,8 @@ export interface PrListOptions {
 
 export type PrTextResult = { ok: true; text: string } | { ok: false; problem: PrProblem };
 
+export type PrViewResult = { ok: true; pullRequest: PullRequest } | { ok: false; problem: PrProblem };
+
 export interface PullRequestSource {
   /** Short id for logs, e.g. 'gh'. */
   readonly id: string;
@@ -103,4 +105,6 @@ export interface PullRequestSource {
   files(root: string, prNumber: number): Promise<PrFilesResult>;
   /** The text of one file at a commit (a PR's version of a file the checkout lacks). */
   fileText(root: string, relPath: string, ref: string): Promise<PrTextResult>;
+  /** One pull request by number, any state. Optional: without it the caller searches the list. */
+  view?(root: string, prNumber: number): Promise<PrViewResult>;
 }

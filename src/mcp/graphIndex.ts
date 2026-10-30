@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import { cachePath, diffManifest, readCacheFile, type Manifest } from '../cacheStore';
-import { annotationsPath, loadAnnotations } from '../graphIntelligence/annotationStore';
+import { annotationsPath, emptyAnnotations, loadAnnotations } from '../graphIntelligence/annotationStore';
 import type { AnnotationFile } from '../graphIntelligence/annotationTypes';
 import { scanStructure } from '../structureScanner';
 import { assignIds, splitLine, toSym, type Sym } from './ids';
@@ -32,7 +32,16 @@ function link(map: Map<string, Set<string>>, from: string, to: string): void {
 
 export function buildIndex(root: string, data: NonNullable<ReturnType<typeof readCacheFile>>,
   annotations: AnnotationFile): GraphIndex {
-  const symbols = data.graph.nodes.map((n) => toSym(root, n));
+  return buildIndexFromGraph(root, data.graph, annotations, { savedAt: data.savedAt, manifest: data.manifest });
+}
+
+/**
+ * The same index over a graph held in memory (a pull request's head tree), so the queries run
+ * without a cache file. `meta` is what only a cache file knows; the queries do not read it.
+ */
+export function buildIndexFromGraph(root: string, graph: NonNullable<ReturnType<typeof readCacheFile>>['graph'],
+  annotations: AnnotationFile = emptyAnnotations(), meta: { savedAt: string; manifest: Manifest } = { savedAt: '', manifest: {} }): GraphIndex {
+  const symbols = graph.nodes.map((n) => toSym(root, n));
   const byBase = assignIds(symbols);
   const byRaw = new Map(symbols.map((s) => [s.rawId, s]));
   const byId = new Map(symbols.map((s) => [s.id, s]));
@@ -52,14 +61,14 @@ export function buildIndex(root: string, data: NonNullable<ReturnType<typeof rea
   }
   const callers = new Map<string, Set<string>>();
   const callees = new Map<string, Set<string>>();
-  for (const e of data.graph.edges) {
+  for (const e of graph.edges) {
     if (e.source === e.target || !byRaw.has(e.source) || !byRaw.has(e.target)) { continue; }
     link(callees, e.source, e.target);
     link(callers, e.target, e.source);
   }
   return {
-    root, savedAt: data.savedAt, symbols, byRaw, byId, byBase, byLoose, byFile, callers, callees,
-    annotations, manifest: data.manifest,
+    root, savedAt: meta.savedAt, symbols, byRaw, byId, byBase, byLoose, byFile, callers, callees,
+    annotations, manifest: meta.manifest,
   };
 }
 

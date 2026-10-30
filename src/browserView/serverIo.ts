@@ -2,6 +2,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { pipeline } from 'stream';
 
 /** Request plumbing of the loopback server: the gate checks, bodies, static files. No vscode. */
 
@@ -106,10 +107,12 @@ export function resolveUnder(root: string, rel: string): string | null {
   try { return fs.statSync(real).isFile() ? real : null; } catch { return null; }
 }
 
-/** Stream a resolved file. A read error after the headers ends the response; it is logged by the caller. */
+/** Stream a resolved file. A read error after the headers ends the response, for the caller to log; a tab gone mid-file only closes the file. */
 export function sendFile(res: http.ServerResponse, file: string, onError: (err: Error) => void): void {
   res.writeHead(200, { ...BASE_HEADERS, 'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream' });
-  fs.createReadStream(file).on('error', (err) => { onError(err); res.destroy(); }).pipe(res);
+  pipeline(fs.createReadStream(file), res, (err) => {
+    if (err && (err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') { onError(err); }
+  });
 }
 
 /** One SSE frame. JSON.stringify never emits a raw newline, so a single data line carries any message. */

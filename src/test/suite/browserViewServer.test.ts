@@ -6,8 +6,11 @@ import * as path from 'path';
 import { BrowserServer, MAIN_VIEW, viewPath, type MirroredView, type PageRequest } from '../../browserView/browserServer';
 import { ViewHub, type ClientSink } from '../../browserView/viewHub';
 import { compilePattern, matchPattern } from '../../browserView/routes';
-import { hostAllowed, postOriginAllowed, MAX_BODY_BYTES } from '../../browserView/serverIo';
+import { hostAllowed, postOriginAllowed, sendFile, MAX_BODY_BYTES } from '../../browserView/serverIo';
 import { pathOutsideRoot, isUserMessage } from '../../browserView/messageGuard';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const rawFs = require('fs');
 
 // Real sockets on 127.0.0.1; vscode-free, so this suite also runs under plain mocha (coverage).
 
@@ -159,6 +162,40 @@ suite('browserView: BrowserServer', () => {
     let linked = false;
     try { fs.symlinkSync(path.join(extRoot, 'secret.txt'), path.join(extRoot, 'src', 'webview', 'link.js')); linked = true; } catch { /* no symlinks here (Windows without rights) */ }
     if (linked) { assert.strictEqual((await request(server.port, { path: q('/ext/src/webview/link.js') })).status, 404); }
+  });
+
+  test('REGRESSION: a tab that goes away mid-file closes the file, and that is no error', async () => {
+    fs.writeFileSync(path.join(extRoot, 'src', 'webview', 'big.js'), Buffer.alloc(32 * 1024 * 1024, 'x'));
+    const opened: fs.ReadStream[] = [];
+    const real = rawFs.createReadStream;
+    rawFs.createReadStream = (...args: unknown[]) => { const s = real(...args); opened.push(s); return s; };
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const req = http.get({ host: '127.0.0.1', port: server.port, path: q('/ext/src/webview/big.js') }, (res) => {
+          res.once('data', () => { req.destroy(); resolve(); });
+        });
+        req.on('error', () => undefined); // our own destroy
+        setTimeout(() => reject(new Error('no first chunk')), 3000).unref();
+      });
+      for (let i = 0; i < 100 && !opened[0]?.destroyed; i++) { await new Promise(r => setTimeout(r, 10)); }
+      assert.strictEqual(opened.length, 1);
+      assert.strictEqual(opened[0].destroyed, true, 'the file stream must not outlive the response');
+      assert.ok(!logs.some(l => l.includes('read /ext')), logs.join('|'));
+    } finally {
+      rawFs.createReadStream = real;
+    }
+  });
+
+  test('a read that fails after the headers ends the response and reaches the caller', async () => {
+    const errors: string[] = [];
+    const host = http.createServer((_req, res) => sendFile(res, path.join(extRoot, 'no-such-file'), (e) => errors.push((e as NodeJS.ErrnoException).code ?? '')));
+    await new Promise<void>(r => host.listen(0, '127.0.0.1', () => r()));
+    try {
+      await assert.rejects(request((host.address() as { port: number }).port, { path: '/' }));
+      assert.deepStrictEqual(errors, ['ENOENT']);
+    } finally {
+      host.close();
+    }
   });
 
   test('serveStatic adds a root with the same rules', async () => {

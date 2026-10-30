@@ -248,6 +248,7 @@ export function fingerprintTree(dir: string): string {
       const p = path.join(d, e.name);
       const r = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) { walk(p, r); }
+      else if (e.isSymbolicLink()) { entries.push(`${r}\0link`); } // a copy holds none: one from before that rule goes
       else if (e.isFile()) {
         try { const st = fs.statSync(p); entries.push(`${r}\0${st.size}\0${Math.floor(st.mtimeMs)}`); } catch { entries.push(`${r}\0?`); }
       }

@@ -13,8 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link's target, so it could point at a file outside the copy. Symlinks and submodule entries
   are no longer copied. This is hardening: there is no known exploit in shipped code. The file
   list handed to the analyzers already left links out, and the only reader that followed one
-  was the Python analyzer's fallback walk, which runs when that list cannot be written. A copy
-  already on disk from an earlier version is reused until it is evicted or cleared.
+  was the Python analyzer's fallback walk, which runs when that list cannot be written.
 
 ## [1.4.2] - 2026-10-27
 

@@ -440,6 +440,21 @@ suite('vcs engine — headTree keeps symlinks and gitlinks out of the copy', () 
     assert.ok(!JSON.stringify(runAnalyzers(tree.dir).nodes).includes(PLANTED_NAME), 'the analyzers\' own walk, used when no file list can be written');
   });
 
+  test('a copy from before the filter, with a link on disk, is discarded and copied afresh', async function () {
+    const sha = commitLinkingOutside();
+    const tree = await materializeCommit(deps, sha);
+    assert.strictEqual((await materializeCommit(deps, sha)).reused, true, 'a clean copy is reused: its fingerprint is what it was');
+    // What an earlier version left: the same marker and fingerprint, plus the link.
+    const link = path.join(tree.dir, 'evil.py');
+    try { fs.symlinkSync(path.join(root, 'planted.py'), link); } catch (err) {
+      if (process.platform === 'win32') { this.skip(); } // no symlink rights
+      throw err;
+    }
+    const again = await materializeCommit(deps, sha);
+    assert.strictEqual(again.reused, false);
+    assert.deepStrictEqual(entriesOf(again.dir), ['src', 'src/app.py']);
+  });
+
   test('a gitlink with a source-looking name leaves no folder and is not counted', async () => {
     const sha = commitOf(repo, { 'src/app.ts': 'export function a() {}\n', 'libs/three.js': [GITLINK, 'a'.repeat(40)] });
     assert.ok(analyzerKeepsPath('libs/three.js'), 'by name it would be copied: only its mode keeps it out');

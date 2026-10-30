@@ -736,6 +736,7 @@ body.cg-browser #tour-pill { display: none; }
 }
 .lang-badge-python { background: #3572a520; color: #3572a5; border: 1px solid #3572a540; }
 .lang-badge-typescript { background: #3178c620; color: #3178c6; border: 1px solid #3178c640; }
+.lang-badge-c { background: #659ad220; color: #659ad2; border: 1px solid #659ad240; }
 
 #lib-doc-desc-row {
   display: none;

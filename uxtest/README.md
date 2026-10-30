@@ -100,6 +100,7 @@ Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 | `80-popups` | function popup (drag, resize, edit + Ctrl+S, close, Escape), navigate fallback, libraries (F5), `save-request` |
 | `85-hover-card` | annotate's hover card (optional; canned `annotations`, AI off) |
 | `87-same-file-edges` | U1: two seeded boots (setting on vs off) settle to the same layout and orphan set; toggling keeps elements and positions; hover reveals cross-file lines |
+| `88-stage-api` | `window.stageApi`, the hooks a tour drives (both engines): ready after the first layout, a fit that leaves the overlays' inset free, spotlight, ghosts, overlay edges, pulse, expand, chrome |
 | `90-timeline` | timeline HTML + `timeline-data`, transport |
 | `99-save-roundtrip` | v2 save → fresh panel → `graph-loaded` delta (R5), v1 payload migration |
 

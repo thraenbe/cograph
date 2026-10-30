@@ -39,13 +39,13 @@
     tl.order = ordered.map(e => e.id);
     tl.order.forEach((id, i) => indexById.set(id, i));
 
+    const libraryIds = new Set(graph.nodes.filter(n => n && n.isLibrary).map(n => n.id));
     for (const edge of graph.edges || []) {
       const srcId = edge.source && typeof edge.source === 'object' ? edge.source.id : edge.source;
       const tgtId = edge.target && typeof edge.target === 'object' ? edge.target.id : edge.target;
       const srcIdx = indexById.get(srcId);
       if (srcIdx === undefined) continue;
-      const tgtNode = graph.nodes.find(n => n.id === tgtId);
-      if (!tgtNode || !tgtNode.isLibrary) continue;
+      if (!libraryIds.has(tgtId)) continue;
       const appearAfter = srcIdx + 1;
       const prev = tl.libOrder.get(tgtId);
       if (prev === undefined || appearAfter < prev) {

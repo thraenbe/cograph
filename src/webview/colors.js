@@ -5,6 +5,7 @@ const languageColors = {
   javascript: '#f7df1e',
   java:       '#b07219',
   cpp:        '#f34b7d',
+  c:          '#555555',
 };
 
 function getLanguageColor(lang) {
@@ -59,13 +60,23 @@ function renderLanguageLegend() {
 
   if (langs.length === 0) { el.innerHTML = ''; return; }
 
-  el.innerHTML = langs.map(lang => {
-    const color = getLanguageColor(lang);
-    return `<div class="lang-legend-row">
-      <input type="color" class="lang-swatch" data-lang="${lang}" value="${color}" title="Click to change color">
-      <span class="lang-label">${lang}</span>
-    </div>`;
-  }).join('');
+  // Language names can come from a cache file the repository itself commits:
+  // built as DOM nodes, never as markup (code scanning alert #2).
+  el.replaceChildren(...langs.map(lang => {
+    const row = document.createElement('div');
+    row.className = 'lang-legend-row';
+    const swatch = document.createElement('input');
+    swatch.type = 'color';
+    swatch.className = 'lang-swatch';
+    swatch.dataset.lang = lang;
+    swatch.value = getLanguageColor(lang);
+    swatch.title = 'Click to change color';
+    const label = document.createElement('span');
+    label.className = 'lang-label';
+    label.textContent = lang;
+    row.append(swatch, label);
+    return row;
+  }));
 
   el.querySelectorAll('.lang-swatch').forEach(input => {
     input.addEventListener('input', (e) => {

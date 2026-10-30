@@ -13,6 +13,9 @@ import {
   RETRY_BACKOFF_MS,
 } from '../../analyzerRunner';
 
+/** Analyzer processes per round: python, typescript, javascript, java, cpp, c. */
+const ANALYZERS = 6;
+
 // require() so sinon can stub the underlying CJS module (see memory note on the
 // __importStar wrapper). The wrapper's getters read through to these stubs.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -52,7 +55,7 @@ function stubPythonResolution(sandbox: sinon.SinonSandbox) {
 /**
  * Stub spawn so every analyzer process is created fresh and auto-emits an
  * outcome on the next tick (across retry rounds). `emitForCall(idx, proc)`
- * receives the 0-based spawn-call index (idx % 5 = language, idx / 5 = round).
+ * receives the 0-based spawn-call index (idx % ANALYZERS = language, idx / ANALYZERS = round).
  */
 function stubSpawnAuto(
   sandbox: sinon.SinonSandbox,
@@ -119,7 +122,7 @@ suite('AnalyzerRunner', () => {
     stubPythonResolution(sandbox);
     const spawn = stubSpawnAuto(sandbox, realSetTimeout, (idx, proc) => {
       // idx 0 = python → a node; the other four languages → empty
-      idx % 5 === 0 ? emitNode(proc) : emitEmpty(proc);
+      idx % ANALYZERS === 0 ? emitNode(proc) : emitEmpty(proc);
     });
     const { runner, onRetry, result } = makeRunner(sandbox);
 
@@ -128,9 +131,9 @@ suite('AnalyzerRunner', () => {
 
     const graph = JSON.parse(stdout);
     assert.strictEqual(graph.nodes.length, 1, 'merged graph keeps the python node');
-    assert.strictEqual(spawn.callCount, 5, 'exactly one round — success short-circuits retries');
+    assert.strictEqual(spawn.callCount, ANALYZERS, 'exactly one round — success short-circuits retries');
     assert.ok(onRetry.notCalled, 'no retry on success');
-    assert.strictEqual(meta.statuses.length, 5);
+    assert.strictEqual(meta.statuses.length, ANALYZERS);
     assert.strictEqual(meta.statuses.find(s => s.lang === 'python')!.status, 'ok');
     assert.strictEqual(meta.statuses.find(s => s.lang === 'typescript')!.status, 'empty');
   });
@@ -141,7 +144,7 @@ suite('AnalyzerRunner', () => {
     stubSpawnAuto(sandbox, realSetTimeout, (idx, proc) => {
       // typescript (idx 1) fails with a non-zero exit; the rest produce a node so
       // the merged graph is non-empty (no retry) and we can assert the failure is reported.
-      idx % 5 === 1 ? emitExit(proc, 1) : emitNode(proc);
+      idx % ANALYZERS === 1 ? emitExit(proc, 1) : emitNode(proc);
     });
     const { runner, log, result } = makeRunner(sandbox);
 
@@ -160,7 +163,7 @@ suite('AnalyzerRunner', () => {
     this.timeout(5000);
     stubPythonResolution(sandbox);
     stubSpawnAuto(sandbox, realSetTimeout, (idx, proc) => {
-      idx % 5 === 0 ? emitBadJson(proc) : emitNode(proc);
+      idx % ANALYZERS === 0 ? emitBadJson(proc) : emitNode(proc);
     });
     const { runner, result } = makeRunner(sandbox);
 
@@ -182,7 +185,7 @@ suite('AnalyzerRunner', () => {
 
     assert.strictEqual(JSON.parse(stdout).nodes.length, 0);
     assert.strictEqual(onRetry.callCount, MAX_ANALYSIS_RETRIES, 'retried the configured number of times');
-    assert.strictEqual(spawn.callCount, 5 * (MAX_ANALYSIS_RETRIES + 1), '1 initial + MAX retry rounds × 5 analyzers');
+    assert.strictEqual(spawn.callCount, ANALYZERS * (MAX_ANALYSIS_RETRIES + 1), '1 initial + MAX retry rounds × every analyzer');
   });
 
   test('a non-empty later attempt wins (recovers a transient empty)', async function () {
@@ -192,7 +195,7 @@ suite('AnalyzerRunner', () => {
     const spawn = stubSpawnAuto(sandbox, realSetTimeout, (idx, proc) => {
       // Round 0 (idx 0..4) empty; round 1 python returns a node.
       if (idx < 5) { emitEmpty(proc); return; }
-      idx === 5 ? emitNode(proc) : emitEmpty(proc);
+      idx === ANALYZERS ? emitNode(proc) : emitEmpty(proc);
     });
     const { runner, onRetry, result } = makeRunner(sandbox);
 
@@ -201,7 +204,7 @@ suite('AnalyzerRunner', () => {
 
     assert.strictEqual(JSON.parse(stdout).nodes.length, 1, 'second-attempt graph is used');
     assert.strictEqual(onRetry.callCount, 1, 'one retry before success');
-    assert.strictEqual(spawn.callCount, 10, 'two rounds × 5 analyzers');
+    assert.strictEqual(spawn.callCount, 2 * ANALYZERS, 'two rounds × every analyzer');
   });
 
   test('reanalysis (no allowRetry) never retries on empty', async function () {
@@ -216,7 +219,7 @@ suite('AnalyzerRunner', () => {
 
     assert.strictEqual(JSON.parse(stdout).nodes.length, 0);
     assert.ok(onRetry.notCalled, 'reanalysis must not loop');
-    assert.strictEqual(spawn.callCount, 5, 'exactly one round');
+    assert.strictEqual(spawn.callCount, ANALYZERS, 'exactly one round');
   });
 
   test('timeout is NOT retried (would waste minutes)', async function () {
@@ -237,7 +240,7 @@ suite('AnalyzerRunner', () => {
 
     assert.strictEqual(JSON.parse(stdout).nodes.length, 0);
     assert.ok(onRetry.notCalled, 'timeout must not trigger retries');
-    assert.strictEqual(spawn.callCount, 5, 'one round only');
+    assert.strictEqual(spawn.callCount, ANALYZERS, 'one round only');
     assert.ok(meta.statuses.every(s => s.status === 'timeout'), 'all analyzers reported timeout');
   });
 
@@ -276,6 +279,14 @@ suite('AnalyzerRunner', () => {
       assert.strictEqual(runner.countCandidateSourceFiles(tmpDir, 99), 2, 'only src/a.ts and src/b.py count');
     });
 
+    test('counts components in any case (App.VUE), as the structure scan and the analyzers do', () => {
+      fs.writeFileSync(path.join(tmpDir, 'App.VUE'), '');
+      fs.writeFileSync(path.join(tmpDir, 'Widget.svelte'), '');
+      fs.writeFileSync(path.join(tmpDir, 'App.vue.bak'), '');
+      const { runner } = makeRunner(sandbox);
+      assert.strictEqual(runner.countCandidateSourceFiles(tmpDir, 99), 2);
+    });
+
     test('early-exits at cap', () => {
       for (let i = 0; i < 10; i++) { fs.writeFileSync(path.join(tmpDir, `f${i}.js`), ''); }
       const { runner } = makeRunner(sandbox);
@@ -310,7 +321,7 @@ suite('AnalyzerRunner', () => {
   test('onGraph sink receives the merged object; onResult (and its JSON round-trip) is skipped', async function () {
     this.timeout(5000);
     stubPythonResolution(sandbox);
-    stubSpawnAuto(sandbox, realSetTimeout, (idx, proc) => { idx % 5 === 0 ? emitNode(proc) : emitEmpty(proc); });
+    stubSpawnAuto(sandbox, realSetTimeout, (idx, proc) => { idx % ANALYZERS === 0 ? emitNode(proc) : emitEmpty(proc); });
     const onResult = sandbox.stub();
     const context = { extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as unknown as vscode.ExtensionContext;
     const stringify = sandbox.spy(JSON, 'stringify');
@@ -323,7 +334,7 @@ suite('AnalyzerRunner', () => {
     const r = await got;
     assert.strictEqual(r.graph.nodes.length, 1);
     assert.strictEqual(r.root, '/ws');
-    assert.strictEqual(r.meta.statuses.length, 5);
+    assert.strictEqual(r.meta.statuses.length, ANALYZERS);
     assert.ok(onResult.notCalled);
     assert.ok(stringify.getCalls().every(c => c.args[0] !== r.graph),
       'the merged graph object is handed over as-is, never re-serialised');

@@ -37,6 +37,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The analyzer subprocesses can be run without VS Code (`src/analyzerSpawn.ts`); the extension's
   analysis is unchanged.
 
+## [1.4.2] - 2026-10-27
+
+A patch release with two new languages and a round of analyzer work from
+[@GoonerMAK](https://github.com/GoonerMAK). C files get their own grammar instead of riding on
+the C++ one, Vue and Svelte components appear in TypeScript and JavaScript graphs, and C++
+functions that return a pointer or reference are back in the graph. The TypeScript and
+JavaScript analyzers share one core now, which also removed a class of stray library nodes.
+Two code scanning findings are closed, and the Marketplace listing has a new name and banner.
+
+### Added
+- **Vue and Svelte single-file components.** `.vue` and `.svelte` files are analyzed through
+  their `<script>` blocks (Vue `<script>` + `<script setup>`, Svelte module + instance), so calls
+  from components into `src/` modules appear in the graph. A block with `lang="ts"` goes through
+  the TypeScript analyzer, a plain JavaScript block through the JavaScript one (other script
+  languages, such as `lang="coffee"`, are skipped); components inherit that colour. Node
+  positions, jump-to-source and the source popup use the component file's own line numbers.
+  Template expressions (`@click="save()"`) are not analyzed (see README *Limitations*).
+- **C.** `.c` files are analysed with the official tree-sitter-c grammar (the C++ grammar
+  mis-parsed C-only identifiers such as a variable named `new`, which made whole functions
+  disappear). The graph shows function definitions, header prototypes (one node per function,
+  even when a header and a `.c` both declare it), direct calls, and callbacks: a function passed
+  as an argument, stored in a variable or struct initializer, assigned or returned is linked
+  from the function that hands it on. Calls into the C standard library become library nodes
+  named by header (`stdio.printf`, `string.memcpy`). A `.h` file counts as C when its directory
+  holds `.c` files and no C++ source; otherwise it stays C++. Not tracked: calls through
+  pointers, macros, file-scope function tables and third-party libraries (see README,
+  *Limitations*).
+
+### Changed
+- Marketplace listing: display name is now "CoGraph | Live codebase map", the description is
+  "Read your codebase like a metro map", and the Marketplace page header uses the
+  brand navy gallery banner. No functional changes.
+- The `tree-sitter-c` grammar package is pinned to exactly 0.23.2 (a newer peer range
+  conflicts with `tree-sitter-cpp` and breaks `npm install`; see CONTRIBUTING.md).
+- The TypeScript and JavaScript analyzers now run on one shared core
+  (`scripts/tsJsAnalyzer.js`), and all analyzers share one file walk (`scripts/sourceFiles.js`).
+  The graphs they produce are unchanged, apart from the fix below.
+- Dependency updates for the test and packaging tools (jsdom 30, `@vscode/vsce` 4).
+
+### Fixed
+- **C++ functions returning a pointer or reference were missing from the graph**, together
+  with every call into them: `int* make_ptr()`, `const Widget& get_ref(...)`,
+  `Widget& Widget::self()` and in-class declarations such as `int* get();`. The analyzer looked
+  only at the outermost declarator and skipped the pointer or reference wrapper around the
+  function declarator.
+- TypeScript/JavaScript: a bare `toString()` or `hasOwnProperty.call()` no longer becomes a
+  library node with no package name; only names a file really imports count as libraries.
+
+### Security
+- **Repository text is rendered as text, never as markup** (code scanning alert #2). The
+  language legend and the context-menu headers built their HTML from language names and
+  file or folder names, so a repository could inject markup into the panel. It needed either
+  a committed `.cograph/graph-cache.json` or a file named like an HTML tag. The panel's
+  Content Security Policy already stopped any script from running. Both are now built as DOM
+  nodes.
+- **The layout worker only runs its own message handlers** (code scanning alert #7). A
+  message type such as `hasOwnProperty` reached `Object.prototype` and threw, which dropped
+  the frame back to the main-thread simulation.
+
+## [1.4.1] - 2026-10-24
+
+A patch release. The two user-facing fixes come from [@GoonerMAK](https://github.com/GoonerMAK):
+the timeline no longer freezes on large graphs, and a closed function popup stops listening to
+the mouse. Underneath, the repository tightened its build: lint runs in CI, every Action is pinned
+to a commit, and this is the first release whose `.vsix` carries a signed build provenance.
+
+
+### Fixed
+- **The timeline no longer stalls on large graphs while working out when library nodes
+  appear.** That step looked each call's target up by scanning every node, once per call,
+  on the panel's main thread. On a synthetic graph of 30 000 functions and 120 000 calls
+  the step alone took about 4 s; the library nodes are now collected once, and the same
+  step takes about 15 ms.
+  
+- **A closed function popup lets go of the mouse.** Each popup listened for mouse moves on
+  the whole panel so it could be dragged and resized, and closing it never stopped those
+  listeners. Every popup ever opened kept its card and source text in memory and ran on
+  every mouse move (100 handlers per move after 50 popups). Closing a popup now removes them.
+
+### Changed
+- CI now runs `npm run lint` on every push and pull request. The PR template has asked for a
+  clean lint since 1.1; this is what enforces it.
+- Every GitHub Action in the workflows is pinned to a commit SHA with the version in a comment,
+  and both workflows declare the least `permissions` they need. Dependabot keeps the pins current.
+
+### Security
+- Releases attest their build provenance (SLSA, via `actions/attest-build-provenance`). A
+  downloaded `.vsix` can be verified with `gh attestation verify <file> -R thraenbe/cograph`.
+- SECURITY.md names 1.4.x as the supported line.
+
 ## [1.4.0] - 2026-10-09
 
 The release that took things away. Two of the three AI features were measured rather than
@@ -474,7 +564,9 @@ Measured on a 3 000-function repository in VS Code: four open folders settle in 
 - Library node clustering.
 - Click-to-navigate to function definitions.
 
-[Unreleased]: https://github.com/thraenbe/cograph/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/thraenbe/cograph/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/thraenbe/cograph/compare/v1.4.1...v1.4.2
+[1.4.1]: https://github.com/thraenbe/cograph/compare/v1.4.0...v1.4.1
 [1.1.1]: https://github.com/thraenbe/cograph/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/thraenbe/cograph/compare/v1.0.5...v1.1.0
 [1.0.5]: https://github.com/thraenbe/cograph/compare/v1.0.4...v1.0.5

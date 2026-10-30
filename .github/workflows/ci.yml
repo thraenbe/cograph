@@ -9,6 +9,10 @@ on:
   pull_request:
     branches: [main, 'version_*']
 
+# The job only reads the checkout. Nothing here writes to the repository.
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:
@@ -18,15 +22,23 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      # Actions are pinned to a commit SHA, not a tag: a tag can be moved to other
+      # code, a SHA cannot. Dependabot keeps the SHA and the version comment current.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Do not leave GITHUB_TOKEN in .git/config for later steps to read.
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '20'
       - run: npm ci
 
+      # The PR template asks for a clean lint; this is what enforces it.
+      - run: npm run lint
+
       # Keep version in sync with VSCODE_VERSION in src/test/runTest.ts
       - name: Cache VS Code test binary
-        uses: actions/cache@v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .vscode-test
           key: vscode-test-${{ runner.os }}-1.116.0

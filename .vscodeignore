@@ -15,8 +15,8 @@ src/**
 !src/webview/**
 out/**
 
-# Node analyzer sources are bundled into dist/scripts (with both .wasm files
-# next to them). Only the Python analyzers run from scripts/ in the package.
+# Node analyzer sources are bundled into dist/scripts (with the three .wasm
+# files next to them). Only the Python analyzers run from scripts/ in the package.
 scripts/**
 !scripts/analyze.py
 !scripts/describe_lib.py

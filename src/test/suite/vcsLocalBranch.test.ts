@@ -62,7 +62,13 @@ function makeRepos(root: string) {
   sh(work, ['commit', '--quiet', '-m', 'add extra', '-m', 'Body line one.\n\nBody after a blank — with unicode ✓.'], GIT_ID);
   sh(work, ['mv', 'docs/guide.md', 'docs/handbook.md']);
   fs.rmSync(path.join(work, 'src/old.ts'));
-  write(work, { 'src/new.ts': 'export function fresh() {}\n', 'package.json': '{ "name": "demo" }\n' });
+  write(work, {
+    'src/new.ts': 'export function fresh() {}\n', 'package.json': '{ "name": "demo" }\n',
+    'c/tool.c': '#include "tool.h"\nstatic int step(void) { return 1; }\nint run_c(void) { return step(); }\n',
+    'c/tool.h': 'int run_c(void);\n',
+    'web/Card.vue': '<script lang="ts">\nexport function cardSetup(): number { return 1; }\n</script>\n',
+    'web/Chip.svelte': '<script>\nexport function chipSetup() { return 1; }\n</script>\n',
+  });
   sh(work, ['add', '-A']);
   sh(work, ['commit', '--quiet', '-m', 'second'], GIT_ID);
   const head = sh(work, ['rev-parse', 'HEAD']);
@@ -142,6 +148,10 @@ suite('vcs engine — localBranch on real repositories (no network)', () => {
     assert.deepStrictEqual(byPath['src/old.ts'], { path: 'src/old.ts', status: 'deleted', analysable: true });
     assert.deepStrictEqual(byPath['docs/handbook.md'], { path: 'docs/handbook.md', status: 'renamed', previousPath: 'docs/guide.md', analysable: false });
     assert.strictEqual(byPath['package.json'].analysable, false);
+    for (const file of ['c/tool.c', 'c/tool.h', 'web/Card.vue', 'web/Chip.svelte']) {
+      assert.strictEqual(byPath[file].analysable, true, file);
+      assert.ok(fs.existsSync(path.join(prepared.head.dir, file)), `${file} is in the head copy`);
+    }
     assert.ok(!byPath['src/later.ts'], 'main\'s later commit is not the branch\'s change');
     assert.ok(prepared.head.files.includes('package.json'), 'files lists every file of the commit');
     assert.ok(!fs.existsSync(path.join(prepared.head.dir, 'package.json')), 'the copy holds source files only');
@@ -171,6 +181,9 @@ suite('vcs engine — localBranch on real repositories (no network)', () => {
     assert.ok(copy.nodes.length >= 6, copy.nodes.join(','));
     assert.deepStrictEqual(copy, checkout);
     assert.ok(copy.edges.some(e => e.includes('src/util.ts::helper') && e.includes('::extra')));
+    for (const fn of ['c/tool.c::run_c', 'web/Card.vue::cardSetup', 'web/Chip.svelte::chipSetup']) {
+      assert.ok(copy.nodes.some(n => n.startsWith(fn)), `${fn} in ${copy.nodes.join(',')}`);
+    }
   });
 
   test('a dirty tree is reported, untracked files included', async () => {

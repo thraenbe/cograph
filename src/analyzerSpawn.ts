@@ -123,13 +123,14 @@ export function spawnAnalyzer(bin: string, args: string[], lang: string, hooks: 
   });
 }
 
-/** The five analyzers of a full pass, in the order AnalyzerRunner has always started them. */
+/** The six analyzers of a full pass, in the order AnalyzerRunner starts them. */
 export const ANALYZER_SCRIPTS: ReadonlyArray<{ script: string; lang: string; python: boolean }> = [
   { script: 'analyze.py', lang: 'python', python: true },
   { script: 'analyze_ts.js', lang: 'typescript', python: false },
   { script: 'analyze_js.js', lang: 'javascript', python: false },
   { script: 'analyze_java.js', lang: 'java', python: false },
   { script: 'analyze_cpp.js', lang: 'cpp', python: false },
+  { script: 'analyze_c.js', lang: 'c', python: false },
 ];
 
 export function mergeResults(statuses: AnalyzerResult[]): GraphData {
@@ -154,7 +155,7 @@ export interface SpawnAnalyzersOptions {
 
 /**
  * One full analysis of `dir` outside VS Code: the structure scanner's file list
- * (`--files`, so the graph covers what the Folder tree shows), the five analyzers
+ * (`--files`, so the graph covers what the Folder tree shows), the six analyzers
  * in parallel, their graphs merged.
  */
 export async function spawnAnalyzers(dir: string, opts: SpawnAnalyzersOptions): Promise<{ graph: GraphData; statuses: AnalyzerResult[] }> {

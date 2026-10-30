@@ -141,6 +141,8 @@ export class BrowserServer {
   private log(line: string): void { this.deps.log(line.split(this.token).join('<token>')); }
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    // Node 16 (VS Code 1.75) has no closeAllConnections: a kept-alive socket can still bring a request.
+    if (this.disposed) { req.socket.destroy(); return; }
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (!hostAllowed(req.headers.host)) { sendStatus(res, 403); return; }
     if (!tokenMatches(url.searchParams.get('token'), this.token)) { sendStatus(res, 401); return; }

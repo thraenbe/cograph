@@ -323,6 +323,24 @@ suite('browserView: BrowserServer', () => {
     for (const l of logs) { assert.ok(!l.includes(TOKEN), l); }
   });
 
+  test('REGRESSION: after dispose a kept-alive socket gets no answer, also where Node has no closeAllConnections', async () => {
+    const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+    const viaAgent = () => new Promise<number>((resolve, reject) => {
+      http.get({ agent, host: '127.0.0.1', port: server.port, path: q('/') }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode ?? 0)); }).on('error', reject);
+    });
+    try {
+      assert.strictEqual(await viaAgent(), 200);
+      // Node 16 as VS Code 1.75 ships it: close() leaves an idle socket alone.
+      const raw = (server as unknown as { server: { closeAllConnections?: unknown; closeIdleConnections?: unknown } }).server;
+      raw.closeAllConnections = undefined;
+      raw.closeIdleConnections = () => undefined;
+      server.dispose();
+      await assert.rejects(viaAgent());
+    } finally {
+      agent.destroy();
+    }
+  });
+
   test('dispose stops listening; a fresh start gets a fresh random token', async () => {
     const port = server.port;
     server.dispose();

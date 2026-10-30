@@ -325,9 +325,9 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
   test('a cancel mid-copy leaves no directory, no marker and no temporary index; the next open copies afresh', async () => {
     const sha = await fetchPullRequestHead(deps, 1);
     const ac = new AbortController();
-    // Cancel while checkout-index runs: the real git is used, the signal flips during the call.
+    // Cancel while the blobs are read: the real git is used, the signal flips during the call.
     const exec: Exec = (cmd, args, cwd, opts) => {
-      if (args[0] === 'checkout-index') { ac.abort(); }
+      if (args[0] === 'cat-file') { ac.abort(); }
       return defaultExec(cmd, args, cwd, opts);
     };
     await assert.rejects(materializeCommit({ ...deps, exec, signal: ac.signal }, sha), (e: HeadTreeError) => e.kind === 'cancelled');
@@ -341,7 +341,7 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
 
   test('a git failure mid-copy is cleaned up the same way and named', async () => {
     const sha = await fetchPullRequestHead(deps, 1);
-    const exec: Exec = async (cmd, args, cwd, opts) => args[0] === 'checkout-index'
+    const exec: Exec = async (cmd, args, cwd, opts) => args[0] === 'cat-file'
       ? { code: 128, stdout: '', stderr: 'fatal: disk full', notFound: false }
       : defaultExec(cmd, args, cwd, opts);
     await assert.rejects(materializeCommit({ ...deps, exec }, sha), (e: HeadTreeError) => e.kind === 'fetch-failed' && e.detail === 'fatal: disk full');

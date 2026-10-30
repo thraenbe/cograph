@@ -14,6 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are no longer copied. This is hardening: there is no known exploit in shipped code. The file
   list handed to the analyzers already left links out, and the only reader that followed one
   was the Python analyzer's fallback walk, which runs when that list cannot be written.
+- **Pull request copies run no filters.** The copy was made with `git checkout-index`, which
+  applies the commit's own `.gitattributes`. Where git-lfs is set up (`filter.lfs.*` in git
+  config, which `git lfs install` and some packages do), a pull request from anyone, forks
+  included, could mark a source file as LFS content and name a server in `.lfsconfig`. Opening
+  that pull request in CoGraph then made git-lfs call the server and wrote its bytes into the
+  copy, so the graph and the structural diff showed code that is in no commit. No credentials
+  were sent, but the request showed the machine's address, could reach hosts only that machine
+  can reach, and could fail the copy. Any other filter in your git config could be selected the
+  same way. The copy now reads each blob from git's object store and writes it itself, so
+  attributes, filters and line-ending rules do not apply. Line numbers match a checkout, but a
+  source file kept in LFS now appears as its pointer text, and files are no longer executable
+  in the copy. Copies made by earlier versions are made again.
 
 ## [1.4.2] - 2026-10-27
 

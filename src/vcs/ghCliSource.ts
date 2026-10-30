@@ -22,6 +22,8 @@ export interface ExecOptions {
   timeoutMs?: number;
   /** Kills the child when aborted; the result then has a null code. */
   signal?: AbortSignal;
+  /** Takes stdout raw, as it arrives, instead of `stdout`. A throw kills the child and comes back as its error. */
+  onStdout?: (chunk: Buffer) => void;
 }
 
 export type Exec = (command: string, args: string[], cwd: string, opts?: ExecOptions) => Promise<ExecResult>;
@@ -36,6 +38,34 @@ const LIST_FIELDS = [
   'changedFiles', 'additions', 'deletions', 'updatedAt', 'url',
 ];
 
+/** `defaultExec` for output that is not text or does not fit in memory: the same contract, with stdout going to `onStdout`. */
+function execStreaming(command: string, args: string[], cwd: string, opts: ExecOptions, onStdout: (chunk: Buffer) => void): Promise<ExecResult> {
+  return new Promise((resolve) => {
+    const child = cp.spawn(command, args, {
+      cwd, timeout: opts.timeoutMs ?? TIMEOUT_MS, windowsHide: true,
+      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    let stderr = '';
+    let failure: Error | null = null;
+    let notFound = false;
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (failure) { return; }
+      try { onStdout(chunk); } catch (err) { failure = err as Error; child.kill(); }
+    });
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.stdin.on('error', () => undefined); // a child that exits early closes its stdin: its exit says why
+    child.on('error', (err: NodeJS.ErrnoException) => { failure ??= err; notFound = err.code === 'ENOENT'; });
+    child.on('close', (code, killedBy) => resolve({
+      code: failure ? null : code,
+      stdout: '',
+      stderr: failure?.message ?? (stderr || (killedBy ? `killed by ${killedBy}` : '')),
+      notFound,
+    }));
+    if (opts.stdin !== undefined) { child.stdin.end(opts.stdin); }
+  });
+}
+
 /**
  * Run a CLI without ever rejecting: a missing binary, a non-zero exit and a
  * timeout all come back as data. Arguments are passed as an array and NEVER
@@ -43,7 +73,7 @@ const LIST_FIELDS = [
  * cmd.exe would mangle `^{commit}` and split a `--prefix=C:/Users/John Doe/...`
  * at the space.
  */
-export const defaultExec: Exec = (command, args, cwd, opts = {}) => new Promise((resolve) => {
+export const defaultExec: Exec = (command, args, cwd, opts = {}) => opts.onStdout ? execStreaming(command, args, cwd, opts, opts.onStdout) : new Promise((resolve) => {
   const child = cp.execFile(command, args, {
     cwd, timeout: opts.timeoutMs ?? TIMEOUT_MS, encoding: 'utf8', maxBuffer: MAX_BUFFER,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,

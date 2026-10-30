@@ -47,13 +47,17 @@ export function activate(context: vscode.ExtensionContext) {
     // opens the user's real files, but takes no edits itself (a PR view is transient).
     // Both kinds open files as read-only documents labelled with where they come from — the copy, or
     // the checkout "(not PR #N)" — so no file is ever mistaken for the PR's version or for one to edit.
-    createHeadGraph: (root, title, kind, editorLabel) => new GraphProvider(context, {
-      root, readOnly: true, title, closeOnLeave: true, readOnlyUri: (file: string) => prDocumentUri(root, editorLabel, file),
-      readOnlyReason: kind === 'head'
-        ? `${title} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`
-        : `${title} is a pull-request view and takes no edits — open the file from the Explorer to edit it.`,
-      outputChannel: vcsLog,
-    }),
+    createHeadGraph: (root, title, kind, editorLabel) => {
+      const graph = new GraphProvider(context, {
+        root, readOnly: true, title, closeOnLeave: true, readOnlyUri: (file: string) => prDocumentUri(root, editorLabel, file),
+        readOnlyReason: kind === 'head'
+          ? `${title} shows a copy of a commit, not your working tree — edit the file in your checkout instead.`
+          : `${title} is a pull-request view and takes no edits — open the file from the Explorer to edit it.`,
+        outputChannel: vcsLog,
+      });
+      graph.setBrowserOpener((p) => openInBrowser(p)); // a pull-request panel opens at its own /view/<id>
+      return graph;
+    },
     showText: showPrText,
     analyzer: createTreeAnalyzer(context, (line) => vcsLog.appendLine(line)),
     progress: (title, task) => Promise.resolve(vscode.window.withProgress(

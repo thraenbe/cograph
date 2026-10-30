@@ -274,12 +274,22 @@ function writeMarker(dir: string, marker: TreeMarker): void {
   fs.writeFileSync(path.join(dir, MARKER), JSON.stringify(marker, null, 2), 'utf8');
 }
 
-/** Repository-relative POSIX paths of the commit the caller wants copied. */
+/**
+ * Repository-relative POSIX paths of the commit the caller wants copied: regular files only
+ * (modes 100644, 100755). A symlink (120000) stays out because the commit picks its target, and
+ * in the copy it would read a file of this machine; a gitlink (160000) has nothing to copy.
+ */
 async function listFiles(deps: HeadTreeDeps, sha: string): Promise<string[]> {
-  const res = await git(deps, ['ls-tree', '-r', '-z', '--name-only', sha]);
+  const res = await git(deps, ['ls-tree', '-r', '-z', sha]);
   if (res.code !== 0) { throwFor(res, `Commit ${sha.slice(0, 7)}`); }
   const keep = deps.keep ?? analyzerKeepsPath;
-  return res.stdout.split('\0').filter(p => p && keep(p));
+  const files: string[] = [];
+  for (const entry of res.stdout.split('\0')) {
+    // `<mode> <type> <object>\t<path>`: the first tab ends the metadata, a path may hold more.
+    const file = entry.slice(entry.indexOf('\t') + 1);
+    if (entry.startsWith('100') && keep(file)) { files.push(file); }
+  }
+  return files;
 }
 
 function dirBytes(dir: string): number {

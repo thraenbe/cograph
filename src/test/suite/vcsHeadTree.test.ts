@@ -372,6 +372,110 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
   });
 });
 
+const LINK = '120000';
+const GITLINK = '160000';
+
+/** A commit built in git alone, so no platform needs symlink rights: text, or a raw [mode, content] entry (a gitlink's content is its commit). */
+function commitOf(repo: string, entries: Record<string, string | [mode: string, content: string]>): string {
+  const blob = (text: string) => cp.execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: repo, input: text, encoding: 'utf8' }).trim();
+  for (const [rel, entry] of Object.entries(entries)) {
+    const [mode, content] = typeof entry === 'string' ? ['100644', entry] : entry;
+    sh(repo, ['update-index', '--add', '--cacheinfo', `${mode},${mode === GITLINK ? content : blob(content)},${rel}`]);
+  }
+  sh(repo, ['commit', '--quiet', '-m', 'entries'], GIT_ID);
+  return sh(repo, ['rev-parse', 'HEAD']);
+}
+
+/** Every path in the copy, links and folders included, none followed; the copy's own dotfiles left out. */
+function entriesOf(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (d: string) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      out.push(relPath(dir, p) as string);
+      if (e.isDirectory()) { walk(p); }
+    }
+  };
+  walk(dir);
+  return out.filter(p => !p.startsWith('.')).sort();
+}
+
+suite('vcs engine — headTree keeps symlinks and gitlinks out of the copy', () => {
+  const PLANTED_NAME = 'PLANTED_OUTSIDE_THE_TREE';
+  /** From `<root>/storage/<repo key>/<sha>/src`, where the copy would hold the link, to `<root>/planted.py`. */
+  const UP_TO_PLANTED = '../../../../planted.py';
+  let root: string;
+  let repo: string;
+  let deps: HeadTreeDeps;
+
+  suiteSetup(function () { try { sh(os.tmpdir(), ['--version']); } catch { this.skip(); } });
+  setup(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-links-'));
+    repo = path.join(root, 'repo');
+    fs.mkdirSync(repo);
+    sh(repo, ['init', '--quiet', '-b', 'main']);
+    deps = { repoRoot: repo, storageDir: path.join(root, 'storage'), exec: defaultExec };
+  });
+  teardown(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  /** A real file outside any tree, and a commit whose source-looking names link to it, or back into the tree. */
+  function commitLinkingOutside(): string {
+    const planted = path.join(root, 'planted.py');
+    fs.writeFileSync(planted, `def ${PLANTED_NAME}():\n    pass\n`);
+    return commitOf(repo, {
+      'src/app.py': 'def real():\n    pass\n',
+      'evil.py': [LINK, planted],
+      'src/up.py': [LINK, UP_TO_PLANTED],
+      'src/alias.py': [LINK, 'app.py'],
+    });
+  }
+
+  test('a link is absent from the copy, whatever its target, and no walk finds the file it points at', async function () {
+    this.timeout(60_000);
+    const tree = await materializeCommit(deps, commitLinkingOutside());
+    assert.strictEqual(path.resolve(tree.dir, 'src', UP_TO_PLANTED), path.join(root, 'planted.py'), 'in the copy, the relative link would reach the planted file');
+    assert.deepStrictEqual(entriesOf(tree.dir), ['src', 'src/app.py'], 'the regular file and nothing else');
+    assert.strictEqual(tree.files, 1);
+    assert.strictEqual(fs.readFileSync(path.join(tree.dir, DECLARED_TRACKED), 'utf8'), 'src/app.py', 'the copy declares no link either');
+    assert.ok(!JSON.stringify(runAnalyzers(tree.dir).nodes).includes(PLANTED_NAME), 'the analyzers\' own walk, used when no file list can be written');
+  });
+
+  test('a gitlink with a source-looking name leaves no folder and is not counted', async () => {
+    const sha = commitOf(repo, { 'src/app.ts': 'export function a() {}\n', 'libs/three.js': [GITLINK, 'a'.repeat(40)] });
+    assert.ok(analyzerKeepsPath('libs/three.js'), 'by name it would be copied: only its mode keeps it out');
+    const tree = await materializeCommit(deps, sha);
+    assert.deepStrictEqual(entriesOf(tree.dir), ['src', 'src/app.ts']);
+    assert.strictEqual(tree.files, 1);
+  });
+
+  test('with core.symlinks off a link does not turn into a text file holding its target', async () => {
+    sh(repo, ['config', 'core.symlinks', 'false']);
+    const tree = await materializeCommit(deps, commitOf(repo, { 'a.py': 'def a():\n    pass\n', 'b.py': [LINK, 'c/target.py'] }));
+    assert.deepStrictEqual(entriesOf(tree.dir), ['a.py']);
+    assert.deepStrictEqual(scanStructure(tree.dir).files.map(f => relPath(tree.dir, f.path)), ['a.py']);
+  });
+
+  test('the copy scans like a checkout of a commit that holds links and a gitlink', async function () {
+    if (process.platform === 'win32') { this.skip(); } // a checkout there may write a link as a text file
+    const withLinks = commitLinkingOutside();
+    commitOf(repo, { 'libs/three.js': [GITLINK, withLinks] });
+    const full = path.join(root, 'full-checkout');
+    sh(root, ['clone', '--quiet', repo, full]);
+    const tree = await materializeCommit(deps, sh(full, ['rev-parse', 'HEAD']));
+    const scanRel = (r: string) => scanStructure(r).files.map(f => relPath(r, f.path)).sort();
+    assert.ok(fs.lstatSync(path.join(full, 'evil.py')).isSymbolicLink(), 'the checkout does hold the link');
+    assert.deepStrictEqual(scanRel(tree.dir), ['src/app.py']);
+    assert.deepStrictEqual(scanRel(full), scanRel(tree.dir));
+  });
+
+  test('regular files stay, executable ones and names with spaces or tabs included', async () => {
+    const names = ['with space.py', ...(process.platform === 'win32' ? [] : ['tab\there.py', 'a b\tc\td.py'])]; // NTFS refuses a tab
+    const text = 'def a():\n    pass\n';
+    const tree = await materializeCommit(deps, commitOf(repo, { ...Object.fromEntries(names.map(n => [n, text])), 'run.py': ['100755', text] }));
+    assert.deepStrictEqual(entriesOf(tree.dir), [...names, 'run.py'].sort());
+  });
+});
+
 suite('vcs engine — headTree budget and failures', () => {
   let storage: string;
   const key = repoKey('/some/repo');

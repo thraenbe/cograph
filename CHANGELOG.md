@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Pull request copies hold regular files only.** The copy CoGraph makes of a pull request's
+  head and base wrote a committed symlink to disk as a symlink, and a pull request picks the
+  link's target, so it could point at a file outside the copy. Symlinks and submodule entries
+  are no longer copied. This is hardening: there is no known exploit in shipped code. The file
+  list handed to the analyzers already left links out, and the only reader that followed one
+  was the Python analyzer's fallback walk, which runs when that list cannot be written. A copy
+  already on disk from an earlier version is reused until it is evicted or cleared.
+
 ## [1.4.2] - 2026-10-27
 
 A patch release with two new languages and a round of analyzer work from

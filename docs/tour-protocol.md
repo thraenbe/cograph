@@ -495,3 +495,100 @@ file wins. `tour.json` cannot set `ai.mode` to `on` when `cograph.graphIntellige
 
 Shared files in the private repository (`package.json`, `tsconfig.json`, `esbuild.mjs`,
 `.github/workflows/ci.yml`) belong to the orchestrator; ask by message.
+
+## 10. Headless and static (added 2026-10-31, CI tour)
+
+The tour can also be built in a customer's CI and read in a browser with no VS Code and no server. Everything here is
+additive: `tourApiVersion`, `stageApi.version` and `TourScript.version` stay 1. The deterministic floor, the always-present
+security chapter and "a model cannot lower a verdict" stand unchanged. The plans are `.ai/plans/ci-tour-core.md` and
+`.ai/plans/ci-tour-delivery.md`. This section is binding over them where they differ.
+
+### 10.1 Additions
+
+| # | Surface | Exact change |
+|---|---|---|
+| A1 | `TourAi` | `providerId(): 'claude-code' \| 'codex' \| 'anthropic-api'`. `gateText` shows an unknown id as its name |
+| A2 | `TourHostApi` | Optional `teamFile?(): Promise<string \| null>`: the text of `.cograph/tour.json`, null when none. When present, `readTourFile` touches no file |
+| A3 | `TourHostApi`, `TourPrepared` | Optional `sourceMode?: 'slices' \| 'none'`; absent means today's behaviour. Optional `TourPrepared.sources?: Record<string, TourSlice>`, key `<relPath>:<line>`, `TourSlice = { source, signature, doc, body, endLine, totalLines, endReason }`, masked by the host. `none`: section 3 |
+| A4 | `TourTrees` | Optional `analysisNotes?: string[]` (printed on the overview), `filesNotParsed?: number` |
+| A5 | `TourPageConfig` | Optional `mode?: 'live' \| 'static'`, `source?: { script(): Promise<unknown> }`, `viewerHost?: ViewerHost`, `links?: { repoWebUrl: string; file: string } \| null`. In static mode the URL fields are empty strings |
+| A6 | New surface | Bundle `format` 1: section 3, verbatim, `manifest.summary` included |
+| A7 | `TourScript.security` | Optional `ruleCounts?: { high, medium, low, info }` (rule findings only), `modelPossible?: number`, `coverage?: { changed, scanned, skipped }`. `counts`, `verdict` keep their meaning |
+| A8 | `ViewerHost` | `read(path): Promise<Uint8Array>`, `stepFromUrl(): string \| null`, `setStepInUrl(stepId): void`, `linkFor(stepId): string`; `window.CoGraphViewer.open(host): Promise<void>` |
+| A9 | Rules, section 10 text | (a) `script.ai.notes` holds fixed reason codes in static and headless runs, never provider text. (b) `card.hunk` lines and `evidence` are cut at 400 characters before masking. (c) `tour.json` for a headless run comes from the target tip. (d) The bundle is hostile input to the viewer. (e) `manifest.summary` holds no string from the PR |
+
+The types follow this table in `src/tour/tourApi.ts` (public), `src/host/types.ts`, `src/web/types.ts` and `src/shared/tourScript.ts` (private).
+
+### 10.2 Bundle format 1
+
+Directory: `manifest.json`, `tour/script.json` (TourScript v1, `repoRoot` virtual), `tour/sources.json` (masked hover slices; absent with `source: none`), `stage/view.json` (subgraph and pr-view), `stage/structure.json`, `stage/graph.json` (function statuses applied).
+
+```jsonc
+{ "format": 1,                 // integer major
+  "head": "<40 hex>", "base": "<40 hex>",   // base null on a head-only tour
+  "createdAt": "2026-10-30T22:00:00Z", "generator": { "cli": "0.1.0", "engine": "1.4.2", "tour": "0.2.0" },
+  "stageRoot": "/repo",        // virtual root: no runner path anywhere
+  "target": { "platform": "github", "kind": "pr", "number": 104 },
+  "links": { "repoWebUrl": "https://github.com/o/r", "file": "https://github.com/o/r/blob/{sha}/{path}#L{line}" },   // or null
+  "source": "full",            // full | none
+  "degraded": [],              // ladder steps applied
+  "summary": {                 // numbers and enums only: publish prints these into the comment
+    "files": 12, "functions": { "added": 1, "changed": 2, "removed": 0, "moved": 133 }, "callersAffected": 1,
+    "security": { "verdict": "incomplete",   // findings | no-match | incomplete | not-scanned
+      "high": 0, "medium": 1, "low": 0, "info": 0,   // rule findings only
+      "modelPossible": 0, "rules": 11, "coverage": { "changed": 12, "scanned": 11, "skipped": 1 } },
+    "ai": "off", "analysis": "complete", "filesNotParsed": 0, "headOnly": false },   // ai: off | used | failed; analysis: complete | partial
+  "files": [ { "path": "tour/script.json", "bytes": 58336, "sha256": "…" } ] }
+```
+
+`manifest.summary` carries no string from the PR. Title, branch and paths live in `tour/script.json`, inside the envelope. `degraded` holds only `no-slices`, `pruned-graph`, `no-source`.
+
+**Verdict, in this order:** any rule count above 0: `findings`. `scanned` 0: `not-scanned`. `skipped` above 0: `incomplete`. Otherwise `no-match`. The word "clean" appears nowhere in the manifest, and the comment reads `no rule matched on 11 of 12 changed files, 1 not scanned`. `changed` is every non-deleted changed path. `skipped` is a path with no text (binary, over 512 KB, unreadable), with a line over the 2000-character cap, or not reached before the rule worker's budget ran out. A model never touches these numbers: `modelPossible` is its separate count. Rule findings are `source: 'rule'`, allowlisted ones excluded, dismissed low and info included.
+
+**Compatibility rule.** `format` bumps when a viewer of that major would misread a bundle (a field removed or renamed, a meaning changed). Additive fields stay within a major; old viewers ignore them. A viewer refuses a greater major with one sentence. Links pin `/v/<format>/<buildHash>/` and delivery keeps viewers forever, so no old bundle is ever migrated. The bundle holds no code and no HTML.
+
+**Source text it holds, only this, never a whole file:**
+
+| What | Where | Cap | Masked |
+|---|---|---|---|
+| Hunks of changed functions | `card.hunk` | 12 functions per chapter, 60 lines each (`lineDiff.ts:75`), 400 characters per line | `redact` |
+| Signature and doc | card | First 40 lines read | `redact` |
+| Finding evidence | `card.findings` | One line each, 400 characters | `redact`, `.env` rule |
+| Hover slices, added and changed functions only | `tour/sources.json` | 80 lines each, 2 MB in all | `redact`; **to build, the prototype did not mask** |
+| Commit subjects and bodies, PR title | script | | `redact` |
+
+"Masked" means pattern-matched, not guaranteed: `postgres://admin:<secret>@db/x` in a changed function stayed in clear (review, R). C3 adds that shape; the claim must not promise more. Names and paths of **all** functions and files, and the call graph, are in `stage/*`: repository knowledge inside the envelope.
+
+**`bundle.source: none`, exactly:** strips hunks, signatures, docs, finding evidence, `why` text quoting code, slices, the description body, commit subjects and bodies, and the PR title. What remains: function and file names, the call graph, counts, rule ids with path and line, and platform links. That is "no code excerpts", never "nothing leaves" (F10 withdrew the earlier wording here). As a ladder step it is cheap (Q1).
+
+**Budget: 8 MiB gzip level 9; hard limit 32 MiB ciphertext (delivery).** Nothing measured exceeds 2.6 MB. Over budget, the ladder runs in order, records each step in `manifest.degraded`, and says so on the overview card:
+
+1. `no-slices`: drop `tour/sources.json`.
+2. `pruned-graph`: keep functions in files the script names and in their folders; `structure` keeps every folder and file. Measured on `graph.json` gz: pandas 1.61 to 0.064 MB, django 1.36 to 0.036 MB, stress 1.39 to 1.08 MB (it touches almost every folder). The pruned pandas tour played 25 of 25 steps, no unresolved key.
+3. `no-source`: as `bundle.source: none`. `manifest.summary` is unchanged by this step and S4's comment prints `degraded`, so a PR that inflates its hunks to force it gains nothing silent; the 400-character cap removes most of that lever (F7).
+4. Still over 8 MiB but under 32 MiB: ship it. Over 32 MiB: exit 3, delivery posts the oversized comment.
+
+Exit codes: 0 ok (head-only included), 3 oversized after the ladder, 1 anything else.
+
+### 10.3 Command line
+
+Agreed with ci-plan-core, accepted by session-110 on 2026-10-30. Core owns `build`, `fetch` and everything behind `open()`; delivery owns the rest. `src/cli/main.ts` stays one routing file.
+
+```
+cograph-tour ci                                                       the one command every wrapper calls
+cograph-tour fetch --repo DIR --base S --head S --base-ref R [--head-ref R]   core; own remote; prints { head, mergeBase, targetTip }
+cograph-tour build --repo DIR --base S --head S --out DIR --work-dir DIR --config-sha S [--context FILE]
+                   [--ai-key-stdin --ai-model M --ai-base-url U]              core; no network except optional AI
+cograph-tour publish DIR [--to DIR --base-url URL] [--reveal-link]    or: publish --state building|failed --reason CODE
+cograph-tour delete --tour ID | --all         cograph-tour verify-viewer URL
+```
+
+- `ci` runs: detect platform, D3 skip, `publish --state building`, `fetch` in the parent with its credentials and a 5-minute limit, `build` as a **child process**, then `publish`. Failure policy of section 8 in TypeScript, in the parent. The child gets a 15-minute wall clock, `--max-old-space-size` of at least 4096 (guava peaked at 3.35 GB RSS; analyzers get their own limit from C1), its own process group killed as a whole, `TMPDIR` under `--work-dir`, an environment allowlist with no Git token and no OIDC variables, and the AI key on stdin (F3). The parent survives the kill, posts `failed` and removes `--work-dir`; it also sweeps stale work dirs at start, for self-hosted runners. `--config-sha` is `fetch`'s `targetTip`, so `tour.json` comes from the target tip (F16).
+- `--context`: `{ platform, repoWebUrl, change: { id, title, url, author, headRef, baseRef }, fileLinkTemplate }`, written by the adapter.
+- `--head` is the source commit, never a merge commit, and only has to be in the object store. `--base` may be the target tip or the merge base.
+- `build` exits 0 (also for a head-only tour, then `manifest.base` is null), 3 oversized after the ladder, 1 otherwise.
+- `manifest.json`: `format`, `head`, `base`, `files[] { path, bytes, sha256 }`, `degraded` (enum list), `summary` (numbers and enums only): `{ files, functions, callersAffected, security: { verdict, high, medium, low, info, modelPossible, rules, coverage: { changed, scanned, skipped } }, ai, analysis, filesNotParsed, headOnly }`, final per core's contract item A6. `verdict`, decided in this order: any rule count above 0 `findings`, scanned 0 `not-scanned`, skipped above 0 `incomplete`, else `no-match`. `analysis` is `complete` or `partial`. `degraded` holds `no-slices`, `pruned-graph`, `no-source`. Severity counts are rule findings only (F4, F13). `publish` packs only `files[]`, refuses absolute paths, `..` and symlinks, verifies each sha256.
+- Viewer: `window.CoGraphViewer.open(host)`, `host = { read(path), stepFromUrl(), setStepInUrl(id), linkFor(id) }`. `boot.js` is ours. `dist/viewer/` holds `index.html`, core's bundle, `./boot.js` loaded last, and `build.json { format, buildHash }` with a reproducible tree hash.
+
+Link: `https://tour.cograph.co/v/<format>/<buildHash>/#t=<tourId>&k=<key>&step=<stepId>`. Key and id sit in the fragment. The page request does not name the tour, but `GET /c/<id>` does one request later, so CDN and WAF logs tie reader IP to tour (B8). The layer never touches `location.hash`; `linkFor` returns the full link with the key. The page runs in an opaque origin (F2): `location.origin` is `null`, `sessionStorage` throws, so `host` builds every URL from `location.href`.
+

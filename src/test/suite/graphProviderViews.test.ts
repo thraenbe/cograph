@@ -278,6 +278,22 @@ suite('GraphProvider — browser views', () => {
     assert.ok(!logged.some(l => l.startsWith('[browser] refused')));
   });
 
+  test('a C library opens its cppreference page: the C case moved with the handler', async () => {
+    await open();
+    const openExternal = sandbox.stub(vscode.env, 'openExternal').resolves(true);
+    await onMessage()({ type: 'open-docs', libraryName: 'stdio', language: 'c', functionName: 'printf' });
+    assert.strictEqual(openExternal.firstCall.args[0].toString(true), 'https://en.cppreference.com/mwiki/index.php?search=printf');
+  });
+
+  test('a .c file is coloured as C, not C++: the C case moved with the handler', async () => {
+    await open();
+    const colorize = sinon.stub().resolves('<pre>coloured</pre>');
+    sandbox.define(vscode.languages, 'colorize', colorize);
+    fs.writeFileSync(abs('src/tool.c'), 'int run(void) {\n  return 1;\n}\n');
+    await onMessage()({ type: 'get-func-source', file: abs('src/tool.c'), line: 1, reqId: 11 });
+    assert.strictEqual(colorize.firstCall.args[1], 'c');
+  });
+
   test('browserViewId: main for the workspace graph, a fresh id for every provider with its own root', () => {
     const a = new GraphProvider({ extensionPath: '/x', extensionUri: vscode.Uri.file('/x') } as any, { root });
     const b = new GraphProvider({ extensionPath: '/x', extensionUri: vscode.Uri.file('/x') } as any, { root });

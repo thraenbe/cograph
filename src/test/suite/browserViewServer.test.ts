@@ -380,6 +380,20 @@ suite('browserView: message guard', () => {
     assert.strictEqual(pathOutsideRoot({ type: 'request-rename-folder', folderPath: path.resolve('/work') }, root), path.resolve('/work'));
   });
 
+  test('a relative path is refused in every field: fs would resolve it against the host, not the root', () => {
+    assert.strictEqual(pathOutsideRoot({ type: 'get-func-source', file: 'src/a.ts' }, root), 'src/a.ts');
+    assert.strictEqual(pathOutsideRoot({ type: 'save-func-source', file: '.ssh/id_rsa' }, root), '.ssh/id_rsa');
+    assert.strictEqual(pathOutsideRoot({ type: 'parse-file', filePath: 'a.ts' }, root), 'a.ts');
+    assert.strictEqual(pathOutsideRoot({ type: 'request-new-file', folderPath: 'src' }, root), 'src');
+    assert.strictEqual(pathOutsideRoot({ type: 'expand-folder', folderPath: at('src'), files: [at('src', 'a.ts'), 'b.ts'] }, root), 'b.ts');
+  });
+
+  test('a path field that is not a string is refused: fs opens a URL-shaped object', () => {
+    const url = { href: 'x', protocol: 'file:', pathname: '/etc/passwd', hostname: '' };
+    assert.notStrictEqual(pathOutsideRoot({ type: 'get-func-source', file: url }, root), null);
+    assert.notStrictEqual(pathOutsideRoot({ type: 'expand-folder', folderPath: at('src'), files: [url] }, root), null);
+  });
+
   test('no root: nothing to confine to', () => {
     assert.strictEqual(pathOutsideRoot({ type: 'navigate', file: '/anything' }, ''), null);
   });

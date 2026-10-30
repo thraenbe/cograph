@@ -253,6 +253,26 @@ suite('GraphProvider — browser views', () => {
     assert.strictEqual(handler.callCount, 1);
   });
 
+  test("REGRESSION: a tab's relative path never reaches fs, where it would mean the host's working directory", async () => {
+    await open();
+    const t = joinTab();
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-cwd-'));
+    fs.writeFileSync(path.join(cwd, 'secret.ts'), 'export function secret() {}\n');
+    const was = process.cwd();
+    process.chdir(cwd);
+    try {
+      const handler = sandbox.spy(provider, 'onViewMessage');
+      provider.receiveFromView('t1', { type: 'get-func-source', file: 'secret.ts', line: 1, reqId: 'r', maxLines: 5 });
+      await new Promise(r => setTimeout(r, 20));
+      assert.strictEqual(handler.callCount, 0);
+      assert.ok(!t.got.some(m => m.type === 'func-source'), 'not answered');
+      assert.ok(logged.some(l => l.startsWith('[browser] refused get-func-source')));
+    } finally {
+      process.chdir(was);
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test('the panel is not confined: the guard is for tabs only', async () => {
     await open();
     const p0 = posted('func-source').length;

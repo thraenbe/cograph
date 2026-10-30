@@ -69,7 +69,8 @@ function makeHarness(opts: { loading?: boolean; config?: unknown } = {}): Harnes
   return h;
 }
 
-const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+// jsdom delivers window.postMessage on setImmediate: an immediate queued after it runs after it, a timer may not.
+const flush = () => new Promise<void>((r) => setImmediate(r));
 const received = (win: any) => {
   const got: any[] = [];
   win.addEventListener('message', (e: any) => got.push(e.data));

@@ -387,13 +387,13 @@ export class GraphProvider {
       const { libraryName, functionName, language, reqId } = message;
       this.libraryDescriber.fetchLibDescription(libraryName, functionName, language, workspaceRoot)
         .then(description => {
-          this.postToViews({ type: 'lib-description', description, reqId });
+          this.views.postTo(viewId, { type: 'lib-description', description, reqId });
         });
     } else if (message.type === 'get-func-source' && typeof message.maxLines === 'number') {
       // Hover card peek (U3): signature, doc and the first body lines via funcBrief, no colorize.
       const { file, line, reqId, maxLines } = message;
       const r = readFuncSlice(file, (p) => fs.readFileSync(p, 'utf8'), { startLine: line, maxLines: Math.max(1, Math.min(80, maxLines)) });
-      this.postToViews(r.ok
+      this.views.postTo(viewId, r.ok
         ? { type: 'func-source', reqId, source: r.source, signature: r.signature, doc: r.doc, body: r.body,
           endLine: r.endLine, totalLines: r.totalLines, endReason: r.endReason }
         : { type: 'func-source', reqId, source: '', error: r.error });
@@ -416,26 +416,26 @@ export class GraphProvider {
         if (typeof colorize === 'function') {
           colorize(source, languageId, { tabSize: 4 }).then(
             (colorizedHtml: string) => {
-              this.postToViews({ type: 'func-source', source, colorizedHtml, endLine, reqId });
+              this.views.postTo(viewId, { type: 'func-source', source, colorizedHtml, endLine, reqId });
             },
             () => {
-              this.postToViews({ type: 'func-source', source, endLine, reqId });
+              this.views.postTo(viewId, { type: 'func-source', source, endLine, reqId });
             }
           );
         } else {
-          this.postToViews({ type: 'func-source', source, endLine, reqId });
+          this.views.postTo(viewId, { type: 'func-source', source, endLine, reqId });
         }
       } catch (err: unknown) {
-        this.postToViews({ type: 'func-source', source: '', error: (err as Error).message, reqId });
+        this.views.postTo(viewId, { type: 'func-source', source: '', error: (err as Error).message, reqId });
       }
     } else if (message.type === 'save-func-source') {
       const { file, line, newSource, original, reqId } = message;
       if (this.readOnly) {
-        this.postToViews({ type: 'func-source-saved', reqId, ok: false, reason: this.readOnlyReason() });
+        this.views.postTo(viewId, { type: 'func-source-saved', reqId, ok: false, reason: this.readOnlyReason() });
         return;
       }
       // The popup waits for this answer (funcSave.js) and keeps the edit on a refusal.
-      const reply = (m: object) => this.postToViews({ type: 'func-source-saved', reqId, ...m });
+      const reply = (m: object) => this.views.postTo(viewId, { type: 'func-source-saved', reqId, ...m });
       try {
         saveFuncSource(file, line, newSource, original);
         this.refreshGitStatus(workspaceRoot);

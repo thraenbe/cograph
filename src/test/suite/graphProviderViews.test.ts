@@ -273,6 +273,44 @@ suite('GraphProvider — browser views', () => {
     }
   });
 
+  test('REGRESSION: the answer to a request reaches the view that asked, nobody else', async () => {
+    await open();
+    const a = joinTab('a');
+    const b = joinTab('b');
+    const a0 = a.got.length, b0 = b.got.length;
+    const panel0 = posted().length;
+    const file = abs('src/main.ts');
+    provider.receiveFromView('a', { type: 'get-func-source', file, line: 1, reqId: 'hc-1', maxLines: 5 });
+    provider.receiveFromView('a', { type: 'get-func-source', file, line: 1, reqId: 2 });
+    provider.receiveFromView('a', { type: 'get-func-source', file: abs('src/gone.ts'), line: 1, reqId: 3 });
+    provider.receiveFromView('a', { type: 'get-lib-description', libraryName: 'x', functionName: 'y', language: 'typescript', reqId: 4 });
+    provider.receiveFromView('a', { type: 'save-func-source', file, line: 1, newSource: 'x', reqId: 'save-1' });
+    await waitFor(() => a.got.slice(a0).length >= 5);
+    assert.deepStrictEqual(a.got.slice(a0).filter((m: any) => m.reqId !== undefined).map((m: any) => m.reqId).sort(), [2, 3, 4, 'hc-1', 'save-1'].sort());
+    assert.ok(!b.got.slice(b0).some((m: any) => m.reqId !== undefined), 'a sibling tab, whose own counters may hold the same ids');
+    assert.ok(!posted().slice(panel0).some((m: any) => m.reqId !== undefined), 'the panel');
+  });
+
+  test("REGRESSION: the panel's own request is answered to the panel, not to the tabs", async () => {
+    await open();
+    const t = joinTab();
+    const t0 = t.got.length;
+    await onMessage()({ type: 'get-func-source', file: abs('src/main.ts'), line: 1, reqId: 'hc-1', maxLines: 5 });
+    assert.deepStrictEqual(posted('func-source').map((m: any) => m.reqId), ['hc-1']);
+    assert.ok(!t.got.slice(t0).some((m: any) => m.type === 'func-source'));
+  });
+
+  test('a read-only panel refuses a save to the view that asked', async () => {
+    const pr = new GraphProvider({ extensionPath: '/fake/ext', extensionUri: vscode.Uri.file('/fake/ext') } as any, { root, readOnly: true, readOnlyReason: 'a copy' });
+    const a = tab(); const b = tab();
+    pr.attachView('a', a); pr.attachView('b', b);
+    pr.receiveFromView('a', { type: 'ready' }); pr.receiveFromView('b', { type: 'ready' });
+    pr.receiveFromView('a', { type: 'save-func-source', file: abs('src/main.ts'), line: 1, newSource: 'x', reqId: 'save-1' });
+    await waitFor(() => a.got.some((m: any) => m.type === 'func-source-saved'));
+    assert.deepStrictEqual(a.got.find((m: any) => m.type === 'func-source-saved'), { type: 'func-source-saved', reqId: 'save-1', ok: false, reason: 'a copy', __seq: 2 });
+    assert.ok(!b.got.some((m: any) => m.type === 'func-source-saved'));
+  });
+
   test('the panel is not confined: the guard is for tabs only', async () => {
     await open();
     const p0 = posted('func-source').length;

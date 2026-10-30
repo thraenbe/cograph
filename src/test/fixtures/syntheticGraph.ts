@@ -40,7 +40,7 @@ export function mulberry32(seed: number): () => number {
 }
 
 const EXT: Record<StructureLanguage, string> = {
-  typescript: 'ts', javascript: 'js', python: 'py', java: 'java', cpp: 'cpp',
+  typescript: 'ts', javascript: 'js', python: 'py', java: 'java', cpp: 'cpp', c: 'c',
 };
 
 function dirOf(p: string): string {

@@ -6,327 +6,47 @@
  * Outputs a JSON call graph to stdout:
  *   { "nodes": [{id, name, file, line, language}], "edges": [{source, target}] }
  *
- * Scope: workspace .ts/.tsx files (excludes .d.ts). Best-effort static analysis.
+ * Scope: workspace .ts/.tsx files (excludes .d.ts), plus the `<script lang="ts">`
+ * blocks of .vue / .svelte single-file components (sfcScript.js; a component is
+ * parsed as a virtual source with the file's own line numbers). Template
+ * expressions (`@click="save()"`, `{handler()}`) are not analyzed.
+ * Best-effort static analysis.
  */
 
 'use strict';
 
-const path = require('path');
-const { createNarrower, withStats, resolveThisCall } = require('./narrowCalls.js');
-const fs   = require('fs');
-// Bare specifier so esbuild can inline it into the packaged bundle (dev runs
-// resolve it from the repo's node_modules via normal module resolution).
-const ts   = require('typescript');
+const core = require('./tsJsAnalyzer.js');
 
-const { isSkippedDirName } = require('./skipDirs.js');
+const options = {
+  language: 'typescript',
+  scriptName: 'analyze_ts.js',
+  scriptKind: undefined,
+  cjsRequire: false,
+  sfcAnalyzer: 'ts',
+  isSourceFile: (file) => !file.endsWith('.d.ts') && (file.endsWith('.ts') || file.endsWith('.tsx')),
+};
 
 function collectTsFiles(root) {
-  const results = [];
-  function walk(dir) {
-    let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (!isSkippedDirName(entry.name)) walk(full);
-      } else if (entry.isFile() && !entry.name.endsWith('.d.ts') &&
-                 (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
-        results.push(full);
-      }
-    }
-  }
-  walk(root);
-  return results;
+  return core.collectFiles(root, options);
 }
 
-function getLine(sourceFile, node) {
-  return ts.getLineAndCharacterOfPosition(sourceFile, node.getStart(sourceFile)).line + 1;
+/** A file this analyzer parses: .ts/.tsx (not .d.ts) or a component whose script is TypeScript. */
+function isTsPath(file) {
+  return core.isAnalyzedFile(file, options);
 }
 
 function collectDefinitions(files) {
-  const definitions = {};
-  for (const filepath of files) {
-    let source;
-    try { source = fs.readFileSync(filepath, 'utf8'); } catch { continue; }
-    let sourceFile;
-    try {
-      sourceFile = ts.createSourceFile(filepath, source, ts.ScriptTarget.Latest, true);
-    } catch { continue; }
-
-    function visit(node) {
-      try {
-        if (ts.isFunctionDeclaration(node) && node.name) {
-          const name = node.name.text;
-          const line = getLine(sourceFile, node);
-          const id = `${filepath}::${name}::${line}`;
-          definitions[id] = { id, name, file: filepath, line, language: 'typescript' };
-        } else if (ts.isMethodDeclaration(node) && ts.isClassDeclaration(node.parent) && node.name) {
-          const name = node.name.getText(sourceFile);
-          const line = getLine(sourceFile, node);
-          const id = `${filepath}::${name}::${line}`;
-          const classNode = node.parent;
-          const className = classNode.name?.text ?? '(anonymous)';
-          let classExtends;
-          const classImplements = [];
-          if (classNode.heritageClauses) {
-            for (const clause of classNode.heritageClauses) {
-              if (clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types.length) {
-                classExtends = clause.types[0].expression.getText(sourceFile);
-              } else if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
-                for (const t of clause.types) {
-                  classImplements.push(t.expression.getText(sourceFile));
-                }
-              }
-            }
-          }
-          const def = { id, name, file: filepath, line, language: 'typescript', className };
-          if (classExtends !== undefined) def.classExtends = classExtends;
-          if (classImplements.length) def.classImplements = classImplements;
-          definitions[id] = def;
-        } else if (ts.isConstructorDeclaration(node) && ts.isClassDeclaration(node.parent)) {
-          const line = getLine(sourceFile, node);
-          const classNode = node.parent;
-          const className = classNode.name?.text ?? '(anonymous)';
-          const id = `${filepath}::constructor::${line}`;
-          let classExtends;
-          const classImplements = [];
-          if (classNode.heritageClauses) {
-            for (const clause of classNode.heritageClauses) {
-              if (clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types.length) {
-                classExtends = clause.types[0].expression.getText(sourceFile);
-              } else if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
-                for (const t of clause.types) {
-                  classImplements.push(t.expression.getText(sourceFile));
-                }
-              }
-            }
-          }
-          const def = { id, name: 'constructor', file: filepath, line, language: 'typescript', className };
-          if (classExtends !== undefined) def.classExtends = classExtends;
-          if (classImplements.length) def.classImplements = classImplements;
-          definitions[id] = def;
-        } else if ((ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node))
-                   && ts.isClassDeclaration(node.parent) && node.name) {
-          const prefix = ts.isGetAccessorDeclaration(node) ? 'get ' : 'set ';
-          const name = prefix + node.name.getText(sourceFile);
-          const line = getLine(sourceFile, node);
-          const id = `${filepath}::${name}::${line}`;
-          const classNode = node.parent;
-          const className = classNode.name?.text ?? '(anonymous)';
-          let classExtends;
-          const classImplements = [];
-          if (classNode.heritageClauses) {
-            for (const clause of classNode.heritageClauses) {
-              if (clause.token === ts.SyntaxKind.ExtendsKeyword && clause.types.length) {
-                classExtends = clause.types[0].expression.getText(sourceFile);
-              } else if (clause.token === ts.SyntaxKind.ImplementsKeyword) {
-                for (const t of clause.types) {
-                  classImplements.push(t.expression.getText(sourceFile));
-                }
-              }
-            }
-          }
-          const def = { id, name, file: filepath, line, language: 'typescript', className };
-          if (classExtends !== undefined) def.classExtends = classExtends;
-          if (classImplements.length) def.classImplements = classImplements;
-          definitions[id] = def;
-        } else if (ts.isVariableStatement(node)) {
-          for (const decl of node.declarationList.declarations) {
-            if (ts.isIdentifier(decl.name) && decl.initializer &&
-                (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))) {
-              const name = decl.name.text;
-              const line = getLine(sourceFile, decl);
-              const id = `${filepath}::${name}::${line}`;
-              definitions[id] = { id, name, file: filepath, line, language: 'typescript' };
-            }
-          }
-        }
-      } catch { /* skip malformed nodes */ }
-      ts.forEachChild(node, visit);
-    }
-    try { visit(sourceFile); } catch { continue; }
-  }
-  return definitions;
-}
-
-function collectImportMap(sourceFile) {
-  const importMap = {};
-  ts.forEachChild(sourceFile, node => {
-    if (!ts.isImportDeclaration(node)) return;
-    try {
-      const spec = node.moduleSpecifier.text;
-      if (spec.startsWith('.')) return; // skip relative imports
-      const clause = node.importClause;
-      if (!clause) return;
-      // Default import: import React from 'react'
-      if (clause.name) {
-        importMap[clause.name.text] = spec;
-      }
-      if (clause.namedBindings) {
-        if (ts.isNamespaceImport(clause.namedBindings)) {
-          // Namespace: import * as fs from 'fs'
-          importMap[clause.namedBindings.name.text] = spec;
-        } else if (ts.isNamedImports(clause.namedBindings)) {
-          // Named: import { useState } from 'react'
-          for (const element of clause.namedBindings.elements) {
-            const local = element.name.text;
-            importMap[local] = spec;
-          }
-        }
-      }
-    } catch { /* skip malformed */ }
-  });
-  return importMap;
+  return core.collectDefinitions(files, options);
 }
 
 function collectCalls(files, definitions, root) {
-  // D6: a name with more than 8 definitions is narrowed (file → directory →
-  // top-level package) or dropped instead of linked to all of them (narrowCalls.js).
-  const narrower = createNarrower((id) => definitions[id] && definitions[id].file, root);
-  const nameToIds = Object.create(null);
-  for (const [qid, defn] of Object.entries(definitions)) {
-    if (!nameToIds[defn.name]) nameToIds[defn.name] = [];
-    nameToIds[defn.name].push(qid);
-  }
-
-  const edges = [];
-  const seenEdges = new Set();
-  const libraryNodes = new Map();
-
-  for (const filepath of files) {
-    let source;
-    try { source = fs.readFileSync(filepath, 'utf8'); } catch { continue; }
-    let sourceFile;
-    try {
-      sourceFile = ts.createSourceFile(filepath, source, ts.ScriptTarget.Latest, true);
-    } catch { continue; }
-
-    const importMap = collectImportMap(sourceFile);
-
-    function visitFunc(funcNode, callerId) {
-      ts.forEachChild(funcNode, function walkCalls(node) {
-        try {
-          if (ts.isCallExpression(node)) {
-            const callee = node.expression;
-            let calleeName = null;
-            let viaThis = false;
-            if (ts.isIdentifier(callee)) {
-              calleeName = callee.text;
-            } else if (ts.isPropertyAccessExpression(callee) &&
-                       callee.expression.kind === ts.SyntaxKind.ThisKeyword) {
-              // `this` is a ThisKeyword token, never an Identifier.
-              calleeName = callee.name.text;
-              viaThis = true;
-            }
-            if (calleeName && nameToIds[calleeName]) {
-              const targets = viaThis
-                ? resolveThisCall(nameToIds[calleeName], definitions[callerId], definitions, narrower.narrow, filepath)
-                : narrower.narrow(nameToIds[calleeName], filepath);
-              for (const calleeId of targets) {
-                const key = `${callerId}|${calleeId}`;
-                if (!seenEdges.has(key) && callerId !== calleeId) {
-                  seenEdges.add(key);
-                  edges.push({ source: callerId, target: calleeId });
-                }
-              }
-            }
-            // Library call detection
-            if (ts.isIdentifier(callee)) {
-              const name = callee.text;
-              if (importMap[name] && !nameToIds[name]) {
-                const libName = importMap[name];
-                const libId = `library::${libName}::${name}`;
-                if (!libraryNodes.has(libId)) {
-                  libraryNodes.set(libId, { id: libId, name, file: null, line: 0, isLibrary: true, libraryName: libName, language: 'typescript' });
-                }
-                const key = `${callerId}|${libId}`;
-                if (!seenEdges.has(key)) {
-                  seenEdges.add(key);
-                  edges.push({ source: callerId, target: libId, isLibraryEdge: true });
-                }
-              }
-            } else if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
-              const objName = callee.expression.text;
-              if (importMap[objName] && !nameToIds[objName]) {
-                const libName = importMap[objName];
-                const funcName = callee.name.text;
-                const libId = `library::${libName}::${funcName}`;
-                if (!libraryNodes.has(libId)) {
-                  libraryNodes.set(libId, { id: libId, name: funcName, file: null, line: 0, isLibrary: true, libraryName: libName, language: 'typescript' });
-                }
-                const key = `${callerId}|${libId}`;
-                if (!seenEdges.has(key)) {
-                  seenEdges.add(key);
-                  edges.push({ source: callerId, target: libId, isLibraryEdge: true });
-                }
-              }
-            }
-          }
-        } catch { /* skip */ }
-        ts.forEachChild(node, walkCalls);
-      });
-    }
-
-    function visit(node) {
-      try {
-        let callerId = null;
-        if (ts.isFunctionDeclaration(node) && node.name) {
-          const line = getLine(sourceFile, node);
-          callerId = `${filepath}::${node.name.text}::${line}`;
-        } else if (ts.isMethodDeclaration(node) && ts.isClassDeclaration(node.parent) && node.name) {
-          const line = getLine(sourceFile, node);
-          callerId = `${filepath}::${node.name.getText(sourceFile)}::${line}`;
-        } else if ((ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node))
-                   && ts.isClassDeclaration(node.parent) && node.name) {
-          const prefix = ts.isGetAccessorDeclaration(node) ? 'get ' : 'set ';
-          const line = getLine(sourceFile, node);
-          callerId = `${filepath}::${prefix}${node.name.getText(sourceFile)}::${line}`;
-        } else if (ts.isConstructorDeclaration(node) && ts.isClassDeclaration(node.parent)) {
-          const line = getLine(sourceFile, node);
-          callerId = `${filepath}::constructor::${line}`;
-        } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
-                   (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
-          const line = getLine(sourceFile, node);
-          callerId = `${filepath}::${node.name.text}::${line}`;
-        }
-        if (callerId && definitions[callerId]) {
-          visitFunc(node, callerId);
-        }
-      } catch { /* skip */ }
-      ts.forEachChild(node, visit);
-    }
-    try { visit(sourceFile); } catch { continue; }
-  }
-  return { edges, libraryNodes: Array.from(libraryNodes.values()), stats: narrower.stats };
+  return core.collectCalls(files, definitions, root, options);
 }
 
-// Subset mode: `--files <listpath>` analyzes only the newline-separated files in
-// <listpath> (filtered to this analyzer's extensions), instead of walking root.
-// Returns null when --files is absent so the caller falls back to a full walk.
-function explicitFileList() {
-  const i = process.argv.indexOf('--files');
-  if (i === -1 || !process.argv[i + 1]) { return null; }
-  let raw;
-  try { raw = fs.readFileSync(process.argv[i + 1], 'utf8'); } catch { return []; }
-  return raw.split('\n').map(s => s.trim()).filter(Boolean)
-    .filter(f => !f.endsWith('.d.ts') && (f.endsWith('.ts') || f.endsWith('.tsx')));
+if (require.main === module) {
+  core.main(options);
 }
-
-function main() {
-  if (process.argv.length < 3) {
-    process.stderr.write('Usage: analyze_ts.js <workspace_root> [--files <listpath>]\n');
-    process.exit(1);
-  }
-  const root = process.argv[2];
-  const files = explicitFileList() ?? collectTsFiles(root);
-  const definitions = collectDefinitions(files);
-  const { edges, libraryNodes, stats } = collectCalls(files, definitions, root);
-  const nodes = [...Object.values(definitions), ...libraryNodes];
-  require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
-}
-
-main();
 
 if (typeof module !== 'undefined') {
-  module.exports = { collectTsFiles, collectDefinitions, collectCalls };
+  module.exports = { collectTsFiles, collectDefinitions, collectCalls, isTsPath };
 }

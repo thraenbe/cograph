@@ -73,6 +73,7 @@ suite('structureScanner', () => {
     write('F.java');
     write('g.cpp');
     write('h.hpp');
+    write('i.c');
     write('types.d.ts');   // excluded (declaration file)
     write('README.md');    // not source
     write('data.json');    // not source
@@ -89,10 +90,11 @@ suite('structureScanner', () => {
     assert.strictEqual(langByName['F.java'], 'java');
     assert.strictEqual(langByName['g.cpp'], 'cpp');
     assert.strictEqual(langByName['h.hpp'], 'cpp');
+    assert.strictEqual(langByName['i.c'], 'c');
     assert.ok(!('types.d.ts' in langByName), '.d.ts excluded');
     assert.ok(!('README.md' in langByName), 'non-source excluded');
     assert.ok(!('data.json' in langByName), 'json excluded');
-    assert.strictEqual(tree.totalFiles, 8);
+    assert.strictEqual(tree.totalFiles, 9);
   });
 
   test('skips node_modules, build dirs, and dot-directories', () => {

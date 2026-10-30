@@ -10,7 +10,7 @@ interface GraphNode {
   name: string;
   file: string | null;
   line: number;
-  language?: 'python' | 'typescript' | 'javascript' | 'java' | 'cpp';
+  language?: 'python' | 'typescript' | 'javascript' | 'java' | 'cpp' | 'c';
   gitStatus?: { unstaged: 'added' | 'modified' | 'deleted' | null; staged: 'added' | 'modified' | 'deleted' | null };
   isLibrary?: boolean;
   libraryName?: string;

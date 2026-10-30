@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { walkProjectFiles } from './projectScope';
-import { listProjectSourceFiles } from './structureScanner';
+import { listProjectSourceFiles, isSfcFileName } from './structureScanner';
 
 export const MAX_OUTPUT_BYTES = 500 * 1024 * 1024; // 500 MB guard
 export const ANALYSIS_TIMEOUT_MS = 300_000;         // 5 min
@@ -16,7 +16,7 @@ export const RETRY_BACKOFF_MS = [800, 1500, 3000];
 
 /** Source extensions any analyzer can handle — used by the readiness probe. */
 const SOURCE_EXTS = new Set([
-  '.py', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java',
+  '.py', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java', '.c',
   '.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hh', '.hxx', '.h++', '.h',
 ]);
 
@@ -169,6 +169,7 @@ export class AnalyzerRunner {
         this.spawnAnalyzerProcess(process.execPath, args('analyze_js.js'), 'javascript'),
         this.spawnAnalyzerProcess(process.execPath, args('analyze_java.js'), 'java'),
         this.spawnAnalyzerProcess(process.execPath, args('analyze_cpp.js'), 'cpp'),
+        this.spawnAnalyzerProcess(process.execPath, args('analyze_c.js'), 'c'),
       ]);
       const merged: GraphData = {
         nodes: statuses.flatMap(r => r.graph.nodes),
@@ -217,6 +218,7 @@ export class AnalyzerRunner {
         this.spawnAnalyzerProcess(process.execPath, withList('analyze_js.js'), 'javascript'),
         this.spawnAnalyzerProcess(process.execPath, withList('analyze_java.js'), 'java'),
         this.spawnAnalyzerProcess(process.execPath, withList('analyze_cpp.js'), 'cpp'),
+        this.spawnAnalyzerProcess(process.execPath, withList('analyze_c.js'), 'c'),
       ];
       if (pythonBin) {
         spawns.push(this.spawnAnalyzerProcess(pythonBin, withList('analyze.py'), 'python'));
@@ -250,7 +252,8 @@ export class AnalyzerRunner {
     let count = 0;
     walkProjectFiles(root, (_file, name) => {
       const dot = name.lastIndexOf('.');
-      if (dot >= 0 && SOURCE_EXTS.has(name.slice(dot))) { count++; }
+      // Components (.vue/.svelte, any case): their <script> block goes to the TS/JS analyzer.
+      if ((dot >= 0 && SOURCE_EXTS.has(name.slice(dot))) || isSfcFileName(name)) { count++; }
       return count < cap;
     });
     return count;

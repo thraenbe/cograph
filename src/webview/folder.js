@@ -30,7 +30,7 @@ function boundingCircle(points) {
 // Returns Map<filePath, node[]>
 // Skips library nodes, nodes without file, and any clustered/synthetic nodes (B2)
 const EMPTY_FILE_EXTS = new Set([
-  '.py', '.js', '.ts', '.java',
+  '.py', '.js', '.ts', '.java', '.c',
   '.cpp', '.cc', '.cxx', '.c++', '.hpp', '.hh', '.hxx', '.h++', '.h',
 ]);
 
@@ -175,9 +175,10 @@ function inferLangFromPath(fp) {
   const dot = fp.lastIndexOf('.');
   const ext = dot >= 0 ? fp.slice(dot) : '';
   if (ext === '.py') return 'python';
-  if (ext === '.ts' || ext === '.tsx') return 'typescript';
+  if (ext === '.ts' || ext === '.tsx' || ext === '.vue' || ext === '.svelte') return 'typescript';
   if (ext === '.js' || ext === '.jsx' || ext === '.mjs' || ext === '.cjs') return 'javascript';
   if (ext === '.java') return 'java';
+  if (ext === '.c') return 'c';
   if (ext === '.cpp' || ext === '.cc' || ext === '.cxx' || ext === '.c++'
       || ext === '.hpp' || ext === '.hh' || ext === '.hxx' || ext === '.h++'
       || ext === '.h') return 'cpp';
@@ -781,11 +782,14 @@ function showContextMenu(event, items) {
   if (!menu || !list) return;
   const actionItems = items.filter(item => !item.isHeader);
   let actionIdx = 0;
-  list.innerHTML = items
-    .map(item => item.isHeader
-      ? `<li class="ctx-menu-header">${item.label}</li>`
-      : `<li class="ctx-menu-item" data-idx="${actionIdx++}">${item.label}</li>`)
-    .join('');
+  // Header labels are file and folder names: text, never markup.
+  list.replaceChildren(...items.map(item => {
+    const li = document.createElement('li');
+    if (item.isHeader) { li.className = 'ctx-menu-header'; }
+    else { li.className = 'ctx-menu-item'; li.dataset.idx = String(actionIdx++); }
+    li.textContent = item.label;
+    return li;
+  }));
   list.querySelectorAll('.ctx-menu-item').forEach((li, i) => {
     li.addEventListener('click', e => { e.stopPropagation(); actionItems[i].action(); hideContextMenu(); });
   });

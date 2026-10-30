@@ -328,6 +328,26 @@ suite('timeline.filterPredicate', () => {
     tlState.timeline.currentIdx = 1;
     assert.strictEqual(pred({ id: 'orphanLib', isLibrary: true }), false);
   });
+
+  test('library lookup reads each node a bounded number of times, not once per edge', () => {
+    const count = 300;
+    const plain = [
+      ...Array.from({ length: count }, (_, i) => ({ id: `f${i}`, file: `/ws/f${i}.py`, line: 1 })),
+      { id: 'lib:x', isLibrary: true, file: null },
+    ];
+    let reads = 0;
+    const nodes = new Proxy(plain, {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) { reads++; }
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const edges = plain.slice(0, count).map(n => ({ source: n.id, target: 'lib:x' }));
+    resetState({ nodes, edges });
+    timeline.receiveTimelineData(plain.slice(0, count).map((n, i) => ({ id: n.id, ts: i })));
+    assert.strictEqual(tlState.timeline.libOrder.get('lib:x'), 1);
+    assert.ok(reads < plain.length * 5, `${reads} node reads for ${plain.length} nodes and ${edges.length} edges`);
+  });
 });
 
 // ---------------------------------------------------------------------------

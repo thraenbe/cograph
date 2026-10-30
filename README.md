@@ -7,7 +7,7 @@
 [![Open VSX Version](https://img.shields.io/open-vsx/v/thraenbe/cograph?label=open%20vsx)](https://open-vsx.org/extension/thraenbe/cograph)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> See your Python, TypeScript, JavaScript, Java, or C++ project as a living map — functions are nodes, calls are edges. Navigate your codebase by clicking. No configuration required.
+> Read your codebase like a metro map — functions are stations, calls are the lines between them. Python, TypeScript, JavaScript, Java, and C++. Click to jump to code. No configuration required.
 
 When AI writes the code, humans need a better way to understand it. CoGraph is the situational-awareness layer for agentic development: a real-time, multi-dimensional map of what is being built in your project.
 
@@ -32,7 +32,7 @@ same graph settling live and in the Global engine.*
 
 ## Quick start (30 seconds)
 
-1. Open any Python, TypeScript, JavaScript, Java, or C++ project folder in VS Code.
+1. Open any Python, TypeScript, JavaScript (Vue and Svelte included), Java, C, or C++ project folder in VS Code.
 2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 3. Run **`CoGraph: Visualize Project`**.
 
@@ -41,7 +41,7 @@ toolbar to toggle overlays.
 
 ## Features
 
-- **Static analysis, zero config** — maps every function and the calls between them using each language's native tooling: Python's built-in `ast`, the TypeScript compiler API, `java-parser` for Java, and `web-tree-sitter` for C++. No runtime instrumentation, no setup.
+- **Static analysis, zero config** — maps every function and the calls between them using each language's native tooling: Python's built-in `ast`, the TypeScript compiler API, `java-parser` for Java, and `web-tree-sitter` with the official grammars for C and C++. No runtime instrumentation, no setup.
 - **Two layout engines** — **Shelf** packs every open folder into its own non-overlapping frame with a slot per file and simulates only what is open (the default, and what keeps large repositories navigable); **Global** is the classic single force-directed graph. **Dynamic | Static** picks whether the layout keeps settling or is frozen where it was placed. Shelf simulations run in background workers.
 - **Interactive graph** — zoom, pan, drag nodes and frames, and filter by function name.
 - **A readable default** — only the calls that stay inside a file are drawn, so a folder shows its structure instead of a hairball (`cograph.display.sameFileEdgesOnly`, on by default; turn it off to draw every call). Function names appear when you hover one, and on every match while you filter. A function whose calls all leave its file carries a dashed ring, and each file name shows how many calls leave it — `auth.py · 6 ↗44` — so nothing looks unconnected when it is not.
@@ -112,14 +112,14 @@ The tab mirrors the panel: it shows the same graph, the same scope and the same 
 
 - VS Code 1.75+
 - **Python projects:** Python 3.x available (via `python3`, a virtual environment, or the VS Code Python extension)
-- **TypeScript / JavaScript projects:** Node.js — no additional configuration needed
+- **TypeScript / JavaScript projects:** Node.js — no additional configuration needed. `.vue` and `.svelte` single-file components are analyzed through their `<script>` blocks (`lang="ts"` goes to the TypeScript analyzer, plain JavaScript to the JavaScript one) and inherit the TypeScript / JavaScript colour
 - **Java projects:** no extra runtime — the analyzer ships with a pure-JS parser
-- **C++ projects:** no extra runtime — the analyzer ships with a tree-sitter WebAssembly grammar
+- **C and C++ projects:** no extra runtime — the analyzers ship with tree-sitter WebAssembly grammars
 - **Pull requests in the sidebar (optional):** the [GitHub CLI](https://cli.github.com/) (`gh`), signed in with `gh auth login`
 
 ## Usage
 
-1. Open a Python, TypeScript, JavaScript, Java, or C++ project folder in VS Code.
+1. Open a Python, TypeScript, JavaScript, Java, C, or C++ project folder in VS Code.
 2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run **`CoGraph: Visualize Project`**.
 3. The graph opens in a side panel.
 4. Use the search bar to filter functions by name (`Ctrl+F` / `Cmd+F` focuses it).
@@ -167,7 +167,10 @@ The tab mirrors the panel: it shows the same graph, the same scope and the same 
 - Calls are resolved by name. When a called name has more than 8 definitions in the workspace, only those in the caller's file, then directory, then top-level package are linked; if more than 8 still remain the call is left unresolved (the CoGraph output channel reports how many).
 - Cross-package call edges (into installed libraries) are intentionally excluded — external calls are surfaced through library cluster nodes instead.
 - TypeScript / JavaScript analysis covers static call sites; dynamic patterns (e.g. `eval`, computed property calls) are not tracked.
+- Vue and Svelte components: only the `<script>` blocks are analyzed. Calls made inside the template (`@click="save()"`, `{handler()}`, `on:click={inc}`) are not edges, `<script src="…">` and blocks in other script languages (`lang="coffee"`) are ignored, and a `</script>` inside a string or comment ends the block early. The parse-free folder view guesses TypeScript for a component until the analyzer reports the real language.
 - Java and C++ analysis covers statically resolvable calls; macro-heavy or template-heavy C++ code may produce a partial graph.
+- C analysis covers function definitions, header prototypes and direct calls. A function handed on as a callback (passed as an argument, stored in a variable or struct initializer, assigned, returned) is linked from the function that hands it on; the later call through the pointer (`fp(x)`, `(*fp)(x)`, `ops->open(x)`) is not, nor are macros, function tables at file scope, or calls into third-party libraries. Calls into the C standard library appear as library nodes named by header (`stdio`, `string`, …).
+- A `.h` file is analysed as C when its directory holds `.c` files and no C++ source (`.cpp`, `.cc`, `.cxx`, `.c++`); otherwise as C++.
 - Very large projects may require the Complexity slider or search filter to navigate comfortably.
 
 ## Contributing

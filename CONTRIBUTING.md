@@ -9,7 +9,9 @@ microservice ceremony.
 
 ## Prerequisites
 
-- **Node.js 20+** and npm
+- **Node.js 20.19 or newer** (22 recommended) and npm. The test and packaging tools pin that floor:
+  Mocha 12 needs `^20.19.0 || >=22.12.0`, and jsdom 30 and `@vscode/vsce` 4 the same; CI runs the
+  latest 20.x. The extension itself runs on VS Code's own Node and has no such requirement.
 - **VS Code 1.75+**
 - **Python 3.x** (only needed to exercise the Python analyzer)
 - Git
@@ -67,7 +69,17 @@ Language analyzers (`scripts/analyze_*.js`) run inside VS Code's bundled Electro
 runtime. On snap-packaged VS Code this pins an old `libstdc++`, so **prebuilt native
 (`node-gyp`/`.node`) modules fail to load and the graph silently comes back empty**.
 Any new language support **must use pure-JS or WebAssembly parsers** (like the
-`web-tree-sitter` WASM grammar used for C++) — never native node modules.
+`web-tree-sitter` WASM grammars used for C and C++) — never native node modules.
+
+### Grammar WASM builds
+
+`scripts/tree-sitter-cpp.wasm` and `scripts/tree-sitter-c.wasm` are committed build outputs:
+`npm run build:cpp-grammar` and `npm run build:c-grammar` rebuild them from the grammar
+packages in `node_modules`.
+`tree-sitter-c` is pinned to exactly `0.23.2`: `0.23.6` declares a `tree-sitter ^0.22` peer,
+which conflicts with the `tree-sitter ^0.21` peer of `tree-sitter-cpp` 0.22.x, and
+`npm install` fails with ERESOLVE. Lift the pin only together with a `tree-sitter-cpp`
+release whose peer range matches, and rebuild both WASM files when you do.
 
 ### VS Code API floor (do not loosen)
 

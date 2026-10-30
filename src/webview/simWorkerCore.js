@@ -176,7 +176,8 @@ function createWorkerHost(deps) {
 
   return {
     onMessage(m) {
-      const h = m && handlers[m.type];
+      // Own keys only: a type like 'hasOwnProperty' must not reach Object.prototype (alert #7).
+      const h = m && Object.prototype.hasOwnProperty.call(handlers, m.type) ? handlers[m.type] : null;
       if (!h) { return false; }
       h(m);
       return true;

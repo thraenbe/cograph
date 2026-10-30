@@ -165,6 +165,27 @@ test.describe('fake host', () => {
     expect(h.openingMessages().map(r => r.message.type)).toEqual(['structure', 'graph']);
   });
 
+  test('pull request: a node path with backslashes finds its status (the map has forward-slash keys, as GitService does)', () => {
+    const g: GraphLite = { nodes: [{ id: 'a', file: 'C:\\r\\src\\a.ts', line: 1 }], edges: [] };
+    const fileGitStatus = { 'C:/r/src/a.ts': { unstaged: 'added', staged: null } };
+    const h = new FakeHost({ graph: g, structure: { root: 'C:\\r' }, pullRequest: { message: { type: 'pr-view', fileGitStatus } } });
+    const data = h.openingMessages().map(r => r.message).find(m => m.type === 'graph')?.data as GraphLite;
+    expect(data.nodes[0].gitStatus).toEqual({ unstaged: 'added', staged: null });
+  });
+
+  test('Leave gives the nodes their working-tree statuses back, also when the graph itself carries none', async () => {
+    const g: GraphLite = { nodes: [{ id: 'a', file: '/r/a.ts', line: 1 }, { id: 'b', file: '/r/b.ts', line: 1 }, { id: 'c', file: '/r/c.ts', line: 1, gitStatus: { unstaged: 'added', staged: null } }], edges: [] };
+    const fileGitStatus = { '/r/a.ts': { unstaged: 'modified', staged: null } };
+    const h = new FakeHost({ graph: g, structure: { root: '/r' }, fileGitStatus, gitAvailable: true, pullRequest: { message: { type: 'pr-view', fileGitStatus: {} } } });
+    const update = (await h.onMessage({ type: 'subgraph-exit' })).find(r => r.message.type === 'git-update')?.message;
+    expect(update?.nodes).toEqual([
+      { id: 'a', gitStatus: { unstaged: 'modified', staged: null } },
+      { id: 'b', gitStatus: { unstaged: null, staged: null } },
+      { id: 'c', gitStatus: { unstaged: 'added', staged: null } },
+    ]);
+    expect(update?.fileGitStatus).toEqual(fileGitStatus);
+  });
+
   test('source round-trip never touches disk (pre-guard host: fixed slice, silent unguarded save)', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uxtest-'));
     const file = path.join(dir, 'f.py');

@@ -13,6 +13,7 @@ import { WebviewReadyGate } from './webviewReadyGate';
 import { LibraryDescriber } from './libraryDescriber';
 import { getFuncSource, findPythonFuncEnd, findJsFuncEnd, saveFuncSource, relocateFuncSource } from './sourceEditor';
 import { readFuncSlice } from './funcBrief';
+import { docsUrl } from './docsUrl';
 import { getLoadingHtml, getEmptyStateHtml, getErrorHtml, getWebviewHtml, type EmptyStateInfo } from './webviewHtmlBuilder';
 import type { SidebarProvider } from './sidebarProvider';
 import { createProvider } from './graphIntelligence/provider';
@@ -364,26 +365,7 @@ export class GraphProvider {
     } else if (message.type === 'navigate') {
       this.navigateTo(message.file, message.line);
     } else if (message.type === 'open-docs') {
-      const { libraryName, language } = message;
-      let url: string;
-      if (language === 'python') {
-        url = `https://docs.python.org/3/library/${libraryName.split('.')[0]}`;
-      } else if (language === 'java') {
-        if (libraryName.startsWith('java.') || libraryName.startsWith('javax.')) {
-          const pkgPath = libraryName.replace(/\./g, '/');
-          url = `https://docs.oracle.com/en/java/javase/21/docs/api/java.base/${pkgPath}/package-summary.html`;
-        } else {
-          url = `https://javadoc.io/doc/${libraryName}`;
-        }
-      } else if (language === 'cpp') {
-        const q = encodeURIComponent(`${libraryName}::${message.functionName ?? ''}`);
-        url = `https://en.cppreference.com/mwiki/index.php?search=${q}`;
-      } else if (language === 'c') {
-        url = `https://en.cppreference.com/mwiki/index.php?search=${encodeURIComponent(message.functionName ?? libraryName)}`;
-      } else {
-        url = `https://www.npmjs.com/package/${libraryName}`;
-      }
-      vscode.env.openExternal(vscode.Uri.parse(url));
+      vscode.env.openExternal(vscode.Uri.parse(docsUrl(message)));
     } else if (message.type === 'get-lib-description') {
       const { libraryName, functionName, language, reqId } = message;
       this.libraryDescriber.fetchLibDescription(libraryName, functionName, language, workspaceRoot)

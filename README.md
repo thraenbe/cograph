@@ -95,6 +95,19 @@ On VS Code 1.101 and later, agent mode (Copilot) sees CoGraph without any setup.
 - It answers from CoGraph's last analysis. Open the project in CoGraph once to create it. Every answer says how old the analysis is and whether files have changed since.
 - The graph comes from static analysis, so calls made through dynamic dispatch, callbacks or reflection can be missing. An empty `callers` result is a hint, not proof that nothing uses the function.
 
+## Open in browser
+
+Click **Open in browser** under **Save Layout** in the graph panel, or run **CoGraph: Open in Browser** from the Command Palette, and the graph opens in your default browser. VS Code says "Graph opened in your browser"; **Copy URL** puts the address on the clipboard if you want it in another browser.
+
+The tab mirrors the panel: it shows the same graph, the same scope and the same git colours, and it follows the panel as the graph changes. Expanding folders, the hover card, opening a function in the editor, editing it and **Save Layout** all work from the tab, because the extension does the work behind it. Zoom, open folders and hidden folders belong to each view. **Save Layout** saves the view you used last. A line under the button counts the open tabs.
+
+**How it works, and what it does not do:**
+- The extension serves the graph on `127.0.0.1` only, on a random port, with a new random token every time VS Code starts. A request without the token, from another host name, or a cross-site POST is refused. The token is in the URL and therefore in your browser history, but never in a log or a notification. Pages load nothing from the internet.
+- The panel stays the source of truth. Closing the panel or VS Code disconnects the tab, and the tab says so. Opening the graph again gives a new address.
+- Colours follow VS Code's theme kind (Dark+ or Light+), not the exact colours of a custom theme.
+- In Remote-SSH and Codespaces, VS Code forwards the port for you.
+- An administrator can switch the feature off with `cograph.browserView.enabled: false`.
+
 ## Requirements
 
 - VS Code 1.75+

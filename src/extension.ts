@@ -16,6 +16,8 @@ import { setDeclarationErrorHandler } from './projectScope';
 import { defaultExec } from './vcs/ghCliSource';
 import { createTreeAnalyzer } from './vcs/headAnalyzer';
 import { prDocumentUri, registerPrDocuments, showPrText } from './vcs/prDocuments';
+import { configureBrowserServer, stopBrowserServer } from './browserView/browserLifetime';
+import { openInBrowser } from './browserView/openInBrowser';
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new GraphProvider(context);
@@ -86,6 +88,11 @@ export function activate(context: vscode.ExtensionContext) {
     },
   });
 
+  // Open in browser (src/browserView): one loopback server per extension host, started on first use.
+  configureBrowserServer({ extensionRoot: context.extensionPath, log: (line) => vcsLog.appendLine(line) });
+  provider.setBrowserOpener((p) => openInBrowser(p));
+  const openInBrowserCommand = vscode.commands.registerCommand('cograph.openInBrowser', () => openInBrowser(provider));
+
   const sidebarProvider = new SidebarProvider(context.extensionUri, provider, context.workspaceState, vcsSidebar);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
@@ -150,16 +157,21 @@ export function activate(context: vscode.ExtensionContext) {
       }
       provider.refreshAnnotations();
     }
+    if (e.affectsConfiguration('cograph.browserView.enabled')
+        && !vscode.workspace.getConfiguration('cograph').get<boolean>('browserView.enabled', true)) {
+      void stopBrowserServer(); // switched off: open tabs lose their connection and say so
+    }
     if (e.affectsConfiguration('cograph.layout.defaultEngine')
         || e.affectsConfiguration('cograph.layout.defaultMode')) {
       provider.pushLayoutConfig();
     }
   });
 
+  context.subscriptions.push(openInBrowserCommand);
   context.subscriptions.push(vcsLog, clearTreesCommand, command, openOrReloadCommand, saveGraphCommand, saveGraphAsCommand, loadSyntheticCommand, configListener, annotateCommand, visualizeFolderCommand);
 }
 
-// VS Code awaits a returned promise on shutdown: persist a still-debounced graph cache.
+// VS Code awaits a returned promise on shutdown: persist a still-debounced graph cache, close the loopback server.
 export function deactivate(): Promise<void> {
-  return flushCacheWrites();
+  return Promise.all([flushCacheWrites(), stopBrowserServer()]).then(() => undefined);
 }

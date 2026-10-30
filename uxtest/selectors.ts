@@ -110,6 +110,12 @@ export const SEL = {
   // popups
   libPopup: { css: '#lib-doc-popup' },
   libPopupClose: { css: '#lib-doc-close' },
+  // vcs 1.4.0: a pull request shown in the graph (prView.js)
+  prBanner: { css: '#pr-view-banner', optional: true, note: 'vcs: one banner while a pull request is on screen' },
+  prBannerName: { css: '#pr-view-banner .pr-name', optional: true },
+  prBannerTree: { css: '#pr-view-banner .pr-tree', optional: true, note: 'head = the PR commit, checkout = your working tree' },
+  prBannerSummary: { css: '#pr-view-banner .pr-sub', optional: true },
+  prBannerLeave: { css: '#pr-view-banner button', optional: true, note: 'posts subgraph-exit' },
   hoverCard: { css: '.hover-card', optional: true, note: 'annotate: hoverCard.js (element exists from load; .visible while shown)' },
   hoverCardVisible: { css: '.hover-card.visible', optional: true, note: 'annotate' },
   hoverCardName: { css: '.hover-card .hc-name', optional: true, note: 'annotate' },

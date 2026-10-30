@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of such a branch; whether Git hosts accept such a name on push is not known. Such names now
   stay out of the list and out of the copy, and every analyzer refuses a listed path outside
   its root. A file of another workspace folder is therefore no longer added to this graph on save.
+- **A remote's name is no longer read as an option.** A remote named like `--upload-pack=...`
+  ran that command on `git fetch` when a pull request was opened. Only your own `.git/config`
+  can define one, so this is hardening.
 
 ## [1.4.2] - 2026-10-27
 

@@ -156,6 +156,13 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
     await assert.rejects(fetchBranch(deps, 'nope'), (e: HeadTreeError) => e.kind === 'no-such-ref');
   });
 
+  test('a remote\'s name is data: spelled as an option it runs nothing', async function () {
+    if (process.platform === 'win32') { this.skip(); } // the planted command is a POSIX one
+    const canary = path.join(root, 'upload-pack-ran');
+    await assert.rejects(fetchPullRequestHead(deps, 1, `--upload-pack=touch ${canary};false`), HeadTreeError);
+    assert.ok(!fs.existsSync(canary), 'git took the name for a repository, not for --upload-pack');
+  });
+
   test('materialising copies only the files the graph shows, without touching the real index', async () => {
     const indexBefore = fs.statSync(path.join(repos.work, '.git', 'index')).mtimeMs;
     const sha = await fetchPullRequestHead(deps, 1);

@@ -164,7 +164,8 @@ export function branchRefs(branch: string, tip: string): TreeRef[] {
 
 /** `git fetch <remote> +<refspec>`, then the sha it resolved to. */
 async function fetchInto(deps: HeadTreeDeps, remote: string, src: string, dst: string, what: string): Promise<string> {
-  const fetched = await git(deps, ['fetch', '--no-tags', '--quiet', remote, `+${src}:${dst}`], { timeoutMs: 120_000 });
+  // `--`: a remote's name is data, and one spelled `--upload-pack=...` would otherwise run as an option.
+  const fetched = await git(deps, ['fetch', '--no-tags', '--quiet', '--', remote, `+${src}:${dst}`], { timeoutMs: 120_000 });
   if (fetched.code !== 0) { throwFor(fetched, what); }
   const sha = await git(deps, ['rev-parse', '--verify', `${dst}^{commit}`]);
   if (sha.code !== 0) { throwFor(sha, what); }

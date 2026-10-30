@@ -42,6 +42,8 @@ export const DEFAULT_BUDGET: TreeBudget = { maxTrees: 6, maxBytes: 400 * 1024 * 
 /** A commit with more analysable files than this is refused rather than copied. */
 export const MAX_TREE_FILES = 50_000;
 const MARKER = '.cograph-tree.json';
+/** Bumped when a copy's contents change meaning: a marker of any other format is not reused. */
+const TREE_FORMAT = 2;
 
 export interface HeadTreeDeps {
   /** Top level of the user's repository. */
@@ -74,6 +76,8 @@ export interface TreeMarker {
    * commit that is not that commit any more must not be shown as its head.
    */
   fingerprint?: string;
+  /** The rules the copy was made under. Absent on copies that predate regular-files-only. */
+  format?: number;
 }
 
 export interface MaterializedTree {
@@ -259,9 +263,9 @@ export function fingerprintTree(dir: string): string {
   return crypto.createHash('sha1').update(entries.join('\n')).digest('hex');
 }
 
-/** True when the copy still holds exactly what was copied. A marker without a fingerprint never passes. */
+/** True when the copy still holds exactly what was copied, under today's rules. A marker without a fingerprint never passes. */
 export function treeIntact(dir: string, marker: TreeMarker): boolean {
-  return !!marker.fingerprint && fingerprintTree(dir) === marker.fingerprint;
+  return marker.format === TREE_FORMAT && !!marker.fingerprint && fingerprintTree(dir) === marker.fingerprint;
 }
 
 function readMarker(dir: string): TreeMarker | null {
@@ -360,7 +364,7 @@ export async function materializeCommit(deps: HeadTreeDeps, sha: string, refs: T
   const bytes = dirBytes(dir);
   writeMarker(dir, {
     sha, repoRoot: deps.repoRoot, files: files.length, bytes, createdAt: now, lastUsedAt: now,
-    refs: mergeRefs([], refs), fingerprint: fingerprintTree(dir),
+    refs: mergeRefs([], refs), fingerprint: fingerprintTree(dir), format: TREE_FORMAT,
   });
   deps.log?.(`[vcs] tree ${sha.slice(0, 7)} materialised: ${files.length} files, ${Math.round(bytes / 1024)} KB`);
   return { dir, sha, files: files.length, bytes, reused: false };

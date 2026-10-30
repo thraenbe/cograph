@@ -9,6 +9,7 @@ import {
   DEFAULT_BUDGET, HeadTreeError, analyzerKeepsPath, branchRef, branchRefs, clearRepoRefs, clearTrees, evictTrees, fetchBranch,
   fetchPullRequestHead, githubRemote, listTrees, lockTree, materializeCommit, mergeBase, pullRequestRef, pullRequestRefs, repoKey, treeDir,
   treeHeldBy, unlockTree,
+  fingerprintTree,
 } from '../../vcs/engine/headTree';
 import type { HeadTreeDeps, TreeMarker } from '../../vcs/engine/headTree';
 import { analyzeTreeCached, relPath } from '../../vcs/engine/treeAnalysis';
@@ -438,6 +439,22 @@ suite('vcs engine — headTree keeps symlinks and gitlinks out of the copy', () 
     assert.strictEqual(tree.files, 1);
     assert.strictEqual(fs.readFileSync(path.join(tree.dir, DECLARED_TRACKED), 'utf8'), 'src/app.py', 'the copy declares no link either');
     assert.ok(!JSON.stringify(runAnalyzers(tree.dir).nodes).includes(PLANTED_NAME), 'the analyzers\' own walk, used when no file list can be written');
+  });
+
+  test('a copy from before the filter is discarded even when its fingerprint matches', async () => {
+    // With core.symlinks off an earlier version wrote a link as a text file, which no fingerprint can tell apart.
+    const sha = commitLinkingOutside();
+    const first = await materializeCommit(deps, sha);
+    const stale = path.join(first.dir, 'written-by-an-earlier-version.py');
+    fs.writeFileSync(stale, '/etc/hostname');
+    const file = path.join(first.dir, '.cograph-tree.json');
+    const marker = JSON.parse(fs.readFileSync(file, 'utf8'));
+    delete marker.format;
+    marker.fingerprint = fingerprintTree(first.dir);
+    fs.writeFileSync(file, JSON.stringify(marker));
+    const again = await materializeCommit(deps, sha);
+    assert.strictEqual(again.reused, false, 'a marker without today\'s format is not reused');
+    assert.ok(!fs.existsSync(path.join(again.dir, 'written-by-an-earlier-version.py')));
   });
 
   test('a copy from before the filter, with a link on disk, is discarded and copied afresh', async function () {

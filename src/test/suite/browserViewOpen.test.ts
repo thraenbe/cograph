@@ -83,6 +83,29 @@ suite('browserView: lifetime and Open in browser', () => {
     assert.notStrictEqual(new URL(c.url('/')).searchParams.get('token'), new URL(a.url('/')).searchParams.get('token'));
   });
 
+  test('REGRESSION: a stopped start that fails late leaves the newer server in charge', async () => {
+    let failFirst: (err: Error) => void = () => undefined;
+    const second = { dispose: sandbox.spy() } as unknown as BrowserServer;
+    const start = sandbox.stub(BrowserServer, 'start');
+    start.onFirstCall().returns(new Promise((_, reject) => { failFirst = reject; }));
+    start.onSecondCall().resolves(second);
+    void getBrowserServer().catch(() => undefined);
+    const stopping = stopBrowserServer();
+    assert.strictEqual(await getBrowserServer(), second);
+    failFirst(new Error('EADDRINUSE'));
+    await stopping;
+    assert.strictEqual(browserServerStarted(), true, 'the first start must not clear the second');
+    await stopBrowserServer();
+    assert.ok((second.dispose as sinon.SinonSpy).calledOnce, 'still ours to stop');
+  });
+
+  test('a failed start is not cached', async () => {
+    const start = sandbox.stub(BrowserServer, 'start');
+    start.onFirstCall().rejects(new Error('EACCES'));
+    await assert.rejects(getBrowserServer(), /EACCES/);
+    assert.strictEqual(browserServerStarted(), false);
+  });
+
   test('the server renders real stage pages through browserHtml', async () => {
     const server = await getBrowserServer();
     assert.ok(server);

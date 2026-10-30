@@ -8,12 +8,13 @@ export const BROWSER_DISABLED_NOTE = 'Open in browser is switched off (setting c
 
 /**
  * Open `server.url(urlPath)` in the default browser. Under Remote-SSH or Codespaces the URL
- * goes through asExternalUri first, so VS Code forwards the port. Returns the URL that was
- * opened (it carries the token: put it on the clipboard, never in a log or a toast) and
- * whether the browser accepted it.
+ * goes through asExternalUri first, so VS Code forwards the port, and the server learns the
+ * origin the tab will have. Returns the URL that was opened (it carries the token: put it on
+ * the clipboard, never in a log or a toast) and whether the browser accepted it.
  */
 export async function openExternalUrl(server: BrowserServer, urlPath: string, query?: Record<string, string>): Promise<{ url: string; opened: boolean }> {
   const external = await vscode.env.asExternalUri(vscode.Uri.parse(server.url(urlPath, query)));
+  server.allowForwarded(external.toString(true));
   const opened = await vscode.env.openExternal(external);
   return { url: external.toString(true), opened };
 }

@@ -144,6 +144,32 @@ suite('browserView: BrowserServer', () => {
     assert.deepStrictEqual(view.received, [{ clientId: 'c', message: { type: 'navigate', file: '/x', line: 1 } }]);
   });
 
+  test('REGRESSION: a tab on a forwarded origin passes the gate, on that origin only, with either Host the proxy sends', async () => {
+    const forwarded = 'https://abc-1234.app.github.dev';
+    const post = (host: string, origin: string, token = TOKEN) => request(server.port, {
+      method: 'POST', path: `/msg?token=${token}&view=main&client=c1`, headers: { host, origin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'navigate', file: 'x' }),
+    });
+    const loopback = `localhost:${server.port}`;
+    assert.strictEqual((await post(loopback, forwarded)).status, 403, 'unknown until asExternalUri named it');
+    assert.strictEqual((await post('abc-1234.app.github.dev', forwarded)).status, 403);
+
+    server.allowForwarded(`${forwarded}/?token=${TOKEN}`);
+
+    assert.strictEqual((await post(loopback, forwarded)).status, 204, 'a proxy that rewrites the Host to the loopback');
+    assert.strictEqual((await post('abc-1234.app.github.dev', forwarded)).status, 204, 'a proxy that passes the public Host on');
+    assert.strictEqual((await request(server.port, { path: q('/'), headers: { host: 'abc-1234.app.github.dev' } })).status, 200, 'the page itself');
+    assert.strictEqual((await post(loopback, 'https://evil-1234.app.github.dev')).status, 403, 'another origin stays out');
+    assert.strictEqual((await post('evil-1234.app.github.dev', forwarded)).status, 403, 'another Host stays out');
+    assert.strictEqual((await post(loopback, forwarded, 'b'.repeat(64))).status, 401, 'the token still decides');
+    assert.strictEqual(view.received.length, 2);
+  });
+
+  test('allowForwarded ignores anything but http and https', async () => {
+    server.allowForwarded('vscode-remote://ssh-remote+x/y');
+    assert.strictEqual((await request(server.port, { path: q('/'), headers: { host: 'ssh-remote+x' } })).status, 403);
+  });
+
   test('static allow-list: the two webview roots, files only, nothing else', async () => {
     const s = await request(server.port, { path: q('/ext/src/webview/state.js') });
     assert.deepStrictEqual([s.status, s.body, s.headers['content-type']], [200, 'const state = {};', 'text/javascript; charset=utf-8']);
@@ -403,6 +429,15 @@ suite('browserView: request guards', () => {
     assert.ok(!postOriginAllowed({ host: '127.0.0.1:5', origin: 'http://127.0.0.1:6' }));
     assert.ok(!postOriginAllowed({ host: '127.0.0.1:5', origin: 'null' }));
     assert.ok(!postOriginAllowed({ host: '127.0.0.1:5', 'sec-fetch-site': 'same-site' }));
+  });
+
+  test('the forwarded host and origin are exact, case-insensitive for the host only', () => {
+    assert.strictEqual(hostAllowed('abc.app.github.dev', new Set(['abc.app.github.dev'])), true);
+    assert.strictEqual(hostAllowed('ABC.app.github.dev', new Set(['abc.app.github.dev'])), true);
+    assert.strictEqual(hostAllowed('x.abc.app.github.dev', new Set(['abc.app.github.dev'])), false);
+    assert.strictEqual(postOriginAllowed({ host: 'localhost:9', origin: 'https://a.dev' }, new Set(['https://a.dev'])), true);
+    assert.strictEqual(postOriginAllowed({ host: 'localhost:9', origin: 'http://a.dev' }, new Set(['https://a.dev'])), false);
+    assert.strictEqual(postOriginAllowed({ host: 'localhost:9', origin: 'https://a.dev', 'sec-fetch-site': 'cross-site' }, new Set(['https://a.dev'])), false, 'fetch metadata still refuses');
   });
 
   test('route patterns: params never span a slash, specials are literal, bad escapes do not match', () => {

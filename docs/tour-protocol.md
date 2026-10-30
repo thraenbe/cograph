@@ -289,6 +289,7 @@ export class BrowserServer {
   static start(deps: { extensionRoot: string; renderPage(p: PageRequest): string; log(line: string): void }): Promise<BrowserServer>;
   readonly port: number;
   url(path: string, query?: Record<string, string>): string;   // http://127.0.0.1:<port><path>?token=…&query, not through asExternalUri
+  allowForwarded(externalUrl: string): void;                   // the asExternalUri result: its Host and Origin pass the gate (openExternalUrl calls it)
   registerView(id: string, view: MirroredView): void;          // a provider to mirror; register before serveTourPage
   unregisterView(id: string): void;                            // also drops the tours of that view
   hasView(id: string): boolean;

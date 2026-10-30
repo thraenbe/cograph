@@ -31,20 +31,21 @@ const MIME: Record<string, string> = {
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
-/** DNS rebinding: the Host must name the loopback. Any port, so a Remote-SSH forward to another local port works. */
-export function hostAllowed(host: string | undefined): boolean {
+/** DNS rebinding: the Host must name the loopback (any port, so a Remote-SSH forward to another local port works) or be a host VS Code forwards this server on. */
+export function hostAllowed(host: string | undefined, forwardedHosts: ReadonlySet<string> = new Set()): boolean {
   if (!host) { return false; }
-  const m = /^(\[[^\]]+\]|[^:]+)(?::\d+)?$/.exec(host.trim().toLowerCase());
-  return !!m && LOOPBACK_HOSTS.has(m[1]);
+  const name = host.trim().toLowerCase();
+  const m = /^(\[[^\]]+\]|[^:]+)(?::\d+)?$/.exec(name);
+  return (!!m && LOOPBACK_HOSTS.has(m[1])) || forwardedHosts.has(name);
 }
 
-/** A POST must come from this page: same Origin as the Host it was sent to, and no cross-site fetch metadata. */
-export function postOriginAllowed(headers: http.IncomingHttpHeaders): boolean {
+/** A POST must come from this page: same Origin as the Host it was sent to or an origin VS Code forwards this server on, and no cross-site fetch metadata. */
+export function postOriginAllowed(headers: http.IncomingHttpHeaders, forwardedOrigins: ReadonlySet<string> = new Set()): boolean {
   const site = headers['sec-fetch-site'];
   if (site !== undefined && site !== 'same-origin' && site !== 'none') { return false; }
   const origin = headers.origin;
   if (origin === undefined) { return true; } // non-browser clients (tests, curl) still need the token
-  return origin === `http://${headers.host ?? ''}`;
+  return origin === `http://${headers.host ?? ''}` || forwardedOrigins.has(origin);
 }
 
 export function tokenMatches(given: string | null, token: string): boolean {

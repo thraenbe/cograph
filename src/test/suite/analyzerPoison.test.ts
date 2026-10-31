@@ -69,6 +69,26 @@ suite('analyzers: one poison file (F7)', () => {
     }
   });
 
+  test('REGRESSION (F3): under a memory limit an enormous file costs that file, not the run, and the limit is the job\'s to set', function () {
+    if (process.platform === 'win32') { this.skip(); } // no such limit there
+    this.timeout(60_000);
+    const huge = Array.from({ length: 120_000 }, (_, i) => `def fn${i}(): return 1\n`).join('');
+    const dir = project({ 'kept.py': 'def kept():\n    pass\n', 'huge.py': huge });
+    const run = (env: Record<string, string>) => {
+      const res = cp.spawnSync(PYTHON, [path.join(SCRIPTS, 'analyze.py'), dir], { encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, ...env } });
+      assert.strictEqual(res.status, 0, res.stderr);
+      return JSON.parse(res.stdout) as { nodes: Array<{ name: string }>; stats?: { filesNotParsed?: number } };
+    };
+    try {
+      const limited = run({ COGRAPH_PYTHON_MEMORY_MB: '300' });
+      assert.deepStrictEqual(limited.nodes.map(n => n.name), ['kept']);
+      assert.strictEqual(limited.stats?.filesNotParsed, 1);
+      assert.strictEqual(run({}).nodes.length, 120_001, 'without the limit, as in the extension, the file parses');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('Python: a listed file that is gone is counted, the others stay', () => {
     const dir = project({ 'a.py': 'def kept():\n    pass\n' });
     try {

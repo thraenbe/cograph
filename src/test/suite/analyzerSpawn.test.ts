@@ -210,6 +210,20 @@ suite('analyzerSpawn', () => {
     }
   });
 
+  test('REGRESSION: the Python analyzer gives one output for one tree, whatever the process\'s hash seed', function () {
+    this.timeout(30_000);
+    const calls = ['a', 'b', 'c', 'd', 'e'];
+    const dir = tempProject({ 'm.py': [...calls.map(c => `def ${c}(): pass`), ...calls.map(c => `${c}()`)].join('\n') });
+    const runWith = (seed: string) => cp.spawnSync(PYTHON, [path.join(SCRIPTS, 'analyze.py'), dir], { encoding: 'utf8', env: { ...process.env, PYTHONHASHSEED: seed } }).stdout;
+    try {
+      const outputs = new Set(['1', '2', '3', '4'].map(runWith));
+      assert.strictEqual(outputs.size, 1, 'entry points came out in the order of a set');
+      assert.ok(JSON.parse([...outputs][0]).nodes.length > 5);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('a script is the bundled one when the package holds it, else the source', () => {
     const root = tempProject({ 'scripts/analyze.py': '', 'scripts/analyze_ts.js': '', 'dist/scripts/analyze_ts.js': '' });
     try {

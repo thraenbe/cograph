@@ -18,7 +18,7 @@ export function toolEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
   const env: NodeJS.ProcessEnv = {
     GIT_NO_LAZY_FETCH: '1',   // `build` makes no network call: what `fetch` did not bring fails the copy (git 2.45 and up)
     GIT_TERMINAL_PROMPT: '0', // a job has nobody to ask
-    PYTHONHASHSEED: '0',      // analyze.py orders entry points from a set of strings, and two builds must match
+    COGRAPH_PYTHON_MEMORY_MB: '2800', // a bound the parent's output cap cannot give: the memory is in the analyzer, not the pipe
   };
   for (const key of KEPT) {
     if (from[key] !== undefined) { env[key] = from[key]; }

@@ -21,7 +21,7 @@ suite('ci tool environment', () => {
       NODE_OPTIONS: '--require=x', PYTHONPATH: '/x', PYTHONSTARTUP: '/x', GIT_DIR: '/x', GIT_CONFIG_COUNT: '1', GIT_ASKPASS: '/x', GIT_SSH_COMMAND: 'x', LD_PRELOAD: '/x',
     };
     assert.deepStrictEqual(toolEnv(job), {
-      GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0', PYTHONHASHSEED: '0', PATH: '/bin', HOME: '/home/runner', LANG: 'C.UTF-8',
+      GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0', COGRAPH_PYTHON_MEMORY_MB: '2800', PATH: '/bin', HOME: '/home/runner', LANG: 'C.UTF-8',
     });
   });
 

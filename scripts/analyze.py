@@ -256,7 +256,7 @@ def collect_entry_points(root: str, definitions: dict) -> list[str]:
             elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
                 _collect_calls_in_stmt(node, name_to_ids, found, filepath, definitions, root)
 
-    return list(found)
+    return sorted(found)  # a set's order changes per process, and two runs of one tree must match
 
 
 def _is_main_guard(node: ast.stmt) -> bool:
@@ -288,8 +288,22 @@ def _collect_calls_in_stmt(stmt: ast.stmt, name_to_ids: dict, found: set,
                     found.add(qid)
 
 
+def _limit_memory() -> None:
+    """A CI run caps this process, since a 24 MB file of one-line functions costs 4 GB. Past the
+    cap ast.parse raises MemoryError, which costs that one file (_parse_file)."""
+    megabytes = os.environ.get('COGRAPH_PYTHON_MEMORY_MB')
+    if not megabytes:
+        return
+    try:
+        import resource  # not on Windows
+        resource.setrlimit(resource.RLIMIT_AS, (int(megabytes) * 1024 * 1024, resource.getrlimit(resource.RLIMIT_AS)[1]))
+    except (ImportError, ValueError, OSError) as err:
+        print(f'No memory limit: {err}', file=sys.stderr)
+
+
 def main():
     global _EXPLICIT_FILES
+    _limit_memory()
     # A SyntaxWarning prints its whole source line, once per string literal: 1.5 GB of stderr from a 50 KB line.
     warnings.simplefilter('ignore')
     if len(sys.argv) < 2:

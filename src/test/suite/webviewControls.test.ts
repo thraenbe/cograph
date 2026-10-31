@@ -1340,6 +1340,7 @@ suite('Open in browser and the tour pill', () => {
   test('subline per state: PR number and files, the host label, or branch vs base with counts', () => {
     assert.strictEqual(tourPillSubline({ state: 'pr', number: 104, counts: { files: 12 } }), 'PR #104 · 12 files');
     assert.strictEqual(tourPillSubline({ state: 'pr', number: 5, counts: { files: 1 } }), 'PR #5 · 1 file');
+    assert.strictEqual(tourPillSubline({ state: 'pr', number: 104, label: 'PR #104 · 12 files' }), 'PR #104 · 12 files', 'what computeAvailability really sends: no counts');
     assert.strictEqual(tourPillSubline({ state: 'branch', label: 'feat/x vs main · 3 commits · 7 files' }), 'feat/x vs main · 3 commits · 7 files');
     assert.strictEqual(tourPillSubline({ state: 'branch', branch: 'feat/x', baseRef: 'main', counts: { commits: 1, files: 2 } }), 'feat/x vs main · 1 commit · 2 files');
   });

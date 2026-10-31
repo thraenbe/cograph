@@ -59,6 +59,7 @@ export function activate(context: vscode.ExtensionContext) {
           : `${title} is a pull-request view and takes no edits — open the file from the Explorer to edit it.`,
         outputChannel: vcsLog,
       });
+      graph.setBrowserOpener((p) => openInBrowser(p)); // a pull-request panel opens at its own /view/<id>
       // The banner's Tour button tours the change this panel shows.
       graph.onTourStart((target) => { if (target) { void tourRef.entry?.run(target); } });
       return graph;

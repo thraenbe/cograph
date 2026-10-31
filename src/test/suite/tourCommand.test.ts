@@ -32,7 +32,7 @@ class Server implements TourServer {
   serveTourPage(tourId: string, viewId: string, opts: { assets: boolean }) { this.calls.push(`page:${tourId}:${viewId}:${opts.assets}`); }
 }
 
-function setup(over: { tour?: LoadedTour | null; prepare?: (t: TourTarget, report: (m: string) => void, signal: AbortSignal) => Promise<TourPrepared> } = {}) {
+function setup(over: { tour?: LoadedTour | null; blocked?: string; prepare?: (t: TourTarget, report: (m: string) => void, signal: AbortSignal) => Promise<TourPrepared> } = {}) {
   const out = { info: [] as string[], error: [] as string[], log: [] as string[], progress: [] as string[], panels: [] as any[], urls: [] as string[], toasts: [] as any[] };
   const panel = { attachView: () => () => undefined, receiveFromView: () => undefined, replayMessages: () => [], viewRoot: () => HEAD_DIR };
   let server: Server | null = new Server();
@@ -42,7 +42,8 @@ function setup(over: { tour?: LoadedTour | null; prepare?: (t: TourTarget, repor
       prepare: over.prepare ?? (async (_t, report) => { report('fetching the base…'); report('security check…'); return PREPARED; }) },
   } : over.tour;
   const deps: TourRunnerDeps = {
-    loadTour: async () => tour,
+    blocked: () => over.blocked ?? null,
+    loadTour: async () => { out.log.push('loaded'); return tour; },
     getServer: async () => server,
     openUrl: async (_s, urlPath) => { out.urls.push(urlPath); return { url: `http://127.0.0.1:1${urlPath}?token=t`, opened: true }; },
     showOpened: async (message, url, opened) => { out.toasts.push([message, url, opened]); },
@@ -59,6 +60,14 @@ suite('tour — from a click to the browser tab', () => {
     assert.strictEqual(await new TourRunner(t.deps).run({ kind: 'branch' }), 'unavailable');
     assert.deepStrictEqual(t.out.info, ['CoGraph: The PR tour is part of the Marketplace build of CoGraph.']);
     assert.deepStrictEqual([t.out.progress, t.out.panels, t.server()!.calls], [[], [], []]);
+  });
+
+  test('a window that cannot tour says why, and the package is not loaded, so nothing of that is cached', async () => {
+    const t = setup({ blocked: 'The PR tour needs an open folder. Open your repository and try again.' });
+    assert.strictEqual(await new TourRunner(t.deps).run({ kind: 'branch' }), 'unavailable');
+    assert.deepStrictEqual(t.out.info, ['CoGraph: The PR tour needs an open folder. Open your repository and try again.']);
+    assert.ok(!t.out.log.includes('loaded'));
+    assert.deepStrictEqual(t.out.progress, []);
   });
 
   test('browser view switched off, or a server that cannot listen: one sentence each', async () => {

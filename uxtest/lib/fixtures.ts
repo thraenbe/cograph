@@ -84,15 +84,16 @@ export function prFixture(repo: AnalyzedRepo): { message: PullRequestFixture['me
   const kinds: Array<'modified' | 'added'> = ['modified', 'added', 'modified'];
   const fileGitStatus: Record<string, { unstaged: string | null; staged: string | null }> = {};
   files.forEach((f, i) => { fileGitStatus[f] = { unstaged: kinds[i], staged: null }; });
-  // Every folder on a path to a changed file, as buildPrView opens them (the root always).
+  // Every folder on a path to a changed file, as buildPrView opens them (the root always), under the tree's own keys (native on Windows).
+  const treeKey = new Map(Object.keys(repo.structure.folders).map(k => [posix(k), k]));
   const open = new Set<string>([posix(repo.structure.root)]);
   for (const f of files) {
     for (let d = f.slice(0, f.lastIndexOf('/')); d.length >= root.length; d = d.slice(0, d.lastIndexOf('/'))) {
-      if (repo.structure.folders[d]) { open.add(d); }
+      open.add(d);
       if (d === root) { break; }
     }
   }
-  const expand = [...open].filter(d => repo.structure.folders[d]).sort();
+  const expand = [...open].flatMap(d => treeKey.get(d) ?? []).sort();
   const sha = 'abc1234def5678abc1234def5678abc1234def56';
   const name = `PR #4242 · head ${sha.slice(0, 7)}`;
   return {

@@ -12,8 +12,14 @@ const PATH_FIELDS = ['file', 'filePath', 'folderPath'] as const;
 /** Messages that only report and never act: they do not make a view the active one. */
 const PASSIVE = new Set(['ready', 'perf-report', 'webview-log', 'get-annotations']);
 
-function inside(root: string, p: string): boolean {
-  const abs = path.resolve(root, p);
+/**
+ * Only an absolute string under `root`: the handlers pass the path to fs as it came, so a
+ * relative one means the extension host's working directory, not the root, and fs also
+ * opens a URL-shaped object. Every real message carries absolute paths.
+ */
+function inside(root: string, p: unknown): boolean {
+  if (typeof p !== 'string' || !path.isAbsolute(p)) { return false; }
+  const abs = path.resolve(p);
   const base = path.resolve(root);
   return abs === base || abs.startsWith(base + path.sep);
 }
@@ -23,11 +29,11 @@ export function pathOutsideRoot(message: Record<string, unknown>, root: string):
   if (!root) { return null; } // no root, nothing to confine to (and nothing on disk to reach)
   for (const field of PATH_FIELDS) {
     const v = message[field];
-    if (typeof v === 'string' && v && !inside(root, v)) { return v; }
+    if (v !== undefined && v !== null && v !== '' && !inside(root, v)) { return String(v); }
   }
   const files = message.files;
   if (Array.isArray(files)) {
-    for (const f of files) { if (typeof f === 'string' && !inside(root, f)) { return f; } }
+    for (const f of files) { if (!inside(root, f)) { return String(f); } }
   }
   return null;
 }

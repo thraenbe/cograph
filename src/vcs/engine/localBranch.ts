@@ -109,10 +109,13 @@ export async function commitFiles(deps: HeadTreeDeps, sha: string): Promise<stri
 
 const RECORD = '\x1e';
 
-/** `base..head`, oldest first. Subjects and bodies may hold any text; records are split on RS, fields on NUL. */
+/** Without a base the range is the whole history, which may not fit the pipe: a tour goes on with the newest of it. */
+export const NO_BASE_COMMITS = 200;
+
+/** `base..head`, oldest first (with no base, the newest NO_BASE_COMMITS of head). Subjects and bodies may hold any text; records are split on RS, fields on NUL. */
 export async function listCommits(deps: HeadTreeDeps, base: string | null, head: string): Promise<BranchCommit[]> {
-  const range = base ? `${base}..${head}` : head;
-  const res = await git(deps, ['log', '--reverse', '--no-color', `--format=%H%x00%s%x00%b%x00%an%x00%aI${RECORD}`, range], 60_000);
+  const range = base ? [`${base}..${head}`] : [`--max-count=${NO_BASE_COMMITS}`, head];
+  const res = await git(deps, ['log', '--reverse', '--no-color', `--format=%H%x00%s%x00%b%x00%an%x00%aI${RECORD}`, ...range], 60_000);
   if (res.code !== 0) { throw new HeadTreeError('error', 'The commits could not be listed.', firstLine(res.stderr)); }
   const out: BranchCommit[] = [];
   for (const record of res.stdout.split(RECORD)) {

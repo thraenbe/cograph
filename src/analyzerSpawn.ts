@@ -2,6 +2,7 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { StringDecoder } from 'string_decoder';
 import type { GraphData } from './graphProvider';
 import { listProjectSourceFiles } from './structureScanner';
 
@@ -68,6 +69,9 @@ export function spawnAnalyzer(bin: string, args: string[], lang: string, hooks: 
     let stdout = '';
     let stdoutBytes = 0;
     let stderr = '';
+    // A pipe cuts anywhere, also inside a UTF-8 character; decoded per chunk, both halves turn into U+FFFD and JSON.parse never notices.
+    const stdoutText = new StringDecoder('utf8');
+    const stderrText = new StringDecoder('utf8');
     let timedOut = false;
     let tooLarge = false;
 
@@ -85,11 +89,11 @@ export function spawnAnalyzer(bin: string, args: string[], lang: string, hooks: 
         resolve(fail('output-too-large', '> 500 MB'));
         return;
       }
-      stdout += chunk.toString();
+      stdout += stdoutText.write(chunk);
     });
 
     proc.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
+      stderr += stderrText.write(chunk);
     });
 
     proc.on('error', (err: Error) => {
@@ -102,6 +106,8 @@ export function spawnAnalyzer(bin: string, args: string[], lang: string, hooks: 
       clearTimeout(timer);
       hooks.onEnd?.(proc);
       if (timedOut || tooLarge) { return; } // already resolved above
+      stdout += stdoutText.end();
+      stderr += stderrText.end();
       if (code !== 0) {
         resolve(fail('exit-nonzero', `exit ${code}${stderr ? ` — ${stderr.slice(0, 300).trim()}` : ''}`));
         return;
@@ -159,6 +165,7 @@ export interface SpawnAnalyzersOptions {
  * in parallel, their graphs merged.
  */
 export async function spawnAnalyzers(dir: string, opts: SpawnAnalyzersOptions): Promise<{ graph: GraphData; statuses: AnalyzerResult[] }> {
+  if (opts.signal?.aborted) { throw new Error('Cancelled.'); } // an abort before the listener exists would never fire it
   const log = opts.log ?? (() => undefined);
   const listPath = path.join(os.tmpdir(), `cograph-spawn-${process.pid}-${Date.now()}.txt`);
   fs.writeFileSync(listPath, listProjectSourceFiles(dir).map(f => f.path).join('\n'), 'utf8');

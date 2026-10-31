@@ -118,4 +118,13 @@ suite('build: copyTourPackage (esbuild.js)', () => {
     assert.ok(wf.indexOf('- name: Install the PR Tour package') < wf.indexOf('- name: Package extension'), 'installed before the package is bundled');
     assert.ok(!/_authToken=[^$]/.test(wf), 'the token is never written literally');
   });
+
+  test('REGRESSION: a release is refused unless the .vsix carries the component and its licence notice', () => {
+    const wf = fs.readFileSync(path.join(REPO, '.github', 'workflows', 'release.yml'), 'utf8');
+    const from = wf.indexOf('- name: Check the PR Tour component is in the .vsix');
+    assert.ok(from > wf.indexOf('- name: Package extension'), 'checked after packaging');
+    const step = wf.slice(from, wf.indexOf('- name: Locate .vsix'));
+    assert.match(step, /grep -q 'extension\/dist\/tour\/host\/index\.js'/);
+    assert.match(step, /grep -q 'extension\/dist\/tour\/LICENSE'/);
+  });
 });

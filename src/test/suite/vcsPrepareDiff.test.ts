@@ -5,6 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { defaultExec } from '../../vcs/ghCliSource';
 import { PrController } from '../../vcs/prController';
+import { materializeCommit } from '../../vcs/engine/headTree';
 import type { PrGraph, PrGraphView, PrHeadGraph } from '../../vcs/prController';
 import type { TreeAnalyzer } from '../../vcs/engine/treeAnalysis';
 import type { EngineGraph } from '../../vcs/engine/types';
@@ -112,7 +113,7 @@ suite('vcs — PrController.prepareDiff: the tour\'s trees for both target kinds
   });
   suiteTeardown(() => { if (root) { fs.rmSync(root, { recursive: true, force: true }); } });
 
-  function controller(source: PullRequestSource, opts: { storage?: boolean; analyzer?: boolean } = {}) {
+  function controller(source: PullRequestSource, opts: { storage?: boolean; analyzer?: boolean; budget?: { maxTrees: number; maxBytes: number } } = {}) {
     storage = fs.mkdtempSync(path.join(root, 'storage-'));
     log.length = 0;
     return new PrController(source, new Graph() as PrGraph, {
@@ -120,8 +121,25 @@ suite('vcs — PrController.prepareDiff: the tour\'s trees for both target kinds
       ...(opts.storage === false ? {} : { storageDir: storage }),
       createHeadGraph: () => new Graph(),
       ...(opts.analyzer === false ? {} : { analyzer: regexAnalyzer }),
+      ...(opts.budget ? { budget: opts.budget } : {}),
     });
   }
+
+  test('REGRESSION: opening a tour keeps the budget, and never touches the copies that tour stands on', async function () {
+    this.timeout(30_000);
+    const c = controller(new Source(PR), { budget: { maxTrees: 1, maxBytes: 1024 * 1024 * 1024 } });
+    const old = await materializeCommit({ repoRoot: work, storageDir: storage, exec: defaultExec }, sh(work, ['commit-tree', 'HEAD^{tree}', '-m', 'an older tour']));
+    await new Promise(r => setTimeout(r, 5)); // lastUsedAt has millisecond steps
+    const trees = await c.prepareDiff({ kind: 'branch' }, () => undefined, new AbortController().signal);
+    assert.ok(trees.base);
+    const view = { number: 0, name: 'Tour', spec: { include: ['.'], exclude: [] }, override: {}, message: { type: 'pr-view', active: true, tree: { kind: 'head', sha: trees.head.sha } } } as any;
+    assert.ok(c.openTourPanel(view, trees.head.dir, 'Tour'));
+    for (let i = 0; i < 200 && fs.existsSync(old.dir); i++) { await new Promise(r => setTimeout(r, 10)); }
+    assert.strictEqual(fs.existsSync(old.dir), false, 'the oldest copy goes once the budget is exceeded');
+    assert.strictEqual(fs.existsSync(trees.head.dir), true);
+    assert.strictEqual(fs.existsSync(trees.base.dir), true);
+    c.exit();
+  });
 
   test('a branch target: HEAD against the merge base, analysed, diffed, with commits and every changed path', async function () {
     this.timeout(30_000);

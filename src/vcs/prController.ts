@@ -305,11 +305,7 @@ export class PrController {
     const headGraph = this.panelFor(pr, materialised, 'head', prViewName(pr, tree));
     // After the switch: a head panel that was just closed no longer protects its copy. Its debounced
     // cache write lands first, or it would recreate a marker-less directory under an evicted tree.
-    const protect = [materialised.dir, ...(this.head?.baseDir ? [this.head.baseDir] : [])];
-    try {
-      await flushCacheWrites();
-      await evictTrees(storageDir, this.deps.budget ?? DEFAULT_BUDGET, protect, this.exec, this.deps.log);
-    } catch (err) { this.deps.log(`[vcs] eviction failed: ${(err as Error).message}`); }
+    await this.evict(storageDir, [materialised.dir, ...(this.head?.baseDir ? [this.head.baseDir] : [])]);
     const shown = headGraph.showPullRequest(this.graphView(pr, tree, view, diff?.summary));
     if (!shown) { return { ok: false, problem: NO_WORKSPACE }; }
     this.logCounts(pr, `head ${materialised.sha.slice(0, 7)}${diff ? ` vs base ${baseSha?.slice(0, 7)}: +${diff.summary.added} ~${diff.summary.changed} -${diff.summary.removed} functions` : ''}`, view.counts);
@@ -329,6 +325,14 @@ export class PrController {
     };
   }
 
+  /** Back within the budget, `protect` kept. Its failure costs disk space, never the view. */
+  private async evict(storageDir: string, protect: string[]): Promise<void> {
+    try {
+      await flushCacheWrites();
+      await evictTrees(storageDir, this.deps.budget ?? DEFAULT_BUDGET, protect, this.exec, this.deps.log);
+    } catch (err) { this.deps.log(`[vcs] eviction failed: ${(err as Error).message}`); }
+  }
+
   private hooks(onCopied?: () => void) {
     return {
       materializeHead: this.deps.materializeHead ?? materializeHeadWithGit,
@@ -340,7 +344,8 @@ export class PrController {
 
   /**
    * Head and base of a tour target, materialised, analysed and diffed (TourHostApi.prepareTrees).
-   * No panel opens and nothing is evicted here; `pr` skips the lookup when the caller has the record.
+   * No panel opens and nothing is evicted here (openTourPanel does); `pr` skips the lookup when the
+   * caller has the record.
    */
   async prepareDiff(target: TourTarget, progress: TourProgress, signal: AbortSignal, pr?: PullRequest): Promise<TourTrees> {
     const root = this.deps.workspaceRoot();
@@ -348,10 +353,14 @@ export class PrController {
     if (!this.deps.storageDir || !this.deps.analyzer) { throw new HeadTreeError('error', 'This window cannot copy commits (no extension storage), so there is nothing to tour.'); }
     const repoRoot = await this.repoRoot(root);
     const common = { repoRoot, storageDir: this.deps.storageDir, exec: this.exec, log: this.deps.log, report: progress, signal };
-    return prepareTourTrees(target, common, { ...this.hooks(), analyzer: this.deps.analyzer, workspaceRoot: root, source: this.source }, pr);
+    const trees = await prepareTourTrees(target, common, { ...this.hooks(), analyzer: this.deps.analyzer, workspaceRoot: root, source: this.source }, pr);
+    this.tourBase = trees.base ? { headDir: trees.head.dir, baseDir: trees.base.dir } : undefined;
+    return trees;
   }
 
   private pendingBaseDir: string | undefined;
+  /** The base copy of the tour prepared last: its panel holds it like a pull-request panel does. */
+  private tourBase: { headDir: string; baseDir: string } | undefined;
 
   /** One pull-request panel at a time: the same tree's panel is reused, any other is closed first. */
   private panelFor(pr: Pick<PullRequest, 'number'>, m: { sha: string; dir: string }, kind: PrTree['kind'], editorLabel: string, title?: string): PrHeadGraph {
@@ -415,7 +424,7 @@ export class PrController {
    */
   openTourPanel(view: PrGraphView, headDir: string, title: string): PrHeadGraph | null {
     if (!this.deps.createHeadGraph) { return null; }
-    this.pendingBaseDir = undefined;
+    this.pendingBaseDir = this.tourBase?.headDir === headDir ? this.tourBase.baseDir : undefined;
     const tree = view.message.tree;
     const sha = tree.kind === 'checkout' ? 'checkout' : tree.sha;
     const graph = this.panelFor({ number: view.number }, { sha, dir: headDir }, 'head', title, title);
@@ -423,6 +432,8 @@ export class PrController {
     if (!graph.showPullRequest(view)) { return null; }
     this.deps.log(`[tour] stage panel on ${sha.slice(0, 7)}: ${view.name}`);
     this.emit();
+    // A session of tours never opens a pull request, the other place the budget is kept.
+    if (this.deps.storageDir) { void this.evict(this.deps.storageDir, [headDir, ...(this.head?.baseDir ? [this.head.baseDir] : [])]); }
     return graph;
   }
 

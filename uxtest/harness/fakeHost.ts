@@ -104,7 +104,10 @@ export class FakeHost {
   private withPrStatuses(graph: GraphLite): GraphLite {
     const statuses = this.pr?.message.fileGitStatus;
     if (!statuses) { return graph; }
-    return { ...graph, nodes: graph.nodes.map(n => (n.file && statuses[n.file] ? { ...n, gitStatus: statuses[n.file] } : n)) };
+    return { ...graph, nodes: graph.nodes.map((n) => {
+      const status = n.file ? statuses[posix(n.file)] : undefined; // GitService looks up forward-slash keys
+      return status ? { ...n, gitStatus: status } : n;
+    }) };
   }
 
   /** The graph as the real host sends it: only files inside the scope. */
@@ -185,7 +188,7 @@ export class FakeHost {
     const fileGitStatus = this.opts.fileGitStatus ?? {};
     return [
       this.subgraphMessage(),
-      { message: { type: 'git-update', nodes: this.opts.graph.nodes.filter(n => !n.isLibrary).map(n => ({ id: n.id, gitStatus: n.gitStatus ?? { unstaged: null, staged: null } })), fileGitStatus } },
+      { message: { type: 'git-update', nodes: this.opts.graph.nodes.filter(n => !n.isLibrary).map(n => ({ id: n.id, gitStatus: (n.file ? fileGitStatus[n.file] ?? fileGitStatus[posix(n.file)] : undefined) ?? n.gitStatus ?? { unstaged: null, staged: null } })), fileGitStatus } },
       { message: { type: 'pr-view', active: false, restore: true, fileGitStatus } },
     ];
   }

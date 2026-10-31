@@ -261,7 +261,7 @@ Pages and routes the public server serves:
 | Route | What |
 |---|---|
 | `GET /?token=` | the stage of the main panel, mirror mode ("Open in browser", free) |
-| `GET /tour/:id?token=` | the stage of the tour's provider, plus the tour layer: `<link rel="stylesheet" href="/tour-assets/tour.css?token=">`, `<script src="/tour-assets/tour.js?token=">` after every stage script, and before them an inline `window.COGRAPH_TOUR = { tourId, scriptUrl, graphUrl, actionUrl, eventsUrl, msgUrl, theme: 'dark' | 'light', stageRoot, version: 1 }` (`stageRoot` = the absolute directory the stage's graph is rooted at, the head copy; every URL carries `?token=`) |
+| `GET /tour/:id?token=` | the stage of the tour's provider, plus the tour layer: `<link rel="stylesheet" href="/tour-assets/tour.css?token=">`, `<script src="/tour-assets/tour.js?token=">` after every stage script, and before them an inline `window.COGRAPH_TOUR = { tourId, scriptUrl, graphUrl, actionUrl, eventsUrl, msgUrl, theme: 'dark' \| 'light', stageRoot, version: 1 }` (`stageRoot` = the absolute directory the stage's graph is rooted at, the head copy; every URL carries `?token=`) |
 | `GET /tour/:id/graph?token=` | `{ messages: [...] }`: the provider's replay in panel order: `subgraph`, `pr-view`, `structure`, `graph`, `git-update`, each the exact object the panel would receive. No `config`: the page's boot config already carries those values, and a `config` message would force the layout engine past the Global guard. The bridge feeds this replay to the stage over SSE itself; the tour layer may read the route but never re-posts it into the stage |
 | `GET /events?token=&view=<id>&client=<id>` | SSE of host-to-view messages for that view (after the replay); `client` is a random id per tab, each with its own ready gate and `__seq` space |
 | `POST /msg?token=&view=<id>&client=<id>` | one view-to-host message as JSON |
@@ -291,6 +291,7 @@ export class BrowserServer {
   static start(deps: { extensionRoot: string; renderPage(p: PageRequest): string; log(line: string): void }): Promise<BrowserServer>;
   readonly port: number;
   url(path: string, query?: Record<string, string>): string;   // http://127.0.0.1:<port><path>?token=…&query, not through asExternalUri
+  allowForwarded(externalUrl: string): void;                   // the asExternalUri result: its Host and Origin pass the gate (openExternalUrl calls it)
   registerView(id: string, view: MirroredView): void;          // a provider to mirror; register before serveTourPage
   unregisterView(id: string): void;                            // also drops the tours of that view
   hasView(id: string): boolean;
@@ -515,7 +516,7 @@ security chapter and "a model cannot lower a verdict" stand unchanged. The plans
 | A6 | New surface | Bundle `format` 1: section 3, verbatim, `manifest.summary` included |
 | A7 | `TourScript.security` | Optional `ruleCounts?: { high, medium, low, info }` (rule findings only), `modelPossible?: number`, `coverage?: { changed, scanned, skipped }`. `counts`, `verdict` keep their meaning |
 | A8 | `ViewerHost` | `read(path): Promise<Uint8Array>`, `stepFromUrl(): string \| null`, `setStepInUrl(stepId): void`, `linkFor(stepId): string`; `window.CoGraphViewer.open(host): Promise<void>` |
-| A9 | Rules, section 10 text | (a) `script.ai.notes` holds fixed reason codes in static and headless runs, never provider text. (b) `card.hunk` lines and `evidence` are cut at 400 characters before masking. (c) `tour.json` for a headless run comes from the target tip. (d) The bundle is hostile input to the viewer. (e) `manifest.summary` holds no string from the PR |
+| A9 | Rules, section 10 text | (a) `script.ai.notes` holds fixed reason codes in static and headless runs, never provider text. (b) `card.hunk` lines and `evidence` are masked over a 2000-character window, then cut to 400 characters, so a secret across the cut cannot survive as a partial value. A line over 2000 characters is withheld by a fixed marker and never reaches a regex or the output. (c) `tour.json` for a headless run comes from the target tip. (d) The bundle is hostile input to the viewer. (e) `manifest.summary` holds no string from the PR |
 
 The types follow this table in `src/tour/tourApi.ts` (public), `src/host/types.ts`, `src/web/types.ts` and `src/shared/tourScript.ts` (private).
 
@@ -543,7 +544,7 @@ Directory: `manifest.json`, `tour/script.json` (TourScript v1, `repoRoot` virtua
 
 `manifest.summary` carries no string from the PR. Title, branch and paths live in `tour/script.json`, inside the envelope. `degraded` holds only `no-slices`, `pruned-graph`, `no-source`.
 
-**Verdict, in this order:** any rule count above 0: `findings`. `scanned` 0: `not-scanned`. `skipped` above 0: `incomplete`. Otherwise `no-match`. The word "clean" appears nowhere in the manifest, and the comment reads `no rule matched on 11 of 12 changed files, 1 not scanned`. `changed` is every non-deleted changed path. `skipped` is a path with no text (binary, over 512 KB, unreadable), with a line over the 2000-character cap, or not reached before the rule worker's budget ran out. A model never touches these numbers: `modelPossible` is its separate count. Rule findings are `source: 'rule'`, allowlisted ones excluded, dismissed low and info included.
+**Verdict, in this order:** any rule count above 0: `findings`. `scanned` 0: `not-scanned`. `skipped` above 0: `incomplete`. Otherwise `no-match`. The word "clean" appears nowhere in the manifest, and the comment reads `no rule matched on 11 of 12 changed files, 1 not scanned`. `changed` is every non-deleted changed path. `skipped` is a path with no text (binary, over 512 KB, unreadable), with an added line over the 2000-character cap (unchanged lines are never read by the rules), or not reached before the rule worker's budget ran out. A model never touches these numbers: `modelPossible` is its separate count. Rule findings are `source: 'rule'`, allowlisted ones excluded, dismissed low and info included.
 
 **Compatibility rule.** `format` bumps when a viewer of that major would misread a bundle (a field removed or renamed, a meaning changed). Additive fields stay within a major; old viewers ignore them. A viewer refuses a greater major with one sentence. Links pin `/v/<format>/<buildHash>/` and delivery keeps viewers forever, so no old bundle is ever migrated. The bundle holds no code and no HTML.
 

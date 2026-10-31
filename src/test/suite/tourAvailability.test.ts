@@ -3,7 +3,7 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { TourAvailability, computeAvailability } from '../../tour/tourAvailability';
+import { TourAvailability, computeAvailability, pillTarget } from '../../tour/tourAvailability';
 import type { AvailabilityDeps, TourAvailabilityMessage } from '../../tour/tourAvailability';
 import { defaultExec } from '../../vcs/ghCliSource';
 import type { Exec } from '../../vcs/ghCliSource';
@@ -140,5 +140,19 @@ suite('tour — availability of the blue button, on real repositories', () => {
     const broken = new TourAvailability(deps({ exec: async () => { throw new Error('spawn EMFILE'); } }));
     await broken.refresh();
     assert.strictEqual(broken.current().state, 'none', 'an error is a hidden pill, not a crash');
+  });
+});
+
+suite('tour — what a click on the pill tours', () => {
+  const base = { type: 'tour-availability' as const };
+
+  test('a branch pill forwards the branch and the base it named: the tour resolves a base by another rule', () => {
+    assert.deepStrictEqual(pillTarget({ ...base, state: 'branch', branch: 'feat', baseRef: 'master', counts: { commits: 3, files: 1 } }), { kind: 'branch', branch: 'feat', baseRef: 'master' });
+  });
+
+  test('a muted pill has no base to forward; a pull request stays a pull request; anything else is the plain branch', () => {
+    assert.deepStrictEqual(pillTarget({ ...base, state: 'branch', branch: 'feat' }), { kind: 'branch', branch: 'feat' });
+    assert.deepStrictEqual(pillTarget({ ...base, state: 'pr', number: 7, branch: 'feat', baseRef: 'main' }), { kind: 'pr', number: 7 });
+    assert.deepStrictEqual(pillTarget({ ...base, state: 'none' }), { kind: 'branch' });
   });
 });

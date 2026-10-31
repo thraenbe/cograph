@@ -178,9 +178,14 @@ export async function fetchPullRequestHead(deps: HeadTreeDeps, prNumber: number,
   return fetchInto(deps, remote, `refs/pull/${prNumber}/head`, pullRequestRef(prNumber), `Pull request #${prNumber}`);
 }
 
+/** A branch name this engine passes to git: a name is data, and one spelled `--upload-pack=...` must never read as an option. */
+export function isBranchName(branch: string): boolean {
+  return /^[\w./-]+$/.test(branch) && !branch.startsWith('-');
+}
+
 /** Fetch a branch tip from the remote; returns its sha. */
 export async function fetchBranch(deps: HeadTreeDeps, branch: string, remote = 'origin'): Promise<string> {
-  if (!/^[\w./-]+$/.test(branch) || branch.startsWith('-')) { throw new HeadTreeError('error', `"${branch}" is not a branch name.`); }
+  if (!isBranchName(branch)) { throw new HeadTreeError('error', `"${branch}" is not a branch name.`); }
   return fetchInto(deps, remote, `refs/heads/${branch}`, branchRef(branch), `Branch ${branch}`);
 }
 

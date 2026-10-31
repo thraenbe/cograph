@@ -64,7 +64,10 @@ jobs:
         if: ${{ env.TOUR_PACKAGE_TOKEN != '' }}
         env:
           TOUR_PACKAGE_TOKEN: ${{ secrets.TOUR_PACKAGE_TOKEN }}
-        run: unzip -l "$(ls *.vsix | head -n1)" | grep -q 'extension/dist/tour/host/index.js'
+        run: |
+          listing=$(unzip -l "$(ls *.vsix | head -n1)")
+          grep -q 'extension/dist/tour/host/index.js' <<< "$listing"
+          grep -q 'extension/dist/tour/LICENSE' <<< "$listing" # COMMERCIAL-COMPONENT.md promises the terms there
 
       - name: Locate .vsix
         id: vsix

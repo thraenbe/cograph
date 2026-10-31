@@ -581,12 +581,12 @@ function renderBrowserStatus(msg) {
 let tourPillLast = null;
 let tourPillDismissed = false;
 
-/** The subline: `PR #104 · 12 files`, else the host's label, else `branch vs base · n commits · n files`. */
+/** The subline: the host's label, else `PR #104 · 12 files`, else `branch vs base · n commits · n files`. */
 function tourPillSubline(msg) {
+  if (msg.label) { return String(msg.label); }
   const c = msg.counts || {};
   const files = c.files != null ? ` · ${c.files} file${c.files === 1 ? '' : 's'}` : '';
   if (msg.state === 'pr' && msg.number != null) { return `PR #${msg.number}${files}`; }
-  if (msg.label) { return String(msg.label); }
   const commits = c.commits != null ? ` · ${c.commits} commit${c.commits === 1 ? '' : 's'}` : '';
   return `${msg.branch || 'your branch'} vs ${msg.baseRef || 'base'}${commits}${files}`;
 }

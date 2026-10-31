@@ -580,7 +580,7 @@ Agreed with ci-plan-core, accepted by session-110 on 2026-10-30. Core owns `buil
 ```
 cograph-tour ci                                                       the one command every wrapper calls
 cograph-tour fetch --repo DIR --base S --head S --base-ref R [--head-ref R]   core; own remote; prints { head, mergeBase, targetTip }
-cograph-tour build --repo DIR --base S --head S --out DIR --work-dir DIR --config-sha S [--context FILE]
+cograph-tour build --repo DIR --base S --head S --out DIR --work-dir DIR --config-sha S [--context FILE] [--deadline-ms N]
                    [--ai-key-stdin --ai-model M --ai-base-url U]              core; no network except optional AI
 cograph-tour publish DIR [--to DIR --base-url URL] [--reveal-link]    or: publish --state building|failed --reason CODE
 cograph-tour delete --tour ID | --all         cograph-tour verify-viewer URL

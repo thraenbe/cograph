@@ -9,7 +9,7 @@ import type { Exec } from '../../vcs/ghCliSource';
 import { HeadTreeError } from '../../vcs/engine/headTree';
 import type { HeadTreeDeps } from '../../vcs/engine/headTree';
 import {
-  baseTip, commitsAhead, headOf, isDirty, listCommits, parseNameStatus, prepareBranch, resolveBaseRef,
+  NO_BASE_COMMITS, baseTip, commitsAhead, headOf, isDirty, listCommits, parseNameStatus, prepareBranch, resolveBaseRef,
 } from '../../vcs/engine/localBranch';
 import { relPath } from '../../vcs/engine/treeAnalysis';
 import { scanStructure } from '../../structureScanner';
@@ -168,7 +168,7 @@ suite('vcs engine — localBranch on real repositories (no network)', () => {
     const scanRel = (dir: string) => scanStructure(dir).files.map(f => relPath(dir, f.path)).sort();
     assert.deepStrictEqual(scanRel(prepared.head.dir), scanRel(repos.work));
     const shape = async (dir: string) => {
-      const { graph } = await spawnAnalyzers(dir, { scriptsDir: SCRIPTS, pythonBin: 'python3' });
+      const { graph } = await spawnAnalyzers(dir, { scriptsDir: SCRIPTS, pythonBin: cp.spawnSync('python3', ['--version']).status === 0 ? 'python3' : 'python' });
       const key = (n: any) => (n.isLibrary ? `lib:${n.libraryName}:${n.name}` : `${relPath(dir, n.file)}::${n.name}::${n.line}`);
       const byId = new Map(graph.nodes.map(n => [n.id, n]));
       return {
@@ -238,6 +238,33 @@ suite('vcs engine — localBranch on real repositories (no network)', () => {
     assert.strictEqual(await commitsAhead(defaultExec, repos.work, repos.head), 0);
     assert.strictEqual(await commitsAhead(defaultExec, repos.work, 'no-such-ref'), null);
     assert.deepStrictEqual((await listCommits(deps, repos.head, repos.head)), []);
+  });
+});
+
+suite('vcs engine — listCommits without a base', () => {
+  test('REGRESSION: the newest commits, oldest first, never the whole history', function () {
+    this.timeout(30_000);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-history-'));
+    return (async () => {
+      try {
+        sh(dir, ['init', '--quiet', '-b', 'main']);
+        const total = NO_BASE_COMMITS + 5;
+        const stream = Array.from({ length: total }, (_, i) => [
+          `commit refs/heads/main`, `committer t <t@x> ${1_700_000_000 + i} +0000`, `data ${`c${i}`.length}`, `c${i}`, '',
+        ].join('\n')).join('\n');
+        cp.execFileSync('git', ['fast-import', '--quiet'], { cwd: dir, input: stream });
+        const head = sh(dir, ['rev-parse', 'refs/heads/main']);
+        const deps: HeadTreeDeps = { repoRoot: dir, storageDir: dir, exec: defaultExec };
+        const commits = await listCommits(deps, null, head);
+        assert.strictEqual(commits.length, NO_BASE_COMMITS);
+        assert.strictEqual(commits[0].subject, `c${total - NO_BASE_COMMITS}`);
+        assert.strictEqual(commits[commits.length - 1].subject, `c${total - 1}`);
+        const root = sh(dir, ['rev-list', '--max-parents=0', head]);
+        assert.strictEqual((await listCommits(deps, root, head)).length, total - 1, 'a real range is never cut');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    })();
   });
 });
 

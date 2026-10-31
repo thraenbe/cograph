@@ -76,9 +76,9 @@ Measured on 2026-10-31 on this machine, one run at a time, through the real tour
 
 | Limit | Value | Past it | Measured |
 |---|---|---|---|
-| Analyzer, each side | 300 s | The language fails | Guava, the largest of the corpus, takes about 80 s per side |
+| Analyzer, each side | 300 s | The language fails | Guava, the largest of the corpus: 174 s for both sides and the tour |
 | Analyzer output | 200 MB | The language fails | Largest real output: guava's graph, 122 MB, with a long work path |
-| Python analyzer memory | 2.8 GB of address space, Linux and macOS only | The file in hand counts as not parsed; past it outside a parse, the language fails | pandas 0.76 GB. A 24 MB file of one-line functions: 2.85 GB, 6 s, that file lost. Without the limit: 4.18 GB and growing with the file |
+| Python analyzer memory | 2.8 GB of address space. Linux; none on Windows, macOS unverified | The file in hand counts as not parsed; past it outside a parse, the language fails | pandas 0.76 GB. A 24 MB file of one-line functions: 2.85 GB, 6 s, that file lost. Without the limit: 4.18 GB and growing with the file |
 | Node analyzer heap | 4 GB | The language fails | Guava 3.3 GB. A 24 MB Java file of one-line methods: 4.6 GB, then the language fails |
 | Analyzer stderr | First 64 KB kept | Dropped | |
 | `fetch` | 240 s of deepening, 120 s per git fetch, 8 rounds | Head-only tour | 3 to 9 s from an empty repository against public GitHub, deepening from 32 commits |
@@ -103,5 +103,6 @@ The largest real source file among 17,340 in the corpus is 1.18 MB, so none of t
 - **Real platforms.** Fetching a bare id on GitLab, Bitbucket and Azure, and whether credentials survive their checkouts. The fallback
   to `refs/heads/` is tested against a local server that refuses.
 - **Hosted runners.** Whether a runner has `filter.lfs.*` no longer matters to a copy; memory and time on a small runner do.
+- **Other versions.** Everything ran on Python 3.14, Node 22 and git 2.53. The floors in the table are from the code and the plan.
 - **A shallow merge base.** Deepening stops at the first common commit it sees. With criss-cross merges a better one can lie beyond the
   shallow boundary, and the tour then shows a little more than the platform's own diff.

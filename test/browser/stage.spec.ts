@@ -130,11 +130,19 @@ test('light theme: the css and the body class agree before the stage runs', asyn
 
 test('stageApi drives it: expand answers at once, and the camera and the overlays work', async ({ browser }) => {
   const { page, errors } = await openStage(browser);
+  await page.evaluate('window.__stage = state'); // a top-level const of the stage, out of reach of a serialised function
   const ms = await page.evaluate(async () => {
-    const api = (window as unknown as { stageApi: any }).stageApi;
+    const page = window as unknown as { stageApi: any; __stage: any };
+    const api = page.stageApi;
+    // A full graph marks every folder parsed, and only an unparsed one asks the host: make one so.
+    const st = page.__stage;
+    const folder = Object.keys(st.structureTree.folders).find((p) => st.structureTree.folders[p].files?.length && !st.expandedFolders.has(p));
+    if (!folder) { throw new Error('no collapsed folder in the replay'); }
+    st.parsedFolders.delete(folder);
     const t0 = performance.now();
-    await api.expand(['/repo/tests', '/repo/docs']);
+    await api.expand([folder]);
     const took = performance.now() - t0;
+    if (!st.parsedFolders.has(folder)) { throw new Error('the folder got no answer'); }
     const ids = api.nodes().filter((n: any) => n.kind === 'function').slice(0, 3).map((n: any) => n.id);
     await api.fit(ids, { ms: 0 });
     api.spotlight(ids);

@@ -6,7 +6,7 @@ import type { EnsureCommitsOptions } from '../../ci/fetch';
 import { HeadTreeError } from '../../vcs/engine/headTree';
 import { defaultExec } from '../../vcs/ghCliSource';
 import type { Exec } from '../../vcs/ghCliSource';
-import { clone, commit, emptyCheckout, makeOrigin, mergeCheckout, pile, push, sh, tempDir } from '../ciRepo';
+import { clone, commit, makeOrigin, mergeCheckout, pile, push, sh, tempDir } from '../ciRepo';
 import type { Origin } from '../ciRepo';
 
 /** Every git argv the step ran, in order. */
@@ -183,6 +183,13 @@ suite('ci fetch: ensureCommits on real remotes', function () {
     assert.ok(!rec.calls.flat().includes(tip.slice(0, 12)), 'a short id is no refspec');
   });
 
+  test('a target branch that is gone, as a merged stack leaves it, is no tip and no failure', async () => {
+    const repo = mergeCheckout(root, origin, head, tip);
+    const logged: string[] = [];
+    assert.deepStrictEqual(await run(repo, { baseRef: 'deleted/stack', log: l => logged.push(l) }).done, { head, mergeBase: forkPoint, targetTip: null });
+    assert.ok(logged.some(l => l.includes('not on the remote')), logged.join('|'));
+  });
+
   test('a base the remote no longer has falls back to the target tip', async () => {
     const repo = mergeCheckout(root, origin, head, tip);
     assert.deepStrictEqual(await run(repo, { base: 'a'.repeat(40) }).done, { head, mergeBase: forkPoint, targetTip: tip });
@@ -191,11 +198,9 @@ suite('ci fetch: ensureCommits on real remotes', function () {
   test('a head nobody can bring throws; a base nobody can bring does not', async () => {
     const repo = mergeCheckout(root, origin, head, tip);
     await assert.rejects(run(repo, { head: 'a'.repeat(40), headRef: undefined }).done, (e: HeadTreeError) => e.kind === 'no-such-ref');
+    await ensureCommits({ repoRoot: repo, head, base: head, exec: recorded().exec });
     sh(repo, ['remote', 'set-url', 'origin', path.join(root, 'gone.git')]);
-    const held = mergeCheckout(root, origin, head, tip);
-    await ensureCommits({ repoRoot: held, head, base: head, exec: recorded().exec });
-    sh(held, ['remote', 'set-url', 'origin', path.join(root, 'gone.git')]);
-    assert.deepStrictEqual(await run(held, { base: 'a'.repeat(40) }).done, { head, mergeBase: null, targetTip: null });
+    assert.deepStrictEqual(await run(repo, { base: 'a'.repeat(40) }).done, { head, mergeBase: null, targetTip: null });
   });
 
   test('anything but a hexadecimal id is refused before git runs', async () => {

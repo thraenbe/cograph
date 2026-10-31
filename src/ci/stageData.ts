@@ -78,9 +78,8 @@ export function stageData(prepared: TourPrepared, trees: CiTrees, target: TourTa
   const view = tourGraphView(prepared, target);
   const statuses = stageStatuses(prepared.statuses, stage);
   const fileGitStatus = Object.fromEntries(statuses.files.map(([p, s]) => [p, { unstaged: s.unstaged, staged: null }]));
-  const trail = prepared.script.trees as Record<string, unknown>;
   return {
-    script: { ...prepared.script, trees: { ...trail, repoRoot: STAGE_ROOT } },
+    script: { ...prepared.script, trees: { ...(prepared.script.trees as object), repoRoot: STAGE_ROOT } },
     statuses,
     view: {
       subgraph: buildSubgraphMessage({ spec: view.spec, source: 'pr', name: view.name }, STAGE_ROOT),

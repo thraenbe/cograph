@@ -41,6 +41,9 @@ let cstCacheSourceBudget = Number(process.env.COGRAPH_JAVA_CST_BUDGET) || 6 * 10
 function _setCstCacheBudget(bytes) { cstCacheSourceBudget = bytes; }
 let cachedSourceBytes = 0;
 
+// Files this run could not use, over both passes: they are missing from the graph, and the run says so.
+const notParsed = new Set();
+
 // Diagnostic/test counters: `parses` = actual parse() invocations (N for a run
 // over N files that fit the budget, up to 2N beyond it); `uncached` = parses
 // whose CST was not retained.
@@ -55,7 +58,7 @@ function getCst(filepath) {
     bytes = source.length;
     cst = parse(source);
     if (cst) _stats.parses++;
-  } catch { cst = null; }
+  } catch { cst = null; notParsed.add(filepath); }
   if (cachedSourceBytes + bytes <= cstCacheSourceBudget) {
     cachedSourceBytes += bytes;
     cstCache.set(filepath, cst ?? null);
@@ -295,7 +298,7 @@ function collectDefinitions(files) {
       const collector = new DefinitionCollector(filepath);
       collector.visit(cst);
       Object.assign(definitions, collector.definitions);
-    } catch { /* skip files that crash the visitor */ }
+    } catch { notParsed.add(filepath); /* skip files that crash the visitor */ }
   }
   return definitions;
 }
@@ -434,7 +437,7 @@ function collectCalls(files, definitions, root) {
       for (const [id, node] of collector.libraryNodes) {
         if (!allLibraryNodes.has(id)) allLibraryNodes.set(id, node);
       }
-    } catch { /* skip files that crash the visitor */ }
+    } catch { notParsed.add(filepath); /* skip files that crash the visitor */ }
   }
   return { edges: allEdges, libraryNodes: Array.from(allLibraryNodes.values()), stats: narrower.stats };
 }
@@ -452,7 +455,7 @@ function main() {
     const definitions = collectDefinitions(files);
     const { edges, libraryNodes, stats } = collectCalls(files, definitions, root);
     const nodes = [...Object.values(definitions), ...libraryNodes];
-    require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
+    require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats, notParsed.size));
   } finally {
     clearCstCache(); // drop cached CSTs
   }

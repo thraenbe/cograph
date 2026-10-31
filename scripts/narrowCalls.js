@@ -99,10 +99,10 @@ function resolveThisCall(ids, callerDef, definitions, narrow, callerFile) {
 }
 
 /** Attach the counters to the output graph — only when something happened, so
- *  graphs without an ambiguous name stay byte-identical to the previous format. */
-function withStats(graph, stats) {
-  if (!stats || (!stats.ambiguousNarrowed && !stats.ambiguousDropped)) { return graph; }
-  return { ...graph, stats: { ...stats } };
+ *  graphs without an ambiguous name or a skipped file stay byte-identical to the previous format. */
+function withStats(graph, stats, filesNotParsed = 0) {
+  if (!filesNotParsed && (!stats || (!stats.ambiguousNarrowed && !stats.ambiguousDropped))) { return graph; }
+  return { ...graph, stats: { ...stats, ...(filesNotParsed ? { filesNotParsed } : {}) } };
 }
 
 module.exports = { createNarrower, withStats, topLevelOf, resolveThisCall, MAX_CANDIDATES };

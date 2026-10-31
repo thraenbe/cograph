@@ -29,6 +29,9 @@ function getLine(sourceFile, node) {
   return ts.getLineAndCharacterOfPosition(sourceFile, node.getStart(sourceFile)).line + 1;
 }
 
+// Listed files this run could not use, over both passes: they are missing from the graph, and the run says so.
+const notParsed = new Set();
+
 /**
  * Parses `filepath`, or null when it is unreadable or a component this analyzer
  * does not own. A component is parsed as its virtual source (sfcScript.js): the
@@ -64,8 +67,8 @@ function collectDefinitions(files, options) {
     let sourceFile;
     try {
       sourceFile = parse(filepath, options);
-    } catch { continue; }
-    if (!sourceFile) continue;
+    } catch { notParsed.add(filepath); continue; }
+    if (!sourceFile) { notParsed.add(filepath); continue; }
 
     function visit(node) {
       try {
@@ -107,7 +110,7 @@ function collectDefinitions(files, options) {
       } catch { /* skip malformed nodes */ }
       ts.forEachChild(node, visit);
     }
-    try { visit(sourceFile); } catch { continue; }
+    try { visit(sourceFile); } catch { notParsed.add(filepath); continue; }
   }
   return definitions;
 }
@@ -198,8 +201,8 @@ function collectCalls(files, definitions, root, options) {
     let sourceFile;
     try {
       sourceFile = parse(filepath, options);
-    } catch { continue; }
-    if (!sourceFile) continue;
+    } catch { notParsed.add(filepath); continue; }
+    if (!sourceFile) { notParsed.add(filepath); continue; }
 
     const importMap = collectImportMap(sourceFile, options);
 
@@ -295,7 +298,7 @@ function collectCalls(files, definitions, root, options) {
       } catch { /* skip */ }
       ts.forEachChild(node, visit);
     }
-    try { visit(sourceFile); } catch { continue; }
+    try { visit(sourceFile); } catch { notParsed.add(filepath); continue; }
   }
   return { edges, libraryNodes: Array.from(libraryNodes.values()), stats: narrower.stats };
 }
@@ -310,7 +313,7 @@ function main(options) {
   const definitions = collectDefinitions(files, options);
   const { edges, libraryNodes, stats } = collectCalls(files, definitions, root, options);
   const nodes = [...Object.values(definitions), ...libraryNodes];
-  require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
+  require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats, notParsed.size));
 }
 
 module.exports = { isAnalyzedFile, collectFiles, collectDefinitions, collectCalls, main };

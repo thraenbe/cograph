@@ -37,7 +37,7 @@ const GRAMMAR_WASM = path.join(__dirname, 'tree-sitter-cpp.wasm');
 // collectDefinitions / collectCalls; `clearTreeCache()` frees the WASM trees
 // once an analysis run completes.
 const session = createTreeSitterSession(GRAMMAR_WASM);
-const { init, getTree, clearTreeCache } = session;
+const { init, getTree, clearTreeCache, notParsed } = session;
 const _stats = session.stats;
 
 /** The C++ files of a workspace: a standalone walk, minus the headers C owns. */
@@ -279,7 +279,7 @@ function collectDefinitions(files) {
     if (!tree) { continue; }
     try {
       collectDefinitionsFromTree(tree.rootNode, filepath, definitions);
-    } catch { /* skip files that crash the walker */ }
+    } catch { notParsed.add(filepath); /* skip files that crash the walker */ }
   }
   pruneRedundantDeclarations(definitions);
   return definitions;
@@ -474,7 +474,7 @@ function collectCalls(files, definitions, root) {
       const importMap = parseImports(tree.rootNode);
       collectCallsFromTree(tree.rootNode, filepath, definitions, nameToIds, importMap,
                            edges, seenEdges, libraryNodes, narrower.narrow);
-    } catch { /* skip files that crash the walker */ }
+    } catch { notParsed.add(filepath); /* skip files that crash the walker */ }
   }
   return { edges, libraryNodes: Array.from(libraryNodes.values()), stats: narrower.stats };
 }
@@ -496,7 +496,7 @@ async function main() {
     const definitions = collectDefinitions(files);
     const { edges, libraryNodes, stats } = collectCalls(files, definitions, root);
     const nodes = [...Object.values(definitions), ...libraryNodes];
-    require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
+    require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats, notParsed.size));
   } finally {
     clearTreeCache(); // free all cached WASM trees
   }

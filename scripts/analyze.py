@@ -19,14 +19,29 @@ import sys
 import warnings
 
 
+# Files that would not parse, whatever stopped the parser: they stay out of the graph, the language stays in it.
+NOT_PARSED: set[str] = set()
+
+
+def _parse_file(filepath: str):
+    """The file's AST, or None. One file must not end the run: deep code makes ast.parse raise
+    RecursionError or MemoryError, and a listed file can be gone."""
+    if filepath in NOT_PARSED:
+        return None
+    try:
+        with open(filepath, encoding='utf-8', errors='ignore') as fh:
+            return ast.parse(fh.read(), filename=filepath)
+    except Exception:
+        NOT_PARSED.add(filepath)
+        return None
+
+
 def collect_definitions(root: str) -> dict[str, dict]:
     """Walk all .py files and collect function definitions keyed by qualified id."""
     definitions = {}
     for filepath in _walk_py_files(root):
-        try:
-            source = open(filepath, encoding='utf-8', errors='ignore').read()
-            tree = ast.parse(source, filename=filepath)
-        except SyntaxError:
+        tree = _parse_file(filepath)
+        if tree is None:
             continue
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -112,10 +127,8 @@ def collect_calls(root: str, definitions: dict) -> tuple[list[dict], list[dict]]
     library_nodes: dict[str, dict] = {}
 
     for filepath in _walk_py_files(root):
-        try:
-            source = open(filepath, encoding='utf-8', errors='ignore').read()
-            tree = ast.parse(source, filename=filepath)
-        except SyntaxError:
+        tree = _parse_file(filepath)
+        if tree is None:
             continue
 
         import_map = collect_import_map(tree)
@@ -232,10 +245,8 @@ def collect_entry_points(root: str, definitions: dict) -> list[str]:
     found: set[str] = set()
 
     for filepath in _walk_py_files(root):
-        try:
-            source = open(filepath, encoding='utf-8', errors='ignore').read()
-            tree = ast.parse(source, filename=filepath)
-        except SyntaxError:
+        tree = _parse_file(filepath)
+        if tree is None:
             continue
 
         for node in tree.body:
@@ -318,10 +329,12 @@ def main():
     nodes.extend(library_nodes)
     all_files = list(_walk_py_files(root))
     graph = {'nodes': nodes, 'edges': edges, 'files': all_files}
-    # Counters only when something was narrowed/dropped: otherwise the output
-    # stays byte-identical to the pre-D6 format.
-    if NARROW_STATS['ambiguousNarrowed'] or NARROW_STATS['ambiguousDropped']:
+    # Counters only when something was narrowed/dropped or not parsed: otherwise
+    # the output stays byte-identical to the pre-D6 format.
+    if NARROW_STATS['ambiguousNarrowed'] or NARROW_STATS['ambiguousDropped'] or NOT_PARSED:
         graph['stats'] = dict(NARROW_STATS)
+        if NOT_PARSED:
+            graph['stats']['filesNotParsed'] = len(NOT_PARSED)
     print(json.dumps(graph))
 
 

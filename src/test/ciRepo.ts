@@ -69,7 +69,7 @@ export function pile(work: string, branch: string, count: number): string {
 }
 
 export function push(origin: Origin, ...refspecs: string[]): void {
-  sh(origin.work, ['push', '--quiet', '--force', 'origin', ...refspecs]);
+  sh(origin.work, ['-c', 'core.hooksPath=/dev/null', 'push', '--quiet', '--force', 'origin', ...refspecs]);
 }
 
 /** What a default CI checkout leaves: a merge commit, depth 1, and neither side of the change. */

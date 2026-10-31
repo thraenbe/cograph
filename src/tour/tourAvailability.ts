@@ -1,5 +1,6 @@
 import type { Exec } from '../vcs/ghCliSource';
 import type { PullRequest } from '../vcs/types';
+import type { TourTarget } from './tourApi';
 
 /**
  * Whether the graph's blue "Take the PR tour" pill shows, and what it says
@@ -87,6 +88,16 @@ export async function computeAvailability(deps: AvailabilityDeps): Promise<TourA
     };
   }
   return branchState(deps, root, branch);
+}
+
+/**
+ * What a click on the pill tours: what it says. The pill finds its base from local refs, the tour
+ * by another rule when left to itself (`resolveBaseRef`), so the base it named travels with the click.
+ */
+export function pillTarget(a: TourAvailabilityMessage): TourTarget {
+  if (a.state === 'pr' && a.number) { return { kind: 'pr', number: a.number }; }
+  if (a.state !== 'branch') { return { kind: 'branch' }; }
+  return { kind: 'branch', ...(a.branch ? { branch: a.branch } : {}), ...(a.baseRef ? { baseRef: a.baseRef } : {}) };
 }
 
 /**

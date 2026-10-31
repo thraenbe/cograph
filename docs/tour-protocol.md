@@ -261,7 +261,7 @@ Pages and routes the public server serves:
 | Route | What |
 |---|---|
 | `GET /?token=` | the stage of the main panel, mirror mode ("Open in browser", free) |
-| `GET /tour/:id?token=` | the stage of the tour's provider, plus the tour layer: `<link rel="stylesheet" href="/tour-assets/tour.css?token=">`, `<script src="/tour-assets/tour.js?token=">` after every stage script, and before them an inline `window.COGRAPH_TOUR = { tourId, scriptUrl, graphUrl, actionUrl, eventsUrl, msgUrl, theme: 'dark' | 'light', stageRoot, version: 1 }` (`stageRoot` = the absolute directory the stage's graph is rooted at, the head copy; every URL carries `?token=`) |
+| `GET /tour/:id?token=` | the stage of the tour's provider, plus the tour layer: `<link rel="stylesheet" href="/tour-assets/tour.css?token=">`, `<script src="/tour-assets/tour.js?token=">` after every stage script, and before them an inline `window.COGRAPH_TOUR = { tourId, scriptUrl, graphUrl, actionUrl, eventsUrl, msgUrl, theme: 'dark' \| 'light', stageRoot, version: 1 }` (`stageRoot` = the absolute directory the stage's graph is rooted at, the head copy; every URL carries `?token=`) |
 | `GET /tour/:id/graph?token=` | `{ messages: [...] }`: the provider's replay in panel order: `subgraph`, `pr-view`, `structure`, `graph`, `git-update`, each the exact object the panel would receive. No `config`: the page's boot config already carries those values, and a `config` message would force the layout engine past the Global guard. The bridge feeds this replay to the stage over SSE itself; the tour layer may read the route but never re-posts it into the stage |
 | `GET /events?token=&view=<id>&client=<id>` | SSE of host-to-view messages for that view (after the replay); `client` is a random id per tab, each with its own ready gate and `__seq` space |
 | `POST /msg?token=&view=<id>&client=<id>` | one view-to-host message as JSON |
@@ -291,6 +291,7 @@ export class BrowserServer {
   static start(deps: { extensionRoot: string; renderPage(p: PageRequest): string; log(line: string): void }): Promise<BrowserServer>;
   readonly port: number;
   url(path: string, query?: Record<string, string>): string;   // http://127.0.0.1:<port><path>?token=…&query, not through asExternalUri
+  allowForwarded(externalUrl: string): void;                   // the asExternalUri result: its Host and Origin pass the gate (openExternalUrl calls it)
   registerView(id: string, view: MirroredView): void;          // a provider to mirror; register before serveTourPage
   unregisterView(id: string): void;                            // also drops the tours of that view
   hasView(id: string): boolean;

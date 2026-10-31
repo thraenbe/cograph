@@ -2,6 +2,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { pipeline } from 'stream';
 
 /** Request plumbing of the loopback server: the gate checks, bodies, static files. No vscode. */
 
@@ -30,20 +31,21 @@ const MIME: Record<string, string> = {
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
-/** DNS rebinding: the Host must name the loopback. Any port, so a Remote-SSH forward to another local port works. */
-export function hostAllowed(host: string | undefined): boolean {
+/** DNS rebinding: the Host must name the loopback (any port, so a Remote-SSH forward to another local port works) or be a host VS Code forwards this server on. */
+export function hostAllowed(host: string | undefined, forwardedHosts: ReadonlySet<string> = new Set()): boolean {
   if (!host) { return false; }
-  const m = /^(\[[^\]]+\]|[^:]+)(?::\d+)?$/.exec(host.trim().toLowerCase());
-  return !!m && LOOPBACK_HOSTS.has(m[1]);
+  const name = host.trim().toLowerCase();
+  const m = /^(\[[^\]]+\]|[^:]+)(?::\d+)?$/.exec(name);
+  return (!!m && LOOPBACK_HOSTS.has(m[1])) || forwardedHosts.has(name);
 }
 
-/** A POST must come from this page: same Origin as the Host it was sent to, and no cross-site fetch metadata. */
-export function postOriginAllowed(headers: http.IncomingHttpHeaders): boolean {
+/** A POST must come from this page: same Origin as the Host it was sent to or an origin VS Code forwards this server on, and no cross-site fetch metadata. */
+export function postOriginAllowed(headers: http.IncomingHttpHeaders, forwardedOrigins: ReadonlySet<string> = new Set()): boolean {
   const site = headers['sec-fetch-site'];
   if (site !== undefined && site !== 'same-origin' && site !== 'none') { return false; }
   const origin = headers.origin;
   if (origin === undefined) { return true; } // non-browser clients (tests, curl) still need the token
-  return origin === `http://${headers.host ?? ''}`;
+  return origin === `http://${headers.host ?? ''}` || forwardedOrigins.has(origin);
 }
 
 export function tokenMatches(given: string | null, token: string): boolean {
@@ -106,10 +108,12 @@ export function resolveUnder(root: string, rel: string): string | null {
   try { return fs.statSync(real).isFile() ? real : null; } catch { return null; }
 }
 
-/** Stream a resolved file. A read error after the headers ends the response; it is logged by the caller. */
+/** Stream a resolved file. A read error after the headers ends the response, for the caller to log; a tab gone mid-file only closes the file. */
 export function sendFile(res: http.ServerResponse, file: string, onError: (err: Error) => void): void {
   res.writeHead(200, { ...BASE_HEADERS, 'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream' });
-  fs.createReadStream(file).on('error', (err) => { onError(err); res.destroy(); }).pipe(res);
+  pipeline(fs.createReadStream(file), res, (err) => {
+    if (err && (err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') { onError(err); }
+  });
 }
 
 /** One SSE frame. JSON.stringify never emits a raw newline, so a single data line carries any message. */

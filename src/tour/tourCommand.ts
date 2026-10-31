@@ -23,6 +23,8 @@ export interface TourServer {
 }
 
 export interface TourRunnerDeps {
+  /** Why no tour can run in this window right now (no folder, no storage); null when one can. */
+  blocked(): string | null;
   /** The private package's host, created once; null in the public build. */
   loadTour(): Promise<LoadedTour | null>;
   /** The loopback server; null when cograph.browserView.enabled is off. Rejects when it cannot listen. */
@@ -42,6 +44,8 @@ export interface TourRunnerDeps {
 export type TourOutcome = 'opened' | 'cancelled' | 'unavailable' | 'failed';
 
 export const BROWSER_OFF_SENTENCE = 'The PR tour opens in your browser, and Open in browser is switched off (setting cograph.browserView.enabled).';
+export const NO_FOLDER_SENTENCE = 'The PR tour needs an open folder. Open your repository and try again.';
+export const NO_STORAGE_SENTENCE = 'This window cannot copy commits (no extension storage), so there is nothing to tour.';
 
 export function describeTarget(target: TourTarget): string {
   if (target.kind === 'pr') { return `pull request #${target.number}`; }
@@ -66,6 +70,8 @@ export class TourRunner {
   }
 
   private async runOnce(target: TourTarget): Promise<TourOutcome> {
+    const blocked = this.deps.blocked();
+    if (blocked) { this.deps.info(`CoGraph: ${blocked}`); return 'unavailable'; }
     const tour = await this.deps.loadTour();
     if (!tour) { this.deps.info(`CoGraph: ${STUB_SENTENCE}`); return 'unavailable'; }
     let server: TourServer | null;

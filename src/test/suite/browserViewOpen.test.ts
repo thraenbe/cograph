@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as http from 'http';
 import { configureBrowserServer, getBrowserServer, stopBrowserServer, browserServerStarted, browserViewEnabled } from '../../browserView/browserLifetime';
 import { openInBrowser, BROWSER_DISABLED_NOTE } from '../../browserView/openInBrowser';
-import { MAIN_VIEW } from '../../browserView/browserServer';
+import { BrowserServer, MAIN_VIEW } from '../../browserView/browserServer';
 import type { GraphProvider } from '../../graphProvider';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -83,6 +83,29 @@ suite('browserView: lifetime and Open in browser', () => {
     assert.notStrictEqual(new URL(c.url('/')).searchParams.get('token'), new URL(a.url('/')).searchParams.get('token'));
   });
 
+  test('REGRESSION: a stopped start that fails late leaves the newer server in charge', async () => {
+    let failFirst: (err: Error) => void = () => undefined;
+    const second = { dispose: sandbox.spy() } as unknown as BrowserServer;
+    const start = sandbox.stub(BrowserServer, 'start');
+    start.onFirstCall().returns(new Promise((_, reject) => { failFirst = reject; }));
+    start.onSecondCall().resolves(second);
+    void getBrowserServer().catch(() => undefined);
+    const stopping = stopBrowserServer();
+    assert.strictEqual(await getBrowserServer(), second);
+    failFirst(new Error('EADDRINUSE'));
+    await stopping;
+    assert.strictEqual(browserServerStarted(), true, 'the first start must not clear the second');
+    await stopBrowserServer();
+    assert.ok((second.dispose as sinon.SinonSpy).calledOnce, 'still ours to stop');
+  });
+
+  test('a failed start is not cached', async () => {
+    const start = sandbox.stub(BrowserServer, 'start');
+    start.onFirstCall().rejects(new Error('EACCES'));
+    await assert.rejects(getBrowserServer(), /EACCES/);
+    assert.strictEqual(browserServerStarted(), false);
+  });
+
   test('the server renders real stage pages through browserHtml', async () => {
     const server = await getBrowserServer();
     assert.ok(server);
@@ -124,6 +147,29 @@ suite('browserView: lifetime and Open in browser', () => {
     const server = await getBrowserServer();
     assert.ok(server?.hasView('view-7'));
     assert.strictEqual(server?.hasView(MAIN_VIEW), false);
+  });
+
+  test('REGRESSION: behind port forwarding the tab may POST from the origin asExternalUri gave', async () => {
+    const provider = fakeProvider();
+    const received: unknown[] = [];
+    provider.receiveFromView = (_id: string, m: unknown) => { received.push(m); };
+    const forwarded = 'https://abc-1234.app.github.dev';
+    sandbox.stub(vscode.env, 'asExternalUri').callsFake(async (uri: vscode.Uri) => vscode.Uri.parse(`${forwarded}/?${uri.query}`));
+    sandbox.stub(vscode.env, 'openExternal').resolves(true);
+    sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
+    await openInBrowser(provider);
+    const server = await getBrowserServer();
+    const token = new URL((server as BrowserServer).url('/')).searchParams.get('token');
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1', port: (server as BrowserServer).port, method: 'POST', path: `/msg?token=${token}&view=main&client=c1`,
+        headers: { host: `localhost:${(server as BrowserServer).port}`, origin: forwarded, 'sec-fetch-site': 'same-origin' },
+      }, (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+      req.on('error', reject);
+      req.end(JSON.stringify({ type: 'navigate' }));
+    });
+    assert.strictEqual(status, 204);
+    assert.deepStrictEqual(received, [{ type: 'navigate' }]);
   });
 
   test('Open in browser when the browser refuses: the toast says so and still offers Copy URL', async () => {

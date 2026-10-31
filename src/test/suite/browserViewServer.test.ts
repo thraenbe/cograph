@@ -6,8 +6,11 @@ import * as path from 'path';
 import { BrowserServer, MAIN_VIEW, viewPath, type MirroredView, type PageRequest } from '../../browserView/browserServer';
 import { ViewHub, type ClientSink } from '../../browserView/viewHub';
 import { compilePattern, matchPattern } from '../../browserView/routes';
-import { hostAllowed, postOriginAllowed, MAX_BODY_BYTES } from '../../browserView/serverIo';
+import { hostAllowed, postOriginAllowed, sendFile, MAX_BODY_BYTES } from '../../browserView/serverIo';
 import { pathOutsideRoot, isUserMessage } from '../../browserView/messageGuard';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const rawFs = require('fs');
 
 // Real sockets on 127.0.0.1; vscode-free, so this suite also runs under plain mocha (coverage).
 
@@ -141,6 +144,32 @@ suite('browserView: BrowserServer', () => {
     assert.deepStrictEqual(view.received, [{ clientId: 'c', message: { type: 'navigate', file: '/x', line: 1 } }]);
   });
 
+  test('REGRESSION: a tab on a forwarded origin passes the gate, on that origin only, with either Host the proxy sends', async () => {
+    const forwarded = 'https://abc-1234.app.github.dev';
+    const post = (host: string, origin: string, token = TOKEN) => request(server.port, {
+      method: 'POST', path: `/msg?token=${token}&view=main&client=c1`, headers: { host, origin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'navigate', file: 'x' }),
+    });
+    const loopback = `localhost:${server.port}`;
+    assert.strictEqual((await post(loopback, forwarded)).status, 403, 'unknown until asExternalUri named it');
+    assert.strictEqual((await post('abc-1234.app.github.dev', forwarded)).status, 403);
+
+    server.allowForwarded(`${forwarded}/?token=${TOKEN}`);
+
+    assert.strictEqual((await post(loopback, forwarded)).status, 204, 'a proxy that rewrites the Host to the loopback');
+    assert.strictEqual((await post('abc-1234.app.github.dev', forwarded)).status, 204, 'a proxy that passes the public Host on');
+    assert.strictEqual((await request(server.port, { path: q('/'), headers: { host: 'abc-1234.app.github.dev' } })).status, 200, 'the page itself');
+    assert.strictEqual((await post(loopback, 'https://evil-1234.app.github.dev')).status, 403, 'another origin stays out');
+    assert.strictEqual((await post('evil-1234.app.github.dev', forwarded)).status, 403, 'another Host stays out');
+    assert.strictEqual((await post(loopback, forwarded, 'b'.repeat(64))).status, 401, 'the token still decides');
+    assert.strictEqual(view.received.length, 2);
+  });
+
+  test('allowForwarded ignores anything but http and https', async () => {
+    server.allowForwarded('vscode-remote://ssh-remote+x/y');
+    assert.strictEqual((await request(server.port, { path: q('/'), headers: { host: 'ssh-remote+x' } })).status, 403);
+  });
+
   test('static allow-list: the two webview roots, files only, nothing else', async () => {
     const s = await request(server.port, { path: q('/ext/src/webview/state.js') });
     assert.deepStrictEqual([s.status, s.body, s.headers['content-type']], [200, 'const state = {};', 'text/javascript; charset=utf-8']);
@@ -159,6 +188,40 @@ suite('browserView: BrowserServer', () => {
     let linked = false;
     try { fs.symlinkSync(path.join(extRoot, 'secret.txt'), path.join(extRoot, 'src', 'webview', 'link.js')); linked = true; } catch { /* no symlinks here (Windows without rights) */ }
     if (linked) { assert.strictEqual((await request(server.port, { path: q('/ext/src/webview/link.js') })).status, 404); }
+  });
+
+  test('REGRESSION: a tab that goes away mid-file closes the file, and that is no error', async () => {
+    fs.writeFileSync(path.join(extRoot, 'src', 'webview', 'big.js'), Buffer.alloc(32 * 1024 * 1024, 'x'));
+    const opened: fs.ReadStream[] = [];
+    const real = rawFs.createReadStream;
+    rawFs.createReadStream = (...args: unknown[]) => { const s = real(...args); opened.push(s); return s; };
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const req = http.get({ host: '127.0.0.1', port: server.port, path: q('/ext/src/webview/big.js') }, (res) => {
+          res.once('data', () => { req.destroy(); resolve(); });
+        });
+        req.on('error', () => undefined); // our own destroy
+        setTimeout(() => reject(new Error('no first chunk')), 3000).unref();
+      });
+      for (let i = 0; i < 100 && !opened[0]?.destroyed; i++) { await new Promise(r => setTimeout(r, 10)); }
+      assert.strictEqual(opened.length, 1);
+      assert.strictEqual(opened[0].destroyed, true, 'the file stream must not outlive the response');
+      assert.ok(!logs.some(l => l.includes('read /ext')), logs.join('|'));
+    } finally {
+      rawFs.createReadStream = real;
+    }
+  });
+
+  test('a read that fails after the headers ends the response and reaches the caller', async () => {
+    const errors: string[] = [];
+    const host = http.createServer((_req, res) => sendFile(res, path.join(extRoot, 'no-such-file'), (e) => errors.push((e as NodeJS.ErrnoException).code ?? '')));
+    await new Promise<void>(r => host.listen(0, '127.0.0.1', () => r()));
+    try {
+      await assert.rejects(request((host.address() as { port: number }).port, { path: '/' }));
+      assert.deepStrictEqual(errors, ['ENOENT']);
+    } finally {
+      host.close();
+    }
   });
 
   test('serveStatic adds a root with the same rules', async () => {
@@ -323,6 +386,24 @@ suite('browserView: BrowserServer', () => {
     for (const l of logs) { assert.ok(!l.includes(TOKEN), l); }
   });
 
+  test('REGRESSION: after dispose a kept-alive socket gets no answer, also where Node has no closeAllConnections', async () => {
+    const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+    const viaAgent = () => new Promise<number>((resolve, reject) => {
+      http.get({ agent, host: '127.0.0.1', port: server.port, path: q('/') }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode ?? 0)); }).on('error', reject);
+    });
+    try {
+      assert.strictEqual(await viaAgent(), 200);
+      // Node 16 as VS Code 1.75 ships it: close() leaves an idle socket alone.
+      const raw = (server as unknown as { server: { closeAllConnections?: unknown; closeIdleConnections?: unknown } }).server;
+      raw.closeAllConnections = undefined;
+      raw.closeIdleConnections = () => undefined;
+      server.dispose();
+      await assert.rejects(viaAgent());
+    } finally {
+      agent.destroy();
+    }
+  });
+
   test('dispose stops listening; a fresh start gets a fresh random token', async () => {
     const port = server.port;
     server.dispose();
@@ -348,6 +429,15 @@ suite('browserView: request guards', () => {
     assert.ok(!postOriginAllowed({ host: '127.0.0.1:5', origin: 'http://127.0.0.1:6' }));
     assert.ok(!postOriginAllowed({ host: '127.0.0.1:5', origin: 'null' }));
     assert.ok(!postOriginAllowed({ host: '127.0.0.1:5', 'sec-fetch-site': 'same-site' }));
+  });
+
+  test('the forwarded host and origin are exact, case-insensitive for the host only', () => {
+    assert.strictEqual(hostAllowed('abc.app.github.dev', new Set(['abc.app.github.dev'])), true);
+    assert.strictEqual(hostAllowed('ABC.app.github.dev', new Set(['abc.app.github.dev'])), true);
+    assert.strictEqual(hostAllowed('x.abc.app.github.dev', new Set(['abc.app.github.dev'])), false);
+    assert.strictEqual(postOriginAllowed({ host: 'localhost:9', origin: 'https://a.dev' }, new Set(['https://a.dev'])), true);
+    assert.strictEqual(postOriginAllowed({ host: 'localhost:9', origin: 'http://a.dev' }, new Set(['https://a.dev'])), false);
+    assert.strictEqual(postOriginAllowed({ host: 'localhost:9', origin: 'https://a.dev', 'sec-fetch-site': 'cross-site' }, new Set(['https://a.dev'])), false, 'fetch metadata still refuses');
   });
 
   test('route patterns: params never span a slash, specials are literal, bad escapes do not match', () => {
@@ -378,6 +468,20 @@ suite('browserView: message guard', () => {
     assert.strictEqual(pathOutsideRoot({ type: 'parse-file', filePath: path.resolve('/work/repo-evil/x.ts') }, root), path.resolve('/work/repo-evil/x.ts'), 'a sibling with the same prefix is outside');
     assert.strictEqual(pathOutsideRoot({ type: 'expand-folder', folderPath: at('src'), files: [at('src', 'a.ts'), outside] }, root), outside);
     assert.strictEqual(pathOutsideRoot({ type: 'request-rename-folder', folderPath: path.resolve('/work') }, root), path.resolve('/work'));
+  });
+
+  test('a relative path is refused in every field: fs would resolve it against the host, not the root', () => {
+    assert.strictEqual(pathOutsideRoot({ type: 'get-func-source', file: 'src/a.ts' }, root), 'src/a.ts');
+    assert.strictEqual(pathOutsideRoot({ type: 'save-func-source', file: '.ssh/id_rsa' }, root), '.ssh/id_rsa');
+    assert.strictEqual(pathOutsideRoot({ type: 'parse-file', filePath: 'a.ts' }, root), 'a.ts');
+    assert.strictEqual(pathOutsideRoot({ type: 'request-new-file', folderPath: 'src' }, root), 'src');
+    assert.strictEqual(pathOutsideRoot({ type: 'expand-folder', folderPath: at('src'), files: [at('src', 'a.ts'), 'b.ts'] }, root), 'b.ts');
+  });
+
+  test('a path field that is not a string is refused: fs opens a URL-shaped object', () => {
+    const url = { href: 'x', protocol: 'file:', pathname: '/etc/passwd', hostname: '' };
+    assert.notStrictEqual(pathOutsideRoot({ type: 'get-func-source', file: url }, root), null);
+    assert.notStrictEqual(pathOutsideRoot({ type: 'expand-folder', folderPath: at('src'), files: [url] }, root), null);
   });
 
   test('no root: nothing to confine to', () => {

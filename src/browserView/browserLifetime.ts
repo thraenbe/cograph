@@ -27,13 +27,14 @@ export function getBrowserServer(): Promise<BrowserServer | null> {
   const cfg = config;
   if (!cfg) { return Promise.reject(new Error('the browser view is not configured (extension not activated)')); }
   if (!serverPromise) {
-    serverPromise = BrowserServer.start({
+    const starting = BrowserServer.start({
       extensionRoot: cfg.extensionRoot,
       log: cfg.log,
       renderPage: (page) => renderBrowserPage(page, cfg.extensionRoot),
     });
-    // A failed start is not cached: the next click tries again.
-    serverPromise.catch(() => { serverPromise = undefined; });
+    serverPromise = starting;
+    // A failed start is not cached: the next click tries again. One stopped meanwhile may have a successor.
+    starting.catch(() => { if (serverPromise === starting) { serverPromise = undefined; } });
   }
   return serverPromise;
 }

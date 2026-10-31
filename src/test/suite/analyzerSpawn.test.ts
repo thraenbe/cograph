@@ -1,10 +1,18 @@
 import * as assert from 'assert';
+import * as cp from 'child_process';
+import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as sinon from 'sinon';
 import { ANALYZER_SCRIPTS, spawnAnalyzer, spawnAnalyzers } from '../../analyzerSpawn';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const rawCp = require('child_process');
+
 const SCRIPTS = path.join(__dirname, '..', '..', '..', 'scripts');
+/** The production resolver's order: python3, then python (Windows often has only that). */
+const PYTHON = cp.spawnSync('python3', ['--version']).status === 0 ? 'python3' : 'python';
 
 function tempProject(files: Record<string, string>): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-spawn-'));
@@ -23,7 +31,7 @@ suite('analyzerSpawn', () => {
       'py/tool.py': 'def run():\n    step()\n\ndef step():\n    pass\n',
     });
     try {
-      const { graph, statuses } = await spawnAnalyzers(dir, { scriptsDir: SCRIPTS, pythonBin: 'python3' });
+      const { graph, statuses } = await spawnAnalyzers(dir, { scriptsDir: SCRIPTS, pythonBin: PYTHON });
       assert.deepStrictEqual(statuses.map(s => s.lang), ANALYZER_SCRIPTS.map(s => s.lang));
       const names = graph.nodes.filter(n => !n.isLibrary).map(n => n.name).sort();
       for (const name of ['helper', 'main', 'run', 'step']) { assert.ok(names.includes(name), `${name} in ${names.join(',')}`); }
@@ -47,7 +55,7 @@ suite('analyzerSpawn', () => {
       'web/Chip.svelte': '<script>\nexport function chipSetup() { return 1; }\n</script>\n',
     });
     try {
-      const { graph } = await spawnAnalyzers(dir, { scriptsDir: SCRIPTS, pythonBin: 'python3' });
+      const { graph } = await spawnAnalyzers(dir, { scriptsDir: SCRIPTS, pythonBin: PYTHON });
       const byName = new Map(graph.nodes.filter(n => !n.isLibrary).map(n => [n.name, n]));
       assert.strictEqual(byName.get('run')?.language, 'c');
       assert.strictEqual(byName.get('cardSetup')?.language, 'typescript');
@@ -67,6 +75,48 @@ suite('analyzerSpawn', () => {
       assert.ok(graph.nodes.some(n => n.name === 'f'));
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('REGRESSION: a signal aborted before the call starts nothing and throws at once', async () => {
+    const scripts = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-scripts-'));
+    const ran = path.join(scripts, 'ran');
+    for (const { script } of ANALYZER_SCRIPTS) { fs.writeFileSync(path.join(scripts, script), `require('fs').writeFileSync(${JSON.stringify(ran)}, 'x');\n`); }
+    const dir = tempProject({ 'a.ts': 'export function f() {}\n' });
+    try {
+      await assert.rejects(spawnAnalyzers(dir, { scriptsDir: scripts, pythonBin: null, signal: AbortSignal.abort() }), /Cancelled\./);
+      assert.strictEqual(fs.existsSync(ran), false, 'no analyzer may have run');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(scripts, { recursive: true, force: true });
+    }
+  });
+
+  test('REGRESSION: a character split across two pipe chunks survives, in stdout and in the stderr of a failure', async () => {
+    const sandbox = sinon.createSandbox();
+    const fakeProc = () => Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: () => true });
+    try {
+      const spawn = sandbox.stub(rawCp, 'spawn');
+      const ok = fakeProc();
+      spawn.returns(ok);
+      const good = spawnAnalyzer('node', [], 'x', { log: () => undefined });
+      const json = Buffer.from(JSON.stringify({ nodes: [{ name: 'prüfe€' }], edges: [], files: [] }));
+      const cut = json.indexOf(Buffer.from('€')) + 1; // inside the three bytes of the euro sign
+      ok.stdout.emit('data', json.subarray(0, cut));
+      ok.stdout.emit('data', json.subarray(cut));
+      ok.emit('close', 0);
+      assert.strictEqual((await good).graph.nodes[0].name, 'prüfe€');
+
+      const bad = fakeProc();
+      spawn.returns(bad);
+      const failed = spawnAnalyzer('node', [], 'x', { log: () => undefined });
+      const text = Buffer.from('Fehler: prüfe€');
+      bad.stderr.emit('data', text.subarray(0, text.length - 1));
+      bad.stderr.emit('data', text.subarray(text.length - 1));
+      bad.emit('close', 1);
+      assert.ok((await failed).detail?.endsWith('Fehler: prüfe€'));
+    } finally {
+      sandbox.restore();
     }
   });
 

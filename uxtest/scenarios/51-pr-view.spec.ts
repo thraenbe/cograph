@@ -30,7 +30,7 @@ scenario('pr-view', { perMotion: false, expandFirst: false, scope: (r) => prFixt
     const missing = pr.expand.filter(d => !open.includes(d));
     const extra = open.filter(d => !pr.expand.includes(d));
     if (missing.length) { throw new StepFinding({ rule: 'pr-folders-not-open', severity: 'high', ref: 'vcs 1.4.0', message: `PR folders left closed: ${missing.join(', ')}` }); }
-    if (extra.length) { throw new StepFinding({ rule: 'pr-extra-folders-open', severity: 'low', ref: 'vcs 1.4.0', message: `folders open beyond the PR's: ${extra.join(', ')}` }); }
+    if (extra.length) { throw new StepFinding({ rule: 'pr-extra-folders-open', severity: 'high', ref: 'vcs 1.4.0', message: `folders open beyond the PR's: ${extra.join(', ')}` }); }
   });
 
   await ux.step("Colours: git on, language off, the PR's statuses in state", async () => {

@@ -11,8 +11,8 @@ import { prDocumentUri } from '../vcs/prDocuments';
 import type { VcsSidebar } from '../vcs/vcsSidebar';
 import type { PullRequest } from '../vcs/types';
 import type { TourTarget } from './tourApi';
-import { TourAvailability } from './tourAvailability';
-import { TourRunner } from './tourCommand';
+import { TourAvailability, pillTarget } from './tourAvailability';
+import { NO_FOLDER_SENTENCE, NO_STORAGE_SENTENCE, TourRunner } from './tourCommand';
 import { createTourHostApi } from './tourHostApi';
 import type { TourHostDeps } from './tourHostApi';
 import { loadTourHost, resolveTourPackage } from './tourModule';
@@ -69,7 +69,14 @@ function hostDeps(d: TourWiringDeps, repoRoot: string): TourHostDeps {
   };
 }
 
-/** The tour package's host, created once per extension host; null in the public build or without storage. */
+/** A build with the package that cannot tour here: its own reason, not the public build's sentence. */
+function blockedBy(d: TourWiringDeps): string | null {
+  if (!resolveTourPackage(d.context.extensionPath)) { return null; }
+  if (!workspaceRoot()) { return NO_FOLDER_SENTENCE; }
+  return d.storageDir ? null : NO_STORAGE_SENTENCE;
+}
+
+/** The tour package's host, created once per extension host; null in the public build. */
 function tourLoader(d: TourWiringDeps): () => Promise<LoadedTour | null> {
   let loaded: Promise<LoadedTour | null> | undefined;
   return () => {
@@ -86,6 +93,7 @@ function tourLoader(d: TourWiringDeps): () => Promise<LoadedTour | null> {
 
 function runner(d: TourWiringDeps, loadTour: () => Promise<LoadedTour | null>): TourRunner {
   return new TourRunner({
+    blocked: () => blockedBy(d),
     loadTour,
     getServer: () => getBrowserServer(),
     openUrl: (server, urlPath) => openExternalUrl(server as BrowserServer, urlPath),
@@ -140,7 +148,7 @@ export function registerTour(d: TourWiringDeps): TourEntry {
     const prs = listed.length ? listed : await d.prController.list({ state: 'open', limit: 50 }).then(r => (r.ok ? r.pullRequests : []));
     type Item = vscode.QuickPickItem & { target: TourTarget };
     const items: Item[] = [
-      { label: '$(git-branch) Your branch vs base', description: branch.state === 'branch' ? branch.label : undefined, target: { kind: 'branch' } },
+      { label: '$(git-branch) Your branch vs base', description: branch.state === 'branch' ? branch.label : undefined, target: branch.state === 'branch' ? pillTarget(branch) : { kind: 'branch' } },
       ...prs.map((p): Item => ({ label: `#${p.number} ${p.title}`, description: `${p.headRef} → ${p.baseRef}`, target: { kind: 'pr', number: p.number } })),
     ];
     const chosen = await vscode.window.showQuickPick(items, { placeHolder: 'Which change should the tour walk through?' });
@@ -149,11 +157,13 @@ export function registerTour(d: TourWiringDeps): TourEntry {
   const watching = watchAvailability(d, availability);
   const disposables = [
     vscode.commands.registerCommand('cograph.tourPullRequest', () => pick()),
-    vscode.commands.registerCommand('cograph.tourBranch', () => run({ kind: 'branch' })),
+    vscode.commands.registerCommand('cograph.tourBranch', () => {
+      const a = availability.current();
+      return run(a.state === 'branch' ? pillTarget(a) : { kind: 'branch' });
+    }),
     d.provider.onTourStart((target) => {
       if (target) { void run(target); return; } // a pull-request banner in this panel
-      const a = availability.current();
-      void run(a.state === 'pr' && a.number ? { kind: 'pr', number: a.number } : { kind: 'branch' });
+      void run(pillTarget(availability.current()));
     }),
     ...watching.disposables,
   ];

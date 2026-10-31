@@ -103,7 +103,7 @@ The tab mirrors the panel: it shows the same graph, the same scope and the same 
 
 **How it works, and what it does not do:**
 - The extension serves the graph on `127.0.0.1` only, on a random port, with a new random token every time VS Code starts. A request without the token, from another host name, or a cross-site POST is refused. The token is in the URL and therefore in your browser history, but never in a log or a notification. Pages load nothing from the internet.
-- The panel stays the source of truth. Closing the panel or VS Code disconnects the tab, and the tab says so. Opening the graph again gives a new address.
+- The panel stays the source of truth. Closing the panel or VS Code disconnects the tab, and the tab says so. Open the panel again and the same address works again, until VS Code restarts or the feature is switched off. A pull-request panel gets a new address each time it opens.
 - Colours follow VS Code's theme kind (Dark+ or Light+), not the exact colours of a custom theme.
 - In Remote-SSH and Codespaces, VS Code forwards the port for you.
 - An administrator can switch the feature off with `cograph.browserView.enabled: false`.

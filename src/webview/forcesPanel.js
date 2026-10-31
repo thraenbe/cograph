@@ -21,9 +21,14 @@ const FP_CLUSTER_LABEL = { shelf: 'Keep near file', global: 'File Cluster Force'
 
 const FP_ALL = [...new Set([].concat(FP_BASIC.global, FP_ADVANCED.shelf, FP_ADVANCED.global))];
 
+// The static viewer runs the stage as one file, where main.js calls this function, hoisted, before the
+// tables above exist. As a separate tag it would not be defined yet and main.js's guard would skip it, so
+// it skips here: `var` reads undefined until this line, and the call at the end of this file syncs the box.
+var fpTablesReady = true;
+
 /** Sync the Forces box to the current engine × motion. Safe to call anytime. */
 function updateForcesPanel(engine, mode) {
-  if (typeof document === 'undefined') { return; }
+  if (typeof document === 'undefined' || !fpTablesReady) { return; }
   engine = engine || (typeof state !== 'undefined' && state.layoutEngine) || 'global';
   mode = mode || (typeof state !== 'undefined' && state.layoutMode) || 'dynamic';
   const isStatic = mode === 'static';

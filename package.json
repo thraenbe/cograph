@@ -400,6 +400,7 @@
     "watch": "tsc -watch -p ./",
     "bundle": "node esbuild.js",
     "bundle:watch": "node esbuild.js --watch",
+    "build:stage": "node scripts/build-stage.js",
     "pretest": "npm run compile && npm run bundle",
     "test": "node ./out/test/runTest.js",
     "lint": "eslint src --ext ts",

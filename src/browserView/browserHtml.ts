@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { getWebviewHtml } from '../webviewHtmlBuilder';
+import { themeStyle, ThemeKind } from '../stagePage';
 import type { PageRequest } from './browserServer';
 
 /**
@@ -12,51 +13,13 @@ import type { PageRequest } from './browserServer';
  * private tour layer after it (docs/tour-protocol.md section 4).
  */
 
-export type ThemeKind = 'dark' | 'light';
-
-// Dark+ / Light+ values of the variables CoGraph's styles read. Copied from
-// uxtest/lib/theme.ts (the lab must not import from src/, and src/ must not import the
-// lab); keep the two in step until the lab can render through this module.
-const DARK: Record<string, string> = {
-  'font-family': 'system-ui, "Segoe UI", sans-serif',
-  'editor-font-family': '"Droid Sans Mono", monospace',
-  'foreground': '#cccccc', 'descriptionForeground': '#9d9d9d', 'errorForeground': '#f85149',
-  'editor-background': '#1f1f1f', 'editor-foreground': '#cccccc',
-  'editorLineNumber-foreground': '#6e7681', 'editorCursor-foreground': '#aeafad',
-  'sideBar-background': '#181818', 'widget-border': '#313131', 'focusBorder': '#0078d4',
-  'button-background': '#0078d4', 'button-foreground': '#ffffff', 'button-hoverBackground': '#026ec1',
-  'button-secondaryBackground': '#313131',
-  'input-background': '#313131', 'input-foreground': '#cccccc', 'input-border': '#3c3c3c',
-  'list-hoverBackground': '#2a2d2e', 'toolbar-hoverBackground': 'rgba(90,93,94,0.31)',
-  'menu-background': '#1f1f1f', 'menu-foreground': '#cccccc', 'menu-border': '#454545',
-  'menu-selectionBackground': '#0078d4', 'menu-selectionForeground': '#ffffff',
-  'textLink-foreground': '#4daafc', 'notificationCenterHeader-background': '#1f1f1f',
-};
-
-const LIGHT: Record<string, string> = {
-  ...DARK,
-  'foreground': '#3b3b3b', 'descriptionForeground': '#3b3b3b', 'errorForeground': '#f85149',
-  'editor-background': '#ffffff', 'editor-foreground': '#3b3b3b',
-  'editorLineNumber-foreground': '#6e7681', 'editorCursor-foreground': '#005fb8',
-  'sideBar-background': '#f8f8f8', 'widget-border': '#e5e5e5', 'focusBorder': '#005fb8',
-  'button-background': '#005fb8', 'button-hoverBackground': '#0258a8', 'button-secondaryBackground': '#e5e5e5',
-  'input-background': '#ffffff', 'input-foreground': '#3b3b3b', 'input-border': '#cecece',
-  'list-hoverBackground': '#f2f2f2', 'toolbar-hoverBackground': 'rgba(184,184,184,0.31)',
-  'menu-background': '#ffffff', 'menu-foreground': '#3b3b3b', 'menu-border': '#cecece',
-  'menu-selectionBackground': '#005fb8', 'textLink-foreground': '#005fb8',
-  'notificationCenterHeader-background': '#ffffff',
-};
+export { themeStyle };
+export type { ThemeKind };
 
 /** Light for Light and High Contrast Light, dark otherwise: exact theme colours are not available to extensions. */
 export function activeThemeKind(): ThemeKind {
   const kind = vscode.window.activeColorTheme?.kind;
   return kind === vscode.ColorThemeKind.Light || kind === 4 /* HighContrastLight, 1.68+ */ ? 'light' : 'dark';
-}
-
-export function themeStyle(kind: ThemeKind): string {
-  const vars = kind === 'light' ? LIGHT : DARK;
-  const decl = Object.entries(vars).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
-  return `<style>:root { ${decl} } html, body { margin: 0; height: 100%; background: var(--vscode-editor-background); }</style>`;
 }
 
 /** JSON for an inline <script>: `<` escaped, so no value (a path, a title) can close the tag. */

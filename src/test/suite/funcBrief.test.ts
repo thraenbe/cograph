@@ -183,6 +183,11 @@ suite('funcBrief on a hostile line', () => {
     assert.strictEqual(ok(quickly(() => funcSlice(src, { startLine: 1, maxLines: 8, file: 'a.py' }))).signature, 'def f(a)');
   });
 
+  test('a signature of : that a lone carriage return ends', () => {
+    const src = `def f(a)${':'.repeat(SIZE)}\rx\n    return a\n`;
+    assert.ok(ok(quickly(() => funcSlice(src, { startLine: 1, maxLines: 8, file: 'a.py' }))).signature.startsWith('def f(a)'));
+  });
+
   test('an arrow line of / that a lone carriage return ends', () => {
     const src = `const f = (x) => x + 1 ${'/'.repeat(SIZE)}\rz\nconst g = 1;\n`;
     assert.strictEqual(ok(quickly(() => funcSlice(src, { startLine: 1, maxLines: 8, file: 'a.ts' }))).endLine, 1);

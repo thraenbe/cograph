@@ -70,6 +70,17 @@ suite('ci tool environment', () => {
       assert.strictEqual(resolveGit({}), null);
     });
 
+    test('REGRESSION: a relative PATH entry is not searched, also when it would hold a git here', () => {
+      plantGit(dir, path.join(dir, 'ran'));
+      const cwd = process.cwd();
+      process.chdir(dir);
+      try {
+        assert.strictEqual(resolveGit({ PATH: `.${path.delimiter}${realGitDir()}` }), path.join(realGitDir(), 'git'));
+      } finally {
+        process.chdir(cwd);
+      }
+    });
+
     test('no git on PATH reads as a missing git, and runs nothing', async () => {
       const mark = path.join(dir, 'ran');
       plantGit(dir, mark);

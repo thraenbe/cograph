@@ -103,14 +103,15 @@ suite('analyzers: one poison file (F7)', () => {
 
   test('TypeScript and JavaScript: a file that cannot be read or walked is counted, the others stay', function () {
     this.timeout(30_000);
-    const deep = `export const x = ${'('.repeat(100_000)}1${')'.repeat(100_000)};\n`;
-    const dir = project({ 'a.ts': 'export function kept() {}\n', 'deep.ts': deep, 'a.js': 'function kept() {}\n', 'deep.js': deep });
+    const deep = `export const x = ${'('.repeat(100_000)}1${')'.repeat(100_000)};\n`; // the parser runs out of stack
+    const long = `export const x = ${'1+'.repeat(100_000)}1;\n`; // it parses, and the walk over it runs out of stack
+    const dir = project({ 'a.ts': 'export function kept() {}\n', 'deep.ts': deep, 'long.ts': long, 'a.js': 'function kept() {}\n', 'deep.js': deep, 'long.js': long });
     try {
       for (const [script, ext] of [['analyze_ts.js', 'ts'], ['analyze_js.js', 'js']]) {
-        const r = runListed(script, dir, [path.join(dir, `a.${ext}`), path.join(dir, `deep.${ext}`), path.join(dir, `gone.${ext}`)]);
+        const r = runListed(script, dir, [path.join(dir, `a.${ext}`), path.join(dir, `deep.${ext}`), path.join(dir, `long.${ext}`), path.join(dir, `gone.${ext}`)]);
         assert.strictEqual(r.status, 0);
         assert.ok(r.graph.nodes.some(n => n.name === 'kept'), script);
-        assert.strictEqual(r.graph.stats?.filesNotParsed, 2, script);
+        assert.strictEqual(r.graph.stats?.filesNotParsed, 3, script);
       }
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });

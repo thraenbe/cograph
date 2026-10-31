@@ -224,7 +224,9 @@ suite('ci fetch: ensureCommits on real remotes', function () {
 
   test('a cancel stops at once and is not mistaken for a failure', async () => {
     const repo = mergeCheckout(root, origin, head, tip);
-    await assert.rejects(run(repo, { signal: AbortSignal.abort() }).done, (e: HeadTreeError) => e.kind === 'cancelled');
+    const { done, rec } = run(repo, { signal: AbortSignal.abort() });
+    await assert.rejects(done, (e: HeadTreeError) => e.kind === 'cancelled');
+    assert.strictEqual(rec.calls.length, 0, 'nothing starts after a cancel');
   });
 
   suite('a blobless clone', () => {

@@ -80,6 +80,12 @@ suite('ci stage data', function () {
     assert.deepStrictEqual(stage.statuses.hunks.map(([p]) => p), [`${STAGE_ROOT}/src/app.py`]);
   });
 
+  test('a path beside the head copy that only starts like it is not under it', () => {
+    const beside = `${prepared.headDir}-other/a.py`;
+    const moved = stageData({ ...prepared, statuses: { files: [[beside, { unstaged: 'added', staged: null }]], hunks: [] } }, run.trees(), run.target);
+    assert.deepStrictEqual(moved.statuses.files.map(([p]) => p), [beside]);
+  });
+
   test('text that quotes the path is the repository\'s, and stays: the paths move, the text does not', () => {
     const quoted = (stage.script as any).chapters[0].steps[0].card.hunk[0];
     assert.strictEqual(quoted, `path = "${prepared.headDir}/kept"`);

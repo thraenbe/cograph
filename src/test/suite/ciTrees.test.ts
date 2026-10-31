@@ -189,6 +189,16 @@ suite('ci trees: prepareCiTrees through the headless api', function () {
       assert.match((trees.analysisNotes as string[])[0], /produced more output than a tour can take/);
     });
 
+    test('REGRESSION (F3): the default cap holds at 200 MiB, far under the 500 of the extension', async function () {
+      if (process.env.VSCODE_PID) { this.skip(); } // 200 MB through the extension host's event loop is this test's cost, not its subject
+      const body = `if (lang !== 'analyze.py') { report([]); return; }
+        const block = 'x'.repeat(1024 * 1024); let n = 0;
+        const go = () => { while (n < 201) { n++; if (!process.stdout.write(block)) { process.stdout.once('drain', go); return; } } };
+        go();`;
+      const trees = await prepare(clone(root, origin), { scriptsDir: fakeScripts(root, body), pythonBin: process.execPath });
+      assert.match((trees.analysisNotes as string[])[0], /produced more output than a tour can take/);
+    });
+
     test('what an analyzer printed stays out of the notes and the log: a traceback quotes source', async () => {
       const logged: string[] = [];
       const body = 'process.stderr.write("password = hunter2"); process.exit(1);';

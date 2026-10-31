@@ -36,6 +36,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The analyzer subprocesses can be run without VS Code (`src/analyzerSpawn.ts`); the extension's
   analysis is unchanged.
+### Security
+- **Pull request copies hold regular files only.** The copy CoGraph makes of a pull request's
+  head and base wrote a committed symlink to disk as a symlink, and a pull request picks the
+  link's target, so it could point at a file outside the copy. Symlinks and submodule entries
+  are no longer copied. This is hardening: there is no known exploit in shipped code. The file
+  list handed to the analyzers already left links out, and the only reader that followed one
+  was the Python analyzer's fallback walk, which runs when that list cannot be written.
+- **Pull request copies run no filters.** The copy was made with `git checkout-index`, which
+  applies the commit's own `.gitattributes`. Where git-lfs is set up (`filter.lfs.*` in git
+  config, which `git lfs install` and some packages do), a pull request from anyone, forks
+  included, could mark a source file as LFS content and name a server in `.lfsconfig`. Opening
+  that pull request in CoGraph then made git-lfs call the server and wrote its bytes into the
+  copy, so the graph and the structural diff showed code that is in no commit. No credentials
+  were sent, but the request showed the machine's address, could reach hosts only that machine
+  can reach, and could fail the copy. Any other filter in your git config could be selected the
+  same way. The copy now reads each blob from git's object store and writes it itself, so
+  attributes, filters and line-ending rules do not apply. Line numbers match a checkout, but a
+  source file kept in LFS now appears as its pointer text, and files are no longer executable
+  in the copy. Copies made by earlier versions are made again.
+- **A file name cannot make an analyzer read outside the project.** A name holding a line break
+  became two lines of the analyzers' file list, and the second line could be any path. This
+  needs a commit with such a name and an attacker who knows the target's path, and it reads
+  source files only: their function, import and call names and their absolute path entered the
+  graph, not their bodies. It was reachable from pull request copies and from a local checkout
+  of such a branch; whether Git hosts accept such a name on push is not known. Such names now
+  stay out of the list and out of the copy, and every analyzer refuses a listed path outside
+  its root. A file of another workspace folder is therefore no longer added to this graph on save.
+- **A remote's name is no longer read as an option.** A remote named like `--upload-pack=...`
+  ran that command on `git fetch` when a pull request was opened. Only your own `.git/config`
+  can define one, so this is hardening.
 
 ## [1.4.2] - 2026-10-27
 

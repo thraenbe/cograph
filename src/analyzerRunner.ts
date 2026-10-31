@@ -169,11 +169,16 @@ export class AnalyzerRunner {
     }
   }
 
-  /** Write a newline-separated file list for `--files`; null (logged) when it cannot be written. */
+  /**
+   * Write a newline-separated file list for `--files`; null (logged) when it cannot be written.
+   * A name holding a line break stays out: it would be two lines, and the second a path the name picks.
+   */
   private writeFileList(kind: 'full' | 'subset', files: string[]): string | null {
     try {
+      const listed = files.filter(f => !/[\r\n]/.test(f));
+      if (listed.length < files.length) { this.log(`${files.length - listed.length} files with a line break in their name left out of the ${kind} analysis`); }
       const listPath = path.join(os.tmpdir(), `cograph-${kind}-${process.pid}-${this.fileListSeq++}.txt`);
-      fs.writeFileSync(listPath, files.join('\n'), 'utf8');
+      fs.writeFileSync(listPath, listed.join('\n'), 'utf8');
       return listPath;
     } catch (err: unknown) {
       this.log(`Could not write the ${kind} file list: ${(err as Error).message}`);

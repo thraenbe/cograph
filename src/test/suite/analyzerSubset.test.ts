@@ -90,6 +90,24 @@ suite('AnalyzerRunner.runSubset', () => {
     assert.ok(spawn.notCalled, 'no analyzer spawned for an empty subset');
   });
 
+  test('a file name with a line break stays out of the list: it would be two lines, the second of its own choosing', async function () {
+    this.timeout(5000);
+    sandbox.stub(vscode.extensions, 'getExtension').returns(undefined as any);
+    sandbox.stub(vscode.workspace, 'getConfiguration').returns({ get: () => undefined } as any);
+    sandbox.stub(vscode.workspace, 'workspaceFolders').value(undefined);
+    sandbox.stub(rawCp, 'execFileSync').returns(Buffer.from('Python 3.11.0'));
+    const lists: string[] = [];
+    sandbox.stub(rawCp, 'spawn').callsFake((_bin: any, args: any) => {
+      lists.push(fs.readFileSync((args as string[])[(args as string[]).indexOf('--files') + 1], 'utf8'));
+      const proc = makeFakeProc();
+      setTimeout(() => { proc.stdout.emit('data', Buffer.from(JSON.stringify({ nodes: [], edges: [], files: [] }))); proc.emit('close', 0); }, 0);
+      return proc;
+    });
+    await makeRunner().runSubset('/ws', ['/ws/a.py', '/ws/x\n/outside/b.py', '/ws/y\r/outside/c.py', '/ws/tab\there.py']);
+    assert.ok(lists.length >= 4);
+    assert.ok(lists.every(l => l === '/ws/a.py\n/ws/tab\there.py'), `each analyzer read: ${JSON.stringify(lists[0])}`);
+  });
+
   test('spawns analyzers with --files and merges their output', async function () {
     this.timeout(5000);
     // Resolve python so all five analyzers run.
@@ -126,5 +144,31 @@ suite('AnalyzerRunner.runSubset', () => {
     const listPath = seenArgs[0][seenArgs[0].indexOf('--files') + 1];
     assert.ok(typeof listPath === 'string' && listPath.length > 0);
     assert.strictEqual(fs.existsSync(listPath), false, 'temp list file removed in finally');
+  });
+});
+
+suite('AnalyzerRunner — a hostile file name, with the real analyzers', () => {
+  test('a name holding a line break and a path reads nothing outside the workspace', async function () {
+    if (process.platform === 'win32') { this.skip(); } // NTFS has no such name
+    this.timeout(30_000);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-hostile-name-'));
+    try {
+      const planted = path.join(tmp, 'outside', 'planted.py');
+      fs.mkdirSync(path.dirname(planted));
+      fs.writeFileSync(planted, 'def PLANTED_OUTSIDE():\n    pass\n');
+      const workspace = path.join(tmp, 'ws');
+      fs.mkdirSync(workspace);
+      fs.writeFileSync(path.join(workspace, 'a.py'), 'def real():\n    pass\n');
+      // Split at the line break, the second half of this path is the planted file's own.
+      const hostile = path.join(workspace, 'x\n', planted);
+      fs.mkdirSync(path.dirname(hostile), { recursive: true });
+      fs.writeFileSync(hostile, 'def hidden():\n    pass\n');
+      const context = { extensionPath: path.join(__dirname, '..', '..', '..') } as unknown as vscode.ExtensionContext;
+      const noop = () => undefined;
+      const graph = await new Promise<{ nodes: Array<{ name: string }> }>((resolve) => {
+        new AnalyzerRunner(context, noop, noop, noop, noop, (g) => resolve(g)).run(workspace);
+      });
+      assert.deepStrictEqual(graph.nodes.map(n => n.name), ['real']);
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   });
 });

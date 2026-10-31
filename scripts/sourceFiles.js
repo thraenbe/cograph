@@ -24,12 +24,24 @@ function collectSourceFiles(root, isSourceFile) {
   return results;
 }
 
+function isInsideRoot(root, file) {
+  const rel = path.relative(root, file);
+  return rel.split(path.sep)[0] !== '..' && !path.isAbsolute(rel);
+}
+
+// The list is one path per line, and a repository picks its file names: a listed path outside
+// the root (argv[2]) is refused before anything reads it, here for every node analyzer.
 function explicitFileList(isSourceFile, argv = process.argv) {
   const i = argv.indexOf('--files');
   if (i === -1 || !argv[i + 1]) { return null; }
   let raw;
   try { raw = fs.readFileSync(argv[i + 1], 'utf8'); } catch { return []; }
-  return raw.split('\n').map(s => s.trim()).filter(Boolean).filter(isSourceFile);
+  const listed = raw.split('\n').map(s => s.trim()).filter(Boolean);
+  const inside = listed.filter(file => isInsideRoot(argv[2], file));
+  if (inside.length < listed.length) {
+    process.stderr.write(`Refused ${listed.length - inside.length} listed paths outside the root\n`);
+  }
+  return inside.filter(isSourceFile);
 }
 
 module.exports = { collectSourceFiles, explicitFileList };

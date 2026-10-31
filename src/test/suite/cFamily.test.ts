@@ -97,7 +97,7 @@ suite('cFamily — --files list', () => {
   test('--files keeps only C-family entries, trims blanks', () => {
     const list = path.join(tmpDir, 'list.txt');
     fs.writeFileSync(list, ['/p/a.c', '  /p/b.H ', '/p/c.py', '', '/p/d.CPP', '/p/e.ts'].join('\n'));
-    assert.deepStrictEqual(cFamilyFileList(['node', 'x', '/root', '--files', list]), ['/p/a.c', '/p/b.H', '/p/d.CPP']);
+    assert.deepStrictEqual(cFamilyFileList(['node', 'x', '/p', '--files', list]), ['/p/a.c', '/p/b.H', '/p/d.CPP']);
   });
 
   test('unreadable list → [] (nothing analysed, no crash)', () => {

@@ -36,7 +36,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The analyzer subprocesses can be run without VS Code (`src/analyzerSpawn.ts`); the extension's
   analysis is unchanged.
+
+### Fixed
+- **One broken Python file no longer takes Python out of the graph.** The Python analyzer caught
+  only syntax errors, so deep code that exhausts the parser, such as a very long sum, or a listed
+  file that had gone, ended the whole run with no output. It now skips that file and goes on.
+  Every analyzer counts what it skipped and the log says how many.
+
 ### Security
+- **A long line no longer stalls the graph.** Removing trailing spaces and cutting comments
+  backtracked over a line: a hover, a source slice or a pull request's diff on a 200 KB line took
+  about 20 seconds on the extension host. It needed one such line in a file you open, a line of
+  spaces ending in a word, for example. These steps now take linear time.
+- **A Python file can no longer flood the extension host.** A Python warning prints its whole
+  source line, once per string literal, so a one-line file of 50 KB wrote 1.5 GB to stderr, and
+  CoGraph kept all of it in one string. Past 512 MiB that throws where nothing catches it. The
+  analyzer now writes no warnings, and CoGraph keeps the first 64 KB of what an analyzer writes.
 - **Pull request copies hold regular files only.** The copy CoGraph makes of a pull request's
   head and base wrote a committed symlink to disk as a symlink, and a pull request picks the
   link's target, so it could point at a file outside the copy. Symlinks and submodule entries

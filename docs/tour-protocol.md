@@ -573,6 +573,8 @@ Exit codes: 0 ok (head-only included), 3 oversized after the ladder, 1 anything 
 
 ### 10.3 Command line
 
+The CLI needs Node 20.3 or newer. `build` ends by itself after `--deadline-ms`, so a killed parent cannot orphan it.
+
 Agreed with ci-plan-core, accepted by session-110 on 2026-10-30. Core owns `build`, `fetch` and everything behind `open()`; delivery owns the rest. `src/cli/main.ts` stays one routing file.
 
 ```

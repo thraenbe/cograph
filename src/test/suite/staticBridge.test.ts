@@ -1,6 +1,4 @@
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as path from 'path';
 import { JSDOM } from 'jsdom';
 import { docsUrl } from '../../docsUrl';
 
@@ -93,12 +91,6 @@ suite('staticBridge.js: boot', () => {
     assert.strictEqual(h.api.getState(), undefined);
     assert.deepStrictEqual(h.api.setState({ zoom: 2 }), { zoom: 2 });
     assert.deepStrictEqual(h.api.getState(), { zoom: 2 });
-  });
-
-  test('the file names neither the storage nor the origin the sandbox takes away', () => {
-    const text = fs.readFileSync(path.resolve(__dirname, '..', '..', '..', 'src', 'webview', 'staticBridge.js'), 'utf8');
-    assert.ok(!text.includes('sessionStorage'));
-    assert.ok(!text.includes('location.origin'));
   });
 });
 

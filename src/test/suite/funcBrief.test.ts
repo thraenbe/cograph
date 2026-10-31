@@ -157,6 +157,38 @@ suite('funcBrief (shared with the MCP server: vscode-free, fs-free, never throws
   });
 });
 
+suite('funcBrief on a hostile line', () => {
+  // A file is the attacker's text and these run on the main thread: with a backtracking regex
+  // each of these lines costs about 20 s (200 KB, measured 2026-10-31); linear, it costs nothing.
+  const SIZE = 200_000;
+  const quickly = (run: () => unknown) => {
+    const started = Date.now();
+    const result = run();
+    assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+    return result;
+  };
+
+  test('a doc line of spaces that end in a word', () => {
+    const src = `def f():\n    """doc\n${' '.repeat(SIZE)}x\n    """\n    return 1\n`;
+    assert.match(ok(quickly(() => funcSlice(src, { startLine: 1, maxLines: 8, file: 'a.py' }))).doc, /^doc/);
+  });
+
+  test('a line of regex openings that never close', () => {
+    const src = `const f = (x) => x + ${'/['.repeat(SIZE / 2)}\nconst g = 1;\n`;
+    assert.ok(ok(quickly(() => funcSlice(src, { startLine: 1, maxLines: 8, file: 'a.ts' }))).source.startsWith('const f'));
+  });
+
+  test('a signature comment of # that a lone carriage return ends', () => {
+    const src = `def f(a):  ${'#'.repeat(SIZE)}\rx\n    return a\n`;
+    assert.strictEqual(ok(quickly(() => funcSlice(src, { startLine: 1, maxLines: 8, file: 'a.py' }))).signature, 'def f(a)');
+  });
+
+  test('an arrow line of / that a lone carriage return ends', () => {
+    const src = `const f = (x) => x + 1 ${'/'.repeat(SIZE)}\rz\nconst g = 1;\n`;
+    assert.strictEqual(ok(quickly(() => funcSlice(src, { startLine: 1, maxLines: 8, file: 'a.ts' }))).endLine, 1);
+  });
+});
+
 suite('funcBrief and the MCP slice agree (one scanner, one range)', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { readSlice } = require('../../mcp/sourceSlice');

@@ -140,7 +140,7 @@ function functionText(tree: DiffTree, fnsInFile: Keyed[], i: number, cache: Map<
   let next: Keyed | undefined;
   for (let j = i + 1; j < fnsInFile.length; j++) { if (fnsInFile[j].line > k.line) { next = fnsInFile[j]; break; } }
   const end = next ? next.line - 1 : lines.length;
-  const slice = lines.slice(Math.max(0, k.line - 1), end).map(l => l.replace(/\s+$/, ''));
+  const slice = lines.slice(Math.max(0, k.line - 1), end).map(l => l.trimEnd());
   while (slice.length && slice[slice.length - 1] === '') { slice.pop(); }
   return slice.join('\n');
 }

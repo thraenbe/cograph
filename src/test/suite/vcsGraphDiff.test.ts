@@ -39,6 +39,22 @@ const HEAD_UTIL = '// a comment moved everything down\n\nexport function helper(
 const BASE_APP = 'import { helper, old } from "./util";\nexport function main() {\n  helper();\n  old();\n}\nexport function other() {}\n';
 const HEAD_APP = 'import { helper } from "./util";\nimport { fresh } from "./fresh";\nexport function main() {\n  helper();\n  fresh();\n}\nexport function other() {}\n';
 
+suite('vcs engine — graphDiff on a hostile line', () => {
+  test('a body line of spaces that end in a word costs no quadratic time', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-diff-'));
+    try {
+      // Same function on both sides, so its text is compared and each line is trimmed. About 20 s with a backtracking regex.
+      const text = `export function f() {\n${' '.repeat(200_000)}x\n}\n`;
+      const defs: Array<[string, string, number]> = [['a.ts', 'f', 1]];
+      const base = tree(path.join(root, 'base'), 'b'.repeat(40), { 'a.ts': text }, defs, []);
+      const head = tree(path.join(root, 'head'), 'a'.repeat(40), { 'a.ts': text }, defs, []);
+      const started = Date.now();
+      assert.strictEqual(diffGraphs(base, head).summary.changed, 0);
+      assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+});
+
 suite('vcs engine — graphDiff', () => {
   let root: string;
   let base: DiffTree;

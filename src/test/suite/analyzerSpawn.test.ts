@@ -168,6 +168,21 @@ suite('analyzerSpawn', () => {
     }
   });
 
+  test('a size limit keeps a larger file off the list and counts it; with none, as in the extension, every file is listed', async () => {
+    const dir = tempProject({ 'small.py': 'def a(): pass\n', 'large.py': `# ${'x'.repeat(2000)}\n` });
+    const scripts = probeScripts();
+    try {
+      const limited = await spawnAnalyzers(dir, { scriptsDir: scripts, pythonBin: process.execPath, maxFileBytes: 1000 });
+      assert.strictEqual(limited.oversized, 1);
+      assert.strictEqual(seenBy(scripts, 'analyze.py').listed, path.join(dir, 'small.py'));
+      const open = await spawnAnalyzers(dir, { scriptsDir: scripts, pythonBin: process.execPath });
+      assert.strictEqual(open.oversized, 0);
+      assert.strictEqual(seenBy(scripts, 'analyze.py').listed.split('\n').length, 2);
+    } finally {
+      for (const d of [dir, scripts]) { fs.rmSync(d, { recursive: true, force: true }); }
+    }
+  });
+
   test('without its own environment a run inherits this process\'s, as the extension does', async () => {
     const dir = tempProject({ 'a.py': 'def a(): pass\n' });
     const scripts = probeScripts();

@@ -44,6 +44,7 @@ export interface CiTreesDeps {
   /** For the analyzers. */
   env: NodeJS.ProcessEnv;
   maxOutputBytes?: number;
+  maxFileBytes?: number;
   nodeArgs?: string[];
 }
 
@@ -61,6 +62,11 @@ export interface CiTrees extends TourTrees {
 
 /** Analyzer output cap of a CI run. Five buffered at the extension's 500 MB cost 6.56 GB on one file (F3). */
 export const CI_MAX_OUTPUT_BYTES = 200 * 1024 * 1024;
+/**
+ * One file must not cost a language (F7), and at 24 MB of one-line functions one did: past the
+ * output cap in TypeScript, past the heap in Java. The largest real source of the corpus is 1.18 MB.
+ */
+export const CI_MAX_FILE_BYTES = 16 * 1024 * 1024;
 
 const LANGUAGE_NAMES: Record<string, string> = { python: 'Python', typescript: 'TypeScript', javascript: 'JavaScript', java: 'Java', cpp: 'C++', c: 'C' };
 
@@ -82,15 +88,17 @@ function languagesOf(tree: StructureTree): Set<string> {
   return langs;
 }
 
-interface AnalysedSide { sha: string; root: string; tree: StructureTree; statuses: AnalyzerResult[] }
+interface AnalysedSide { sha: string; root: string; tree: StructureTree; statuses: AnalyzerResult[]; oversized: number }
 
 async function analyseSide(deps: CiTreesDeps, sha: string, root: string, signal: AbortSignal): Promise<AnalysedSide> {
   const tree = scanStructure(root);
   const options: SpawnAnalyzersOptions = {
     scriptsDir: deps.scriptsDir, pythonBin: deps.pythonBin, log: deps.log, signal,
-    cwd: deps.workDir, env: deps.env, maxOutputBytes: deps.maxOutputBytes ?? CI_MAX_OUTPUT_BYTES, nodeArgs: deps.nodeArgs,
+    cwd: deps.workDir, env: deps.env, nodeArgs: deps.nodeArgs,
+    maxOutputBytes: deps.maxOutputBytes ?? CI_MAX_OUTPUT_BYTES, maxFileBytes: deps.maxFileBytes ?? CI_MAX_FILE_BYTES,
   };
-  return { sha, root, tree, statuses: (await spawnAnalyzers(root, options)).statuses };
+  const { statuses, oversized } = await spawnAnalyzers(root, options);
+  return { sha, root, tree, statuses, oversized };
 }
 
 /** Languages that failed as a process on this side, with how. An interpreter this tree has no use for is no failure. */
@@ -166,7 +174,7 @@ export async function prepareCiTrees(deps: CiTreesDeps, change: CiChange, target
     listCommits(treeDeps, baseSha, change.head),
     baseSha ? changedPaths(treeDeps, baseSha, change.head) : Promise.resolve([]),
   ]);
-  const filesNotParsed = headSide.statuses.filter(s => !dropped.has(s.lang)).reduce((n, s) => n + (s.filesNotParsed ?? 0), 0);
+  const filesNotParsed = headSide.statuses.filter(s => !dropped.has(s.lang)).reduce((n, s) => n + (s.filesNotParsed ?? 0), headSide.oversized);
   const notes = notesFor(dropped);
   return {
     repoRoot: deps.repoRoot, target,

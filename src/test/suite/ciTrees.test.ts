@@ -6,7 +6,7 @@ import { ensureCommits } from '../../ci/fetch';
 import { createHeadlessApi } from '../../ci/headlessApi';
 import type { HeadlessOptions } from '../../ci/headlessApi';
 import { toolEnv } from '../../ci/toolEnv';
-import { CI_MAX_OUTPUT_BYTES, analysisState, ciTarget } from '../../ci/trees';
+import { CI_MAX_FILE_BYTES, CI_MAX_OUTPUT_BYTES, analysisState, ciTarget } from '../../ci/trees';
 import type { CiContext, CiTrees } from '../../ci/trees';
 import { ANALYZER_SCRIPTS } from '../../analyzerSpawn';
 import { clone, commit, makeOrigin, push, sh, tempDir } from '../ciRepo';
@@ -196,6 +196,19 @@ suite('ci trees: prepareCiTrees through the headless api', function () {
         go();`;
       const trees = await prepare(clone(root, origin), { scriptsDir: fakeScripts(root, body), pythonBin: process.execPath });
       assert.match((trees.analysisNotes as string[])[0], /produced more output than a tour can take/);
+    });
+
+    test('REGRESSION (F7): one file past the size limit costs that file, in every language, and counts as not parsed', async () => {
+      assert.strictEqual(CI_MAX_FILE_BYTES, 16 * 1024 * 1024);
+      sh(origin.work, ['switch', '--quiet', 'feature']);
+      // Just past the default, and cheap to analyse: without the limit it would parse and be counted nowhere.
+      const big = commit(origin.work, { 'src/big.py': '#\n'.repeat(Math.ceil(CI_MAX_FILE_BYTES / 2) + 1), 'src/kept.py': 'def kept():\n    pass\n' }, 'big');
+      push(origin, 'feature');
+      const trees = await prepare(clone(root, origin, '--no-checkout'), { head: big });
+      assert.strictEqual(trees.filesNotParsed, 1);
+      assert.strictEqual(analysisState(trees), 'complete', 'the language stays');
+      assert.ok(changes(trees)?.includes('added kept'), String(changes(trees)));
+      assert.ok(!(trees.head.graph.files ?? []).some(f => f.endsWith('big.py')), 'no analyzer saw it');
     });
 
     test('what an analyzer printed stays out of the notes and the log: a traceback quotes source', async () => {

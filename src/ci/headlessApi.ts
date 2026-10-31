@@ -43,6 +43,7 @@ export interface HeadlessOptions {
   /** Default: `toolEnv()`. */
   env?: NodeJS.ProcessEnv;
   maxOutputBytes?: number;
+  maxFileBytes?: number;
   /** Default: a 4 GB heap, since guava's Java analysis peaks at 3.35 GB and Node's own default follows the machine's memory. */
   nodeArgs?: string[];
 }
@@ -89,7 +90,7 @@ export function createHeadlessApi(opts: HeadlessOptions): HeadlessRun {
   if (!opts.configSha) { opts.log('[ci] no target tip given: the team\'s files come from --base, which a pull request can pick'); }
   const treesDeps: CiTreesDeps = {
     repoRoot: opts.repoRoot, storageDir, workDir: opts.workDir, exec, log: opts.log, env,
-    scriptsDir: opts.scriptsDir, pythonBin: opts.pythonBin, maxOutputBytes: opts.maxOutputBytes, nodeArgs: opts.nodeArgs ?? [ANALYZER_HEAP],
+    scriptsDir: opts.scriptsDir, pythonBin: opts.pythonBin, maxOutputBytes: opts.maxOutputBytes, maxFileBytes: opts.maxFileBytes, nodeArgs: opts.nodeArgs ?? [ANALYZER_HEAP],
   };
   const setting = headlessSettings(opts);
   let trees: CiTrees | null = null;

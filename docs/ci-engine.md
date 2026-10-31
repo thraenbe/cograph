@@ -64,7 +64,7 @@ Git itself is resolved to an absolute path and is the only tool a run can call. 
 | What happens | Effect | `analysis` |
 |---|---|---|
 | An analyzer fails as a process on either side: no interpreter, timeout, output cap, crash | That language leaves **both** sides before the diff, and the overview says so in a fixed sentence. One side alone would paint all of it as added or removed | `partial` |
-| A file will not parse | It is missing from the graph and counts in `filesNotParsed`, on the head side only. The language stays | `complete` |
+| A file will not parse, or is over the size limit | It is missing from the graph and counts in `filesNotParsed`, on the head side only. The language stays | `complete` |
 | No merge base | A head-only tour: no diff, nothing scanned. Never a diff against the target tip | `complete` |
 | An interpreter is missing, and the tree holds no file of that language | Nothing: nothing was lost | `complete` |
 
@@ -77,9 +77,10 @@ Measured on 2026-10-31 on this machine, one run at a time, through the real tour
 | Limit | Value | Past it | Measured |
 |---|---|---|---|
 | Analyzer, each side | 300 s | The language fails | Guava, the largest of the corpus: 174 s for both sides and the tour |
-| Analyzer output | 200 MB | The language fails | Largest real output: guava's graph, 122 MB, with a long work path |
-| Python analyzer memory | 2.8 GB of address space. Linux; none on Windows, macOS unverified | The file in hand counts as not parsed; past it outside a parse, the language fails | pandas 0.76 GB. A 24 MB file of one-line functions: 2.85 GB, 6 s, that file lost. Without the limit: 4.18 GB and growing with the file |
-| Node analyzer heap | 4 GB | The language fails | Guava 3.3 GB. A 24 MB Java file of one-line methods: 4.6 GB, then the language fails |
+| Source file | 16 MiB | The file counts as not parsed, no analyzer sees it | Below every single-file failure measured here. At 24 MB of one-line functions, without this limit, TypeScript passed the output cap (3.4 GB, 16 s) and Java the heap (4.6 GB, 52 s), and each lost its language. With it: 1.3 s, 108 MB, that file lost |
+| Analyzer output | 200 MB | The language fails, which now takes many large files | Largest real output: guava's graph, 122 MB, with a long work path |
+| Python analyzer memory | 2.8 GB of address space. Linux; none on Windows, macOS unverified | The file in hand counts as not parsed; past it outside a parse, the language fails | pandas 0.76 GB. Still the bound for many large files. Without the size limit, one 24 MB file of one-line functions: 2.85 GB with this limit, 4.18 GB without, growing with the file |
+| Node analyzer heap | 4 GB | The language fails | Guava 3.3 GB |
 | Analyzer stderr | First 64 KB kept | Dropped | |
 | `fetch` | 240 s of deepening, 120 s per git fetch, 8 rounds | Head-only tour | 3 to 9 s from an empty repository against public GitHub, deepening from 32 commits |
 | A copy | 50,000 source files | The build fails | |

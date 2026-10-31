@@ -211,6 +211,8 @@ export interface SpawnAnalyzersOptions extends SpawnLimits {
   nodeBin?: string;
   /** Node flags before each node analyzer's script, such as a heap limit. */
   nodeArgs?: string[];
+  /** A larger file stays off the list and is counted in `oversized`: unset, none does. */
+  maxFileBytes?: number;
   log?: (msg: string) => void;
   /** Kills every child on abort. */
   signal?: AbortSignal;
@@ -223,12 +225,14 @@ let listSeq = 0;
  * (`--files`, so the graph covers what the Folder tree shows), the six analyzers
  * in parallel, their graphs merged. With a `cwd`, the list is written there.
  */
-export async function spawnAnalyzers(dir: string, opts: SpawnAnalyzersOptions): Promise<{ graph: GraphData; statuses: AnalyzerResult[] }> {
+export async function spawnAnalyzers(dir: string, opts: SpawnAnalyzersOptions): Promise<{ graph: GraphData; statuses: AnalyzerResult[]; oversized: number }> {
   if (opts.signal?.aborted) { throw new Error('Cancelled.'); } // an abort before the listener exists would never fire it
   const log = opts.log ?? (() => undefined);
   const limits: SpawnLimits = { maxOutputBytes: opts.maxOutputBytes, cwd: opts.cwd, env: opts.env };
   const listPath = path.join(opts.cwd ?? os.tmpdir(), `cograph-spawn-${process.pid}-${listSeq++}.txt`);
-  fs.writeFileSync(listPath, listableFiles(listProjectSourceFiles(dir).map(f => f.path), log, 'full').join('\n'), 'utf8');
+  const files = listableFiles(listProjectSourceFiles(dir).map(f => f.path), log, 'full');
+  const listed = opts.maxFileBytes === undefined ? files : files.filter(f => fs.statSync(f).size <= (opts.maxFileBytes as number));
+  fs.writeFileSync(listPath, listed.join('\n'), 'utf8');
   const live = new Set<cp.ChildProcess>();
   const kill = () => { for (const p of live) { try { p.kill(); } catch { /* gone */ } } };
   opts.signal?.addEventListener('abort', kill);
@@ -241,7 +245,7 @@ export async function spawnAnalyzers(dir: string, opts: SpawnAnalyzersOptions): 
       }, limits);
     }));
     if (opts.signal?.aborted) { throw new Error('Cancelled.'); }
-    return { graph: mergeResults(statuses), statuses };
+    return { graph: mergeResults(statuses), statuses, oversized: files.length - listed.length };
   } finally {
     opts.signal?.removeEventListener('abort', kill);
     fs.rmSync(listPath, { force: true });

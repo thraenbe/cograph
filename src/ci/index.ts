@@ -11,5 +11,5 @@ export type { HeadlessAi, HeadlessOptions, HeadlessRun } from './headlessApi';
 export { STAGE_ROOT, stageData } from './stageData';
 export type { StageData } from './stageData';
 export { gitExec, resolveGit, toolEnv } from './toolEnv';
-export { CI_MAX_OUTPUT_BYTES, analysisState, ciTarget, prepareCiTrees } from './trees';
+export { CI_MAX_FILE_BYTES, CI_MAX_OUTPUT_BYTES, analysisState, ciTarget, prepareCiTrees } from './trees';
 export type { CiChange, CiContext, CiTrees, CiTreesDeps } from './trees';

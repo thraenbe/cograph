@@ -17,6 +17,8 @@ export interface ExecResult {
 export interface ExecOptions {
   /** Extra environment on top of the extension host's. */
   env?: Record<string, string>;
+  /** What `env` goes on top of, instead of the extension host's. */
+  baseEnv?: NodeJS.ProcessEnv;
   /** Written to the child's stdin, which is then closed. */
   stdin?: string;
   timeoutMs?: number;
@@ -38,12 +40,17 @@ const LIST_FIELDS = [
   'changedFiles', 'additions', 'deletions', 'updatedAt', 'url',
 ];
 
+function childEnv(opts: ExecOptions): NodeJS.ProcessEnv {
+  const base = opts.baseEnv ?? process.env;
+  return opts.env ? { ...base, ...opts.env } : base;
+}
+
 /** `defaultExec` for output that is not text or does not fit in memory: the same contract, with stdout going to `onStdout`. */
 function execStreaming(command: string, args: string[], cwd: string, opts: ExecOptions, onStdout: (chunk: Buffer) => void): Promise<ExecResult> {
   return new Promise((resolve) => {
     const child = cp.spawn(command, args, {
       cwd, timeout: opts.timeoutMs ?? TIMEOUT_MS, windowsHide: true,
-      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+      env: childEnv(opts),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
     let stderr = '';
@@ -76,7 +83,7 @@ function execStreaming(command: string, args: string[], cwd: string, opts: ExecO
 export const defaultExec: Exec = (command, args, cwd, opts = {}) => opts.onStdout ? execStreaming(command, args, cwd, opts, opts.onStdout) : new Promise((resolve) => {
   const child = cp.execFile(command, args, {
     cwd, timeout: opts.timeoutMs ?? TIMEOUT_MS, encoding: 'utf8', maxBuffer: MAX_BUFFER,
-    env: opts.env ? { ...process.env, ...opts.env } : process.env,
+    env: childEnv(opts),
     ...(opts.signal ? { signal: opts.signal } : {}),
   }, (err, stdout, stderr) => {
     const e = err as (NodeJS.ErrnoException & { code?: number | string }) | null;

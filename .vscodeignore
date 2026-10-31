@@ -29,6 +29,9 @@ node_modules/**
 # dist/host and dist/web here from node_modules, without source maps. It must ship.
 !dist/tour/**
 
+# The static stage of the CI tour (scripts/build-stage.js) feeds the viewer build, not the extension.
+dist/stage/**
+
 **/*.ts
 **/*.map
 **/*.swp

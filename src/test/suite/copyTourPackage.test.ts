@@ -97,7 +97,8 @@ suite('build: copyTourPackage (esbuild.js)', () => {
   test('packaging keeps dist/tour and the pin lives in package.json', () => {
     const ignore = fs.readFileSync(path.join(REPO, '.vscodeignore'), 'utf8').split(/\r?\n/);
     assert.ok(ignore.includes('!dist/tour/**'));
-    assert.ok(!ignore.some(l => /^dist(\/|$)/.test(l.trim())), 'dist itself is never ignored');
+    // A folder of it may go (dist/stage feeds the viewer build); dist as a whole never.
+    assert.ok(!ignore.some(l => /^dist(\/(\*\*?)?)?$/.test(l.trim())), 'dist itself is never ignored');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pkg = require(path.join(REPO, 'package.json'));
     assert.match(pkg.cograph?.tourPackage ?? '', /^\d+\.\d+\.\d+$/);

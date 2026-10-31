@@ -145,3 +145,47 @@ ${stageMarkup({ timelineMode, browser, sameFileEdgesOnly: bootConfig.sameFileEdg
 </body>
 </html>`;
 }
+
+/** Where the viewer's own tags go in dist/stage/index.html: right after the stage. */
+export const STAGE_AFTER_MARKER = '<!-- cograph:after-stage -->';
+
+/** Delivery's policy for the viewer, without `sandbox` and `frame-ancestors`: a meta tag cannot carry them. */
+export const STATIC_PAGE_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+  + "connect-src 'self'; worker-src blob:; base-uri 'none'; form-action 'none'";
+
+export interface StaticStageFiles {
+  bridge: string;
+  stage: string;
+  css: string;
+  worker: string;
+}
+
+/** Both theme sets by media query, so the page paints right before any script runs. */
+export function staticThemeCss(): string {
+  return `:root { ${themeDeclarations('dark')} }
+@media (prefers-color-scheme: light) { :root { ${themeDeclarations('light')} } }
+html, body { margin: 0; height: 100%; background: var(--vscode-editor-background); }
+`;
+}
+
+/** The static page: no nonce and no inline script, built once per release, nothing of any tour in it. */
+export function renderStaticStagePage(files: StaticStageFiles): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="${STATIC_PAGE_CSP}" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="cograph-worker" content="${files.worker}" />
+  <title>CoGraph</title>
+  <link rel="stylesheet" href="${files.css}" />
+</head>
+<body class="cg-browser">
+${stageMarkup({ timelineMode: false, browser: true, sameFileEdgesOnly: true })}
+  <script src="${files.bridge}"></script>
+  <script src="${files.stage}"></script>
+  ${STAGE_AFTER_MARKER}
+</body>
+</html>
+`;
+}

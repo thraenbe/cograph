@@ -46,6 +46,13 @@ function allFiles(dir: string): string[] {
   return fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter(e => e.isFile()).map(e => e.name);
 }
 
+/** Files this process holds open whose path contains `part`; empty where only Linux can tell. */
+function openFilesUnder(part: string): string[] {
+  if (!fs.existsSync('/proc/self/fd')) { return []; }
+  const open = fs.readdirSync('/proc/self/fd').map((fd) => { try { return fs.readlinkSync(`/proc/self/fd/${fd}`); } catch { return ''; } });
+  return open.filter(target => target.includes(part));
+}
+
 /** A repository in its own temp folder, for one test. */
 function useRepo(prefix: string) {
   const at = { root: '', repo: '', deps: {} as HeadTreeDeps };
@@ -243,11 +250,7 @@ suite('vcs engine — a hostile tree cannot steer the copy', () => {
       : opts);
     await assert.rejects(materializeCommit({ ...at.deps, exec, signal: ac.signal }, sha), (e: HeadTreeError) => e.kind === 'cancelled');
     assert.ok(!fs.existsSync(treeDir(at.deps, sha)));
-    // On Windows an open file would keep the folder from going; only Linux can show it here.
-    if (fs.existsSync('/proc/self/fd')) {
-      const open = fs.readdirSync('/proc/self/fd').map((fd) => { try { return fs.readlinkSync(`/proc/self/fd/${fd}`); } catch { return ''; } });
-      assert.deepStrictEqual(open.filter(target => target.includes(sha)), [], 'nothing of the copy is still open');
-    }
+    assert.deepStrictEqual(openFilesUnder(sha), [], 'an open file would keep the folder from going on Windows');
   });
 
   test('the copy keeps its five minutes: large repositories need them', async () => {
@@ -305,6 +308,12 @@ suite('vcs engine — BlobWriter', () => {
     for (let i = 0; i < stream.length; i++) { writer.push(stream.subarray(i, i + 1)); }
     assert.ok(writer.complete);
     assertWritten(dir);
+  });
+
+  test('each file is closed when its answer ends: a large commit must not run out of handles', () => {
+    const writer = new BlobWriter(dir, files);
+    writer.push(stream);
+    assert.deepStrictEqual(openFilesUnder(dir), []);
   });
 
   test('it is complete only once the last answer has closed', () => {

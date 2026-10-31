@@ -8,7 +8,7 @@
  * Types only, no vscode import: the fixture recorder and the engine compile it too.
  */
 import type { JsonRequest, JsonResult } from '../graphIntelligence/provider';
-import type { FuncBriefResult } from '../funcBrief';
+import type { EndReason, FuncBriefResult } from '../funcBrief';
 import type { ImpactResult } from '../mcp/queries';
 import type { StructuralDiff } from '../vcs/engine/graphDiff';
 import type { EngineGraph } from '../vcs/engine/types';
@@ -65,6 +65,10 @@ export interface TourTrees {
   checkoutBranch: string | null;
   /** The working tree has uncommitted changes (branch targets only; false for a PR). */
   dirty: boolean;
+  /** Headless: what the analysis could not do, one fixed sentence each, printed on the overview. */
+  analysisNotes?: string[];
+  /** Headless: files that would not parse and are missing from the graph. */
+  filesNotParsed?: number;
 }
 
 export interface TourProgress { (message: string): void }
@@ -86,7 +90,7 @@ export interface TourGitActions {
 
 export interface TourAi {
   enabled(): boolean;
-  providerId(): 'claude-code' | 'codex';
+  providerId(): 'claude-code' | 'codex' | 'anthropic-api';
   /** The model alias the tour should pass (resolved from cograph.tour.ai.model / annotate.model). */
   model(): string | undefined;
   /** The opt-in gate: a modal that describes what will be sent and costs; true = go. */
@@ -122,6 +126,10 @@ export interface TourHostApi {
   openExternal(url: string): Promise<void>;
   /** A native information message with one button; no side effect. */
   notify(message: string): void;
+  /** Headless: the text of `.cograph/tour.json` from the target tip, null when none. When present, no checkout file is read. */
+  teamFile?(): Promise<string | null>;
+  /** Headless: `slices` adds `TourPrepared.sources`, `none` strips every code excerpt. Absent: a live tour. */
+  sourceMode?: 'slices' | 'none';
 }
 
 // ── Section 3: what the private package returns ─────────────────────────────
@@ -152,6 +160,17 @@ export interface TourRoute {
 /** Section 6. The public side never parses a script; it only carries it. */
 export type TourScript = { version: 1 } & Record<string, unknown>;
 
+/** One function's hover text in a static viewer; every text masked by the host. */
+export interface TourSlice {
+  source: string;
+  signature: string;
+  doc: string;
+  body: string;
+  endLine: number;
+  totalLines: number;
+  endReason: EndReason;
+}
+
 export interface TourPrepared {
   tourId: string;
   script: TourScript;
@@ -162,6 +181,8 @@ export interface TourPrepared {
   statuses: { files: [string, { unstaged: 'added' | 'modified' | 'deleted' | null; staged: null }][]; hunks: [string, { start: number; end: number; isNew: boolean }[]][] };
   /** What the stage's pr-view message needs: name, title, refs, expand list (ancestor folders of changed files). */
   view: { name: string; title: string; headRef: string; baseRef: string; expand: string[]; counts: { total: number; inGraph: number; other: number } };
+  /** Headless with `sourceMode: 'slices'`: key `<relPath>:<line>`, added and changed functions only. */
+  sources?: Record<string, TourSlice>;
 }
 
 export interface TourHost {

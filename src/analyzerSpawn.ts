@@ -139,6 +139,39 @@ export const ANALYZER_SCRIPTS: ReadonlyArray<{ script: string; lang: string; pyt
   { script: 'analyze_c.js', lang: 'c', python: false },
 ];
 
+/**
+ * Absolute path to an analyzer script under `root` (the extension, or a package laid out like it).
+ * Packaged builds ship esbuild-bundled node analyzers under dist/scripts (self-contained, no
+ * node_modules in the .vsix); dev and test hosts fall back to the sources under scripts/. The
+ * Python analyzers only ever exist under scripts/.
+ */
+export function analyzerScriptPath(root: string, name: string): string {
+  const bundled = path.join(root, 'dist', 'scripts', name);
+  return fs.existsSync(bundled) ? bundled : path.join(root, 'scripts', name);
+}
+
+/** The first candidate that runs `--version`; null when none does. */
+export function probePython(candidates: Array<string | undefined>): string | null {
+  for (const bin of candidates.filter(Boolean) as string[]) {
+    try {
+      cp.execFileSync(bin, ['--version'], { timeout: 2000 });
+      return bin;
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+/**
+ * Nothing found AND an analyzer did not run cleanly: that is a failure, not a tree without
+ * functions, and diffing an empty tree would paint every function as added or removed.
+ * The sentence to fail with, or null.
+ */
+export function analysisFailed(graph: GraphData, statuses: AnalyzerResult[]): string | null {
+  const failed = statuses.filter(s => s.status !== 'ok' && s.status !== 'empty');
+  if (graph.nodes.length > 0 || failed.length === 0) { return null; }
+  return `Analysis failed: ${failed.map(s => `${s.lang} ${s.status}${s.detail ? ` (${s.detail})` : ''}`).join('; ')}`;
+}
+
 export function mergeResults(statuses: AnalyzerResult[]): GraphData {
   return {
     nodes: statuses.flatMap(r => r.graph.nodes),

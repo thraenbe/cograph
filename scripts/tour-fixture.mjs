@@ -29,7 +29,7 @@ if (!fs.existsSync(path.join(out, 'vcs', 'tourTrees.js'))) {
 }
 const { prepareTourTrees, materializeHeadWithGit, materializeBaseWithGit } = require(path.join(out, 'vcs', 'tourTrees.js'));
 const { defaultExec, GhCliSource } = require(path.join(out, 'vcs', 'ghCliSource.js'));
-const { spawnAnalyzers } = require(path.join(out, 'analyzerSpawn.js'));
+const { analysisFailed, spawnAnalyzers } = require(path.join(out, 'analyzerSpawn.js'));
 const { HeadTreeError, dropTreeRefs, listTrees } = require(path.join(out, 'vcs', 'engine', 'headTree.js'));
 
 const [targetArg, outDirArg] = process.argv.slice(2);
@@ -56,9 +56,11 @@ function pythonBin() {
 const python = pythonBin();
 async function analyzer(dir, signal) {
   const { graph, statuses } = await spawnAnalyzers(dir, { scriptsDir: path.join(here), pythonBin: python, log, signal });
-  const failed = statuses.filter(s => s.status !== 'ok' && s.status !== 'empty');
-  for (const s of failed) { log(`[fixture] analyzer ${s.lang} ${s.status}${s.detail ? `: ${s.detail}` : ''}`); }
-  if (graph.nodes.length === 0 && failed.length) { throw new Error(`Analysis failed in ${dir}`); }
+  for (const s of statuses) {
+    if (s.status !== 'ok' && s.status !== 'empty') { log(`[fixture] analyzer ${s.lang} ${s.status}${s.detail ? `: ${s.detail}` : ''}`); }
+  }
+  const failed = analysisFailed(graph, statuses);
+  if (failed) { throw new Error(`${failed} in ${dir}`); }
   return graph;
 }
 

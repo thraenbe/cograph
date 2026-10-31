@@ -5,7 +5,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as sinon from 'sinon';
-import { ANALYZER_SCRIPTS, spawnAnalyzer, spawnAnalyzers } from '../../analyzerSpawn';
+import { ANALYZER_SCRIPTS, analysisFailed, analyzerScriptPath, probePython, spawnAnalyzer, spawnAnalyzers } from '../../analyzerSpawn';
+import type { AnalyzerResult } from '../../analyzerSpawn';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const rawCp = require('child_process');
@@ -118,6 +119,30 @@ suite('analyzerSpawn', () => {
     } finally {
       sandbox.restore();
     }
+  });
+
+  test('a script is the bundled one when the package holds it, else the source', () => {
+    const root = tempProject({ 'scripts/analyze.py': '', 'scripts/analyze_ts.js': '', 'dist/scripts/analyze_ts.js': '' });
+    try {
+      assert.strictEqual(analyzerScriptPath(root, 'analyze_ts.js'), path.join(root, 'dist', 'scripts', 'analyze_ts.js'));
+      assert.strictEqual(analyzerScriptPath(root, 'analyze.py'), path.join(root, 'scripts', 'analyze.py'));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('the Python probe takes the first candidate that runs and skips the rest', () => {
+    assert.strictEqual(probePython([undefined, '/no/such/python', process.execPath, 'python3']), process.execPath);
+    assert.strictEqual(probePython([undefined, '/no/such/python']), null);
+  });
+
+  test('an analysis failed when it found nothing and an analyzer did not run cleanly, not otherwise', () => {
+    const empty = { nodes: [], edges: [], files: [] };
+    const node = { id: 'a', name: 'a', file: 'a.py', line: 1 };
+    const result = (status: AnalyzerResult['status'], detail?: string): AnalyzerResult => ({ graph: empty, status, lang: 'python', detail });
+    assert.strictEqual(analysisFailed(empty, [result('empty')]), null);
+    assert.strictEqual(analysisFailed({ ...empty, nodes: [node] }, [result('timeout')]), null);
+    assert.strictEqual(analysisFailed(empty, [result('empty'), result('timeout', 'exceeded 300s')]), 'Analysis failed: python timeout (exceeded 300s)');
   });
 
   test('a missing binary, a non-zero exit and non-JSON output come back as statuses, never as a rejection', async () => {

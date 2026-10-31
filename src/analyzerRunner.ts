@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { walkProjectFiles } from './projectScope';
 import { listProjectSourceFiles, isSfcFileName } from './structureScanner';
-import { spawnAnalyzer } from './analyzerSpawn';
+import { ANALYZER_SCRIPTS, analyzerScriptPath, mergeResults, probePython, spawnAnalyzer } from './analyzerSpawn';
 import type { AnalyzerResult } from './analyzerSpawn';
 
 export { MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from './analyzerSpawn';
@@ -128,15 +128,8 @@ export class AnalyzerRunner {
     this.onResult(JSON.stringify(merged), workspaceRoot, meta);
   }
 
-  /**
-   * Absolute path to an analyzer subprocess script. Packaged builds ship
-   * esbuild-bundled node analyzers under dist/scripts (self-contained, no
-   * node_modules in the .vsix); dev and test hosts fall back to the sources
-   * under scripts/. The Python analyzers only ever exist under scripts/.
-   */
   private analyzerScript(name: string): string {
-    const bundled = path.join(this.context.extensionPath, 'dist', 'scripts', name);
-    return fs.existsSync(bundled) ? bundled : path.join(this.context.extensionPath, 'scripts', name);
+    return analyzerScriptPath(this.context.extensionPath, name);
   }
 
   /**
@@ -150,20 +143,9 @@ export class AnalyzerRunner {
       ? [this.analyzerScript(script), workspaceRoot, '--files', listPath]
       : [this.analyzerScript(script), workspaceRoot];
     try {
-      const statuses = await Promise.all([
-        this.spawnAnalyzerProcess(pythonBin, args('analyze.py'), 'python'),
-        this.spawnAnalyzerProcess(process.execPath, args('analyze_ts.js'), 'typescript'),
-        this.spawnAnalyzerProcess(process.execPath, args('analyze_js.js'), 'javascript'),
-        this.spawnAnalyzerProcess(process.execPath, args('analyze_java.js'), 'java'),
-        this.spawnAnalyzerProcess(process.execPath, args('analyze_cpp.js'), 'cpp'),
-        this.spawnAnalyzerProcess(process.execPath, args('analyze_c.js'), 'c'),
-      ]);
-      const merged: GraphData = {
-        nodes: statuses.flatMap(r => r.graph.nodes),
-        edges: statuses.flatMap(r => r.graph.edges),
-        files: statuses.flatMap(r => r.graph.files ?? []),
-      };
-      return { merged, statuses };
+      const statuses = await Promise.all(ANALYZER_SCRIPTS.map(({ script, lang, python }) =>
+        this.spawnAnalyzerProcess(python ? pythonBin : process.execPath, args(script), lang)));
+      return { merged: mergeResults(statuses), statuses };
     } finally {
       if (listPath) { try { fs.unlinkSync(listPath); } catch { /* best effort cleanup */ } }
     }
@@ -298,16 +280,8 @@ export class AnalyzerRunner {
     // 4. PATH fallback
     candidates.push('python3', 'python');
 
-    for (const bin of candidates.filter(Boolean) as string[]) {
-      try {
-        cp.execFileSync(bin, ['--version'], { timeout: 2000 });
-        this.resolvedPythonBin = bin;
-        return bin;
-      } catch { /* try next */ }
-    }
-
-    this.resolvedPythonBin = null;
-    return null;
+    this.resolvedPythonBin = probePython(candidates);
+    return this.resolvedPythonBin;
   }
 
   private spawnAnalyzerProcess(bin: string, args: string[], lang: string): Promise<AnalyzerResult> {

@@ -47,7 +47,7 @@ effects:
 | The execute bit | **Never set.** Nothing in a copy runs |
 | CRLF conversion | Not applied. Line numbers still match a checkout |
 | A symlink or a submodule | Left out |
-| A path with a control character | Left out of the copy and the analysis, except a tab. `changedPaths` still lists it |
+| A path with a control character | Left out of the copy and the analysis, except a tab. `changedPaths` still lists it, and a change to such a source file reads `partial` (below) |
 
 ## What the team decides, and what a pull request cannot
 
@@ -65,6 +65,7 @@ Git itself is resolved to an absolute path and is the only tool a run can call. 
 |---|---|---|
 | An analyzer fails as a process on either side: no interpreter, timeout, output cap, crash | That language leaves **both** sides before the diff, and the overview says so in a fixed sentence. One side alone would paint all of it as added or removed | `partial` |
 | A file will not parse, or is over the size limit | It is missing from the graph and counts in `filesNotParsed`, on the head side only. The language stays | `complete` |
+| The change adds, edits, deletes or renames a source file whose name the copy refused | The side that refused it holds none of its functions, so the diff misses them, or shows a rename as added or removed. It counts in `filesNotParsed` from either side, and the overview says so in a fixed sentence, which names no file. A refused name the change did not touch costs nothing | `partial` |
 | No merge base | A head-only tour: no diff, nothing scanned. Never a diff against the target tip | `complete` |
 | An interpreter is missing, and the tree holds no file of that language | Nothing: nothing was lost | `complete` |
 

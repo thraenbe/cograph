@@ -67,7 +67,7 @@ export interface TourTrees {
   dirty: boolean;
   /** Headless: what the analysis could not do, one fixed sentence each, printed on the overview. */
   analysisNotes?: string[];
-  /** Headless: files that would not parse and are missing from the graph. */
+  /** Headless: files missing from the graph because they would not parse, were over the size limit, or the copy refused a changed file's name. */
   filesNotParsed?: number;
 }
 

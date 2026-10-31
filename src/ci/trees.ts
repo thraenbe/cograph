@@ -5,9 +5,10 @@ import { scanStructure } from '../structureScanner';
 import type { StructureTree } from '../structureScanner';
 import type { TourProgress, TourTarget, TourTrees } from '../tour/tourApi';
 import { diffGraphs } from '../vcs/engine/graphDiff';
-import { materializeCommit } from '../vcs/engine/headTree';
+import { analyzerKeepsPath, copyRefusesPath, materializeCommit } from '../vcs/engine/headTree';
 import type { HeadTreeDeps } from '../vcs/engine/headTree';
 import { changedPaths, commitFiles, listCommits } from '../vcs/engine/localBranch';
+import type { BranchChangedPath } from '../vcs/engine/localBranch';
 import type { AnalyzedTree } from '../vcs/engine/treeAnalysis';
 import type { Exec } from '../vcs/ghCliSource';
 import type { PullRequest } from '../vcs/types';
@@ -20,7 +21,9 @@ import type { PullRequest } from '../vcs/types';
  * output cap, crash), on either side, leaves both sides before the diff. One side's timeout
  * would otherwise paint all of that language as added or removed; with it, the tour says what
  * is missing. A file that will not parse is not such a failure: it is counted, and the
- * language stays, so one poison file switches nothing off (F7).
+ * language stays, so one poison file switches nothing off (F7). A changed file the copy refused
+ * saw no analyzer at all, so a pull request could hide a function behind its name: it is counted
+ * too, and the tour reads partial, because what is missing is the change itself.
  */
 
 /** The file `--context` names; the platform adapter writes it. Its strings are the change's author's: data. */
@@ -79,6 +82,9 @@ const FAILURE_WORDS: Record<Exclude<AnalyzerStatus, 'ok' | 'empty'>, string> = {
   'output-too-large': 'produced more output than a tour can take',
 };
 
+/** No name in it: a file's name is the change's author's text, and `filesNotParsed` has the count. */
+const REFUSED_NOTE = 'Changed files with a control character in their name are missing from this tour: their functions are left out of the map and the diff.';
+
 const SFC_FILE = /\.(vue|svelte)$/i;
 
 /** Languages this tree has files in. A component's language is known only to the analyzer, so it counts for both. */
@@ -119,6 +125,12 @@ function analysedTree(side: AnalysedSide, dropped: Map<string, AnalyzerStatus>):
 /** In `ANALYZER_SCRIPTS` order, so two builds of one input give the same sentences. */
 function notesFor(dropped: Map<string, AnalyzerStatus>): string[] {
   return ANALYZER_SCRIPTS.filter(s => dropped.has(s.lang)).map(s => noteFor(s.lang, dropped.get(s.lang) as AnalyzerStatus));
+}
+
+/** Changed files the copy refused. Either name of a rename counts: the side it names lost the file. */
+function refusedChanges(paths: BranchChangedPath[]): number {
+  const refused = (file: string | undefined) => file !== undefined && analyzerKeepsPath(file) && copyRefusesPath(file);
+  return paths.filter(p => refused(p.path) || refused(p.previousPath)).length;
 }
 
 /** A change's number; null when it has none, and the tour is then one of a branch. */
@@ -174,8 +186,9 @@ export async function prepareCiTrees(deps: CiTreesDeps, change: CiChange, target
     listCommits(treeDeps, baseSha, change.head),
     baseSha ? changedPaths(treeDeps, baseSha, change.head) : Promise.resolve([]),
   ]);
-  const filesNotParsed = headSide.statuses.filter(s => !dropped.has(s.lang)).reduce((n, s) => n + (s.filesNotParsed ?? 0), headSide.oversized);
-  const notes = notesFor(dropped);
+  const refused = refusedChanges(paths);
+  const filesNotParsed = headSide.statuses.filter(s => !dropped.has(s.lang)).reduce((n, s) => n + (s.filesNotParsed ?? 0), headSide.oversized + refused);
+  const notes = [...notesFor(dropped), ...(refused ? [REFUSED_NOTE] : [])];
   return {
     repoRoot: deps.repoRoot, target,
     head: { sha: change.head, dir: head.root, graph: head.graph, files: headFiles },
@@ -189,7 +202,7 @@ export async function prepareCiTrees(deps: CiTreesDeps, change: CiChange, target
   };
 }
 
-/** `manifest.summary.analysis`: a language gone is partial, a file not parsed is counted and is not. */
+/** `manifest.summary.analysis`: a language gone or a changed file refused is partial, a file not parsed is counted and is not. */
 export function analysisState(trees: TourTrees): 'complete' | 'partial' {
   return trees.analysisNotes?.length ? 'partial' : 'complete';
 }

@@ -220,6 +220,74 @@ suite('ci trees: prepareCiTrees through the headless api', function () {
     });
   });
 
+  suite('a changed path the copy refused', () => {
+    const HIDDEN = 'src/a\nb.py';
+    const PLAIN = 'src/plain.py';
+    const SOURCE = 'def hidden():\n    pass\n';
+    const NOTE = 'Changed files with a control character in their name are missing from this tour: their functions are left out of the map and the diff.';
+
+    /** Commits `before`, then `after`, and tours the second against the first. */
+    const tour = async (before: Record<string, string | null>, after: Record<string, string | null>): Promise<CiTrees> => {
+      sh(origin.work, ['switch', '--quiet', 'feature']);
+      const from = commit(origin.work, before, 'before');
+      const to = commit(origin.work, after, 'after');
+      push(origin, 'feature');
+      return prepare(clone(root, origin, '--no-checkout'), { head: to, base: from });
+    };
+    const assertPartial = (trees: CiTrees, count: number) => {
+      assert.strictEqual(trees.filesNotParsed, count);
+      assert.deepStrictEqual(trees.analysisNotes, [NOTE], 'one sentence, and no name in it: a name is the pull request\'s text');
+      assert.strictEqual(analysisState(trees), 'partial');
+    };
+    const assertUntouched = (trees: CiTrees) => {
+      assert.strictEqual(trees.filesNotParsed, undefined);
+      assert.strictEqual(trees.analysisNotes, undefined);
+      assert.strictEqual(analysisState(trees), 'complete');
+    };
+
+    const CHANGES: Array<[title: string, before: Record<string, string | null>, after: Record<string, string | null>, status: string, shown: string[]]> = [
+      ['added: the function is in no graph', {}, { [HIDDEN]: SOURCE }, 'added', []],
+      ['edited: both sides lost it', { [HIDDEN]: SOURCE }, { [HIDDEN]: `${SOURCE}\ndef more():\n    pass\n` }, 'modified', []],
+      ['deleted: only the base copy lost it, so no removal shows', { [HIDDEN]: SOURCE }, { [HIDDEN]: null }, 'deleted', []],
+      ['renamed away from: only the old name was refused, so the function shows as new', { [HIDDEN]: SOURCE }, { [HIDDEN]: null, [PLAIN]: SOURCE }, 'renamed', ['added hidden']],
+      ['renamed onto: the function shows as removed', { [PLAIN]: SOURCE }, { [PLAIN]: null, [HIDDEN]: SOURCE }, 'renamed', ['removed hidden']],
+    ];
+
+    for (const [title, before, after, status, shown] of CHANGES) {
+      test(`REGRESSION: ${title}`, async function () {
+        if (process.platform === 'win32') { this.skip(); } // NTFS has no such name, and git refuses it
+        const trees = await tour(before, after);
+        assert.deepStrictEqual(changes(trees), shown);
+        assert.ok(trees.changedPaths.some(p => (p.path === HIDDEN || p.previousPath === HIDDEN) && p.status === status), JSON.stringify(trees.changedPaths));
+        assertPartial(trees, 1);
+      });
+    }
+
+    test('each refused file counts, beside the ones that would not parse, under one sentence', async function () {
+      if (process.platform === 'win32') { this.skip(); } // NTFS has no such name, and git refuses it
+      assertPartial(await tour({}, { [HIDDEN]: SOURCE, 'src/c\rd.py': SOURCE, 'src/broken.py': 'def broken(:\n' }), 3);
+    });
+
+    test('a tab is no refusal: the file is analysed, as in a checkout', async function () {
+      if (process.platform === 'win32') { this.skip(); } // NTFS has no such name, and git refuses it
+      const trees = await tour({}, { 'src/a\tb.py': SOURCE });
+      assert.deepStrictEqual(changes(trees), ['added hidden']);
+      assertUntouched(trees);
+    });
+
+    test('a file the copy would not hold anyway was not refused: nothing is missing', async function () {
+      if (process.platform === 'win32') { this.skip(); } // NTFS has no such name, and git refuses it
+      const trees = await tour({}, { 'docs/a\nb.md': 'text\n' });
+      assert.deepStrictEqual(trees.changedPaths.map(p => p.path), ['docs/a\nb.md']);
+      assertUntouched(trees);
+    });
+
+    test('a refused name this change did not touch is no part of its tour', async function () {
+      if (process.platform === 'win32') { this.skip(); } // NTFS has no such name, and git refuses it
+      assertUntouched(await tour({ [HIDDEN]: SOURCE }, { [PLAIN]: SOURCE }));
+    });
+  });
+
   test('REGRESSION (F16): analyzers run from the work dir, in the tool environment', async () => {
     const body = `if (lang === 'analyze_ts.js') { fs.writeFileSync(process.env.SEEN, JSON.stringify({ cwd: process.cwd(), token: process.env.GITHUB_TOKEN ?? null, heap: process.execArgv })); } report([]);`;
     const seen = path.join(root, 'seen.json');

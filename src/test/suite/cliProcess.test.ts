@@ -115,6 +115,30 @@ suite('cliProcess.runCliStream', () => {
     assert.strictEqual(((await q.then(() => null, (e: Error & { stderr?: string }) => e)) as { stderr?: string }).stderr, '', 'nothing on stderr: an empty tail');
   });
 
+  test('REGRESSION: a character split across two chunks survives, on stdout, on stderr and in err.stderr', async () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const p = runCliStream(baseOpts({ onStdout: t => out.push(t), onStderr: t => err.push(t) }));
+    const text = Buffer.from('prüfe€');
+    for (const stream of [proc.stdout, proc.stderr]) {
+      stream.emit('data', text.subarray(0, 8)); // inside the three bytes of the euro sign
+      stream.emit('data', text.subarray(8));
+    }
+    proc.emit('close', 1);
+    await assert.rejects(p, (e: Error & { stderr: string }) => e.stderr === 'prüfe€');
+    assert.strictEqual(out.join(''), 'prüfe€');
+    assert.strictEqual(err.join(''), 'prüfe€');
+  });
+
+  test('bytes still held at the end come out before onEnd, as the replacement character they are', async () => {
+    const order: string[] = [];
+    const p = runCliStream(baseOpts({ onStdout: t => order.push(`out:${t}`), onEnd: () => order.push('end') }));
+    proc.stdout.emit('data', Buffer.from('€').subarray(0, 2));
+    proc.emit('close', 0);
+    await p;
+    assert.deepStrictEqual(order.filter(x => x !== 'out:'), ['out:\ufffd', 'end']);
+  });
+
   test('rejects when the process cannot start', async () => {
     const p = runCliStream(baseOpts());
     proc.emit('error', new Error('ENOENT'));

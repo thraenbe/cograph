@@ -16,6 +16,7 @@ import ast
 import json
 import os
 import sys
+import warnings
 
 
 def collect_definitions(root: str) -> dict[str, dict]:
@@ -278,6 +279,8 @@ def _collect_calls_in_stmt(stmt: ast.stmt, name_to_ids: dict, found: set,
 
 def main():
     global _EXPLICIT_FILES
+    # A SyntaxWarning prints its whole source line, once per string literal: 1.5 GB of stderr from a 50 KB line.
+    warnings.simplefilter('ignore')
     if len(sys.argv) < 2:
         print('Usage: analyze.py <workspace_root> [--files <listpath>]', file=sys.stderr)
         sys.exit(1)

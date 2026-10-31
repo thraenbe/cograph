@@ -121,6 +121,95 @@ suite('analyzerSpawn', () => {
     }
   });
 
+  /** A scripts folder whose analyzers report what they were given, instead of analysing. */
+  function probeScripts(): string {
+    const scripts = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-probe-'));
+    const probe = `const fs = require('fs');
+      const [, script, root, , list] = process.argv;
+      fs.writeFileSync(script + '.seen', JSON.stringify({ root, cwd: process.cwd(), canary: process.env.CG_CANARY ?? null, execArgv: process.execArgv, list, listed: fs.readFileSync(list, 'utf8') }));
+      process.stdout.write('{"nodes":[],"edges":[],"files":[]}');`;
+    for (const { script } of ANALYZER_SCRIPTS) { fs.writeFileSync(path.join(scripts, script), probe); }
+    return scripts;
+  }
+  const seenBy = (scripts: string, script: string) => JSON.parse(fs.readFileSync(path.join(scripts, `${script}.seen`), 'utf8'));
+
+  test('REGRESSION (F6): a name holding a line break stays off the list of a full pass, a tab stays on it', async function () {
+    if (process.platform === 'win32') { this.skip(); }
+    const dir = tempProject({ 'plain.py': 'def a(): pass\n', 'tab\there.py': 'def b(): pass\n', 'x\n/outside/evil.py': 'def c(): pass\n', 'y\r/outside/evil.py': 'def d(): pass\n' });
+    const scripts = probeScripts();
+    const logged: string[] = [];
+    try {
+      await spawnAnalyzers(dir, { scriptsDir: scripts, pythonBin: process.execPath, log: l => logged.push(l) });
+      assert.deepStrictEqual(seenBy(scripts, 'analyze.py').listed.split('\n').sort(), [path.join(dir, 'plain.py'), path.join(dir, 'tab\there.py')]);
+      assert.ok(logged.some(l => l.includes('2 files with a line break')), logged.join('|'));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(scripts, { recursive: true, force: true });
+    }
+  });
+
+  test('a run with its own cwd, environment and node flags: the analyzers get those and nothing of this process, the list stays in that cwd', async () => {
+    const dir = tempProject({ 'a.py': 'def a(): pass\n' });
+    const scripts = probeScripts();
+    const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cg-cwd-')));
+    process.env.CG_CANARY = 'secret-of-the-job';
+    try {
+      await spawnAnalyzers(dir, { scriptsDir: scripts, pythonBin: process.execPath, cwd, env: { PATH: process.env.PATH, ELECTRON_RUN_AS_NODE: '1' }, nodeArgs: ['--max-old-space-size=1234'] });
+      const node = seenBy(scripts, 'analyze_ts.js');
+      assert.strictEqual(node.cwd, cwd);
+      assert.strictEqual(node.canary, null, 'the environment is the given one, not an addition to this process\'s');
+      assert.deepStrictEqual(node.execArgv, ['--max-old-space-size=1234']);
+      assert.ok(node.list.startsWith(cwd + path.sep), node.list);
+      assert.deepStrictEqual(seenBy(scripts, 'analyze.py').execArgv, [], 'node flags are for node analyzers');
+      assert.deepStrictEqual(fs.readdirSync(cwd), [], 'the list is gone afterwards');
+    } finally {
+      delete process.env.CG_CANARY;
+      for (const d of [dir, scripts, cwd]) { fs.rmSync(d, { recursive: true, force: true }); }
+    }
+  });
+
+  test('without its own environment a run inherits this process\'s, as the extension does', async () => {
+    const dir = tempProject({ 'a.py': 'def a(): pass\n' });
+    const scripts = probeScripts();
+    process.env.CG_CANARY = 'inherited';
+    try {
+      await spawnAnalyzers(dir, { scriptsDir: scripts, pythonBin: process.execPath });
+      assert.strictEqual(seenBy(scripts, 'analyze_ts.js').canary, 'inherited');
+    } finally {
+      delete process.env.CG_CANARY;
+      for (const d of [dir, scripts]) { fs.rmSync(d, { recursive: true, force: true }); }
+    }
+  });
+
+  test('REGRESSION (F3): output over the caller\'s cap kills the analyzer; the default cap would not have', async () => {
+    const hooks = { log: () => undefined };
+    const twoMb = ['-e', 'process.stdout.write("x".repeat(2 * 1024 * 1024)); setTimeout(() => process.stdout.write("y"), 50);'];
+    const capped = await spawnAnalyzer(process.execPath, twoMb, 'x', hooks, { maxOutputBytes: 1024 * 1024 });
+    assert.deepStrictEqual([capped.status, capped.detail], ['output-too-large', '> 1 MB']);
+    assert.strictEqual((await spawnAnalyzer(process.execPath, twoMb, 'x', hooks)).status, 'parse-error');
+  });
+
+  test('REGRESSION: stderr past what a string can hold neither throws nor grows without limit', async function () {
+    this.timeout(60_000);
+    // 600 MiB, then the exit: V8 strings end at 512 MiB, and the append sits in an event handler nothing catches.
+    const flood = 'const b = Buffer.alloc(1 << 24, 120); let n = 0; const go = () => { while (n < 36) { n++; if (!process.stderr.write(b)) { process.stderr.once("drain", go); return; } } process.exitCode = 1; }; go();';
+    const r = await spawnAnalyzer(process.execPath, ['-e', flood], 'x', { log: () => undefined });
+    assert.strictEqual(r.status, 'exit-nonzero');
+    assert.ok((r.detail ?? '').length < 320, `detail is ${(r.detail ?? '').length} long`);
+  });
+
+  test('REGRESSION: the Python analyzer writes no warning, which would print the whole line once per string literal', async function () {
+    this.timeout(30_000);
+    const dir = tempProject({ 'w.py': `x = [${'"\\d",'.repeat(2000)}]\n\ndef kept():\n    pass\n` });
+    try {
+      const out = cp.spawnSync(PYTHON, [path.join(SCRIPTS, 'analyze.py'), dir], { encoding: 'utf8', maxBuffer: 1 << 28 });
+      assert.strictEqual(out.stderr, '');
+      assert.ok(JSON.parse(out.stdout).nodes.some((n: { name: string }) => n.name === 'kept'));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('a script is the bundled one when the package holds it, else the source', () => {
     const root = tempProject({ 'scripts/analyze.py': '', 'scripts/analyze_ts.js': '', 'dist/scripts/analyze_ts.js': '' });
     try {

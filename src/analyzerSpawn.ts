@@ -15,6 +15,8 @@ import { listProjectSourceFiles } from './structureScanner';
 
 export const MAX_OUTPUT_BYTES = 500 * 1024 * 1024; // 500 MB guard
 export const ANALYSIS_TIMEOUT_MS = 300_000;         // 5 min
+/** Only the start of a failed analyzer's stderr is shown; the rest must not grow past what a string can hold. */
+const MAX_STDERR_CHARS = 64 * 1024;
 
 export type AnalyzerStatus =
   | 'ok'             // produced ≥1 node
@@ -30,6 +32,8 @@ export interface AnalyzerResult {
   status: AnalyzerStatus;
   lang: string;
   detail?: string;
+  /** Files the analyzer could not use; they are missing from its graph, the rest is complete. */
+  filesNotParsed?: number;
 }
 
 export interface SpawnHooks {
@@ -40,14 +44,24 @@ export interface SpawnHooks {
   onEnd?: (proc: cp.ChildProcess) => void;
 }
 
+/** Where a run differs from the extension's: unset means this process's own. */
+export interface SpawnLimits {
+  /** Above this much stdout the analyzer is killed; MAX_OUTPUT_BYTES when unset. */
+  maxOutputBytes?: number;
+  cwd?: string;
+  /** The child's whole environment, not an addition to this process's. */
+  env?: NodeJS.ProcessEnv;
+}
+
 /** Run one analyzer; never rejects — every failure comes back as a status. */
-export function spawnAnalyzer(bin: string, args: string[], lang: string, hooks: SpawnHooks): Promise<AnalyzerResult> {
+export function spawnAnalyzer(bin: string, args: string[], lang: string, hooks: SpawnHooks, limits: SpawnLimits = {}): Promise<AnalyzerResult> {
+  const maxOutputBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
   const empty: GraphData = { nodes: [], edges: [], files: [] };
   const fail = (status: AnalyzerStatus, detail?: string): AnalyzerResult => ({ graph: empty, status, lang, detail });
   return new Promise((resolve) => {
     let proc: cp.ChildProcess;
     try {
-      proc = cp.spawn(bin, args);
+      proc = cp.spawn(bin, args, { cwd: limits.cwd, env: limits.env });
     } catch (err: unknown) {
       resolve(fail('spawn-error', (err as Error).message));
       return;
@@ -83,17 +97,17 @@ export function spawnAnalyzer(bin: string, args: string[], lang: string, hooks: 
 
     proc.stdout.on('data', (chunk: Buffer) => {
       stdoutBytes += chunk.length;
-      if (stdoutBytes > MAX_OUTPUT_BYTES) {
+      if (stdoutBytes > maxOutputBytes) {
         tooLarge = true;
         if (proc && typeof proc.kill === 'function') { try { proc.kill(); } catch { /* ignore */ } }
-        resolve(fail('output-too-large', '> 500 MB'));
+        resolve(fail('output-too-large', `> ${Math.round(maxOutputBytes / (1024 * 1024))} MB`));
         return;
       }
       stdout += stdoutText.write(chunk);
     });
 
     proc.stderr.on('data', (chunk: Buffer) => {
-      stderr += stderrText.write(chunk);
+      if (stderr.length < MAX_STDERR_CHARS) { stderr += stderrText.write(chunk); }
     });
 
     proc.on('error', (err: Error) => {
@@ -116,12 +130,13 @@ export function spawnAnalyzer(bin: string, args: string[], lang: string, hooks: 
         const graph = JSON.parse(stdout) as GraphData;
         // D6: analyzers report how many ambiguous call names they narrowed /
         // dropped (only present when > 0) — make the effect visible in the log.
-        const stats = (graph as { stats?: { ambiguousNarrowed?: number; ambiguousDropped?: number } }).stats;
-        if (stats) {
+        const stats = (graph as { stats?: { ambiguousNarrowed?: number; ambiguousDropped?: number; filesNotParsed?: number } }).stats;
+        if (stats?.ambiguousNarrowed || stats?.ambiguousDropped) {
           hooks.log(`Analyzer [${lang}]: ${stats.ambiguousNarrowed ?? 0} ambiguous calls narrowed, `
             + `${stats.ambiguousDropped ?? 0} dropped (names with more than 8 definitions)`);
         }
-        resolve({ graph, status: graph.nodes.length > 0 ? 'ok' : 'empty', lang });
+        if (stats?.filesNotParsed) { hooks.log(`Analyzer [${lang}]: ${stats.filesNotParsed} files not parsed`); }
+        resolve({ graph, status: graph.nodes.length > 0 ? 'ok' : 'empty', lang, ...(stats?.filesNotParsed ? { filesNotParsed: stats.filesNotParsed } : {}) });
       } catch {
         resolve(fail('parse-error', stderr ? stderr.slice(0, 300).trim() : 'invalid JSON'));
       }
@@ -180,28 +195,40 @@ export function mergeResults(statuses: AnalyzerResult[]): GraphData {
   };
 }
 
-export interface SpawnAnalyzersOptions {
+/** A name holding a line break stays off the `--files` list: it would be two lines, and the second a path the name picks. */
+export function listableFiles(files: string[], log: (msg: string) => void, kind: string): string[] {
+  const listed = files.filter(f => !/[\r\n]/.test(f));
+  if (listed.length < files.length) { log(`${files.length - listed.length} files with a line break in their name left out of the ${kind} analysis`); }
+  return listed;
+}
+
+export interface SpawnAnalyzersOptions extends SpawnLimits {
   /** Directory holding analyze.py and analyze_*.js (scripts/ or dist/scripts/). */
   scriptsDir: string;
   /** Python interpreter; the Python analyzer is reported as a spawn error when it is null. */
   pythonBin: string | null;
   /** Interpreter for the node analyzers; the running Node by default. */
   nodeBin?: string;
+  /** Node flags before each node analyzer's script, such as a heap limit. */
+  nodeArgs?: string[];
   log?: (msg: string) => void;
   /** Kills every child on abort. */
   signal?: AbortSignal;
 }
 
+let listSeq = 0;
+
 /**
  * One full analysis of `dir` outside VS Code: the structure scanner's file list
  * (`--files`, so the graph covers what the Folder tree shows), the six analyzers
- * in parallel, their graphs merged.
+ * in parallel, their graphs merged. With a `cwd`, the list is written there.
  */
 export async function spawnAnalyzers(dir: string, opts: SpawnAnalyzersOptions): Promise<{ graph: GraphData; statuses: AnalyzerResult[] }> {
   if (opts.signal?.aborted) { throw new Error('Cancelled.'); } // an abort before the listener exists would never fire it
   const log = opts.log ?? (() => undefined);
-  const listPath = path.join(os.tmpdir(), `cograph-spawn-${process.pid}-${Date.now()}.txt`);
-  fs.writeFileSync(listPath, listProjectSourceFiles(dir).map(f => f.path).join('\n'), 'utf8');
+  const limits: SpawnLimits = { maxOutputBytes: opts.maxOutputBytes, cwd: opts.cwd, env: opts.env };
+  const listPath = path.join(opts.cwd ?? os.tmpdir(), `cograph-spawn-${process.pid}-${listSeq++}.txt`);
+  fs.writeFileSync(listPath, listableFiles(listProjectSourceFiles(dir).map(f => f.path), log, 'full').join('\n'), 'utf8');
   const live = new Set<cp.ChildProcess>();
   const kill = () => { for (const p of live) { try { p.kill(); } catch { /* gone */ } } };
   opts.signal?.addEventListener('abort', kill);
@@ -209,9 +236,9 @@ export async function spawnAnalyzers(dir: string, opts: SpawnAnalyzersOptions): 
     const statuses = await Promise.all(ANALYZER_SCRIPTS.map(({ script, lang, python }) => {
       const bin = python ? opts.pythonBin : (opts.nodeBin ?? process.execPath);
       if (!bin) { return Promise.resolve<AnalyzerResult>({ graph: { nodes: [], edges: [], files: [] }, status: 'spawn-error', lang, detail: 'no Python interpreter' }); }
-      return spawnAnalyzer(bin, [path.join(opts.scriptsDir, script), dir, '--files', listPath], lang, {
+      return spawnAnalyzer(bin, [...(python ? [] : opts.nodeArgs ?? []), path.join(opts.scriptsDir, script), dir, '--files', listPath], lang, {
         log, onStart: (p) => live.add(p), onEnd: (p) => live.delete(p),
-      });
+      }, limits);
     }));
     if (opts.signal?.aborted) { throw new Error('Cancelled.'); }
     return { graph: mergeResults(statuses), statuses };

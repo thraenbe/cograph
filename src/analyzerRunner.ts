@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { walkProjectFiles } from './projectScope';
 import { listProjectSourceFiles, isSfcFileName } from './structureScanner';
-import { ANALYZER_SCRIPTS, analyzerScriptPath, mergeResults, probePython, spawnAnalyzer } from './analyzerSpawn';
+import { ANALYZER_SCRIPTS, analyzerScriptPath, listableFiles, mergeResults, probePython, spawnAnalyzer } from './analyzerSpawn';
 import type { AnalyzerResult } from './analyzerSpawn';
 
 export { MAX_OUTPUT_BYTES, ANALYSIS_TIMEOUT_MS } from './analyzerSpawn';
@@ -151,14 +151,10 @@ export class AnalyzerRunner {
     }
   }
 
-  /**
-   * Write a newline-separated file list for `--files`; null (logged) when it cannot be written.
-   * A name holding a line break stays out: it would be two lines, and the second a path the name picks.
-   */
+  /** Write a newline-separated file list for `--files`; null (logged) when it cannot be written. */
   private writeFileList(kind: 'full' | 'subset', files: string[]): string | null {
     try {
-      const listed = files.filter(f => !/[\r\n]/.test(f));
-      if (listed.length < files.length) { this.log(`${files.length - listed.length} files with a line break in their name left out of the ${kind} analysis`); }
+      const listed = listableFiles(files, this.log, kind);
       const listPath = path.join(os.tmpdir(), `cograph-${kind}-${process.pid}-${this.fileListSeq++}.txt`);
       fs.writeFileSync(listPath, listed.join('\n'), 'utf8');
       return listPath;

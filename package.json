@@ -317,7 +317,7 @@
     "@types/node": "^20.0.0",
     "@types/sinon": "^17.0.0",
     "@types/vscode": "~1.75.0",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.72.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.3.0",
     "@vscode/vsce": "^4.0.0",

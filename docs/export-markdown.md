@@ -1,6 +1,7 @@
 # Export Markdown: plan
 
-Status: plan, waiting for Bela's go (2026-11-03). Branch `feat/export-markdown`, off `main` at 6241ae7.
+Status: plan, revision 2 (2026-11-03), waiting for Bela's go. Branch `feat/export-markdown`, off
+`main` at 6241ae7. Revision 2 adds the research orchestrator's requirements r1-r5.
 
 ## Why
 
@@ -16,8 +17,8 @@ A command line tool, no VS Code, no network, no model:
 ```
 node dist/export/cli.js <repo> --out <dir> [options]
   --lang java,python      analysers to run (default: all six)
-  --symbols <list|@file>  only these symbols get a symbol file (ids or unique names)
-  --features <file.json>  {"<feature>": ["<entry symbol>", ...]} -> one file per feature
+  --symbols <list|@file>  only these symbols get a symbol file (default: every function)
+  --features <file.json>  {"<feature>": ["<entry>", ...]} -> one file per feature
   --depth <1-5>           callers/callees depth in symbol and feature files (default 2)
   --source                add the source slice to symbol files (default off)
   --python <bin>          Python for analyze.py (default python3)
@@ -25,8 +26,14 @@ node dist/export/cli.js <repo> --out <dir> [options]
 ```
 
 It runs the analysers itself (same scripts the extension spawns, given a sorted file list), builds the
-same `GraphIndex` the MCP server uses, and renders with the same formatters. So the files say exactly
-what the MCP tools say, minus the parts that are not deterministic.
+same `GraphIndex` the MCP server uses, and renders with the same formatters. So the files say what the
+MCP tools say, minus the parts that are not deterministic, plus the Java details below.
+
+A feature entry (r5) is a method (`src/a/Score.java::Score.save` or a unique name), a class
+(`Score`, or `src/a/Score.java::Score` when the name exists in several files) or a file
+(`src/a/Score.java`); a class or file stands for all its methods. A name that matches several things
+is an error that lists them, never a guess. The export covers one repo per run: a reuse source in a
+sibling game is exported by a second run on that game, with its own features file.
 
 No MCP tool: the MCP server is read-only by design (`readOnlyHint`), and a tool that writes files
 would change that. A VS Code command can come later; it is not needed for the research.
@@ -35,21 +42,81 @@ would change that. A VS Code command can come later; it is not needed for the re
 
 ```
 <out>/
-  README.md                  what this is, options, CoGraph version, the analyser limits below
-  manifest.json              inputs (every analysed file with sha256), options, every output file with sha256
+  README.md                  what this is, options, versions, the analyser limits below
+  manifest.json              inputs, options, versions, every output file with bytes, words, sha256
   overview.md                workspace overview: languages, folder tree, entry points, hot spots
-  edges.md                   edge-count report: per language and per file
-  edges.tsv                  every resolved edge, one per line: caller id <TAB> callee id <TAB> kind
-  files/<rel path>.md        per source file: its functions, then per function callers and callees (depth 1)
+  edges.md                   edge and call-site counts: per language and per file
+  edges.tsv                  every resolved edge: caller id, callee id, kind (internal, library)
+  callsites.tsv              Java: every call site the analyser saw, linked or not
+  unresolved.tsv             Java: the call sites it saw but did not link (r2)
+  files/<rel path>.md        per source file: class cards, then its functions with callers and callees (depth 1)
   symbols/<rel path>/<Class.method>.md          per symbol: card, callers and callees (--depth), impact
   symbols/<rel path>/<Class.method>-L<line>.md  same, when the name repeats in that file (overloads)
-  features/<feature>.md      per feature: each entry's card, callees and callers (--depth), combined impact
+  features/<feature>.md      per feature: each entry's card, callers and callees (--depth), combined impact
 ```
 
-Symbol files exist for every function unless `--symbols` narrows them. Names follow the MCP ids
-(`src/game/Score.java::Score.save` -> `symbols/src/game/Score.java/Score.save.md`). Characters that
-Windows forbids are escaped. If two output paths differ only in case, the export stops with an error
-that names both, so nothing gets overwritten on macOS or Windows.
+Names follow the MCP ids (`src/game/Score.java::Score.save` ->
+`symbols/src/game/Score.java/Score.save.md`). Characters that Windows forbids are escaped. If two
+output paths differ only in case, the export stops with an error that names both.
+
+### Content per file
+
+- Class card (r1), one per class in `files/<path>.md`: name, `extends`, `implements`, fields (modifiers,
+  type, name, no initialiser values), and asset references: string literals in the class that end in a
+  known asset extension (png, gif, jpg, wav, mp3, ogg, ttf, txt, properties, xml, mar, rep, dat, ...) or
+  are the first argument of a resource or file call (`getResource`, `getResourceAsStream`,
+  `ImageIO.read`, `new File`, `FileInputStream`, `FileOutputStream`, `FileReader`, `FileWriter`, `new URL`,
+  ...). The two lists are fixed in the code and printed in `README.md`. Java only in this change; for
+  Python the card shows the class and its bases and says fields and assets are not extracted.
+- Symbol and feature files keep library callees (r4): the callee walk includes library nodes such as
+  `java.net.URLEncoder.encode`. In Java, a library edge exists only for a call on an imported type
+  name or a static import; `new FileOutputStream(..)` and `out.write(..)` on a variable are not edges.
+  So every Java symbol file also lists the method's unlinked call sites ("Calls the analyser did not
+  link": line, receiver expression, method), which is where those security-relevant calls show up.
+- `manifest.json` (r3): per output file the path, bytes (UTF-8), words and sha256, plus totals per
+  folder, so context arms can be matched on size. Words are maximal runs of non-whitespace characters.
+  It also records the inputs (every analysed file with sha256), the options, the CoGraph version and
+  commit, and the sha256 of every analyser script, so a frozen analyser version can be checked.
+
+## The Java analyser limit (important for the research)
+
+`scripts/analyze_java.js` links a call when it is a bare name or on `this` (matched by name across the
+whole project), or on an imported library type or static import. Checked on a three-class sample:
+
+| Call in `Game.tick()` | Edge today |
+|---|---|
+| `update()`, `this.render()` | yes |
+| `player.move(1)` (field of a project type) | no |
+| `Score.save(3)` (static, project class) | no |
+| `helper().move(2)` (call on a return value; the analyser does not even see the `.move`) | no |
+| `new FileWriter(..)` then `w.write(v)` | no |
+
+Measured on ApoGames (read-only, analyser from `main`):
+
+| Game | Methods | Internal edges | of them cross-file | Library edges | Receiver-style call sites (rough grep) |
+|---|---|---|---|---|---|
+| ApoSimple | 1304 | 2858 | 2263 | 148 | about 4000 |
+| ApoPongBeat | 708 | 795 | 530 | 37 | about 1200 |
+| ApoCommando | 893 | 2303 | 1801 | 51 | about 1900 |
+
+Two gaps follow: calls on a receiver have no edge, and a bare-name match picks methods by name, not
+by type, so some edges can point at the wrong class. ApoMario has no Java sources in the dataset
+(only a jar).
+
+### Opt-in analyser report (r1, r2)
+
+The class cards and call sites come from the Java analyser's own parse, behind a new opt-in flag
+`--export-info`. The extension never passes it, so its graph stays byte-identical (a test checks
+nodes and edges with and without the flag). With the flag, the analyser adds:
+
+- `classes`: per class its file, line, extends, implements, fields and asset references.
+- `callSites`: every method invocation in a chain (each `.m(..)` of `a.b().c()` is its own site) and
+  every `new X(..)`, with file, line, column, calling method, receiver expression as written, method
+  name, and either the linked target ids or the reason it was not linked (`receiver`, `chained`,
+  `new`, `no-definition`, `ambiguous-dropped`, `library-not-imported`).
+
+`callsites.tsv` and `unresolved.tsv` are these rows, sorted by file, line and column. The cross-check
+can then measure recall (sites with no link) as well as precision (`edges.tsv`). Edges do not change.
 
 ## Determinism rules
 
@@ -69,76 +136,44 @@ on another machine.
    run leaves no half export, and no stale file from an earlier run survives.
 
 Changes to shared code: `src/mcp/queries.ts` and `src/mcp/overview.ts` switch their tie-breaks to the
-ordinal compare, and `formatSymbol` sorts its neighbour lists (today they are in Set order). MCP
-replies only change in the order of ties, which also makes them stable.
-
-## The Java analyser limit (important for the research)
-
-Checked today on a three-class sample: `scripts/analyze_java.js` links only calls by bare name or on
-`this` inside the project, and calls on an imported library type. It drops every call on another
-object or class of the project and on library objects held in variables:
-
-| Call in `Game.tick()` | Edge today |
-|---|---|
-| `update()`, `this.render()` | yes |
-| `player.move(1)` (field of a project type) | no |
-| `Score.save(3)` (static, project class) | no |
-| `helper().move(2)` (call on a return value) | no |
-| `new FileWriter(..)` then `w.write(v)` | no |
-
-Bare-name calls resolve by name across the whole project, so calls to inherited methods in other
-files do get edges. Measured on ApoGames (read-only, analyser from `main`):
-
-| Game | Methods | Internal edges | of them cross-file | Library edges | Receiver-style call sites (rough grep) |
-|---|---|---|---|---|---|
-| ApoSimple | 1304 | 2858 | 2263 | 148 | about 4000 |
-| ApoPongBeat | 708 | 795 | 530 | 37 | about 1200 |
-| ApoCommando | 893 | 2303 | 1801 | 51 | about 1900 |
-
-Two gaps follow: calls on a receiver have no edge, and a bare-name match picks methods by name, not
-by type, so some edges can point at the wrong class. ApoMario has no Java sources in the dataset
-(only a jar). The export makes the gaps visible instead of hiding them:
-
-- `edges.md`: per language and per file the number of functions, internal edges out and in, library
-  edges, functions without callers, and the analyser's own counts (ambiguous names narrowed or dropped).
-- `edges.tsv`: all edges with CoGraph ids, sorted, for session-396's JavaParser cross-check.
-- Proposed small analyser change in the same branch: count every call site the Java analyser sees
-  and how many it resolved, reported under `stats` and shown in `edges.md`. Edges stay unchanged.
-- `README.md` names the limit in one paragraph, so a reader of the context files knows it.
-
-Fixing the gap (resolve `x.m()` through the declared types of fields, locals and parameters) is a
-separate change to the analyser and changes what the research measures. Decision for Bela, below.
+ordinal compare, `formatSymbol` sorts its neighbour lists (today they are in Set order), and the
+formatters take caps as a parameter. MCP replies only change in the order of ties.
 
 ## Tests
 
 All plain Node (mocha on `out/`), no window. The full existing suite runs in the invisible nested
 shell (`.termi/briefs/eval/nested-test.sh`).
 
-- Fixtures: a small Java game (`src/test/fixtures/export/java-game/`, 4-5 classes with a highscore
-  file write, overloads, a constructor) and a small Python app.
+- Fixtures: a small Java game (`src/test/fixtures/export/java-game/`, 4-5 classes with fields, an
+  `extends`, overloads, a constructor, image and highscore-file literals, receiver, chained, static
+  and `new` calls) and a small Python app.
 - Golden files: the expected export of both fixtures is checked in; any format change shows up as a
   diff.
 - Determinism: export each fixture twice in two processes, from two different absolute paths, with
   different `PYTHONHASHSEED`, and compare every byte of the two directories. Shuffled node and edge
   order in a synthetic graph must give the same files.
+- Analyser: graph identical with and without `--export-info`; each unlinked kind in the fixture
+  appears in `unresolved.tsv` with the right reason; every linked site matches an edge in `edges.tsv`.
 - Each rule gets a test that fails when the rule is broken (for example: restore `localeCompare` or
-  the Set order and the test goes red; checked by mutating the code once).
+  the Set order and the test goes red; checked by mutating the code once, on a copy).
 - Unit tests: file naming (escapes, overloads, case collision), `--symbols` and `--features`
-  resolution (ambiguous names are an error listing the candidates, never a guess), `--clean` refusing
-  a folder that is not an export, the edge counts on the fixture.
+  resolution for method, class and file entries (ambiguous names are an error listing the
+  candidates), `--clean` refusing a folder that is not an export, word and byte counts.
 
 ## Not in this change
 
 No release, version bump, push or PR without Bela's go. No change to the extension UI or the VSIX.
 No reading of `.cograph/graph-cache.json` (the export always analyses, so the result does not depend
-on when VS Code last ran).
+on when VS Code last ran). No change to which Java calls become edges.
 
-## Decisions for Bela
+## Decisions
 
-1. Symbol files for every function by default (recommended: yes; a game has a few hundred, small files).
-2. Source slices: off by default, `--source` turns them on (recommended).
-3. The Java gap: (a) export as is, with the counts and the README note, and decide after the
-   JavaParser cross-check; or (b) a second branch that resolves `x.m()` by declared types before the
-   Phase 2 runs. Recommended: (a) now, then (b) if the cross-check shows the gap matters, because the
-   runs should use one fixed analyser version.
-4. Where the ApoGames dataset is on this machine (it is not under `~`), for the example output.
+Recommendations from the research orchestrator (session-396), matching mine; final word is Bela's.
+
+1. Symbol files for every function by default: yes.
+2. Source slices: off by default, `--source` turns them on.
+3. The Java gap: (a) export as is now, with the call-site report; (b) resolving `x.m()` by declared
+   types only if the cross-check shows the gap touches the edit sites. The analyser version used for
+   the runs is frozen before any run (its script hashes are in `manifest.json`).
+4. Dataset: `~/dresden-tu/1/rp-data/apogamessrc`, read-only. The example output uses a game that
+   has sources (ApoSimple or ApoCommando), not ApoMario.

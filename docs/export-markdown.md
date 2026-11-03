@@ -86,8 +86,18 @@ object or class of the project and on library objects held in variables:
 | `helper().move(2)` (call on a return value) | no |
 | `new FileWriter(..)` then `w.write(v)` | no |
 
-So for ApoGames, callers, callees and impact will mostly show calls inside one class. The export
-makes this visible instead of hiding it:
+Bare-name calls resolve by name across the whole project, so calls to inherited methods in other
+files do get edges. Measured on ApoGames (read-only, analyser from `main`):
+
+| Game | Methods | Internal edges | of them cross-file | Library edges | Receiver-style call sites (rough grep) |
+|---|---|---|---|---|---|
+| ApoSimple | 1304 | 2858 | 2263 | 148 | about 4000 |
+| ApoPongBeat | 708 | 795 | 530 | 37 | about 1200 |
+| ApoCommando | 893 | 2303 | 1801 | 51 | about 1900 |
+
+Two gaps follow: calls on a receiver have no edge, and a bare-name match picks methods by name, not
+by type, so some edges can point at the wrong class. ApoMario has no Java sources in the dataset
+(only a jar). The export makes the gaps visible instead of hiding them:
 
 - `edges.md`: per language and per file the number of functions, internal edges out and in, library
   edges, functions without callers, and the analyser's own counts (ambiguous names narrowed or dropped).

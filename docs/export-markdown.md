@@ -1,7 +1,8 @@
-# Export Markdown: plan
+# Export Markdown and Java analyzer fix: plan
 
-Status: plan, revision 2 (2026-11-03), waiting for Bela's go. Branch `feat/export-markdown`, off
-`main` at 6241ae7. Revision 2 adds the research orchestrator's requirements r1-r5.
+Status: plan, revision 3 (2026-11-04), waiting for Bela's go on both parts. Branch
+`feat/export-markdown`, off `main` at 6241ae7. Revision 2 added the research orchestrator's
+requirements r1-r5; revision 3 adds the Java analyzer fix (option b) after the research's javac gate.
 
 ## Why
 
@@ -91,17 +92,12 @@ whole project), or on an imported library type or static import. Checked on a th
 | `helper().move(2)` (call on a return value; the analyser does not even see the `.move`) | no |
 | `new FileWriter(..)` then `w.write(v)` | no |
 
-Measured on ApoGames (read-only, analyser from `main`):
-
-| Game | Methods | Internal edges | of them cross-file | Library edges | Receiver-style call sites (rough grep) |
-|---|---|---|---|---|---|
-| ApoSimple | 1304 | 2858 | 2263 | 148 | about 4000 |
-| ApoPongBeat | 708 | 795 | 530 | 37 | about 1200 |
-| ApoCommando | 893 | 2303 | 1801 | 51 | about 1900 |
-
-Two gaps follow: calls on a receiver have no edge, and a bare-name match picks methods by name, not
-by type, so some edges can point at the wrong class. ApoMario has no Java sources in the dataset
-(only a jar).
+The research project measured it against javac on six ApoGames (session-416,
+`~/dresden-tu/1/research-project/impl/02-cograph-context.md`, section 2; 17,624 in-project calls):
+recall 60.7 %, cross-class recall 54.1 %, cross-class calls on a receiver 31.3 %, precision 50.5 %,
+constructors 0 of 1345, library recall 2.7 %, and 0 of 67 Highscore sink calls linked. ApoMario's
+sources are inside `ApoMario.jar` (109 files); the research unzips it. The phase-0 gate failed, so
+the export alone is not enough: the analyser fix below (option b) comes first.
 
 ### Opt-in analyser report (r1, r2)
 
@@ -112,11 +108,121 @@ nodes and edges with and without the flag). With the flag, the analyser adds:
 - `classes`: per class its file, line, extends, implements, fields and asset references.
 - `callSites`: every method invocation in a chain (each `.m(..)` of `a.b().c()` is its own site) and
   every `new X(..)`, with file, line, column, calling method, receiver expression as written, method
-  name, and either the linked target ids or the reason it was not linked (`receiver`, `chained`,
-  `new`, `no-definition`, `ambiguous-dropped`, `library-not-imported`).
+  name, and either the linked target ids or the reason it was not linked (`unknown-type`,
+  `no-definition`, `ambiguous-dropped`; after the fix below, receiver, chained and `new` calls link).
 
 `callsites.tsv` and `unresolved.tsv` are these rows, sorted by file, line and column. The cross-check
-can then measure recall (sites with no link) as well as precision (`edges.tsv`). Edges do not change.
+can then measure recall (sites with no link) as well as precision (`edges.tsv`). The flag adds
+report fields only; which calls become edges is the analyser fix's job.
+
+## Java analyzer fix (option b)
+
+### Scope
+
+The five defects the research found (section 2 of their report), all in `scripts/analyze_java.js`:
+
+1. `this.` linking by name: a chain that starts with `this` links by method name only, so
+   `this.player.move()` links and `player.move()` does not, and neither checks the type.
+2. `super.m()` is dropped: the `Super` token is lost, the call becomes bare, and narrowing can pick the
+   caller itself, which is then thrown away as a self-loop.
+3. Bare calls ignore the class hierarchy: they link to up to 8 methods of the same name anywhere,
+   which is most of the 50 % precision. `resolveThisCall` (`narrowCalls.js`) already does own class
+   first, then base classes, but only the JS and TS analysers use it.
+4. Library nodes lose the class: `URLEncoder.encode` becomes `library::java.net::encode`.
+5. Project classes become library nodes (183 of 387 library edges): the check looks a class name up in
+   a map keyed by method names.
+
+Plus the two gaps behind most of the missing recall: calls on a receiver (`x.m()`, `Class.m()`,
+`a().b()`, `a[i].m()`) and constructors (`new X()`, `super(..)`, `this(..)`).
+
+### Approach: declared-type resolution
+
+No compiler and no JDK model, still one `java-parser` parse per file. Two passes, as today:
+
+- Pass 1 builds a type table for the project: per file the package and imports (single type,
+  wildcard, static); per class (top level, nested, inner, enum, interface) its full name, outer class,
+  `extends`, `implements`, fields with declared types, methods with parameter count, parameter types,
+  return type and `static`, and constructors.
+- Pass 2 walks each method body with a scope stack: parameters, locals (including for-each, catch,
+  try-with-resources and `var` from a `new` or a resolved call), fields of the class, its project
+  base classes and its outer classes. Each call site resolves its receiver to a type:
+
+| Receiver form | Resolved through |
+|---|---|
+| bare `m()`, `this.m()` | own class, then project base classes, then outer classes, then static imports (`resolveThisCall` order) |
+| `super.m()` | the base class chain, starting above the own class |
+| `x.m()`, `this.f.m()`, `x.f.m()` | declared type of the local, parameter or field, through field chains |
+| `Class.m()`, `pkg.Class.m()` | the class itself (static call) |
+| `a[i].m()` | element type of the array |
+| `((T) x).m()` | the cast type |
+| `a().b()` | declared return type of the resolved `a` |
+| `list.get(i).m()` | element type of a generic `java.util` container (fixed table: get, remove, elementAt, firstElement, lastElement, peek, poll, pop, next, getFirst, getLast; Map get, put, remove) |
+| `new X(..)`, `super(..)`, `this(..)` | the constructor of X, the base class or the own class |
+
+  Once the type is known, the method is looked up in that class and then up its project base classes
+  and interfaces (the static target, as javac resolves it). Overloads are chosen by argument count,
+  then by argument types where they are known; when several remain, all of them are linked.
+- A type that is not a project class resolves through the imports, the own package and a fixed list
+  of `java.lang` names to a library class, and the edge goes to `library::<package>.<Class>::<method>`
+  (constructors as `<init>`; `libraryName` becomes `<package>.<Class>`). The project-class check uses
+  the type table, so project classes never become library nodes.
+- A receiver whose type stays unknown (lambda parameter, raw generic, library return value) gets no
+  edge and is reported as `unknown-type`. No more name-only guesses for receivers. Bare calls inside a
+  class that find nothing in the hierarchy also get no edge; free name matching remains only where
+  there is no class context.
+- Ambiguous-name narrowing (D6) stays as the last step for the few pools still larger than 8.
+
+The resolver records the outcome of every call site (targets or reason), which is exactly what the
+export's `--export-info` report needs, so the two parts share one code path. New code goes into
+`scripts/javaTypes.js` (type table) and `scripts/javaResolve.js` (scopes and resolution), keeping
+`analyze_java.js` small. The other analysers are not touched.
+
+### What changes for users of the extension
+
+- Java graphs get more edges, fewer wrong ones, and constructor edges. Library nodes are per class,
+  so the library groups in the graph view split by class instead of by package.
+- Saved graphs and annotations keyed by old Java library ids no longer match those nodes; project
+  method ids do not change. To be checked during the work and named in the PR.
+- Analysis time: measured on the Java repos of the test corpus before and after, under the bench rules
+  (pre-registered limit: at most 25 % slower on the largest Java repo; the measurement decides).
+- The research's `crosscheck.js` keys library edges by package plus method name, so its library part
+  needs a one-line change for the new ids (research side; `libraryName` and the id carry everything).
+
+### Tests and acceptance
+
+- Fixture `src/test/fixtures/java-resolve/`: a small two-package game with one case per row of the
+  table above, plus overloads, an interface call, an inner class calling the outer class, an enum, a
+  static import, a wildcard import, `java.lang` calls and calls through a library-typed variable. The
+  expected edges are a checked-in TSV, written by hand and confirmed once with javac (the JDK's
+  `jdk.compiler` module is on this machine); the test compares the edge set exactly.
+- Regression tests for each of the five defects, each failing on today's analyser (checked by running
+  it against `main`'s version once).
+- The existing Java suites (`analyzeJava.test.ts`, `analyzeOop.test.ts`, narrowing, file list) stay
+  green; changed expectations are listed one by one in the PR.
+- Acceptance on ApoGames: the research's own gate (`work/context/run_gate.sh`, unchanged, read-only,
+  with `COGRAPH` pointing at the fix branch) on the research's six-game tree must reach at least 90 %
+  recall and 90 % precision on every game (the thresholds the research proposed; Bela agrees them).
+  Also reported: recall per receiver form, constructors, library recall, and the edit-site check
+  (`editsite_check.js`), where the Highscore sink calls must have edges.
+- Determinism: two runs give byte-identical graphs, also from another path.
+
+### Effort
+
+About two working days for the analyser (type table and scopes one day, receiver forms, constructors,
+library keying and gate iterations one day), half a day for tests, the bench and the full suite in
+the nested shell. The export afterwards about one day, less if it ports the research's stopgap
+(`work/cograph/export.js`, 562 lines, same layout). Risk: 90 % recall depends on how much of the code
+calls through library return values; the per-form table shows where it stands after the first day.
+
+## Order of the work
+
+1. Branch `fix/java-type-resolution` off `main`: the analyser fix, its own PR.
+2. Branch `feat/export-markdown` on top of it: the export, a second PR, merged after the first.
+   The research's stopgap keeps serving phase 1 meanwhile. Its layout is the reference: CoGraph's
+   export writes the same paths, and the acceptance is a diff against the stopgap with every
+   difference explained (expected: the better edges). The stopgap's `--budget` selection rule
+   (tiers T0 to T9) is experiment design and stays in the research code unless Bela wants it in CoGraph;
+   `aliases.tsv` becomes unnecessary once library keying is fixed.
 
 ## Determinism rules
 
@@ -164,7 +270,7 @@ shell (`.termi/briefs/eval/nested-test.sh`).
 
 No release, version bump, push or PR without Bela's go. No change to the extension UI or the VSIX.
 No reading of `.cograph/graph-cache.json` (the export always analyses, so the result does not depend
-on when VS Code last ran). No change to which Java calls become edges.
+on when VS Code last ran). No change to the other analysers.
 
 ## Decisions
 
@@ -172,8 +278,11 @@ Recommendations from the research orchestrator (session-396), matching mine; fin
 
 1. Symbol files for every function by default: yes.
 2. Source slices: off by default, `--source` turns them on.
-3. The Java gap: (a) export as is now, with the call-site report; (b) resolving `x.m()` by declared
-   types only if the cross-check shows the gap touches the edit sites. The analyser version used for
-   the runs is frozen before any run (its script hashes are in `manifest.json`).
-4. Dataset: `~/dresden-tu/1/rp-data/apogamessrc`, read-only. The example output uses a game that
-   has sources (ApoSimple or ApoCommando), not ApoMario.
+3. The Java gap: the cross-check showed it touches the edit sites, so option (b), the analyser fix
+   above, is required (research, 4 Nov). Bela decides the go for the fix and the export together, and
+   the acceptance thresholds (proposed 90 % recall and 90 % precision on all six games). The analyser
+   version used for the runs is frozen before any run (its script hashes are in `manifest.json`).
+4. Dataset: `~/dresden-tu/1/rp-data/apogamessrc`, read-only. The example output uses ApoMario from
+   the research's unzipped tree.
+5. Where the export lives: CoGraph's repo (this plan) or the research's stopgap (open decision 6 of
+   the research PLAN). Recommended: CoGraph, after the analyser fix, matching the stopgap's layout.

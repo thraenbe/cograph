@@ -28,6 +28,9 @@ const REPS = +opt('--reps', '3');
 const FIXTURES = opt('--fixtures', '3k,10k').split(',');
 const OUT = opt('--out', join(DIR, '.out', `calibration-${new Date().toISOString().slice(0, 10)}.json`));
 const MAX_MS = opt('--max', '20000');
+// Same contract as src/test/windowArgs.ts (this script runs without a compile step): switches only.
+const WINDOW_ARGS = (process.env.COGRAPH_TEST_WINDOW_ARGS ?? '').split(/\s+/).filter(Boolean);
+if (WINDOW_ARGS.some(a => !a.startsWith('--'))) { throw new Error('COGRAPH_TEST_WINDOW_ARGS takes switches only'); }
 const CODE = process.env.VSCODE_BIN || join(ROOT, '.vscode-test', 'vscode-linux-x64-1.116.0', 'code');
 const checkouts = args.map(a => { const i = a.indexOf(':'); return { name: a.slice(0, i), dir: a.slice(i + 1) }; });
 const PICK = { '1k': '1 000', '3k': '3 000', '10k': '10 000' };
@@ -73,7 +76,8 @@ async function oneRun(checkout, fixture) {
   writeFileSync(join(ud, 'User', 'settings.json'), JSON.stringify(SETTINGS, null, 1));
   const app = await _electron.launch({
     executablePath: CODE,
-    args: [`--extensionDevelopmentPath=${checkout.dir}`, `--user-data-dir=${ud}`, `--extensions-dir=${ed}`,
+    // WINDOW_ARGS first: an unknown switch right before `ws` would swallow it as its value (VS Code's argv is minimist).
+    args: [...WINDOW_ARGS, `--extensionDevelopmentPath=${checkout.dir}`, `--user-data-dir=${ud}`, `--extensions-dir=${ed}`,
       '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates', '--new-window', ws],
     env: { ...process.env },
     timeout: 60000,

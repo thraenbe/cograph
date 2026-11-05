@@ -12,6 +12,7 @@ import { installFpsTrace } from '../lib/fps';
 import { StepRecorder, type StepRecord } from '../lib/step';
 import { runId } from '../lib/lab';
 import { attachLogFile, log } from '../lib/log';
+import { extraWindowArgs } from '../../src/test/windowArgs';
 
 const VSCODE_VERSION = '1.116.0'; // keep in sync with src/test/runTest.ts
 // UXTEST_VSCODE_SIZE=1440x810 for a 16:9 window (README demo); default 1440x900.
@@ -69,6 +70,16 @@ async function findGraphFrame(page: Page): Promise<Frame | null> {
   return null;
 }
 
+/** VS Code's argv for one Tier B launch. The machine's extra switches (COGRAPH_TEST_WINDOW_ARGS) go FIRST: VS Code parses
+ *  argv with minimist, which reads an unknown `--switch` followed by a bare word as `--switch <word>`, so a window switch
+ *  placed right before the workspace path swallowed the folder (VS Code then opened empty; seen in a Tier B run on 2026-11-05). */
+export function vscodeLaunchArgs(o: { extRoot: string; userDataDir: string; extensionsDir: string; size: { width: number; height: number }; workspace: string },
+  env: NodeJS.ProcessEnv = process.env): string[] {
+  return [...extraWindowArgs(env), `--extensionDevelopmentPath=${o.extRoot}`, `--user-data-dir=${o.userDataDir}`, `--extensions-dir=${o.extensionsDir}`,
+    '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates', '--disable-telemetry', '--disable-crash-reporter',
+    '--password-store=basic', '--no-sandbox', '--disable-gpu-sandbox', `--window-size=${o.size.width},${o.size.height}`, o.workspace];
+}
+
 export async function launchVsCode(repo: string, scenario: string, settings: Record<string, unknown> = {}): Promise<VsCodeSession> {
   const cfg = loadConfig();
   const repoRoot = path.isAbsolute(expandHome(repo)) ? expandHome(repo) : path.join(cfg.corpusDir, repo);
@@ -89,9 +100,7 @@ export async function launchVsCode(repo: string, scenario: string, settings: Rec
   const startedAt = new Date();
   const app = await electron.launch({
     executablePath: await resolveVsCode(), env, timeout: 60000,
-    args: [`--extensionDevelopmentPath=${EXT_ROOT}`, `--user-data-dir=${userDataDir}`, `--extensions-dir=${path.join(tmp, 'extensions')}`,
-      '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates', '--disable-telemetry', '--disable-crash-reporter',
-      '--password-store=basic', '--no-sandbox', '--disable-gpu-sandbox', `--window-size=${SIZE.width},${SIZE.height}`, workspace],
+    args: vscodeLaunchArgs({ extRoot: EXT_ROOT, userDataDir, extensionsDir: path.join(tmp, 'extensions'), size: SIZE, workspace }),
     // UXTEST_VSCODE_NOVIDEO=1: no Playwright video (a demo records its own, sharper screencast).
     ...(process.env.UXTEST_VSCODE_NOVIDEO === '1' ? {} : { recordVideo: { dir: outDir, size: SIZE } }),
   });

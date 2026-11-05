@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { runTests, downloadAndUnzipVSCode } from '@vscode/test-electron';
+import { extraWindowArgs } from './windowArgs';
 
 // Keep in sync with the cache key in .github/workflows/ci.yml
 const VSCODE_VERSION = '1.116.0';
@@ -28,6 +29,7 @@ async function main() {
       vscodeExecutablePath,
       extensionDevelopmentPath,
       extensionTestsPath,
+      launchArgs: extraWindowArgs(),
     });
   } catch (err) {
     console.error('Test run failed:', err);

@@ -95,6 +95,24 @@ export async function frameHittable(frame: Frame, css: string, minLeft = 0): Pro
   return box ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : null;
 }
 
+/** Zoom in at a hittable container (file slot, then folder frame) until `css` is hittable; returns its centre or null.
+ *  Zooming at the container keeps it under the pointer, so this works at any window shape. Zooming at a bare-canvas
+ *  point does not: in a 1080 px wide portrait window (fit limited by width) that point is empty space and the
+ *  graph zooms out of view (Tier B smoke, 2026-11-05). */
+export async function zoomUntilHittable(page: Page, frame: Frame, css: string, minLeft = 0, tries = 15): Promise<{ x: number; y: number } | null> {
+  for (let i = 0; i < tries; i++) {
+    const hit = await frameHittable(frame, css, minLeft);
+    if (hit) { return hit; }
+    const at = (await frameHittable(frame, '#graph g.file-slot .file-slot-shape', minLeft))
+      ?? (await frameHittable(frame, '#graph g.frame .folder-bubble-shape', minLeft));
+    if (!at) { return null; }
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.wheel(0, -300);
+    await page.waitForTimeout(250);
+  }
+  return frameHittable(frame, css, minLeft);
+}
+
 /** A bare-canvas point of the webview in window coordinates (for the double-click fit). */
 export async function frameBackground(frame: Frame): Promise<{ x: number; y: number } | null> {
   const local = await frame.evaluate(() => {

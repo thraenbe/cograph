@@ -1,0 +1,18 @@
+id	kind	abstract	modifiers	annotations_or_roles	signature_or_declaration	javadoc
+game/Constants.java::Constants	class	0	public		package game; public class Constants	
+game/Entity.java::Entity	class	1	public abstract		package game; public abstract class Entity	Something on the board.
+game/Entity.java::Entity.clamp	method	0			int clamp(int v)	
+game/Entity.java::Entity.constructor	constructor	0	public		public Entity(int x, int y)	
+game/Entity.java::Entity.move:10	method	0	public		public void move(int dx)	
+game/Entity.java::Entity.move:12	method	0	public		public void move(int dx, int dy)	
+game/Entity.java::Entity.update	method	1	public abstract		public abstract void update()	
+game/Item.java::Item	class	0	public		package game; public class Item	
+game/Item.java::Item.constructor	constructor	0	public		public Item(int value)	
+game/Item.java::Item.use	method	0	public		public void use(Player p)	
+game/Player.java::Player	class	0	public		package game; public class Player extends Entity	
+game/Player.java::Player.addPoints	method	0	public		public void addPoints(int p)	
+game/Player.java::Player.constructor	constructor	0	public		public Player()	
+game/Player.java::Player.update	method	0	public	@Override	public void update()	
+game/io/Highscore.java::Highscore	class	0	public		package game.io; public class Highscore	
+game/io/Highscore.java::Highscore.getInstance	method	0	public static		public static Highscore getInstance()	
+game/io/Highscore.java::Highscore.save	method	0	public		public boolean save(int points)	

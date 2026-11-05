@@ -1,6 +1,7 @@
 import { displayName, type Sym } from './ids';
 import type { GraphIndex } from './graphIndex';
 import { confine, relPath, ToolError } from './paths';
+import { ordinal } from './compare';
 
 /** Functions the agent can address: real code, not libraries or the module-level pseudo node. */
 export function isLocal(s: Sym): boolean {
@@ -33,8 +34,8 @@ export function inScope(rel: string | null, scope: string): boolean {
   return scope === '' || rel === scope || rel.startsWith(scope + '/');
 }
 
-function byLocation(a: Sym, b: Sym): number {
-  return (a.rel ?? '').localeCompare(b.rel ?? '') || a.line - b.line;
+export function byLocation(a: Sym, b: Sym): number {
+  return ordinal(a.rel ?? '', b.rel ?? '') || a.line - b.line || ordinal(a.id, b.id);
 }
 
 // ── find_symbol ─────────────────────────────────────────────────────────────
@@ -71,6 +72,17 @@ export function findSymbols(index: GraphIndex, args: FindArgs): FindResult {
   return { total: hits.length, items: hits.slice(0, args.limit).map((h) => h.s) };
 }
 
+/**
+ * Direct callers or callees of `from`, in location order. Edge sets keep the analyser's insertion
+ * order, so walks iterate this instead: which neighbour a walk reaches first (its `via`) and the
+ * order of impact's nearest callers then depend only on the graph.
+ */
+function neighbours(index: GraphIndex, edges: Map<string, Set<string>>, from: Sym): Sym[] {
+  const out: Sym[] = [];
+  for (const raw of edges.get(from.rawId) ?? []) { const s = index.byRaw.get(raw); if (s) { out.push(s); } }
+  return out.sort(byLocation);
+}
+
 // ── callers / callees ───────────────────────────────────────────────────────
 
 export interface Reached { sym: Sym; depth: number; via: Sym | null; }
@@ -89,17 +101,16 @@ export function walk(index: GraphIndex, start: Sym, dir: Direction, depth: numbe
     const next: Sym[] = [];
     const level: Reached[] = [];
     for (const from of frontier) {
-      for (const raw of edges.get(from.rawId) ?? []) {
-        const s = index.byRaw.get(raw);
-        if (!s || seen.has(raw) || (s.isLibrary && !includeLibraries)) { continue; }
-        seen.add(raw);
+      for (const s of neighbours(index, edges, from)) {
+        if (seen.has(s.rawId) || (s.isLibrary && !includeLibraries)) { continue; }
+        seen.add(s.rawId);
         level.push({ sym: s, depth: d, via: d === 1 ? null : from });
         next.push(s);
       }
     }
     level.sort((a, b) => byLocation(a.sym, b.sym));
     out.push(...level);
-    frontier = next;
+    frontier = level.map((r) => r.sym);
     if (d === depth && next.some((s) => (edges.get(s.rawId)?.size ?? 0) > 0)) { maxDepthHit = true; }
   }
   return { total: out.length, items: out.slice(0, limit), maxDepthHit };
@@ -130,20 +141,20 @@ export function seedsForPath(index: GraphIndex, input: string): Sym[] {
 export function impactOf(index: GraphIndex, seeds: Sym[]): ImpactResult {
   const seen = new Set(seeds.map((s) => s.rawId));
   const affected: Reached[] = [];
-  let frontier = seeds;
+  let frontier = [...seeds].sort(byLocation);
   let d = 0;
   while (frontier.length > 0 && d < IMPACT_DEPTH_CAP) {
     d++;
     const next: Sym[] = [];
     for (const from of frontier) {
-      for (const raw of index.callers.get(from.rawId) ?? []) {
-        const s = index.byRaw.get(raw);
-        if (!s || seen.has(raw)) { continue; }
-        seen.add(raw);
+      for (const s of neighbours(index, index.callers, from)) {
+        if (seen.has(s.rawId)) { continue; }
+        seen.add(s.rawId);
         affected.push({ sym: s, depth: d, via: from });
         next.push(s);
       }
     }
+    next.sort(byLocation);
     frontier = next;
   }
   const files = new Map<string, FileImpact>();
@@ -156,7 +167,7 @@ export function impactOf(index: GraphIndex, seeds: Sym[]): ImpactResult {
   return {
     seeds,
     affected,
-    files: [...files.values()].sort((a, b) => a.nearest - b.nearest || b.count - a.count || a.rel.localeCompare(b.rel)),
+    files: [...files.values()].sort((a, b) => a.nearest - b.nearest || b.count - a.count || ordinal(a.rel, b.rel)),
     entryPoints: tops.filter((s) => !isTestPath(s.rel)).sort(byLocation),
     tests: affected.map((r) => r.sym).filter((s) => isTestPath(s.rel)).sort(byLocation),
     maxDepth: affected.reduce((m, r) => Math.max(m, r.depth), 0),

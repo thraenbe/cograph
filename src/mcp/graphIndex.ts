@@ -5,6 +5,7 @@ import type { AnnotationFile } from '../graphIntelligence/annotationTypes';
 import { scanStructure } from '../structureScanner';
 import { assignIds, splitLine, toSym, type Sym } from './ids';
 import { ToolError } from './paths';
+import { ordinal } from './compare';
 
 /** Everything the tools query, built once per cache file version. Pure data, no I/O after build. */
 export interface GraphIndex {
@@ -42,7 +43,7 @@ export function buildIndex(root: string, data: NonNullable<ReturnType<typeof rea
     const list = byFile.get(s.rel);
     if (list) { list.push(s); } else { byFile.set(s.rel, [s]); }
   }
-  for (const list of byFile.values()) { list.sort((a, b) => a.line - b.line); }
+  for (const list of byFile.values()) { list.sort((a, b) => a.line - b.line || ordinal(a.id, b.id)); }
   const byLoose = new Map<string, Sym[]>();
   for (const s of symbols) {
     if (!s.rel || !s.className) { continue; }

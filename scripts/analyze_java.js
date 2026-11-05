@@ -19,6 +19,8 @@ const fs   = require('fs');
 // resolve it from the repo's node_modules via normal module resolution).
 const { parse, BaseJavaCstVisitorWithDefaults } = require('java-parser');
 const { createNarrower, withStats } = require('./narrowCalls.js');
+const { resolveCalls } = require('./javaResolve.js');
+const { createTable, addFile } = require('./javaTypes.js');
 
 const { collectSourceFiles, explicitFileList } = require('./sourceFiles.js');
 
@@ -87,100 +89,6 @@ function getClassTypeName(classTypeNode) {
   const ids = classTypeNode?.children?.Identifier;
   if (!ids || ids.length === 0) return null;
   return ids.map(t => t.image).join('.');
-}
-
-/** Get chain of identifiers from a fqnOrRefType node, e.g. ["System","out","println"]. */
-function fqnIdentifiers(fqnNode) {
-  const out = [];
-  const first = fqnNode?.children?.fqnOrRefTypePartFirst?.[0];
-  const firstId = first?.children?.fqnOrRefTypePartCommon?.[0]?.children?.Identifier?.[0];
-  if (firstId) out.push(firstId.image);
-  for (const rest of (fqnNode?.children?.fqnOrRefTypePartRest ?? [])) {
-    const id = rest.children?.fqnOrRefTypePartCommon?.[0]?.children?.Identifier?.[0];
-    if (id) out.push(id.image);
-  }
-  return out;
-}
-
-/**
- * Extract { calleeName, receiverName, line } from a `primary` node iff it is
- * a method invocation. Returns null otherwise.
- *
- * Patterns handled:
- *   helper()                        → callee=helper,  receiver=null
- *   xs.add("a")                     → callee=add,     receiver=xs
- *   System.out.println("hi")        → callee=println, receiver=System
- *   this.helper()                   → callee=helper,  receiver="this"
- *   StringUtils.isEmpty("x")        → callee=isEmpty, receiver=StringUtils
- */
-function extractCallInfo(primaryNode) {
-  const suffixes = primaryNode.children.primarySuffix ?? [];
-  const invocationIdx = suffixes.findIndex(s => s.children.methodInvocationSuffix);
-  if (invocationIdx < 0) return null;
-
-  const chain = [];
-  let line = null;
-  const prefix = primaryNode.children.primaryPrefix?.[0];
-  if (!prefix) return null;
-
-  if (prefix.children.This) {
-    chain.push('this');
-    line = prefix.children.This[0].startLine;
-  } else if (prefix.children.fqnOrRefType) {
-    const fqn = prefix.children.fqnOrRefType[0];
-    chain.push(...fqnIdentifiers(fqn));
-    const firstTok = fqn.children?.fqnOrRefTypePartFirst?.[0]
-      ?.children?.fqnOrRefTypePartCommon?.[0]?.children?.Identifier?.[0];
-    line = firstTok?.startLine ?? null;
-  } else {
-    return null;
-  }
-
-  // Walk suffixes BEFORE the methodInvocationSuffix to extend the chain.
-  for (let i = 0; i < invocationIdx; i++) {
-    const s = suffixes[i];
-    const ids = s.children?.Identifier;
-    if (ids && ids.length) {
-      chain.push(ids[0].image);
-      if (line == null) line = ids[0].startLine;
-    }
-  }
-
-  if (chain.length === 0) return null;
-  const calleeName = chain[chain.length - 1];
-  const receiverName = chain.length > 1 ? chain[0] : null;
-  return { calleeName, receiverName, line };
-}
-
-/** Parse a Java file's import declarations into { typeImports, staticImports, wildcardPackages }. */
-function parseImports(cst) {
-  const typeImports    = {};   // simple class name → full package (e.g. "List" → "java.util")
-  const staticImports  = {};   // member name → owner FQN (e.g. "PI" → "java.lang.Math")
-  const wildcardPackages = []; // ["java.util", ...]
-  const ocu = cst.children.ordinaryCompilationUnit?.[0];
-  if (!ocu) return { typeImports, staticImports, wildcardPackages };
-  for (const imp of (ocu.children.importDeclaration ?? [])) {
-    try {
-      const ids = imp.children.packageOrTypeName?.[0]?.children?.Identifier ?? [];
-      if (ids.length === 0) continue;
-      const names = ids.map(t => t.image);
-      const isStatic   = !!imp.children.Static;
-      const isWildcard = !!imp.children.Star;
-      if (isStatic && isWildcard) continue;
-      if (isStatic) {
-        const member = names[names.length - 1];
-        const owner = names.slice(0, -1).join('.');
-        if (member && owner) staticImports[member] = owner;
-      } else if (isWildcard) {
-        wildcardPackages.push(names.join('.'));
-      } else {
-        const simple = names[names.length - 1];
-        const pkg    = names.slice(0, -1).join('.');
-        if (simple && pkg) typeImports[simple] = pkg;
-      }
-    } catch { /* skip malformed */ }
-  }
-  return { typeImports, staticImports, wildcardPackages };
 }
 
 // ── Definitions pass ──────────────────────────────────────────────────────────
@@ -286,8 +194,13 @@ class DefinitionCollector extends BaseJavaCstVisitorWithDefaults {
   }
 }
 
+// The project type table (javaTypes.js) is built from the same CSTs in this pass and
+// handed to collectCalls, so every file is parsed once for both passes.
+const typeTables = new WeakMap(); // definitions object → type table
+
 function collectDefinitions(files) {
   const definitions = {};
+  const table = createTable();
   for (const filepath of files) {
     const cst = getCst(filepath); // parsed once, reused by collectCalls
     if (!cst) { continue; }
@@ -296,147 +209,23 @@ function collectDefinitions(files) {
       collector.visit(cst);
       Object.assign(definitions, collector.definitions);
     } catch { /* skip files that crash the visitor */ }
+    addFile(table, filepath, cst);
   }
+  typeTables.set(definitions, table);
   return definitions;
 }
 
 // ── Calls pass ────────────────────────────────────────────────────────────────
-
-class CallCollector extends BaseJavaCstVisitorWithDefaults {
-  constructor(filepath, definitions, nameToIds, importMap, narrow) {
-    super();
-    this.validateVisitor();
-    this.narrow = narrow || ((ids) => ids);   // D6: ambiguous-name narrowing (narrowCalls.js)
-    this.filepath = filepath;
-    this.definitions = definitions;
-    this.nameToIds = nameToIds;
-    this.importMap = importMap;        // { typeImports, staticImports, wildcardPackages }
-    this.callerStack = [];             // current caller ids
-    this.edges = [];
-    this.seenEdges = new Set();
-    this.libraryNodes = new Map();
-  }
-
-  _pushCaller(name, line) {
-    const id = `${this.filepath}::${name}::${line}`;
-    if (this.definitions[id]) {
-      this.callerStack.push(id);
-      return true;
-    }
-    return false;
-  }
-
-  _popCaller() { this.callerStack.pop(); }
-
-  _currentCaller() { return this.callerStack[this.callerStack.length - 1] ?? null; }
-
-  _addEdge(target, isLibraryEdge = false) {
-    const src = this._currentCaller();
-    if (!src) return;
-    const key = `${src}|${target}`;
-    if (this.seenEdges.has(key)) return;
-    if (src === target) return;
-    this.seenEdges.add(key);
-    const edge = { source: src, target };
-    if (isLibraryEdge) edge.isLibraryEdge = true;
-    this.edges.push(edge);
-  }
-
-  _addLibraryEdge(libName, funcName) {
-    const libId = `library::${libName}::${funcName}`;
-    if (!this.libraryNodes.has(libId)) {
-      this.libraryNodes.set(libId, {
-        id: libId, name: funcName, file: null, line: 0,
-        isLibrary: true, libraryName: libName, language: 'java',
-      });
-    }
-    this._addEdge(libId, true);
-  }
-
-  methodDeclaration(ctx) {
-    let pushed = false;
-    try {
-      const header = ctx.methodHeader?.[0];
-      const declarator = header?.children?.methodDeclarator?.[0];
-      const id = declarator?.children?.Identifier?.[0];
-      if (id) pushed = this._pushCaller(id.image, id.startLine);
-    } catch { /* skip */ }
-    try { if (ctx.methodBody) this.visit(ctx.methodBody); }
-    finally { if (pushed) this._popCaller(); }
-  }
-
-  constructorDeclaration(ctx) {
-    let pushed = false;
-    try {
-      const decl   = ctx.constructorDeclarator?.[0];
-      const simple = decl?.children?.simpleTypeName?.[0];
-      const id     = simple?.children?.Identifier?.[0];
-      if (id) pushed = this._pushCaller('constructor', id.startLine);
-    } catch { /* skip */ }
-    try { if (ctx.constructorBody) this.visit(ctx.constructorBody); }
-    finally { if (pushed) this._popCaller(); }
-  }
-
-  primary(ctx) {
-    try {
-      const info = extractCallInfo({ children: ctx });
-      if (info && this._currentCaller()) {
-        const { calleeName, receiverName } = info;
-
-        // Internal call: bare name OR receiver === 'this'
-        if (receiverName === null || receiverName === 'this') {
-          const ids = this.narrow(this.nameToIds[calleeName], this.filepath);
-          if (ids) {
-            for (const calleeId of ids) this._addEdge(calleeId, false);
-          }
-        }
-
-        // Library call: receiver matches an imported type
-        if (receiverName && receiverName !== 'this') {
-          const pkg = this.importMap.typeImports[receiverName];
-          if (pkg && !this.nameToIds[receiverName]) {
-            this._addLibraryEdge(pkg, calleeName);
-          }
-        }
-
-        // Static-imported member: bare call to e.g. PI(), isNaN()
-        if (receiverName === null) {
-          const owner = this.importMap.staticImports[calleeName];
-          if (owner && !this.nameToIds[calleeName]) {
-            this._addLibraryEdge(owner, calleeName);
-          }
-        }
-      }
-    } catch { /* skip malformed call */ }
-    if (ctx.primaryPrefix) this.visit(ctx.primaryPrefix);
-    if (ctx.primarySuffix) this.visit(ctx.primarySuffix);
-  }
-}
+// Declared-type resolution (javaTypes.js builds the project type table, javaResolve.js
+// walks the bodies with scopes): receivers, chains, constructors, super and outer
+// classes resolve to the static target; library nodes are keyed by class
+// (library::<package>.<Class>::<method>, constructors <init>); receivers of unknown
+// type get no edge. `sites` records every call site's outcome (not part of the graph).
 
 function collectCalls(files, definitions, root) {
   const narrower = createNarrower((id) => definitions[id] && definitions[id].file, root);
-  const nameToIds = Object.create(null);
-  for (const [qid, defn] of Object.entries(definitions)) {
-    if (!nameToIds[defn.name]) nameToIds[defn.name] = [];
-    nameToIds[defn.name].push(qid);
-  }
-
-  const allEdges = [];
-  const allLibraryNodes = new Map();
-  for (const filepath of files) {
-    const cst = getCst(filepath); // cache hit when collectDefinitions ran first
-    if (!cst) { continue; }
-    const importMap = parseImports(cst);
-    try {
-      const collector = new CallCollector(filepath, definitions, nameToIds, importMap, narrower.narrow);
-      collector.visit(cst);
-      allEdges.push(...collector.edges);
-      for (const [id, node] of collector.libraryNodes) {
-        if (!allLibraryNodes.has(id)) allLibraryNodes.set(id, node);
-      }
-    } catch { /* skip files that crash the visitor */ }
-  }
-  return { edges: allEdges, libraryNodes: Array.from(allLibraryNodes.values()), stats: narrower.stats };
+  const { edges, libraryNodes, sites } = resolveCalls(files, getCst, definitions, narrower.narrow, typeTables.get(definitions));
+  return { edges, libraryNodes, stats: narrower.stats, sites };
 }
 
 // ── Entry ─────────────────────────────────────────────────────────────────────

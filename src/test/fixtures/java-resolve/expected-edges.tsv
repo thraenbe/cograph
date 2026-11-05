@@ -1,0 +1,46 @@
+# Expected call edges of the java-resolve fixture: caller<TAB>callee, ids <rel path>::<name>::<line>
+# (constructors "constructor"), library ids library::<package>.<Class>::<method> (constructors <init>).
+# Checked by hand against the sources, and confirmed with javac's attribution
+# (research repo work/context/JavacCalls.java, jdk.compiler of Java 25): javac lists these rows plus
+# four calls to compiler-generated constructors that have no source node and are therefore not edges:
+#   Entity.<init> and Vec.<init> -> implicit super() of java.lang.Object;
+#   Player.schedule -> the anonymous Runnable's constructor; Player.update -> Inner's default constructor.
+caller	callee
+game/Entity.java::move::12	game/util/Vec.java::add::10
+game/Entity.java::update::14	game/Entity.java::move::12
+game/Entity.java::update::14	game/util/Vec.java::zero::14
+game/Kind.java::label::6	library::java.lang.Enum::name
+game/Kind.java::label::6	library::java.lang.String::toLowerCase
+game/Player.java::constructor::13	game/Entity.java::constructor::8
+game/Player.java::constructor::13	game/util/Vec.java::constructor::6
+game/Player.java::draw::17	game/util/Tools.java::name::8
+game/Player.java::draw::17	library::java.awt.Graphics::drawString
+game/Player.java::hit::40	game/Item.java::use::4
+game/Player.java::ping::50	game/Player.java::hit::40
+game/Player.java::ping::50	game/Player.java::schedule::42
+game/Player.java::run::44	game/Player.java::area::15
+game/Player.java::schedule::42	library::java.lang.Runnable::run
+game/Player.java::update::20	game/Entity.java::getPos::10
+game/Player.java::update::20	game/Entity.java::move::12
+game/Player.java::update::20	game/Entity.java::update::14
+game/Player.java::update::20	game/Item.java::use::4
+game/Player.java::update::20	game/Item.java::use::6
+game/Player.java::update::20	game/Kind.java::label::6
+game/Player.java::update::20	game/Player.java::ping::50
+game/Player.java::update::20	game/util/Tools.java::clamp::4
+game/Player.java::update::20	game/util/Tools.java::clamp::6
+game/Player.java::update::20	game/util/Tools.java::name::10
+game/Player.java::update::20	game/util/Vec.java::add::10
+game/Player.java::update::20	game/util/Vec.java::constructor::8
+game/Player.java::update::20	game/util/Vec.java::len::12
+game/Player.java::update::20	library::java.lang.String::length
+game/Player.java::update::20	library::java.net.URLEncoder::encode
+game/Player.java::update::20	library::java.util.ArrayList::get
+game/util/Tools.java::clamp::4	library::java.lang.Math::max
+game/util/Tools.java::clamp::4	library::java.lang.Math::min
+game/util/Tools.java::name::10	library::java.lang.String::trim
+game/util/Tools.java::name::8	library::java.lang.String::valueOf
+game/util/Vec.java::add::10	game/util/Vec.java::constructor::6
+game/util/Vec.java::constructor::8	game/util/Vec.java::constructor::6
+game/util/Vec.java::len::12	library::java.lang.Math::sqrt
+game/util/Vec.java::zero::14	game/util/Vec.java::constructor::8

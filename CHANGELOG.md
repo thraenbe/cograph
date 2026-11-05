@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Java analyzer: calls are resolved by declared type instead of by method name
+  (`scripts/javaTypes.js` builds a project type table in the definitions pass,
+  `scripts/javaResolve.js` resolves every receiver form with scopes). Receivers on locals,
+  parameters, fields, casts, array elements, static `Class.m()` and chained calls now link;
+  constructors (`new X()`, `super(..)`, `this(..)`, implicit `super()`) get edges; `super.m()`
+  and bare calls follow the class hierarchy and outer classes; overloads are chosen by argument
+  count and types. Receivers of unknown type get no edge instead of a name-only guess. Against
+  javac on ten open-source Java games: call recall 61 % → 99.9 %, precision 51 % → 100 %.
+- Java library nodes are keyed by class: `library::java.net.URLEncoder::encode` (was
+  `library::java.net::encode`), `libraryName` is the class's full name, constructors are
+  `<init>`. Calls on imported project classes no longer become library nodes. Saved Java graphs
+  keep their project node ids; only library node ids change.
+
 ## [1.4.2] - 2026-10-27
 
 A patch release with two new languages and a round of analyzer work from

@@ -1,0 +1,4 @@
+{
+  "Highscore": ["Highscore", "game/Player.java::Player.update"],
+  "Board": ["game/Entity.java", "Item.use"]
+}

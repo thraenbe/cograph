@@ -1,0 +1,3 @@
+rel	line	col	caller	kind	receiver	method	args	form	reason
+game/Player.java	29	28	game/Player.java::Player.update	call	it	use	this	local	unknown-type
+game/Player.java	30	9	game/Player.java::Player.update	new		Thread	r	new	anonymous-class

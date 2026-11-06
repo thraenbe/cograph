@@ -208,6 +208,15 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
     }
     return await page.evaluate('d3.zoomTransform(document.querySelector("#graph svg")).k') as number;
   };
+  /** Until the zoom transform has not changed for 300 ms (an app fit animates for 500 ms), at most 3 s. */
+  const waitZoomStill = async (): Promise<void> => {
+    let last = '', still = 0;
+    for (let t = 0; t < 3000 && still < 3; t += 100) {
+      const now = await page.evaluate('(() => { const z = d3.zoomTransform(document.querySelector("#graph svg")); return z.k.toFixed(4) + "," + z.x.toFixed(1) + "," + z.y.toFixed(1); })()') as string;
+      still = now === last ? still + 1 : 0; last = now;
+      await page.waitForTimeout(100);
+    }
+  };
   const fnCountInState = (file: string): Promise<number> =>
     page.evaluate(`state.currentNodes.filter(n => n.file === ${JSON.stringify(file)} && !n.isCluster && !n.isLibrary && !n.isSynthetic).length`) as Promise<number>;
   // Earlier steps may leave a folder filter active (file filters AND with folder filters) - clear through the panel.
@@ -288,6 +297,11 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
       return { mine, others, attached, frames: document.querySelectorAll('#graph g.frame').length, k: +d3.zoomTransform(document.querySelector('#graph svg')).k.toFixed(2), only: state.onlyShowFile || null, hidden: state.hiddenFiles ? state.hiddenFiles.size : -1 };
     })()`) as Promise<{ mine: number; others: number; attached: number; frames: number; k: number; only: string | null; hidden: number }>;
     const visibleNow = (): Promise<number> => page.evaluate('typeof getVisibleNodeIds === "function" ? getVisibleNodeIds().size : state.currentNodes.length') as Promise<number>;
+    /** Visible nodes whose position lies in the svg under the current zoom (state-based: independent of culling/LOD). */
+    const visibleInView = (): Promise<number> => page.evaluate(`(() => { const svgEl = document.querySelector('#graph svg'); const t = d3.zoomTransform(svgEl);
+      const vis = typeof getVisibleNodeIds === 'function' ? getVisibleNodeIds() : null;
+      return state.currentNodes.filter(n => (!vis || vis.has(n.id)) && n.x != null && isFinite(n.x)).filter(n => { const x = t.applyX(n.x), y = t.applyY(n.y);
+        return x >= 0 && y >= 0 && x <= svgEl.clientWidth && y <= svgEl.clientHeight; }).length; })()`) as Promise<number>;
     if (await fnCountInState(l.file) < 2) { throw new SkipStep(`${l.file.split('/').pop()} has < 2 function nodes - DOM count not meaningful`); }
     await ensureLod(l);
     const start = await drawn(), all0 = await visibleNow();
@@ -302,16 +316,21 @@ scenario('canvas', { largeOk: true }, async (lab, combo) => {
     if (l2) { await ensureLod(l2); l2 = await slotLabel(); }
     const only = await drawn(), onlyVisible = await visibleNow();
     if (l2) { await rightClick(page, l2); await ctxMenuClick(page, /^show all$/i); }
-    await page.waitForTimeout(500);
-    if (l2) { await ensureLod(l2); }
-    const back = await drawn(), all = await visibleNow();
+    // Show all re-packs and the app re-fits (F26) with a 500 ms transition. Never zoom into it: a wheel mid-transition
+    // interrupts the fit at the OLD slot position, which is empty space after the re-pack (zod, 2026-11-06: k 0.83 over
+    // nothing, "100 % off screen", reported as a broken Show all).
+    await waitZoomStill();
+    const back = await drawn(), all = await visibleNow(), backInView = await visibleInView();
     const fmt = (d: typeof start): string => `${d.mine}/${d.others} (attached ${d.attached}, frames ${d.frames}, k ${d.k}, only ${d.only ? d.only.split('/').pop() : '-'}, hidden ${d.hidden})`;
     const rec = ux.steps[ux.steps.length - 1];
-    rec.note = `${l.file.split('/').pop()}: drawn mine/others ${fmt(start)} → show only ${fmt(only)}${emptied ? ' (viewport was EMPTY after Show only - fitted to continue)' : ''} → show all ${fmt(back)}; visible set ${all0} → ${onlyVisible} → ${all}`;
+    rec.note = `${l.file.split('/').pop()}: drawn mine/others ${fmt(start)} → show only ${fmt(only)}${emptied ? ' (viewport was EMPTY after Show only - fitted to continue)' : ''} → show all ${fmt(back)}, ${backInView} visible nodes in view; visible set ${all0} → ${onlyVisible} → ${all}`;
     if (emptied) { rec.findings.push({ rule: 'filter-empties-viewport', severity: 'medium', ref: 'round3 W2b/e22c370', message: `after "Show only this file" (${l.file.split('/').pop()}) at a user zoom the re-packed slot is off-screen: blank canvas until the user fits` }); }
     if (!l2) { throw new SkipStep('no slot label on screen even after a fit - cannot reach Show all'); }
     if (only.others > 0 || only.mine === 0) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a/F17', message: `Show only this file: ${rec.note}` }); }
-    if (back.others < start.others || back.mine < start.mine) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a/F17', message: `Show all did not restore: drawn ${back.mine}/${back.others} vs ${start.mine}/${start.others} before` }); }
+    // Restore is judged on the visible set: the DOM counts depend on the viewport (culling detaches frames out of view,
+    // the LOD parks circles below k 0.3), so after the re-fit they are not comparable with the zoomed-in start.
+    if (all < all0) { throw new StepFinding({ rule: 'file-filter-noop', severity: 'high', ref: 'R2a/F17', message: `Show all did not restore the visible set: ${all} vs ${all0} before` }); }
+    if (backInView === 0) { throw new StepFinding({ rule: 'filter-empties-viewport', severity: 'high', ref: 'F26', message: `after Show all no visible node is in view (k ${back.k}): blank canvas` }); }
   });
   await ux.step('Drag a file slot by its label band (R2b)', async () => {
     if (combo.engine !== 'shelf') { throw new SkipStep('file slots exist only in the shelf engine'); }

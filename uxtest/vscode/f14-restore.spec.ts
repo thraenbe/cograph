@@ -8,7 +8,6 @@ import { answerQuickInput, frameBackground, frameHittable, frameSetSlider, runCo
 import { collectSnapshot } from '../metrics/collect';
 import { maxDisplacement } from '../metrics/compute';
 import type { Snapshot } from '../metrics/types';
-import { SkipStep } from '../lib/step';
 import { SEL } from '../selectors';
 
 const repos = (process.env.UXTEST_REPOS ?? 'express').split(',').map(s => s.trim()).filter(Boolean);
@@ -33,13 +32,23 @@ for (const repo of repos) {
         const bg = await frameBackground(f);
         if (bg) { await page.mouse.dblclick(bg.x, bg.y); }
       }, { stillTimeoutMs: 20000 });
-      await ux.step('Drag one folder by its title', async () => {
+      let dragNote = '';
+      const drag = await ux.step('Drag one folder by its title', async () => {
         const f = await graphFrame(); if (!f) { throw new Error('no webview'); }
+        // Global + Static drew no drill-down folder box before rendering.js ran the static boot after the overlays
+        // (every titlebar 0×0): this step skipped and the restore check below compared an untouched layout.
         const c = await frameHittable(f, '#graph g.folder-bubble .folder-bubble-titlebar, #graph g.frame .folder-bubble-titlebar', 300);
-        if (!c) { throw new SkipStep('no grabbable folder title'); }
+        if (!c) { throw new Error('no grabbable folder title (drill-down boxes not drawn?)'); }
+        const before = await snap();
         await page.mouse.move(c.x, c.y, { steps: 8 }); await page.mouse.down();
         await page.mouse.move(c.x + 60, c.y + 45, { steps: 16 }); await page.mouse.up();
+        await page.waitForTimeout(500);
+        const after = await snap();
+        const d = before && after ? maxDisplacement(before, after) : { moved: 0, max: 0 };
+        if (d.moved === 0) { throw new Error('the folder drag moved no node: the restore check would compare an untouched layout'); }
+        dragNote = `the drag moved ${d.moved} nodes (max ${d.max} px)`;
       }, { userMoved: true });
+      drag.note = drag.note || dragNote;
       const arranged = await snap();
       await ux.step(`Ctrl+S → save as "${NAME}"`, async () => {
         const f = await graphFrame();

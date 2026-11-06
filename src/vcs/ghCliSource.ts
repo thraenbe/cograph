@@ -1,4 +1,5 @@
 import * as cp from 'child_process';
+import { trackChild } from '../childProcesses';
 import { parsePatchHunks } from './prPatch';
 import type {
   PrChecks, PrFile, PrFileStatus, PrFilesResult, PrListOptions, PrListResult, PrProblem, PrState, PrTextResult,
@@ -44,7 +45,8 @@ const LIST_FIELDS = [
  * at the space.
  */
 export const defaultExec: Exec = (command, args, cwd, opts = {}) => new Promise((resolve) => {
-  const child = cp.execFile(command, args, {
+  // Tracked so deactivate() can end a `gh` or `git` that is still running when VS Code closes.
+  const child = trackChild(cp.execFile(command, args, {
     cwd, timeout: opts.timeoutMs ?? TIMEOUT_MS, encoding: 'utf8', maxBuffer: MAX_BUFFER,
     env: opts.env ? { ...process.env, ...opts.env } : process.env,
     ...(opts.signal ? { signal: opts.signal } : {}),
@@ -56,7 +58,7 @@ export const defaultExec: Exec = (command, args, cwd, opts = {}) => new Promise(
       stderr: String(stderr ?? '') || (e ? e.message : ''),
       notFound: e?.code === 'ENOENT',
     });
-  });
+  }));
   if (opts.stdin !== undefined && child.stdin) { child.stdin.end(opts.stdin); }
 });
 

@@ -1,4 +1,5 @@
 import * as cp from 'child_process';
+import { trackChild } from './childProcesses';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -56,7 +57,7 @@ export class LibraryDescriber {
       const done = (val: string) => { if (!resolved) { resolved = true; resolve(val); } };
       let proc: cp.ChildProcess;
       try {
-        proc = cp.spawn(pythonBin, [script, libraryName, functionName]);
+        proc = trackChild(cp.spawn(pythonBin, [script, libraryName, functionName]));
       } catch {
         done('');
         return;

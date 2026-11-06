@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
+import { trackChild } from './childProcesses';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -324,7 +325,7 @@ export class AnalyzerRunner {
     return new Promise((resolve) => {
       let proc: cp.ChildProcess;
       try {
-        proc = cp.spawn(bin, args);
+        proc = trackChild(cp.spawn(bin, args));
       } catch (err: unknown) {
         resolve(fail('spawn-error', (err as Error).message));
         return;

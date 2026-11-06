@@ -38,9 +38,9 @@ const ROWS: LegendRow[] = [
     label: 'Calls still being parsed',
   },
   {
-    // the arrow is xfileArrowD(7, 9, 4.5), the canvas geometry at a small radius
-    swatch: `<svg ${SW}><circle cx="7" cy="9" r="4.5" fill="currentColor" fill-opacity="0.75"/>`
-      + '<path d="M11.3 4L12.8 2.4L12.3 1.9L14.5 1.5L14.1 3.7L13.6 3.2L12 4.7Z" fill="currentColor" fill-opacity="0.85"/></svg>',
+    // the arrow is xfileArrowD(7, 11, 6), the canvas geometry, in a larger viewBox so it reads at 14 px
+    swatch: '<svg width="24" height="18" viewBox="0 0 24 18" aria-hidden="true"><circle cx="7" cy="11" r="6" fill="currentColor" fill-opacity="0.75"/>'
+      + '<path d="M12.5 4.8L14.6 2.7L13.7 1.9L16.6 1.4L16.1 4.3L15.3 3.4L13.2 5.5Z" fill="currentColor" fill-opacity="0.85"/></svg>',
     label: 'Only calls other files (hidden)',
     title: 'This function only calls functions in other files. "Only calls within a file" hides those lines; hover the function to see them.',
   },
@@ -61,12 +61,13 @@ function rowHtml(r: LegendRow): string {
     + `<span class="tl-legend-label">${r.label}</span></div>`;
 }
 
-/** Collapsible "Legend" header + body for the Folder panel (wired by controls.js). */
+/** Collapsible "Legend" header + body for the Folder panel (wired by controls.js). Collapsed by
+ *  default: open, its eight rows cover part of the canvas at 1280x800 (Tier A shot, 2026-11-06). */
 export const SHAPES_LEGEND_HTML = `<div class="tl-legend-header" id="toggle-shapes-legend">
         <span>Legend</span>
-        <span class="tl-chevron">▾</span>
+        <span class="tl-chevron collapsed">▾</span>
       </div>
-      <div class="tl-legend" id="shapes-legend-body">
+      <div class="tl-legend" id="shapes-legend-body" style="display:none">
         ${ROWS.map(rowHtml).join('\n        ')}
       </div>`;
 

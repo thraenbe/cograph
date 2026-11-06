@@ -299,10 +299,11 @@ suite('F1 outline meaning: legend', () => {
   });
 
   test('the ↗ sample is the canvas geometry, and the legend is in the Folder panel with a toggle', () => {
-    assert.ok(SHAPES_LEGEND_HTML.includes(xg.xfileArrowD(7, 9, 4.5)));
+    assert.ok(SHAPES_LEGEND_HTML.includes(xg.xfileArrowD(7, 11, 6)));
     const html = read('src/webviewHtmlBuilder.ts');
     const folder = html.slice(html.indexOf('id="panel-folder"'), html.indexOf('id="panel-forces"'));
     assert.ok(folder.includes('${SHAPES_LEGEND_HTML}'));
     assert.ok(read('src/webview/controls.js').includes("wireLegendToggle('toggle-shapes-legend', 'shapes-legend-body')"));
+    assert.ok(SHAPES_LEGEND_HTML.includes('id="shapes-legend-body" style="display:none"'), 'collapsed by default: it would cover the canvas');
   });
 });

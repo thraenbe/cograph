@@ -757,15 +757,8 @@ function startSimulation(allLinks) {
     .on('tick', ticked)
     .on('end', () => { if (typeof perfSettled === 'function') { perfSettled(); } });
   state.simulation._kind = 'global';
-  if (state.layoutMode === 'static') {
-    staticBootFreeze(state.simulation, state.currentNodes, isBigGraph() ? 60 : 150);
-    ticked();
-    // Fit AFTER the frozen positions exist (F4): the async auto-fit in
-    // tickedNow can run against a pre-settle bbox, and a static simulation
-    // never ticks again to correct it.
-    state.hasFitted = true;
-    if (!state.userZoomed) { fitToView(); }
-  }
+  // Static boot (F4) is NOT done here: renderGlobalLayout() runs it after the
+  // overlay forces and elements of the render exist (see the end of it).
 }
 
 /** Static boot on the global engine: the classic Static toggle assumed a
@@ -989,5 +982,19 @@ function renderGlobalLayout(allLinks, visibleSet) {
     state.svgClassBubbles = null;
     state.simulation?.force('classCluster', null);
   }
-
+  // Static boot (F4), after everything above: the settle must feel the file /
+  // folder / drill-down / class clustering forces attached in this function,
+  // and the one paint of a static simulation (it never ticks again) must reach
+  // the overlay elements created here. Inside startSimulation() it ran before
+  // both: files spread over the whole graph and the drill-down boxes stayed
+  // 0×0, so folders could be neither seen nor dragged.
+  if (state.layoutMode === 'static') {
+    staticBootFreeze(state.simulation, state.currentNodes, isBigGraph() ? 60 : 150);
+    ticked();
+    // Fit AFTER the frozen positions exist (F4): the async auto-fit in
+    // tickedNow can run against a pre-settle bbox, and a static simulation
+    // never ticks again to correct it.
+    state.hasFitted = true;
+    if (!state.userZoomed) { fitToView(); }
+  }
 }

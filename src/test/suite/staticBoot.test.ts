@@ -99,4 +99,17 @@ suite('global static boot (F4)', () => {
     assert.ok(/if \(!state\.userZoomed\) \{ fitToView\(\); \}/.test(src),
       'the boot fit must respect a viewport the user already took');
   });
+
+  test('the freeze runs after the overlay forces and elements of the render (source contract)', () => {
+    // Inside startSimulation() the settle ran without the file / drill-down clustering forces, and its one paint
+    // came before the drill-down boxes existed: they stayed 0×0 (uxtest/unit/globalStaticBoxes.test.ts).
+    const startSim = renderingSrc.slice(renderingSrc.indexOf('function startSimulation('), renderingSrc.indexOf('function staticBootFreeze('));
+    assert.ok(!startSim.includes('staticBootFreeze('), 'startSimulation must not freeze: the overlay forces are not attached yet');
+    const layout = renderingSrc.slice(renderingSrc.indexOf('function renderGlobalLayout('));
+    const freezeAt = layout.indexOf('staticBootFreeze(');
+    for (const after of ['startSimulation(drawLinks)', 'renderDrilldownBoxes(boxes)', "force('drilldownCluster', createDrilldownClusterForce", "force('fileCluster', createFileClusterForce", 'renderClassBubbles(']) {
+      const at = layout.indexOf(after);
+      assert.ok(at > 0 && freezeAt > at, `staticBootFreeze must come after ${after}`);
+    }
+  });
 });

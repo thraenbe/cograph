@@ -769,7 +769,29 @@ function staticBootFreeze(sim, nodes, maxTicks) {
   for (let i = 0; i < maxTicks && sim.alpha() > 0.05; i++) {
     sim.tick();
   }
+  collisionOnlyPass(sim, nodes, STATIC_COLLIDE_TICKS);
   nodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
+}
+
+/** The bounded settle now runs with the file / drill-down clustering forces and
+ *  stops before the collision force has separated the clustered nodes (uxtest,
+ *  express Global + Static: overlap up to 0.197 of the nodes). A few ticks of
+ *  the simulation's own collision force alone, integrated the way d3's tick()
+ *  does (velocity decay; a pinned node stays), separate them: overlap back to
+ *  main's, for about 1.0-1.3x main's settle time. */
+const STATIC_COLLIDE_TICKS = 40;
+function collisionOnlyPass(sim, nodes, ticks) {
+  const collide = sim.force && sim.force('collision');
+  if (!collide || !ticks) { return; }
+  const keep = 1 - sim.velocityDecay();
+  nodes.forEach(n => { n.vx = 0; n.vy = 0; });
+  for (let i = 0; i < ticks; i++) {
+    collide(sim.alpha());
+    for (const n of nodes) {
+      if (n.fx == null) { n.x += (n.vx *= keep); } else { n.x = n.fx; n.vx = 0; }
+      if (n.fy == null) { n.y += (n.vy *= keep); } else { n.y = n.fy; n.vy = 0; }
+    }
+  }
 }
 
 function renderLibraryNodes(libNodeData, visibleSet) {

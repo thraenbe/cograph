@@ -10,10 +10,13 @@ import * as path from 'path';
 const renderingSrc = fs.readFileSync(
   path.resolve(__dirname, '../../../src/webview/rendering.js'), 'utf8');
 
-function extractStaticBootFreeze() {
+function extractStaticBootFreeze(collideTicks?: number) {
   const m = renderingSrc.match(/function staticBootFreeze\([\s\S]*?\n\}/);
   assert.ok(m, 'staticBootFreeze found in rendering.js');
-  return new Function(`${m![0]}; return staticBootFreeze;`)();
+  const c = renderingSrc.match(/const STATIC_COLLIDE_TICKS = \d+;\nfunction collisionOnlyPass\([\s\S]*?\n\}/);
+  assert.ok(c, 'collisionOnlyPass found in rendering.js');
+  const pass = collideTicks === undefined ? c![0] : c![0].replace(/STATIC_COLLIDE_TICKS = \d+/, `STATIC_COLLIDE_TICKS = ${collideTicks}`);
+  return new Function(`${m![0]}\n${pass}; return staticBootFreeze;`)();
 }
 
 function makeFakeSim(nodes: any[]) {
@@ -74,6 +77,33 @@ suite('global static boot (F4)', () => {
       assert.strictEqual(n.fx, n.x, 'pinned where it landed (x)');
       assert.strictEqual(n.fy, n.y, 'pinned where it landed (y)');
     }
+  });
+
+  test('a collision-only pass separates what the bounded settle left overlapping (real d3)', () => {
+    // The settle stops at alpha 0.05; with strong clustering pulls (here: everything pulled to one point) the
+    // collision force has not separated the nodes yet. Measured in uxtest: overlap up to 0.197 of the nodes.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const d3 = require('d3');
+    const R = 10;
+    const crowd = (collideTicks?: number) => {
+      const nodes = Array.from({ length: 60 }, (_, i) => ({ x: (i % 8) * 3, y: Math.floor(i / 8) * 3 })) as any[];
+      const sim = d3.forceSimulation(nodes).alphaDecay(0.02)
+        .force('x', d3.forceX(0).strength(0.8)).force('y', d3.forceY(0).strength(0.8))
+        .force('collision', d3.forceCollide(R));
+      extractStaticBootFreeze(collideTicks)(sim, nodes, 150);
+      let pairs = 0;
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) < 2 * R * 0.9) { pairs++; }
+        }
+      }
+      return { pairs, pinned: nodes.every(n => n.fx === n.x && n.fy === n.y) };
+    };
+    const without = crowd(0);
+    assert.ok(without.pairs > 0, `control: without the pass the crowd overlaps (${without.pairs} pairs)`);
+    const withPass = crowd();
+    assert.ok(withPass.pairs < without.pairs / 4, `the pass separates the crowd: ${withPass.pairs} pairs (without: ${without.pairs})`);
+    assert.ok(withPass.pinned, 'every node is still pinned where it landed');
   });
 
   test('the tick budget is a hard cap', () => {

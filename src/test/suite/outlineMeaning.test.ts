@@ -159,7 +159,7 @@ suite('F1 outline meaning: frames renderer', () => {
       document: dom.window.document, d3,
       state: { gitMode: false, xfileCue: { cueIds: new Set(), outByNode: new Map(), outByFile: new Map([['/r/a.py', 6]]) } },
       settings: { textSize: 1 },
-      FRAME: frames.FRAME, SLOT: frames.SLOT, slotLabelText: chrome.slotLabelText, cutLabel: chrome.cutLabel, vscode: { postMessage() {} },
+      FRAME: frames.FRAME, SLOT: frames.SLOT, slotLabelText: chrome.slotLabelText, cutLabel: chrome.cutLabel, vscode: { postMessage: () => undefined },
     });
     delete require.cache[require.resolve('../../../src/webview/frameRender.js')];
     fr = require('../../../src/webview/frameRender.js');

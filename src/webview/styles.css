@@ -1482,3 +1482,22 @@ path.xfile-cues { display: none; }
 #graph g.cg-focus path.xfile-cues { fill-opacity: 0.25; }
 tspan.slot-xout { display: none; }
 #graph g.same-file-only tspan.slot-xout { display: inline; opacity: 0.75; font-weight: 400; }
+
+/* ── fb14 D2 + D4 (fb-arrows): opaque arrowheads, hover focus ────────────────────────
+   Links fade with stroke-opacity (the context-stroke head ignores it, so heads stay
+   opaque and nothing shows through them). While a node is hovered, the other lines
+   fade as one (stroke-opacity back to 1 under the 0.15 group opacity of the perf
+   block). While a FUNCTION is hovered (.cg-focus, hoverIndex.focus), every node that
+   is not it or a caller/callee (.cg-nb) dims to 0.2, and so do the folder bundles; its
+   own lines are lifted above the nodes (g.hl-links / g.f-hl). Circles dim by
+   fill/stroke-opacity, not opacity: a transparency layer per circle cost 25 -> 18 ms
+   median hover-to-paint on the 10k fixture (1 176 circles, headless). Glyphs carry an
+   inline opacity (renderCloudNodes), hence !important there. */
+#graph g.cg-hovering g.links > line:not(.cg-hl):not(.cross-bundle):not(.cross-hover),
+#graph g.cg-hovering g.f-links > line:not(.cg-hl) { stroke-opacity: 1; }
+#graph g.cg-hovering line.cg-hl { stroke-opacity: 1; }
+#graph g.cg-focus circle.regular-node:not(.cg-nb) { fill-opacity: 0.2; stroke-opacity: 0.2; }
+#graph g.cg-focus g.lib-nodes > use:not(.cg-nb),
+#graph g.cg-focus line.cross-bundle { opacity: 0.2; }
+#graph g.cg-focus path.cloud-node:not(.cg-nb) { opacity: 0.2 !important; }
+#graph g.hl-links > line, #graph g.f-hl > line { pointer-events: none; }

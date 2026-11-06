@@ -198,23 +198,31 @@ function fileLookup(nodes) {
 }
 
 /**
- * X3 cue (Bela, 2026-10-08): what the same-file rule hides, per node and per file.
- *   hiddenOnly: ids that have hidden calls (to/from another file or a library) and NO
- *               same-file call, i.e. they would look like they call nothing at all;
- *   outByFile:  file -> calls leaving that file for another PROJECT file (weighted by _count).
+ * X3 cue (Bela, 2026-10-08; one symbol per meaning since the 1.4 feedback F1): what the
+ * same-file rule hides. A call "leaves" when caller and callee resolve to two different
+ * PROJECT files (a library or a folder glyph has no file and does not count); counts are
+ * weighted by _count. The node and file numbers share that base, so a file's ↗N is the
+ * sum of its functions' ↗ counts.
+ *   outByNode: node id -> calls it makes into other project files;
+ *   outByFile: file    -> calls leaving that file (= sum of outByNode over its nodes);
+ *   cueIds:    ids with outByNode > 0 and NO same-file call: without the ↗ they would
+ *              look as if they called nothing at all.
  */
 function xfileCue(links, fileOfId) {
-  const same = new Set(), hidden = new Set(), outByFile = new Map();
+  const same = new Set(), outByNode = new Map(), outByFile = new Map();
   for (const l of links) {
     const s = clIdOf(l.source), t = clIdOf(l.target);
     if (s === t) { continue; }
     const fs = fileOfId(s), ft = fileOfId(t);
     if (fs != null && fs === ft) { same.add(s); same.add(t); continue; }
-    hidden.add(s); hidden.add(t);
-    if (fs != null && ft != null) { outByFile.set(fs, (outByFile.get(fs) || 0) + (l._count ?? 1)); }
+    if (fs == null || ft == null) { continue; }
+    const n = l._count ?? 1;
+    outByNode.set(s, (outByNode.get(s) || 0) + n);
+    outByFile.set(fs, (outByFile.get(fs) || 0) + n);
   }
-  const hiddenOnly = new Set([...hidden].filter(id => !same.has(id)));
-  return { hiddenOnly, outByFile };
+  const cueIds = new Set();
+  for (const id of outByNode.keys()) { if (!same.has(id)) { cueIds.add(id); } }
+  return { cueIds, outByNode, outByFile };
 }
 
 if (typeof module !== 'undefined') {

@@ -541,6 +541,22 @@ body.vscode-light {
   color: var(--vscode-foreground, #cccccc);
 }
 
+/* F1 canvas legend (webviewLegend.ts): a drawn sample of each outline/glyph */
+.tl-legend-swatch {
+  width: 24px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--vscode-foreground, #cccccc);
+}
+.tl-legend-glyph {
+  font-size: 8px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
 /* ── Language legend (now inside .tl-panel) ── */
 #language-legend {
   position: static;
@@ -1446,18 +1462,23 @@ g.frame.drag-hover > .folder-bubble-shape { stroke-opacity: 0.9; }
   -webkit-mask-image: linear-gradient(#000 75%, transparent);
   mask-image: linear-gradient(#000 75%, transparent);
 }
-.hc-more, .hc-calls { font-size: 11px; opacity: 0.7; overflow-wrap: anywhere; }
+.hc-more, .hc-calls, .hc-hidden { font-size: 11px; opacity: 0.7; overflow-wrap: anywhere; }
 
 /* ── F28: only the hovered function's name is shown (fnNames.js) ── */
 #graph g.fn-names-hidden text.fn-name:not(.fn-name-on) { display: none; }
 
 /* ── X3: what the same-file rule hides (crossLinks.xfileCue), shown only while it is on ──
-   Ring: a function with hidden calls and no visible one (it would look like it calls nothing).
-   Only where the node has no outline of its own, so git's outline is never overwritten. */
-#graph g.same-file-only circle.regular-node.has-xfile[stroke="none"] {
-  stroke: var(--cograph-node-default, #d4d4d4);
-  stroke-opacity: 0.6;
-  stroke-dasharray: 2.5 2;
+   ↗ at a node's rim (xfileGlyph.js): a function whose calls all go to other project files
+   (it would look as if it called nothing). Same symbol as the slot label's ↗N. Drawn just
+   outside the rim, so a git outline is never covered. Not a dashed ring any more (F1, 1.4
+   feedback): a dashed outline means only "empty / not there yet". */
+path.xfile-cues { display: none; }
+#graph g.same-file-only path.xfile-cues {
+  display: inline;
+  fill: var(--cograph-node-default, #d4d4d4);
+  fill-opacity: 0.8;
 }
+/* fb-arrows (F3/D4) sets cg-focus on the zoom root while a function is hovered or pinned. */
+#graph g.cg-focus path.xfile-cues { fill-opacity: 0.25; }
 tspan.slot-xout { display: none; }
 #graph g.same-file-only tspan.slot-xout { display: inline; opacity: 0.75; font-weight: 400; }

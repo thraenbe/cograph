@@ -28,10 +28,13 @@ const FC_LAYERS = {
     for (const tab of childrenMatching(frameEl, 'g', 'frame-tab')) { out.push(...childrenMatching(tab, 'text', 'frame-tab-counts')); }
     return out;
   },
-  // function nodes only — folder/file glyphs (path.cloud-node) stay clickable
+  // function nodes only — folder/file glyphs (path.cloud-node) stay clickable;
+  // the frame's ↗ cue path (xfileGlyph.js) belongs to the nodes and goes with them
   nodes: (frameEl) => {
     const holder = childrenMatching(frameEl, 'g', 'f-nodes')[0];
-    return holder ? childrenMatching(holder, 'circle', 'regular-node') : [];
+    return holder
+      ? [...childrenMatching(holder, 'circle', 'regular-node'), ...childrenMatching(holder, 'path', 'xfile-cues')]
+      : [];
   },
 };
 

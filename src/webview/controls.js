@@ -227,6 +227,7 @@ function wireLegendToggle(headerId, bodyId) {
 }
 wireLegendToggle('toggle-git-legend', 'git-legend-body');
 wireLegendToggle('toggle-folder-filters', 'folder-filters-body');
+wireLegendToggle('toggle-shapes-legend', 'shapes-legend-body');   // F1: what each outline and glyph means
 
 
 // ── Git mode toggle ───────────────────────────────────────────────────────────

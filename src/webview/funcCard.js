@@ -56,6 +56,17 @@ function fcCallsText(id, idx, nameOf) {
   return part('called by', r.callers) + ' · ' + part('calls', r.callees);
 }
 
+/**
+ * F1 (1.4 feedback): the ↗ in words. `cue` = crossLinks.xfileCue of the current render; the
+ * number is the one the node's ↗ and its file's ↗N are built from. '' when nothing is hidden.
+ */
+function fcHiddenText(id, cue, sameFileOnly) {
+  const n = sameFileOnly && cue && cue.outByNode ? (cue.outByNode.get(id) || 0) : 0;
+  if (!n) { return ''; }
+  return '↗ calls ' + n + (n === 1 ? ' function' : ' functions')
+    + ' in other files (hidden: “Only calls within a file”)';
+}
+
 function fcLang(file) {
   const ext = String(file).split('.').pop().toLowerCase();
   if (ext === 'py' || ext === 'pyi') { return 'python'; }
@@ -133,6 +144,6 @@ function fcContent(d, brief, rel, idx, nameOf) {
 if (typeof module !== 'undefined') {
   module.exports = {
     HOVER_FN_DELAY_MS, HOVER_FN_DWELL_PX, FN_PEEK_LINES, fcIsFunctionNode, fcCallIndex, fcNameOf,
-    fcCallsText, fcShortDoc, fcCodeNodes, fcContent, fcLang,
+    fcCallsText, fcHiddenText, fcShortDoc, fcCodeNodes, fcContent, fcLang,
   };
 }

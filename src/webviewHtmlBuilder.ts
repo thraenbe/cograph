@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { SHAPES_LEGEND_HTML } from './webviewLegend';
 
 export function getLoadingHtml(message = 'Analyzing project…'): string {
   const esc = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -190,6 +191,7 @@ export function getWebviewHtml(
   const scopeUri     = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'scope.js'));
   const framesUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frames.js'));
   const crossLinksUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'crossLinks.js'));
+  const xfileGlyphUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'xfileGlyph.js'));
   const localSimUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'localSim.js'));
   const frameSchedulerUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameScheduler.js'));
   const frameRenderUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameRender.js'));
@@ -352,6 +354,7 @@ export function getWebviewHtml(
         <span class="tl-chevron collapsed">▾</span>
       </div>
       <div class="tl-legend" id="folder-filters-body" style="display:none"></div>
+      ${SHAPES_LEGEND_HTML}
     </div>
     <div id="panel-forces" class="tl-panel">
       <div class="tl-section-label">Forces</div>
@@ -515,6 +518,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${scopeUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${framesUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${crossLinksUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${xfileGlyphUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${localSimUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameSchedulerUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${simPoolUri}?v=${nonce}"></script>

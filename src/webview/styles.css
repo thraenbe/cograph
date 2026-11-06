@@ -551,7 +551,7 @@ body.vscode-light {
   color: var(--vscode-foreground, #cccccc);
 }
 .tl-legend-glyph {
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 600;
   white-space: nowrap;
   opacity: 0.8;

@@ -30,7 +30,7 @@ const ROWS: LegendRow[] = [
     label: 'Folder',
   },
   {
-    swatch: `<svg ${SW}><rect x="1.5" y="1.5" width="21" height="11" rx="3" fill="none" stroke="currentColor" stroke-opacity="0.35" stroke-width="1"/></svg>`,
+    swatch: `<svg ${SW}><rect x="1.5" y="1.5" width="21" height="11" rx="3" fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-width="1"/></svg>`,
     label: 'Files at the top level of the repository',
   },
   {
@@ -38,9 +38,10 @@ const ROWS: LegendRow[] = [
     label: 'Calls still being parsed',
   },
   {
-    // the arrow is xfileArrowD(7, 11, 6), the canvas geometry, in a larger viewBox so it reads at 14 px
-    swatch: '<svg width="24" height="18" viewBox="0 0 24 18" aria-hidden="true"><circle cx="7" cy="11" r="6" fill="currentColor" fill-opacity="0.75"/>'
-      + '<path d="M12.5 4.8L14.6 2.7L13.7 1.9L16.6 1.4L16.1 4.3L15.3 3.4L13.2 5.5Z" fill="currentColor" fill-opacity="0.85"/></svg>',
+    // the edge of a dot with its arrow: xfileArrowD(6, 16, 10), the canvas geometry at a radius where it reads
+    // in an 18 px swatch (at r 6 the arrow was a speck in real VS Code, Dell check 2026-11-06)
+    swatch: '<svg width="24" height="18" viewBox="0 0 24 18" aria-hidden="true"><circle cx="6" cy="16" r="10" fill="currentColor" fill-opacity="0.75"/>'
+      + '<path d="M14.4 6.4L17.9 2.9L16.4 1.5L21.3 0.7L20.5 5.6L19.1 4.1L15.6 7.6Z" fill="currentColor" fill-opacity="0.9"/></svg>',
     label: 'Only calls other files (hidden)',
     title: 'This function only calls functions in other files. "Only calls within a file" hides those lines; hover the function to see them.',
   },

@@ -299,7 +299,7 @@ suite('F1 outline meaning: legend', () => {
   });
 
   test('the ↗ sample is the canvas geometry, and the legend is in the Folder panel with a toggle', () => {
-    assert.ok(SHAPES_LEGEND_HTML.includes(xg.xfileArrowD(7, 11, 6)));
+    assert.ok(SHAPES_LEGEND_HTML.includes(xg.xfileArrowD(6, 16, 10)));
     const html = read('src/webviewHtmlBuilder.ts');
     const folder = html.slice(html.indexOf('id="panel-folder"'), html.indexOf('id="panel-forces"'));
     assert.ok(folder.includes('${SHAPES_LEGEND_HTML}'));

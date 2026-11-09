@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Markdown export** (`npm run export:md -- <repo> --out <dir>`): writes CoGraph's call-graph context for
+  a whole repository to files, with no VS Code, no network and no AI. Per source file, per function and per
+  feature (a list of methods, classes or files) it writes the same text the MCP tools return, without the
+  reply caps, plus edge counts and TSV tables of edges, nodes and Java call sites. Java pages add class cards
+  (fields, URL and asset literals), signatures, Javadoc, static constant reads and every call site with its
+  target or the reason it has none. Two runs on the same code give byte-identical files. See
+  `docs/export-markdown.md`.
+
 ### Changed
 
+- MCP replies sort ties ordinally instead of by locale, and list direct callers and callees in location
+  order (they were in analysis order).
 - Java analyzer: calls are resolved by declared type instead of by method name
   (`scripts/javaTypes.js` builds a project type table in the definitions pass,
   `scripts/javaResolve.js` resolves every receiver form with scopes). Receivers on locals,

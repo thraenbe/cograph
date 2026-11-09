@@ -228,20 +228,43 @@ function collectCalls(files, definitions, root) {
   return { edges, libraryNodes, stats: narrower.stats, sites };
 }
 
+/**
+ * `--export-info` (the Markdown export only; the extension never passes it): class cards, method
+ * signatures and every call site with its text and outcome. Nodes and edges are unaffected.
+ */
+function collectExportInfo(files, sites) {
+  const { fileFacts, joinSites } = require('./javaExportInfo.js');
+  const classes = [];
+  const methods = [];
+  const literals = [];
+  const texts = [];
+  for (const filepath of files) {
+    const cst = getCst(filepath);
+    if (!cst) { continue; }
+    try {
+      const f = fileFacts(filepath, fs.readFileSync(filepath, 'utf8'), cst);
+      classes.push(...f.classes); methods.push(...f.methods); literals.push(...f.literals); texts.push(...f.sites);
+    } catch { /* skip files that crash the walk, as the other passes do */ }
+  }
+  return { classes, methods, literals, sites: joinSites(sites, texts) };
+}
+
 // ── Entry ─────────────────────────────────────────────────────────────────────
 
 function main() {
   if (process.argv.length < 3) {
-    process.stderr.write('Usage: analyze_java.js <workspace_root> [--files <listpath>]\n');
+    process.stderr.write('Usage: analyze_java.js <workspace_root> [--files <listpath>] [--export-info]\n');
     process.exit(1);
   }
   const root = process.argv[2];
   const files = explicitFileList(isJavaFile) ?? collectJavaFiles(root);
   try {
     const definitions = collectDefinitions(files);
-    const { edges, libraryNodes, stats } = collectCalls(files, definitions, root);
+    const { edges, libraryNodes, stats, sites } = collectCalls(files, definitions, root);
     const nodes = [...Object.values(definitions), ...libraryNodes];
-    require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
+    const graph = withStats({ nodes, edges, files }, stats);
+    if (process.argv.includes('--export-info')) { graph.exportInfo = collectExportInfo(files, sites); }
+    require('./graphOutput.js').writeGraph(graph);
   } finally {
     clearCstCache(); // drop cached CSTs
   }

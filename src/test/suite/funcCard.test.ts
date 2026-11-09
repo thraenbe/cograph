@@ -90,9 +90,10 @@ suite('funcCard: content of the function hover card (U3 = B2 peek)', () => {
 });
 
 suite('hoverCard + funcCard: the live function card', () => {
-  const GLOBALS = ['fcIsFunctionNode', 'fcCallIndex', 'fcNameOf', 'fcContent', 'fcCodeNodes', 'HOVER_FN_DELAY_MS', 'HOVER_FN_DWELL_PX', 'FN_PEEK_LINES', 'highlightCode'];
+  const GLOBALS = ['fcIsFunctionNode', 'fcCallIndex', 'fcNameOf', 'fcContent', 'fcCodeNodes', 'fcHiddenText', 'HOVER_FN_DELAY_MS', 'HOVER_FN_DWELL_PX', 'FN_PEEK_LINES', 'highlightCode'];
   const saved: Record<string, unknown> = {};
   let dom: JSDOM, card: any, clock: sinon.SinonFakeTimers, posted: any[], node: any, other: any, state: any;
+  let sameFileOn = true;
 
   const fire = (el: Element, type: string, init: Record<string, unknown> = {}) =>
     el.dispatchEvent(new (dom.window as any).MouseEvent(type, { bubbles: true, ...init }));
@@ -103,7 +104,7 @@ suite('hoverCard + funcCard: the live function card', () => {
     for (const k of GLOBALS) { saved[k] = g[k]; }
     Object.assign(g, {
       fcIsFunctionNode: fc.fcIsFunctionNode, fcCallIndex: fc.fcCallIndex, fcNameOf: fc.fcNameOf, fcContent: fc.fcContent,
-      fcCodeNodes: fc.fcCodeNodes, HOVER_FN_DELAY_MS: fc.HOVER_FN_DELAY_MS, HOVER_FN_DWELL_PX: fc.HOVER_FN_DWELL_PX,
+      fcCodeNodes: fc.fcCodeNodes, fcHiddenText: fc.fcHiddenText, HOVER_FN_DELAY_MS: fc.HOVER_FN_DELAY_MS, HOVER_FN_DWELL_PX: fc.HOVER_FN_DWELL_PX,
       FN_PEEK_LINES: fc.FN_PEEK_LINES, highlightCode: undefined,
     });
     dom = new JSDOM('<div id="graph"></div>', { pretendToBeVisual: true });
@@ -119,7 +120,9 @@ suite('hoverCard + funcCard: the live function card', () => {
     const win = dom.window as any;
     win.setTimeout = (fn: () => void, ms: number) => setTimeout(fn, ms);
     win.clearTimeout = (id: any) => clearTimeout(id);
-    card = hc.createHoverCard({ doc, win, root: doc.getElementById('graph'), getState: () => state, post: (m: any) => posted.push(m) });
+    sameFileOn = true;
+    card = hc.createHoverCard({ doc, win, root: doc.getElementById('graph'), getState: () => state,
+      sameFileOnly: () => sameFileOn, post: (m: any) => posted.push(m) });
     win.dispatchEvent(new win.MessageEvent('message', { data: { type: 'annotations', root: '/ws', aiEnabled: false, files: {}, folders: {}, stale: [] } }));
     posted.length = 0;
   });
@@ -169,6 +172,26 @@ suite('hoverCard + funcCard: the live function card', () => {
     fire(node, 'mouseout', { relatedTarget: null }); clock.tick(200);
     rest(node); clock.tick(fc.HOVER_FN_DELAY_MS);
     assert.strictEqual(posted.length, 2);
+  });
+
+  // F1 (1.4 feedback): the node's ↗ said in words, with the number its ↗ and the file's ↗N use.
+  test('the hidden cross-file calls are named in words while the same-file rule is on', () => {
+    state.xfileCue = { cueIds: new Set([node.__data__.id]), outByNode: new Map([[node.__data__.id, 3]]), outByFile: new Map() };
+    rest(node); clock.tick(fc.HOVER_FN_DELAY_MS);
+    assert.strictEqual(text('hc-hidden'), '↗ calls 3 functions in other files (hidden: “Only calls within a file”)');
+    assert.strictEqual(shown('hc-hidden'), true);
+  });
+
+  test('no hidden line with the rule off, or when nothing is hidden', () => {
+    state.xfileCue = { cueIds: new Set(), outByNode: new Map([[node.__data__.id, 1]]), outByFile: new Map() };
+    sameFileOn = false;
+    rest(node); clock.tick(fc.HOVER_FN_DELAY_MS);
+    assert.strictEqual(shown('hc-hidden'), false, 'rule off: the lines are drawn, nothing to explain');
+    fire(node, 'mouseout', { relatedTarget: null }); clock.tick(200);
+    sameFileOn = true;
+    rest(other, 300, 300); clock.tick(fc.HOVER_FN_DELAY_MS);
+    assert.strictEqual(shown('hc-hidden'), false, 'b.py::main hides nothing');
+    assert.strictEqual(fc.fcHiddenText('x', { outByNode: new Map([['x', 1]]) }, true), '↗ calls 1 function in other files (hidden: “Only calls within a file”)');
   });
 
   test('a sweep across functions posts nothing and shows nothing', () => {

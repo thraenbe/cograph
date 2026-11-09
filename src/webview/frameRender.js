@@ -30,6 +30,12 @@ const __fr = {
 
 function frInnerOrigin(f) { return innerOrigin(f); } // frames.js global
 
+/** A frame's live absolute rect (the origin of its <g>), or null. */
+function frameAbsOf(path) {
+  const f = state.frames && state.frames.byPath.get(path);
+  return f ? f.abs : null;
+}
+
 const FR_APPLY_BUDGET_MS = 1;
 
 // ── Simulation transport (sync localSim | worker pool, see simBackend.js) ─────
@@ -301,26 +307,14 @@ function renderFrameLayout(allLinks, visibleSet) {
     renderFrameSlots(f, sub);
     const circles = renderNodes(visibleSet, memberNodes, sub.select('g.f-nodes'));
     const clouds = renderCloudNodes(visibleSet, memberNodes, sub.select('g.f-nodes'));
+    if (typeof registerXfileCue === 'function') {   // F1 ↗ cues: one path per frame, above its nodes
+      registerXfileCue(f.path, sub.select('g.f-nodes'), memberNodes, state.xfileCue, () => frameAbsOf(f.path), nodeRadius);
+    }
     const labels = renderLabels(visibleSet, memberNodes, sub.select('g.f-labels'));
     const links = renderLinks(intra.get(f.path) || [], visibleSet, sub.select('g.f-links'));
     links.attr('opacity', d => d.pending ? 0.25 : linkRestOpacity());
     __fr.frameDom.set(f.path, { sub, circles, clouds, labels, links });
-    if (f.kind === 'root') {
-      // Subtle dashed outline + name: root-level files stop looking like
-      // stray debris floating outside every frame. No tab, no drag strip.
-      sub.select('.folder-bubble-shape')
-        .style('display', null)
-        .attr('fill', 'none')
-        .attr('stroke-dasharray', '6 5')
-        .attr('stroke-opacity', 0.25)
-        .attr('pointer-events', 'none');
-      sub.select('g.frame-tab').style('display', 'none');
-      sub.select('.folder-bubble-titlebar').style('display', 'none');
-      sub.select('.folder-bubble-label')
-        .style('display', null)
-        .attr('text-anchor', 'start')
-        .attr('opacity', 0.5);
-    }
+    if (f.kind === 'root') { applyRootFrameChrome(sub); }
   }
 
   if (typeof updateTextVisibility === 'function') { updateTextVisibility(); }
@@ -363,6 +357,26 @@ function renderFrameLayout(allLinks, visibleSet) {
       fitToView();
     }
   }
+}
+
+/** The root pseudo-frame: a faint SOLID outline + name, so root-level files stop
+ *  looking like stray debris floating outside every frame. No tab, no drag strip.
+ *  Not dashed (F1, 1.4 feedback): a dashed outline means only "empty / not there
+ *  yet" (an empty file slot, calls still parsing). */
+function applyRootFrameChrome(sub) {
+  sub.select('.folder-bubble-shape')
+    .style('display', null)
+    .attr('fill', 'none')
+    .attr('stroke-dasharray', null)
+    .attr('stroke-width', 1)
+    .attr('stroke-opacity', 0.2)
+    .attr('pointer-events', 'none');
+  sub.select('g.frame-tab').style('display', 'none');
+  sub.select('.folder-bubble-titlebar').style('display', 'none');
+  sub.select('.folder-bubble-label')
+    .style('display', null)
+    .attr('text-anchor', 'start')
+    .attr('opacity', 0.5);
 }
 
 /** Re-fit only while the viewport is still the automatic one: never after a
@@ -744,6 +758,7 @@ function tickFramePositions(path) {
     this.setAttribute('cx', d.x - ox);
     this.setAttribute('cy', d.y - oy);
   });
+  if (typeof writeXfileCue === 'function') { writeXfileCue(path); }   // F1 ↗ cues follow their nodes
   clouds.each(function (d) {
     this.setAttribute('transform', `translate(${d.x - ox},${d.y - oy})`);
   });
@@ -1409,7 +1424,7 @@ if (typeof module !== 'undefined') {
     snapBackToSlot,
     resolveDropOverlaps, translateFrameSubtree, onFrameMoveSettled,
     applyFrameDisplaySettings, createFrameResizeDrag,
-    slotSignature, slotColor, slotBasename, renderFrameSlots, sameSlotGeometry,
+    slotSignature, slotColor, slotBasename, renderFrameSlots, sameSlotGeometry, applyRootFrameChrome,
     __frState: __fr,   // test hook
   };
 }

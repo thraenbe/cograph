@@ -298,6 +298,7 @@ function applyFiltersNow() {
     applyFiltersFull(visibleSet);
   }
 
+  if (typeof refreshXfileCues === 'function') refreshXfileCues(visibleSet);   // F1 ↗ cues follow the filter
   if (typeof tickFolderOverlay === 'function') tickFolderOverlay();
   if (typeof tickClassOverlay === 'function') tickClassOverlay(visibleSet);
   if (typeof updateSearchCount === 'function') updateSearchCount(visibleSet);

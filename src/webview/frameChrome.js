@@ -56,7 +56,7 @@ function tabOnlyPath(x, y, tw, th = TAB.H) {
     `c${sh / 2} 0 ${sh / 2} ${th} ${sh} ${th}Z`;
 }
 
-/** Plain rounded-rect path (the root frame keeps a tabless dashed outline). */
+/** Plain rounded-rect path (the root frame keeps a tabless, faint solid outline). */
 function rectPath(x, y, w, h, r = 8) {
   return `M${x + r} ${y}H${x + w - r}a${r} ${r} 0 0 1 ${r} ${r}V${y + h - r}` +
     `a${r} ${r} 0 0 1 ${-r} ${r}H${x + r}a${r} ${r} 0 0 1 ${-r} ${-r}V${y + r}` +

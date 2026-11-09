@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - The function popup highlights C code with C keywords, not TypeScript ones ([#139](https://github.com/thraenbe/cograph/issues/139)).
+- With the Global engine and Static motion, opened folders get their folder boxes (they were never drawn, so they could not be seen or dragged), and functions are grouped by file.
 - Switching the layout engine fits the view to the new layout. The graph could end up partly or entirely off screen.
 
 ### Security
@@ -18,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are no longer copied. This is hardening: there is no known exploit in shipped code. The file
   list handed to the analyzers already left links out, and the only reader that followed one
   was the Python analyzer's fallback walk, which runs when that list cannot be written.
+
+### Changed
+- **A dashed outline means one thing: empty or not there yet** (a file with no functions, calls
+  still being parsed). With *Only calls within a file* on, a function whose calls all go to other
+  files shows a small `↗` at its dot instead of a dashed ring, the same symbol as the file label's
+  hidden-call count; its hover card says how many. The root frame and, in Global, library calls
+  are drawn solid, and a collapsible Legend in the Folder panel names every outline and glyph.
 
 ## [1.4.2] - 2026-10-27
 

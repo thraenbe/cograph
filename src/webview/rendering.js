@@ -10,10 +10,13 @@ const defs = svg.append('defs');
 // (userSpaceOnUse): with the default strokeWidth units an aggregated Global
 // edge (stroke = linkThickness × edgeWeightScale) grew the head to 30-160px
 // on screen (F20). Like #arrow-bundle it scales with the zoom, not the stroke.
+// fb14 D2: refX = 10 * ARROW_TUCK (crossLinks.js) — lines end ARROW_TRIM short of the
+// target's rim (rimEnds), the tip lands on the rim, the head covers the line's last
+// stretch, and it is opaque because links fade with stroke-opacity, not opacity.
 defs.append('marker')
   .attr('id', 'arrow')
   .attr('viewBox', '0 -5 10 10')
-  .attr('refX', 10)
+  .attr('refX', 2.5)
   .attr('refY', 0)
   .attr('markerWidth', 9)
   .attr('markerHeight', 9)
@@ -78,6 +81,9 @@ const nodeG = g.append('g').attr('class', 'nodes');
 const labelG = g.append('g').attr('class', 'labels');
 const libNodeG = g.append('g').attr('class', 'lib-nodes');
 const libLabelG = g.append('g').attr('class', 'lib-labels');
+// fb14 D4: a hovered function's lines are lifted here — above every node (Global path;
+// Shelf lifts into its frame's g.f-hl, frameRender.frameLiftLayer).
+const hlLinkG = g.insert('g', 'g.labels').attr('class', 'hl-links');
 
 // ── Zoom ──────────────────────────────────────────────────────────────────────
 const zoomBehavior = d3.zoom()
@@ -341,23 +347,25 @@ function ticked(movedNode) {
   requestAnimationFrame(() => { __tickPending = false; tickedNow(); });
 }
 
+const __ends = { x1: 0, y1: 0, x2: 0, y2: 0 };   // rimEnds scratch (no allocation per link)
+function linkTrim() { return settings.arrows ? ARROW_TRIM : 0; }
+
 function tickedNow() {
   const __perfT0 = (typeof perfOn === 'function' && perfOn()) ? perfNow() : 0;
+  const trim = linkTrim();
   state.svgLinks?.each(function (d) {
-    const sx = d.source.x, sy = d.source.y;
-    const tx = d.target.x, ty = d.target.y;
-    const dx = tx - sx, dy = ty - sy;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    const r1 = nodeRadius(d.source), r2 = nodeRadius(d.target);
-    this.setAttribute('x1', sx + (dx / dist) * r1);
-    this.setAttribute('y1', sy + (dy / dist) * r1);
-    this.setAttribute('x2', tx - (dx / dist) * r2);
-    this.setAttribute('y2', ty - (dy / dist) * r2);
+    const s = d.source, t = d.target;
+    rimEnds(__ends, s.x, s.y, t.x, t.y, nodeRadius(s), nodeRadius(t), trim);
+    this.setAttribute('x1', __ends.x1);
+    this.setAttribute('y1', __ends.y1);
+    this.setAttribute('x2', __ends.x2);
+    this.setAttribute('y2', __ends.y2);
   });
   state.svgNodes?.each(function (d) {
     this.setAttribute('cx', d.x);
     this.setAttribute('cy', d.y);
   });
+  if (typeof writeXfileCue === 'function') { writeXfileCue('global'); }   // F1 ↗ cues
   state.svgCloudNodes?.each(function (d) {
     this.setAttribute('transform', `translate(${d.x},${d.y})`);
   });
@@ -412,13 +420,62 @@ function __pe(name, t0) { if (t0) { perfEnd(name, t0); } }
 const __hover = (typeof createHoverIndex === 'function') ? createHoverIndex() : null;
 
 function hoverLinksOn(d, hlWidth) {
+  focusDimCancel();
   if (!__hover) { return; }
   __hover.sync(state.svgLinks, state.svgLabels);
   __hover.highlight(g.node(), d.id, hlWidth);
 }
 
 function hoverLinksOff() {
+  focusDimCancel();
   if (__hover) { __hover.clear(); }
+}
+
+// fb14 D4: the function being hovered (kept across a re-render, see renderElements).
+let __focusId = null;
+// The dim comes after a short dwell: it repaints the whole view (10k fixture, headless,
+// 1 176 circles: +7-10 ms median per hover when immediate). Lines, lift and name stay
+// immediate; sweeping the pointer across nodes no longer repaints the canvas per node.
+const FOCUS_DIM_DELAY_MS = 100;
+let __focusDimTimer = 0;
+
+function focusDimCancel() {
+  __focusId = null;
+  if (__focusDimTimer) { clearTimeout(__focusDimTimer); __focusDimTimer = 0; }
+}
+
+/** Where a hovered function's line is lifted to: above every node, same coordinate space. */
+function hoverLiftTarget(el) {
+  if (typeof usesFrames === 'function' && usesFrames()) {
+    return typeof frameLiftLayer === 'function' ? frameLiftLayer(el) : null;
+  }
+  return el.parentNode === linkG.node() ? hlLinkG.node() : null;
+}
+
+/** Function hover: its lines on top, its callers/callees full, everything else dimmed. */
+function hoverFocusOn(d, hlWidth) {
+  if (!__hover) { return; }
+  __hover.sync(state.svgLinks, state.svgLabels);
+  __hover.syncNodes([state.svgNodes, state.svgCloudNodes, state.svgLibNodes]);
+  const extra = (typeof crossPartnersOf === 'function' && typeof usesFrames === 'function' && usesFrames())
+    ? crossPartnersOf(d.id) : [];
+  const wasDimmed = __focusId === d.id && g.classed('cg-focus');   // a refresh keeps the dim
+  focusDimCancel();
+  __hover.focus(g.node(), d.id, hlWidth, extra, hoverLiftTarget);
+  __focusId = d.id;
+  if (wasDimmed) { __hover.dim(); return; }
+  __focusDimTimer = setTimeout(() => {
+    __focusDimTimer = 0;
+    if (__focusId === d.id && __hover) { __hover.dim(); }
+  }, FOCUS_DIM_DELAY_MS);
+}
+
+/** After a re-render: the focus follows the new elements, or ends with its node. */
+function refreshHoverFocus() {
+  if (__focusId == null || !__hover) { return; }
+  const id = __focusId;
+  const alive = state.currentNodes.some(n => n.id === id) && getVisibleNodeIds().has(id);
+  if (alive) { hoverFocusOn({ id }, Math.max(1.5, settings.linkThickness)); } else { hoverLinksOff(); }
 }
 
 function hoverLabelSel(d, on) {
@@ -444,7 +501,7 @@ function onNodeMouseOver(event, d) {
     .style('fill', getCSSVar('--cograph-node-hover'))
     .attr('r', nodeRadius(d) * 1.15)
     .attr('filter', 'url(#glow-hover)');
-  hoverLinksOn(d, Math.max(1.5, settings.linkThickness));
+  hoverFocusOn(d, Math.max(1.5, settings.linkThickness));
   hoverLabelSel(d, true)
     ?.style('opacity', 1)
     .attr('font-size', `${11.5 * settings.textSize}px`)
@@ -559,9 +616,10 @@ function renderLinks(allLinks, visibleSet, parent = linkG) {
     .join('line')
     .classed('xfile', d => !isSameFileLink(d, fileOf))
     .attr('stroke', d => d.isLibraryEdge ? getCSSVar('--cograph-link-library') : getCSSVar('--cograph-link-default'))
-    .attr('stroke-dasharray', d => d.isLibraryEdge ? '6,3' : (d.pending ? '4,3' : null))
+    // F1 (1.4 feedback): dashed means only "not there yet"; library calls differ by colour.
+    .attr('stroke-dasharray', d => d.pending ? '4,3' : null)
     .attr('stroke-width', d => settings.linkThickness * edgeWeightScale(d._count))
-    .attr('opacity', d => d.pending ? 0.4 : 0.7)
+    .attr('stroke-opacity', d => d.pending ? 0.4 : 0.7)   // not opacity: the head stays opaque (fb14 D2)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
     .each(function(d) {
       // Tooltip for aggregated edges (folder/file clusters); skipped for plain 1-call edges.
@@ -588,7 +646,6 @@ function renderNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
       update => update,
       exit => exit.remove()
     )
-    .classed('has-xfile', d => !!(state.xfileCue && state.xfileCue.hiddenOnly.has(d.id)))   // X3 ring
     .attr('r', d => nodeRadius(d))
     .style('fill', d => resolveNodeFill(d))
     .attr('stroke', d => resolveNodeStroke(d))
@@ -757,15 +814,8 @@ function startSimulation(allLinks) {
     .on('tick', ticked)
     .on('end', () => { if (typeof perfSettled === 'function') { perfSettled(); } });
   state.simulation._kind = 'global';
-  if (state.layoutMode === 'static') {
-    staticBootFreeze(state.simulation, state.currentNodes, isBigGraph() ? 60 : 150);
-    ticked();
-    // Fit AFTER the frozen positions exist (F4): the async auto-fit in
-    // tickedNow can run against a pre-settle bbox, and a static simulation
-    // never ticks again to correct it.
-    state.hasFitted = true;
-    if (!state.userZoomed) { fitToView(); }
-  }
+  // Static boot (F4) is NOT done here: renderGlobalLayout() runs it after the
+  // overlay forces and elements of the render exist (see the end of it).
 }
 
 /** Static boot on the global engine: the classic Static toggle assumed a
@@ -776,7 +826,29 @@ function staticBootFreeze(sim, nodes, maxTicks) {
   for (let i = 0; i < maxTicks && sim.alpha() > 0.05; i++) {
     sim.tick();
   }
+  collisionOnlyPass(sim, nodes, STATIC_COLLIDE_TICKS);
   nodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
+}
+
+/** The bounded settle now runs with the file / drill-down clustering forces and
+ *  stops before the collision force has separated the clustered nodes (uxtest,
+ *  express Global + Static: overlap up to 0.197 of the nodes). A few ticks of
+ *  the simulation's own collision force alone, integrated the way d3's tick()
+ *  does (velocity decay; a pinned node stays), separate them: overlap back to
+ *  main's, for about 1.0-1.3x main's settle time. */
+const STATIC_COLLIDE_TICKS = 40;
+function collisionOnlyPass(sim, nodes, ticks) {
+  const collide = sim.force && sim.force('collision');
+  if (!collide || !ticks) { return; }
+  const keep = 1 - sim.velocityDecay();
+  nodes.forEach(n => { n.vx = 0; n.vy = 0; });
+  for (let i = 0; i < ticks; i++) {
+    collide(sim.alpha());
+    for (const n of nodes) {
+      if (n.fx == null) { n.x += (n.vx *= keep); } else { n.x = n.fx; n.vx = 0; }
+      if (n.fy == null) { n.y += (n.vy *= keep); } else { n.y = n.fy; n.vy = 0; }
+    }
+  }
 }
 
 function renderLibraryNodes(libNodeData, visibleSet) {
@@ -843,9 +915,13 @@ function renderElements(elements, positionHints = new Map()) {
   // W3: culled frames / parked LOD layers go back into the document first —
   // the d3 joins below only see attached elements.
   if (typeof restoreFrameDom === 'function') { restoreFrameDom(); }
+  // fb14 D4: lifted lines go home first, or the link joins would miss them.
+  if (__hover) { __hover.unlift(); }
   const { allLinks, visibleSet } = prepareRenderData(elements, positionHints);
-  // X3: computed once per render; read by renderNodes (ring) and the Shelf slot labels (count).
+  // X3: computed once per render; read by the ↗ node cues (xfileGlyph.js), the Shelf slot
+  // labels (count) and the hover card (count in words).
   state.xfileCue = (typeof xfileCue === 'function') ? xfileCue(allLinks, linkFileOf()) : null;
+  if (typeof resetXfileCues === 'function') { resetXfileCues(visibleSet); }
   if (typeof usesFrames === 'function' && usesFrames()) {
     renderFrameLayout(allLinks, visibleSet);
   } else {
@@ -855,6 +931,7 @@ function renderElements(elements, positionHints = new Map()) {
   if (state.gitMode) applyGitColors();
   applySameFileEdges();
   if (typeof applyFnNames === 'function') { applyFnNames(); }
+  refreshHoverFocus();
   if (typeof perfMeasure === 'function') { perfMeasure('renderElements', 'render:start'); }
 }
 
@@ -873,6 +950,9 @@ function renderGlobalLayout(allLinks, visibleSet) {
   }
   state.svgLinks = renderLinks(drawLinks, visibleSet);
   state.svgNodes = renderNodes(visibleSet);
+  if (typeof registerXfileCue === 'function') {
+    registerXfileCue('global', nodeG, state.currentNodes, state.xfileCue, () => null, nodeRadius);
+  }
   state.svgCloudNodes = renderCloudNodes(visibleSet);
   state.svgLabels = renderLabels(visibleSet);
   const libNodeData = state.currentNodes.filter(n => n.isLibrary);
@@ -989,5 +1069,19 @@ function renderGlobalLayout(allLinks, visibleSet) {
     state.svgClassBubbles = null;
     state.simulation?.force('classCluster', null);
   }
-
+  // Static boot (F4), after everything above: the settle must feel the file /
+  // folder / drill-down / class clustering forces attached in this function,
+  // and the one paint of a static simulation (it never ticks again) must reach
+  // the overlay elements created here. Inside startSimulation() it ran before
+  // both: files spread over the whole graph and the drill-down boxes stayed
+  // 0×0, so folders could be neither seen nor dragged.
+  if (state.layoutMode === 'static') {
+    staticBootFreeze(state.simulation, state.currentNodes, isBigGraph() ? 60 : 150);
+    ticked();
+    // Fit AFTER the frozen positions exist (F4): the async auto-fit in
+    // tickedNow can run against a pre-settle bbox, and a static simulation
+    // never ticks again to correct it.
+    state.hasFitted = true;
+    if (!state.userZoomed) { fitToView(); }
+  }
 }

@@ -34,8 +34,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<init>`. Calls on imported project classes no longer become library nodes. Saved Java graphs
   keep their project node ids; only library node ids change.
 
+## [1.4.3] - 2026-11-09
+
+A patch release that makes the canvas easier to read, with fixes from the 1.4 feedback. A dashed
+outline now has one meaning, a function whose calls all leave the file shows `↗` instead of a ring,
+in-file arrows end at the target's rim and a hover keeps a function's callers and callees in focus,
+and no caller draws a long line to the folder title. Global + Static draws its folder boxes, an
+engine switch refits the view, and child processes end when the extension deactivates. [@GoonerMAK](https://github.com/GoonerMAK)
+fixed the C keyword highlight ([#139](https://github.com/thraenbe/cograph/issues/139)), and pull request copies hold regular files only ([#135](https://github.com/thraenbe/cograph/pull/135)).
+
+### Changed
+- **A dashed outline means one thing: empty or not there yet** (a file with no functions, calls
+  still being parsed). With *Only calls within a file* on, a function whose calls all go to other
+  files shows a small `↗` at its dot instead of a dashed ring, the same symbol as the file label's
+  hidden-call count; its hover card says how many. The root frame and, in Global, library calls
+  are drawn solid, and a collapsible Legend in the Folder panel names every outline and glyph.
+- **In-file call arrows you can read.** Arrow heads are opaque and end at the target's rim
+  instead of running under the dot. Hovering a function lifts its lines above the dots, keeps its
+  callers and callees at full strength and, after a short dwell, dims the rest. A caller in a
+  root-level file is drawn rim to rim or as a short stub, not as a line across the canvas to the folder title.
+
 ### Fixed
 - The function popup highlights C code with C keywords, not TypeScript ones ([#139](https://github.com/thraenbe/cograph/issues/139)).
+- With the Global engine and Static motion, opened folders get their folder boxes (they were never drawn, so they could not be seen or dragged), and functions are grouped by file.
+- Switching the layout engine fits the view to the new layout. The graph could end up partly or entirely off screen.
+- Child processes (git, gh, the analyzers) end when the extension deactivates. A pull request listing could keep running after VS Code was closed.
 
 ### Security
 - **Pull request copies hold regular files only.** The copy CoGraph makes of a pull request's
@@ -572,7 +595,8 @@ Measured on a 3 000-function repository in VS Code: four open folders settle in 
 - Library node clustering.
 - Click-to-navigate to function definitions.
 
-[Unreleased]: https://github.com/thraenbe/cograph/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/thraenbe/cograph/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/thraenbe/cograph/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/thraenbe/cograph/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/thraenbe/cograph/compare/v1.4.0...v1.4.1
 [1.1.1]: https://github.com/thraenbe/cograph/compare/v1.1.0...v1.1.1

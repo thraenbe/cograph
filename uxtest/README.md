@@ -189,5 +189,5 @@ npm run uxtest:typecheck   tsc --noEmit over uxtest/
 
 ## Notes
 
-- Wayland: Tier A is headless by default; `--headed` opens a Chromium window.
+- Every browser project (lab, examples, sweep, bench) is headless by default; `--headed` opens a Chromium window.
 - Artifacts are never pruned automatically.

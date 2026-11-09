@@ -52,10 +52,23 @@ export async function setSlider(page: Page, name: SelName, value: number): Promi
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/** Runs in the page. Screen-space centre of a rendered graph node, or null. */
+/** Runs in the page. A point on a rendered graph node that really hits it, or null.
+ *  Only nodes with such a point are candidates: a node under the controls panel (or any other element) cannot be
+ *  hovered or clicked, and its centre used to be returned anyway (zod, hover-card step 8: the largest collapsed
+ *  glyph sat under the panel, the pointer rested on the panel and no card opened). */
 function locateNodeInPage(q: NodePick): { x: number; y: number; id: string; label: string } | null {
   const css = q.kind === 'fn' ? '#graph circle.regular-node' : '#graph path.cloud-node';
-  let best: { el: Element; d: any; score: number } | null = null;
+  // Glyphs are not convex (folder silhouette with a tab): try several points of the box.
+  const probes = [[0.5, 0.5], [0.5, 0.65], [0.35, 0.6], [0.65, 0.6], [0.5, 0.35], [0.3, 0.3]];
+  const hitPoint = (el: Element): { x: number; y: number } | null => {
+    const r = el.getBoundingClientRect();
+    for (const [fx, fy] of probes) {
+      const x = r.left + r.width * fx, y = r.top + r.height * fy;
+      if (document.elementFromPoint(x, y) === el) { return { x, y }; }
+    }
+    return null;
+  };
+  let best: { d: any; score: number; at: { x: number; y: number } } | null = null;
   document.querySelectorAll(css).forEach((el) => {
     const d = (el as any).__data__;
     if (!d || (el as HTMLElement).style.display === 'none') { return; }
@@ -65,17 +78,13 @@ function locateNodeInPage(q: NodePick): { x: number; y: number; id: string; labe
     const b = el.getBoundingClientRect();
     if (b.width < 1 || b.left < 0 || b.top < 0 || b.right > window.innerWidth || b.bottom > window.innerHeight) { return; }
     const score = q.pick === 'largest' ? (d._size ?? d.count ?? 0) : 0;
-    if (!best || score > best.score) { best = { el, d, score }; }
+    if (best && score <= best.score) { return; }
+    const at = hitPoint(el);
+    if (at) { best = { d, score, at }; }
   });
   if (!best) { return null; }
-  const hit = best as { el: Element; d: any };
-  const r = hit.el.getBoundingClientRect();
-  // Glyphs are not convex (folder silhouette with a tab): pick a point that really hits the element.
-  for (const [fx, fy] of [[0.5, 0.5], [0.5, 0.65], [0.35, 0.6], [0.65, 0.6], [0.5, 0.35], [0.3, 0.3]]) {
-    const x = r.left + r.width * fx, y = r.top + r.height * fy;
-    if (document.elementFromPoint(x, y) === hit.el) { return { x, y, id: String(hit.d.id), label: String(hit.d.name ?? hit.d.label ?? hit.d.id) }; }
-  }
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2, id: String(hit.d.id), label: String(hit.d.name ?? hit.d.label ?? hit.d.id) };
+  const hit = best as { d: any; at: { x: number; y: number } };
+  return { x: hit.at.x, y: hit.at.y, id: String(hit.d.id), label: String(hit.d.name ?? hit.d.label ?? hit.d.id) };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 

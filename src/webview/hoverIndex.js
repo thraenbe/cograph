@@ -8,6 +8,12 @@
 const HI_ROOT_CLASS = 'cg-hovering';
 const HI_LINK_CLASS = 'cg-hl';
 const HI_WIDE_CLASS = 'cg-hl-w';   // also thicken (node hover; library hover keeps widths)
+// fb14 D4 hover focus (function hover): the hovered node and its callers/callees carry
+// cg-nb, the hovered node's own lines are LIFTED above the nodes (moved, not copied, so
+// position writes keep reaching them) and put back exactly where they were on clear;
+// dim() then adds cg-focus on the root (CSS dims every node without cg-nb to 0.2).
+const HI_FOCUS_CLASS = 'cg-focus';
+const HI_NB_CLASS = 'cg-nb';
 
 const hiIdOf = (e) => (e && typeof e === 'object' ? e.id : e);
 
@@ -29,6 +35,21 @@ function buildLinkIndex(linkEls) {
   return byNode;
 }
 
+/** node id → [elements] over several selections (circles, glyphs); null selections skipped. */
+function buildNodeIndex(sels) {
+  const byNode = new Map();
+  for (const sel of sels) {
+    if (!sel) { continue; }
+    for (const el of sel.nodes()) {
+      const d = el && el.__data__;
+      if (!d || d.id === undefined) { continue; }
+      const arr = byNode.get(d.id);
+      if (arr) { arr.push(el); } else { byNode.set(d.id, [el]); }
+    }
+  }
+  return byNode;
+}
+
 /** node id → label element. */
 function buildLabelIndex(labelEls) {
   const byNode = new Map();
@@ -40,10 +61,22 @@ function buildLabelIndex(labelEls) {
 }
 
 function createHoverIndex() {
-  let linkSel = null, labelSel = null;
-  let links = new Map(), labels = new Map();
+  let linkSel = null, labelSel = null, nodeSels = [];
+  let links = new Map(), labels = new Map(), nodes = new Map();
   let lit = [];
   let root = null;
+  let marked = [];   // elements carrying cg-nb
+  let lifted = [];   // { el, parent, next } in lift order
+  const unlift = () => {
+    // reverse order: each element's remembered next sibling is back in place first
+    for (let i = lifted.length - 1; i >= 0; i--) {
+      const p = lifted[i];
+      if (p.el.parentNode && p.parent) {
+        p.parent.insertBefore(p.el, p.next && p.next.parentNode === p.parent ? p.next : null);
+      }
+    }
+    lifted = [];
+  };
   return {
     /** Re-index only when a render swapped the selection objects. */
     sync(nextLinkSel, nextLabelSel) {
@@ -56,6 +89,14 @@ function createHoverIndex() {
         labels = buildLabelIndex(nextLabelSel ? nextLabelSel.nodes() : []);
       }
     },
+    /** Node elements, re-indexed only when one of the selection objects changed (lazy: first focus after a render). */
+    syncNodes(sels) {
+      if (sels.length !== nodeSels.length || sels.some((x, i) => x !== nodeSels[i])) {
+        nodeSels = sels.slice();
+        nodes = buildNodeIndex(sels);
+      }
+    },
+    nodesOf(id) { return nodes.get(id) || []; },
     linksOf(id) { return links.get(id) || []; },
     labelOf(id) { return labels.get(id) || null; },
     /** Dim everything via the root class, light the node's own links. */
@@ -74,14 +115,56 @@ function createHoverIndex() {
       }
       return lit.length;
     },
+    /**
+     * Function hover: highlight, then mark the node + its neighbours (ends of its lines
+     * plus `extraIds`, e.g. cross-frame partners) and lift its lines into liftTo(el)
+     * (a parent element above the nodes, or null to leave a line where it is).
+     * Returns the neighbour id set (hovered id included).
+     */
+    focus(rootEl, id, hlWidth, extraIds, liftTo) {
+      this.highlight(rootEl, id, hlWidth);
+      const ids = new Set([id]);
+      for (const el of lit) {
+        const d = el.__data__;
+        ids.add(hiIdOf(d.source)); ids.add(hiIdOf(d.target));
+      }
+      for (const x of extraIds || []) { ids.add(x); }
+      for (const nid of ids) {
+        for (const el of this.nodesOf(nid)) { el.classList.add(HI_NB_CLASS); marked.push(el); }
+      }
+      if (liftTo) {
+        for (const el of lit) {
+          const target = liftTo(el);
+          if (!target || target === el.parentNode) { continue; }
+          lifted.push({ el, parent: el.parentNode, next: el.nextSibling });
+          target.appendChild(el);
+        }
+      }
+      return ids;
+    },
+    /**
+     * Dim everything but the marked nodes (root class). Separate from focus(): the
+     * caller applies it after a short dwell, because dimming repaints the whole view.
+     */
+    dim() { if (root && marked.length) { root.classList.add(HI_FOCUS_CLASS); } return !!root; },
+    /** Lines currently lifted (test + debug hook). */
+    liftedCount() { return lifted.length; },
+    /** Put lifted lines back (before a re-render's joins); classes stay. */
+    unlift,
     clear() {
+      unlift();
+      for (const el of marked) { el.classList.remove(HI_NB_CLASS); }
+      marked = [];
       for (const el of lit) { el.classList.remove(HI_LINK_CLASS, HI_WIDE_CLASS); }
       lit = [];
-      if (root) { root.classList.remove(HI_ROOT_CLASS); root = null; }
+      if (root) { root.classList.remove(HI_ROOT_CLASS, HI_FOCUS_CLASS); root = null; }
     },
   };
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { createHoverIndex, buildLinkIndex, buildLabelIndex, HI_ROOT_CLASS, HI_LINK_CLASS, HI_WIDE_CLASS };
+  module.exports = {
+    createHoverIndex, buildLinkIndex, buildLabelIndex, buildNodeIndex,
+    HI_ROOT_CLASS, HI_LINK_CLASS, HI_WIDE_CLASS, HI_FOCUS_CLASS, HI_NB_CLASS,
+  };
 }

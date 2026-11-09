@@ -14,7 +14,8 @@ const g = global as any;
 // contract is asserted at both layers that enforce it (attribute + stylesheet).
 suite('frameRender hover links (F10)', () => {
   const GLOBALS = ['document', 'state', 'settings', 'linkG', 'getCSSVar', 'isDrilldown',
-    'individualLinksFor', 'indexCrossByNode', 'aggregateCrossPairs', 'routeBundles', 'titleBarRect', 'edgeWeightScale'];
+    'individualLinksFor', 'indexCrossByNode', 'aggregateCrossPairs', 'routeBundles', 'titleBarRect', 'edgeWeightScale',
+    'shapeHoverLinks', 'ARROW_TRIM', 'nodeRadius'];
   const saved: Record<string, unknown> = {};
   let fr: any;
   let svg: any;
@@ -39,6 +40,8 @@ suite('frameRender hover links (F10)', () => {
       edgeWeightScale: () => 1,
       individualLinksFor: crossLinks.individualLinksFor, indexCrossByNode: crossLinks.indexCrossByNode,
       aggregateCrossPairs: crossLinks.aggregateCrossPairs, routeBundles: crossLinks.routeBundles,
+      shapeHoverLinks: crossLinks.shapeHoverLinks, ARROW_TRIM: crossLinks.ARROW_TRIM,
+      nodeRadius: () => 10,
     });
     delete require.cache[require.resolve('../../../src/webview/frameRender.js')];
     fr = require('../../../src/webview/frameRender.js');
@@ -56,8 +59,9 @@ suite('frameRender hover links (F10)', () => {
     const lines = svg.selectAll('line.cross-hover').nodes();
     assert.strictEqual(lines.length, 60);
     assert.ok(lines.every((l: any) => l.getAttribute('pointer-events') === 'none'));
-    assert.ok(lines.every((l: any) => l.getAttribute('x1') === '100' && l.getAttribute('y1') === '100'),
-      'they do start under the cursor — hence the rule');
+    // fb14 D5: they start on the glyph's rim (radius 10), i.e. right at the cursor — hence the rule
+    assert.ok(lines.every((l: any) => Math.abs(Math.hypot(+l.getAttribute('x1') - 100, +l.getAttribute('y1') - 100) - 10) < 1e-6),
+      'they start at the hovered glyph');
   });
 
   test('resting on the glyph does not churn the DOM: a repeated update reuses the same elements', () => {

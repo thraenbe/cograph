@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The function popup highlights C code with C keywords, not TypeScript ones ([#139](https://github.com/thraenbe/cograph/issues/139)).
+
 ### Security
 - **Pull request copies hold regular files only.** The copy CoGraph makes of a pull request's
   head and base wrote a committed symlink to disk as a symlink, and a pull request picks the

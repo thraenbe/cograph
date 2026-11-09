@@ -25,9 +25,17 @@ function highlightCode(source, lang) {
     'static_assert','static_cast','struct','switch','template','this','thread_local','throw',
     'true','try','typedef','typeid','typename','union','unsigned','using','virtual','void',
     'volatile','wchar_t','while','xor']);
+  const C_KW = new Set(['alignas','alignof','auto','bool','break','case','char','const','constexpr',
+    'continue','default','do','double','else','enum','extern','false','float','for','goto','if',
+    'inline','int','long','nullptr','register','restrict','return','short','signed','sizeof',
+    'static','static_assert','struct','switch','thread_local','true','typedef','typeof',
+    'typeof_unqual','union','unsigned','void','volatile','while','_Alignas','_Alignof','_Atomic',
+    '_BitInt','_Bool','_Complex','_Decimal128','_Decimal32','_Decimal64','_Generic','_Imaginary',
+    '_Noreturn','_Static_assert','_Thread_local']);
   const kws = lang === 'python' ? PY_KW
     : lang === 'java' ? JAVA_KW
     : lang === 'cpp' ? CPP_KW
+    : lang === 'c' ? C_KW
     : TS_KW;
   const isPy = lang === 'python';
 

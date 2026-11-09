@@ -149,7 +149,13 @@ function setLayoutEngine(engine, opts = {}) {
     state.simulation.stop();
   }
   state.currentNodes.forEach(d => { d.fx = null; d.fy = null; });
-  state.userZoomed = false; // an engine switch re-lays out — allow auto-fit
+  // An engine switch re-lays out: the old engine's transform means nothing for
+  // the new coordinates. Fit again once the new layout exists (Shelf: on its
+  // render; Global: static boot or the settle auto-fit). Resetting userZoomed
+  // alone left Shelf on Global's transform unless its frames overflowed the
+  // view by 30% (synthetic-1k: 26% of nodes off screen; zod: all of them).
+  state.userZoomed = false;
+  state.hasFitted = false;
   if (typeof applyComplexity === 'function') { applyComplexity(); }
   if (state.layoutMode === 'static') { setLayoutMode('static'); }
   // One coalesced tick of the OLD engine may already sit in a rAF; it fires

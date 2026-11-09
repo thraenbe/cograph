@@ -814,15 +814,8 @@ function startSimulation(allLinks) {
     .on('tick', ticked)
     .on('end', () => { if (typeof perfSettled === 'function') { perfSettled(); } });
   state.simulation._kind = 'global';
-  if (state.layoutMode === 'static') {
-    staticBootFreeze(state.simulation, state.currentNodes, isBigGraph() ? 60 : 150);
-    ticked();
-    // Fit AFTER the frozen positions exist (F4): the async auto-fit in
-    // tickedNow can run against a pre-settle bbox, and a static simulation
-    // never ticks again to correct it.
-    state.hasFitted = true;
-    if (!state.userZoomed) { fitToView(); }
-  }
+  // Static boot (F4) is NOT done here: renderGlobalLayout() runs it after the
+  // overlay forces and elements of the render exist (see the end of it).
 }
 
 /** Static boot on the global engine: the classic Static toggle assumed a
@@ -833,7 +826,29 @@ function staticBootFreeze(sim, nodes, maxTicks) {
   for (let i = 0; i < maxTicks && sim.alpha() > 0.05; i++) {
     sim.tick();
   }
+  collisionOnlyPass(sim, nodes, STATIC_COLLIDE_TICKS);
   nodes.forEach(d => { d.fx = d.x; d.fy = d.y; });
+}
+
+/** The bounded settle now runs with the file / drill-down clustering forces and
+ *  stops before the collision force has separated the clustered nodes (uxtest,
+ *  express Global + Static: overlap up to 0.197 of the nodes). A few ticks of
+ *  the simulation's own collision force alone, integrated the way d3's tick()
+ *  does (velocity decay; a pinned node stays), separate them: overlap back to
+ *  main's, for about 1.0-1.3x main's settle time. */
+const STATIC_COLLIDE_TICKS = 40;
+function collisionOnlyPass(sim, nodes, ticks) {
+  const collide = sim.force && sim.force('collision');
+  if (!collide || !ticks) { return; }
+  const keep = 1 - sim.velocityDecay();
+  nodes.forEach(n => { n.vx = 0; n.vy = 0; });
+  for (let i = 0; i < ticks; i++) {
+    collide(sim.alpha());
+    for (const n of nodes) {
+      if (n.fx == null) { n.x += (n.vx *= keep); } else { n.x = n.fx; n.vx = 0; }
+      if (n.fy == null) { n.y += (n.vy *= keep); } else { n.y = n.fy; n.vy = 0; }
+    }
+  }
 }
 
 function renderLibraryNodes(libNodeData, visibleSet) {
@@ -1054,5 +1069,19 @@ function renderGlobalLayout(allLinks, visibleSet) {
     state.svgClassBubbles = null;
     state.simulation?.force('classCluster', null);
   }
-
+  // Static boot (F4), after everything above: the settle must feel the file /
+  // folder / drill-down / class clustering forces attached in this function,
+  // and the one paint of a static simulation (it never ticks again) must reach
+  // the overlay elements created here. Inside startSimulation() it ran before
+  // both: files spread over the whole graph and the drill-down boxes stayed
+  // 0×0, so folders could be neither seen nor dragged.
+  if (state.layoutMode === 'static') {
+    staticBootFreeze(state.simulation, state.currentNodes, isBigGraph() ? 60 : 150);
+    ticked();
+    // Fit AFTER the frozen positions exist (F4): the async auto-fit in
+    // tickedNow can run against a pre-settle bbox, and a static simulation
+    // never ticks again to correct it.
+    state.hasFitted = true;
+    if (!state.userZoomed) { fitToView(); }
+  }
 }

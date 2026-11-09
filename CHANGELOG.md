@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - The function popup highlights C code with C keywords, not TypeScript ones ([#139](https://github.com/thraenbe/cograph/issues/139)).
+- Child processes (git, gh, the analyzers) end when the extension deactivates. A pull request listing could keep running after VS Code was closed.
 
 ### Security
 - **Pull request copies hold regular files only.** The copy CoGraph makes of a pull request's

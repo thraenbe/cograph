@@ -214,26 +214,27 @@ suite('crossLinks: X3 cue for what the same-file rule hides', () => {
   ];
   const L = (s: string, t: string, n = 1) => ({ source: s, target: t, _count: n });
 
-  test('ring only where a node has hidden calls and no visible one; counts leave per project file', () => {
+  test('↗ only where a node calls other project files and has no visible call; counts per node and file', () => {
     const cue = cl.xfileCue([
       L('a1', 'a2'),            // same file: a1, a2 have a visible line
       L('a1', 'b1', 2),         // a1 also calls out: still has a visible line, no ring
-      L('a3', 'b1'), L('a3', 'c1', 3),   // a3: calls only out -> ring
-      L('c1', 'lib'),           // c1: only library + incoming hidden -> ring
+      L('a3', 'b1'), L('a3', 'c1', 3),   // a3: calls only out -> ↗
+      L('c1', 'lib'),           // c1: only library + incoming hidden -> no ↗ (F1: one base with the slot ↗N)
       L('b1', 'b1'),            // recursion ignored
     ], cl.fileLookup(NODES));
-    assert.deepStrictEqual([...cue.hiddenOnly].sort(), ['a3', 'b1', 'c1', 'lib']);
-    assert.ok(!cue.hiddenOnly.has('a1') && !cue.hiddenOnly.has('a2'));
+    assert.deepStrictEqual([...cue.cueIds].sort(), ['a3']);
+    assert.ok(!cue.cueIds.has('a1') && !cue.cueIds.has('a2'));
+    assert.deepStrictEqual(Object.fromEntries(cue.outByNode), { a1: 2, a3: 4 });
     assert.deepStrictEqual(Object.fromEntries(cue.outByFile), { '/r/a.py': 6 }, 'a.py: 2 + 1 + 3 leave for b.py/c.py; library calls do not count');
   });
 
-  test('wiring contract: ring class at render, slot tspan, both CSS-gated on the same-file rule', () => {
+  test('wiring contract: ↗ path at render, slot tspan, both CSS-gated on the same-file rule', () => {
     const fs = require('fs'); const path = require('path');
     const read = (rel: string) => fs.readFileSync(path.resolve(__dirname, '../../..', rel), 'utf8');
-    assert.ok(read('src/webview/rendering.js').includes(".classed('has-xfile', d => !!(state.xfileCue && state.xfileCue.hiddenOnly.has(d.id)))"));
+    assert.ok(read('src/webview/rendering.js').includes("registerXfileCue('global', nodeG, state.currentNodes, state.xfileCue"));
     assert.ok(read('src/webview/frameRender.js').includes("attr('class', 'slot-xout').text(' ↗' + out)"));
     const css = read('src/webview/styles.css');
-    assert.ok(css.includes('#graph g.same-file-only circle.regular-node.has-xfile[stroke="none"]'), 'never overrides a git outline');
+    assert.ok(css.includes('#graph g.same-file-only path.xfile-cues {'), 'drawn outside the rim: never covers a git outline');
     assert.ok(css.includes('tspan.slot-xout { display: none; }') && css.includes('#graph g.same-file-only tspan.slot-xout { display: inline;'));
   });
 });

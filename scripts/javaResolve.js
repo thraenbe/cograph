@@ -280,11 +280,33 @@ class Resolver {
   }
 
   lookupType(env, name) {
-    return T.lookupTypeName(this.table, name, env.cls, env.fileInfo);
+    return T.lookupTypeName(this.table, name, env.cls, env.fileInfo, undefined, this.scopeOf(env));
   }
 
   resolveRef(env, ref) {
-    return T.resolveRef(this.table, ref, env.cls, env.fileInfo, env.methodTypeParams);
+    return T.resolveRef(this.table, ref, env.cls, env.fileInfo, env.methodTypeParams, undefined, this.scopeOf(env));
+  }
+
+  /**
+   * The lexical scope at the current point, innermost first: the local-class Map of each
+   * block that declared one and the ClassInfo of each enclosing class; null when no open
+   * block declared a local class (then javaTypes resolves from env.cls alone).
+   */
+  scopeOf(env) {
+    if (!env.frames.some(f => f.types)) { return null; }
+    const scope = [];
+    for (let i = env.frames.length - 1; i >= 0; i--) {
+      const f = env.frames[i];
+      if (f.types) { scope.push(f.types); } else if (f.cls) { scope.push(f.cls); }
+    }
+    return scope;
+  }
+
+  /** Bind local class `ci` in the innermost block: visible from here to the block's end. */
+  declareType(env, ci) {
+    const f = env.frames[env.frames.length - 1];
+    if (f && f.vars) { (f.types || (f.types = new Map())).set(ci.simple, ci); }
+    else { env.frames.push({ vars: new Map(), types: new Map([[ci.simple, ci]]) }); }
   }
 
   declare(env, name, type) {
@@ -312,6 +334,7 @@ class Resolver {
     const ci = this.table.byPos.get(`${env.file}:${startOf(body)}`);
     if (!ci) { return this.walkChildren(body, env); }
     const saved = { cls: env.cls, caller: env.caller, mtp: env.methodTypeParams };
+    if (ci.scope === null && this.inBody) { ci.scope = this.scopeOf(env); } // local or anonymous class
     env.frames.push({ cls: ci });
     env.cls = ci; env.caller = null;
     const savedIn = this.inBody; this.inBody = false;
@@ -447,7 +470,10 @@ class Resolver {
         return;
       }
       case 'classDeclaration': case 'interfaceDeclaration':
-        if (env.caller !== undefined && env.cls && this.inBody) { T.ensureLocal(this.table, env.file, node, env.cls); }
+        if (env.cls && this.inBody) {
+          const lc = T.ensureLocal(this.table, env.file, node, env.cls);
+          if (lc) { this.declareType(env, lc); }
+        }
         this.walkChildren(node, env); return;
       case 'expression': this.evalExpr(env, node); return;
       case 'primary': this.evalPrimary(env, node); return;

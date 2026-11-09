@@ -10,7 +10,9 @@
  * return type and the CoGraph node id, constructors.
  *
  * Types are resolved lazily (resolveRef) in the context of the class that wrote them,
- * because a name can only be bound once every file's declarations are known.
+ * because a name can only be bound once every file's declarations are known. Local classes
+ * live in the lexical scope of their block (javaResolve.js keeps it); a local or anonymous
+ * class remembers that scope so its members resolve the same way later.
  *
  * Resolved type: { k: 'c', cls, args, dims }   project class (ClassInfo)
  *                { k: 'l', fqn, args, dims }   library class, by fully qualified name
@@ -188,7 +190,7 @@ class ClassInfo {
     this.methods = new Map();      // name → [MethodInfo]
     this.ctors = [];               // [MethodInfo]
     this.memberTypes = new Map();  // simple → ClassInfo
-    this.localTypes = new Map();   // simple → ClassInfo of local classes declared in its methods
+    this.scope = null;             // local / anonymous class: the lexical scope at its declaration (see lookupTypeName)
     this._supers = null;           // resolved [ClassInfo|libType] (superclass first)
     this._resolvingSupers = false;
   }
@@ -341,7 +343,6 @@ function registerTypeDecl(table, file, fileInfo, decl, outer, local) {
     || kid(inner, 'recordBody') || kid(inner, 'annotationTypeBody');
   addClass(table, ci, body);
   if (outer && !local) { outer.memberTypes.set(simple, ci); }
-  if (outer && local && !outer.localTypes.has(simple)) { outer.localTypes.set(simple, ci); }
   if (!outer && !local) { fileInfo.topLevel.set(simple, ci); }
 
   if (ed) {
@@ -483,14 +484,21 @@ function ensureAnon(table, file, classBody, outer, instantiatedRef) {
   return fileInfo ? registerAnon(table, file, fileInfo, classBody, outer, instantiatedRef) : null;
 }
 
+/**
+ * Register the local class declared by `decl` inside a body of `outer` (once per declaration)
+ * and return its ClassInfo. The caller binds it in the lexical scope of the declaring block;
+ * a local class is visible only there, not in the outer class's other methods.
+ */
 function ensureLocal(table, file, decl, outer) {
   const inner = kid(decl, 'normalClassDeclaration') || kid(decl, 'enumDeclaration') || kid(decl, 'recordDeclaration')
     || kid(decl, 'normalInterfaceDeclaration') || kid(decl, 'annotationTypeDeclaration');
   const body = inner && (kid(inner, 'classBody') || kid(inner, 'enumBody') || kid(inner, 'interfaceBody')
     || kid(inner, 'recordBody') || kid(inner, 'annotationTypeBody'));
-  if (!body || table.byPos.has(`${file}:${startOf(body)}`)) { return; }
+  if (!body) { return null; }
+  const known = table.byPos.get(`${file}:${startOf(body)}`);
+  if (known) { return known; }
   const fileInfo = table.files.get(file);
-  if (fileInfo) { registerTypeDecl(table, file, fileInfo, decl, outer, true); }
+  return fileInfo ? registerTypeDecl(table, file, fileInfo, decl, outer, true) : null;
 }
 
 // ── Resolution of names and references ────────────────────────────────────────
@@ -501,9 +509,16 @@ function pickClass(table, fqn, fromFile) {
   if (list.length === 1 || !fromFile) { return list[0]; }
   const same = list.find(c => c.file === fromFile);
   if (same) { return same; }
-  const dir = fromFile.slice(0, fromFile.lastIndexOf('/'));
-  return list.find(c => c.file.startsWith(dir + '/')) || list[0];
+  // Prefer a class under the caller's directory. Paths come from the file system, so on
+  // Windows they carry backslashes; compare with one separator.
+  const from = fwdSlashes(fromFile);
+  const cut = from.lastIndexOf('/');
+  if (cut < 0) { return list[0]; }
+  const dir = from.slice(0, cut + 1);
+  return list.find(c => fwdSlashes(c.file).startsWith(dir)) || list[0];
 }
+
+const fwdSlashes = (p) => (p.includes('\\') ? p.replace(/\\/g, '/') : p);
 
 /** Member type `name` of ci or of its project supertypes. */
 function memberType(table, ci, name, seen) {
@@ -519,11 +534,6 @@ function memberType(table, ci, name, seen) {
   return null;
 }
 
-/** Local classes visible from ci (declared in ci's methods), by simple name. */
-function localClass(table, ci, name) {
-  return ci.localTypes.get(name) || null;
-}
-
 /** Type variable `name` visible from ci (its own or an enclosing class's). */
 function typeVar(ci, name) {
   for (let c = ci; c; c = c.outer) {
@@ -533,19 +543,48 @@ function typeVar(ci, name) {
   return null;
 }
 
+/** `name` as class c itself or as a member type of c (inherited ones too, unless c is skipSupersOf). */
+function lookupInClass(table, name, c, skipSupersOf) {
+  if (c.simple === name && c.kind !== 'anon') { return { k: 'c', cls: c }; }
+  const m = c === skipSupersOf ? c.memberTypes.get(name) : memberType(table, c, name);
+  return m ? { k: 'c', cls: m } : null;
+}
+
+/**
+ * A lexical scope is an array, innermost first, of the frames open at a point in a body:
+ * a Map (simple → ClassInfo) of the local classes declared in a block, or the ClassInfo
+ * of an enclosing class. Local classes of other methods are not in it.
+ */
+function lookupInScope(table, name, scope, skipSupersOf) {
+  for (const e of scope) {
+    if (e instanceof Map) { const l = e.get(name); if (l) { return { k: 'c', cls: l }; } }
+    else { const r = lookupInClass(table, name, e, skipSupersOf); if (r) { return r; } }
+  }
+  return null;
+}
+
 /**
  * Resolve a simple type name seen from class ci (or from a file when ci is null):
- * enclosing classes and their inherited member types, local classes, the file's own
- * top-level types, single-type imports, the own package, wildcard imports, java.lang.
+ * the lexical scope when given (local classes of the enclosing blocks and the enclosing
+ * classes with their inherited member types), otherwise the enclosing classes and, for a
+ * local or anonymous class, the scope it was declared in; then the file's own top-level
+ * types, single-type imports, the own package, wildcard imports, java.lang.
  * Returns { k:'c', cls } | { k:'l', fqn } | null.
  */
-function lookupTypeName(table, name, ci, fileInfo, skipSupersOf) {
-  for (let c = ci; c; c = c.outer) {
-    if (c.simple === name && c.kind !== 'anon') { return { k: 'c', cls: c }; }
-    const m = c === skipSupersOf ? c.memberTypes.get(name) : memberType(table, c, name);
-    if (m) { return { k: 'c', cls: m }; }
-    const l = localClass(table, c, name);
-    if (l) { return { k: 'c', cls: l }; }
+function lookupTypeName(table, name, ci, fileInfo, skipSupersOf, scope) {
+  if (scope) {
+    const r = lookupInScope(table, name, scope, skipSupersOf);
+    if (r) { return r; }
+  } else {
+    for (let c = ci; c; c = c.outer) {
+      const r = lookupInClass(table, name, c, skipSupersOf);
+      if (r) { return r; }
+      if (c.scope) {
+        const s = lookupInScope(table, name, c.scope, skipSupersOf);
+        if (s) { return s; }
+        break; // c.scope already holds every enclosing class
+      }
+    }
   }
   fileInfo = fileInfo || (ci && ci.fileInfo);
   if (!fileInfo) { return null; }
@@ -580,7 +619,7 @@ function resolveFqn(table, fqn, fromFile) {
  * Resolve an unresolved ref written inside class ci (methodTypeParams: the enclosing
  * method's type parameters, which erase to their bound or to unknown).
  */
-function resolveRef(table, ref, ci, fileInfo, methodTypeParams, skipSupersOf) {
+function resolveRef(table, ref, ci, fileInfo, methodTypeParams, skipSupersOf, scope) {
   if (!ref) { return null; }
   if (ref.self) { return { k: 'c', cls: ref.self, args: [], dims: 0 }; }
   if (ref.var) { return null; }
@@ -595,12 +634,12 @@ function resolveRef(table, ref, ci, fileInfo, methodTypeParams, skipSupersOf) {
     const tp = mtp || (ctp && ctp.tp);
     if (tp) {
       if (!tp.bound) { return dims ? { k: 'l', fqn: 'java.lang.Object', args: [], dims } : null; }
-      const b = resolveRef(table, tp.bound, ctp ? ctp.owner : ci, fileInfo, null, skipSupersOf);
+      const b = resolveRef(table, tp.bound, ctp ? ctp.owner : ci, fileInfo, null, skipSupersOf, scope);
       return b ? { ...b, dims: dims + (b.dims || 0), tvar: names[0] } : null;
     }
   }
-  const args = (ref.args || []).map(a => resolveRef(table, a, ci, fileInfo, methodTypeParams));
-  let t = lookupTypeName(table, names[0], ci, fileInfo, skipSupersOf);
+  const args = (ref.args || []).map(a => resolveRef(table, a, ci, fileInfo, methodTypeParams, undefined, scope));
+  let t = lookupTypeName(table, names[0], ci, fileInfo, skipSupersOf, scope);
   let i = 1;
   if (!t) {
     // package-qualified: a.b.C[.Inner]
@@ -635,17 +674,18 @@ function supersOf(table, ci) {
   const out = [];
   try {
     // Supertype names are resolved from the enclosing scope: the class's own inherited
-    // member types are not visible there (and resolving them would recurse).
+    // member types are not visible there (and resolving them would recurse). A local or
+    // anonymous class also sees the local classes of its declaring block (ci.scope).
     const scope = ci.outer;
     const fi = ci.fileInfo;
     for (const r of ci.extendsRefs) {
-      const t = resolveRef(table, r, scope, fi, null, null) || (ci.kind === 'anon' ? null : null);
+      const t = resolveRef(table, r, scope, fi, null, null, ci.scope);
       if (t && !(t.k === 'c' && t.cls === ci)) { out.push(t); }
     }
     if (ci.enumConstantOf) { out.push({ k: 'c', cls: ci.enumConstantOf, args: [], dims: 0 }); }
     if (ci.kind === 'enum') { out.push({ k: 'l', fqn: 'java.lang.Enum', args: [], dims: 0 }); }
     for (const r of ci.implementsRefs) {
-      const t = resolveRef(table, r, scope, fi, null, null);
+      const t = resolveRef(table, r, scope, fi, null, null, ci.scope);
       if (t && !(t.k === 'c' && t.cls === ci)) { out.push(t); }
     }
   } finally { ci._resolvingSupers = false; }
@@ -719,6 +759,6 @@ function methodReturn(table, m) {
 
 module.exports = {
   kids, kid, isTok, startOf, firstIdent, dimsCount, typeRef, withDims, JAVA_LANG,
-  buildTypeTable, createTable, addFile, finalizeTable, lookupTypeName, resolveRef, resolveFqn, supersOf, superclassOf, ancestors, libSuperOf,
+  buildTypeTable, createTable, addFile, finalizeTable, lookupTypeName, resolveRef, resolveFqn, pickClass, supersOf, superclassOf, ancestors, libSuperOf,
   isSubclass, ensureAnon, ensureLocal, fieldOf, resolvedFieldType, methodParams, methodReturn, paramsOf, ClassInfo, MethodInfo,
 };

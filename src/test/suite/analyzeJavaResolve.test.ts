@@ -157,3 +157,109 @@ suite('Java analyzer regressions (declared-type resolution)', () => {
     assert.deepStrictEqual(projectLib, []);
   });
 });
+
+// Review findings on PR #142 (CodeRabbit): local class bindings leaked across methods, and
+// pickClass compared paths with a forward slash only.
+suite('Java analyzer: local class scope and path separators', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { pickClass } = require('../../../scripts/javaTypes.js');
+
+  test('a local class is bound in its block only: two methods may each declare Helper', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-java-local-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'A.java'), [
+        'class A {',                                                        // 1
+        '  void m1() {',                                                    // 2
+        '    class Helper { void go() { } }',                               // 3
+        '    new Helper().go();',                                           // 4
+        '  }',                                                              // 5
+        '  void m2() {',                                                    // 6
+        '    class Helper { void go() { } }',                               // 7
+        '    new Helper().go();',                                           // 8
+        '  }',                                                              // 9
+        '  void m3() {',                                                    // 10
+        '    class Helper { void go() { } }',                               // 11
+        '    Runnable r = new Runnable() { public void run() { new Helper().go(); } };', // 12
+        '  }',                                                              // 13
+        '}',
+      ].join('\n'));
+      const { edges } = analyze(dir);
+      assert.deepStrictEqual(outOf(edges, 'A.java::m1::2').filter(t => t.endsWith('::go::3') || t.endsWith('::go::7')), ['A.java::go::3']);
+      assert.deepStrictEqual(outOf(edges, 'A.java::m2::6').filter(t => t.endsWith('::go::3') || t.endsWith('::go::7')), ['A.java::go::7']);
+      assert.ok(has(edges, 'A.java::run::12', 'A.java::go::11'), 'an anonymous class in the block sees the local class');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('a local class does not shadow a same-named class in another method', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-java-shadow-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'Helper.java'), 'class Helper {\n  void go() { }\n}\n');
+      fs.writeFileSync(path.join(dir, 'A.java'), [
+        'class A {',                                                        // 1
+        '  void m1() {',                                                    // 2
+        '    class Helper { void go() { } }',                               // 3
+        '    new Helper().go();',                                           // 4
+        '  }',                                                              // 5
+        '  void m2() { new Helper().go(); }',                               // 6
+        '}',
+      ].join('\n'));
+      const { edges } = analyze(dir);
+      assert.ok(has(edges, 'A.java::m1::2', 'A.java::go::3'), 'm1 uses its local class');
+      assert.ok(has(edges, 'A.java::m2::6', 'Helper.java::go::2'), 'm2 uses the top-level class');
+      assert.ok(!has(edges, 'A.java::m2::6', 'A.java::go::3'), 'm2 never sees m1\'s local class');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('a local class may extend, or be instantiated anonymously as, another local class of its block', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-java-localsuper-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'Helper.java'), 'class Helper {\n  void go() { }\n}\n');
+      fs.writeFileSync(path.join(dir, 'A.java'), [
+        'class A {',                                                        // 1
+        '  void m1() {',                                                    // 2
+        '    class Base { void go() { } }',                                 // 3
+        '    class Impl extends Base { }',                                  // 4
+        '    new Impl().go();',                                             // 5
+        '  }',                                                              // 6
+        '  void m2() {',                                                    // 7
+        '    class Helper { void go() { } }',                               // 8
+        '    Helper h = new Helper() { void run() { go(); } };',            // 9
+        '  }',                                                              // 10
+        '}',
+      ].join('\n'));
+      const { edges } = analyze(dir);
+      assert.ok(has(edges, 'A.java::m1::2', 'A.java::go::3'), 'Impl inherits go from the local Base');
+      assert.ok(has(edges, 'A.java::run::9', 'A.java::go::8'), 'the anonymous subclass calls the local Helper');
+      assert.ok(!has(edges, 'A.java::run::9', 'Helper.java::go::2'), 'not the top-level Helper');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('a local class member typed with a sibling local class resolves later (lazy member types)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-java-locallazy-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'A.java'), [
+        'class A {',                                                        // 1
+        '  void self() {',                                                  // 2
+        '    class P { void p() { } }',                                     // 3
+        '    class Q { P field; void q() { field.p(); } }',                 // 4
+        '    new Q().q();',                                                 // 5
+        '  }',                                                              // 6
+        '}',
+      ].join('\n'));
+      const { edges } = analyze(dir);
+      assert.ok(has(edges, 'A.java::q::4', 'A.java::p::3'));
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('pickClass prefers the class under the caller\'s directory with either path separator', () => {
+    const a = { file: 'C:\\p\\a\\A.java' };
+    const b = { file: 'C:\\p\\b\\sub\\B.java' };
+    const table = { byFqn: new Map([['X', [a, b]]]) };
+    assert.strictEqual(pickClass(table, 'X', 'C:\\p\\b\\Other.java'), b);
+    assert.strictEqual(pickClass(table, 'X', 'C:\\p\\a\\Other.java'), a);
+    const pa = { file: '/p/a/A.java' };
+    const pb = { file: '/p/b/sub/B.java' };
+    assert.strictEqual(pickClass({ byFqn: new Map([['X', [pa, pb]]]) }, 'X', '/p/b/Other.java'), pb);
+    assert.strictEqual(pickClass({ byFqn: new Map([['X', [pa, pb]]]) }, 'X', 'Other.java'), pa, 'no directory: first declaration');
+  });
+});

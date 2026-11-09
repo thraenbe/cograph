@@ -296,6 +296,45 @@ suite('highlightCode — C++', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Suite: highlightCode — C
+// ---------------------------------------------------------------------------
+
+suite('highlightCode — C', () => {
+  test('int, sizeof, struct, typedef keywords → highlighted', () => {
+    for (const kw of ['int', 'sizeof', 'struct', 'typedef']) {
+      const result = highlightCode(`${kw} x;`, 'c');
+      assert.ok(result.includes(`<span style="color:#569cd6">${kw}</span>`), `${kw} should be highlighted`);
+    }
+  });
+
+  test('C11 underscore keywords → highlighted', () => {
+    for (const kw of ['_Bool', '_Static_assert', '_Noreturn']) {
+      const result = highlightCode(`${kw} x;`, 'c');
+      assert.ok(result.includes(`<span style="color:#569cd6">${kw}</span>`), `${kw} should be highlighted`);
+    }
+  });
+
+  test('TypeScript-only words (let, type, function) → NOT highlighted', () => {
+    for (const word of ['let', 'type', 'function']) {
+      const result = highlightCode(`${word} x;`, 'c');
+      assert.ok(!result.includes(`<span style="color:#569cd6">${word}</span>`), `${word} should not be highlighted`);
+    }
+  });
+
+  test('C++-only words (class, new, template) → NOT highlighted', () => {
+    for (const word of ['class', 'new', 'template']) {
+      const result = highlightCode(`${word} x;`, 'c');
+      assert.ok(!result.includes(`<span style="color:#569cd6">${word}</span>`), `${word} should not be highlighted`);
+    }
+  });
+
+  test('C /* block comment */ → green span', () => {
+    const result = highlightCode('/* block */', 'c');
+    assert.ok(result.includes('<span style="color:#6a9955">'));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Suite: highlightCode — Edge Cases
 // ---------------------------------------------------------------------------
 

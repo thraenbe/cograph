@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The function popup highlights C code with C keywords, not TypeScript ones ([#139](https://github.com/thraenbe/cograph/issues/139)).
+
 ## [1.4.2] - 2026-10-27
 
 A patch release with two new languages and a round of analyzer work from

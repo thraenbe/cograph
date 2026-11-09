@@ -225,6 +225,31 @@ suite('Markdown export: entries, names, writing', function () {
     assert.strictEqual(fs.readFileSync(path.join(foreign, 'notes.txt'), 'utf8'), 'mine');
   });
 
+  test('--clean puts the old export back when the final rename fails', () => {
+    const out = exportTo(JAVA);
+    const before = tree(out);
+    const parent = path.dirname(out);
+    // The `import * as fs` namespace only has getters; the module object behind it is patchable.
+    const nodeFs: typeof fs = require('fs');
+    const realRename = nodeFs.renameSync;
+    let armed = true;
+    // Let `target -> .old` through and fail the swap `tmp -> target` once, like EPERM on Windows.
+    nodeFs.renameSync = (from, to) => {
+      if (armed && path.resolve(String(to)) === out) {
+        armed = false;
+        throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+      }
+      return realRename(from, to);
+    };
+    try {
+      assert.throws(() => runExport(parseArgs([JAVA, '--out', out, '--clean'])), /EPERM/);
+    } finally {
+      nodeFs.renameSync = realRename;
+    }
+    assert.deepStrictEqual(tree(out), before);
+    assert.deepStrictEqual(fs.readdirSync(parent), ['export']);
+  });
+
   test('manifest: bytes, words and sha256 of every page as written', () => {
     const out = exportTo(JAVA);
     const m = JSON.parse(fs.readFileSync(path.join(out, MANIFEST), 'utf8'));

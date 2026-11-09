@@ -100,7 +100,13 @@ export function writeExport(outDir: string, pages: Pages, clean: boolean): void 
     if (fs.existsSync(target)) {
       const old = `${tmp}.old`;
       fs.renameSync(target, old);
-      fs.renameSync(tmp, target);
+      try {
+        fs.renameSync(tmp, target);
+      } catch (err) {
+        // The swap failed half way (EPERM on Windows while a file is open): put the old export back.
+        if (fs.existsSync(old)) { fs.renameSync(old, target); }
+        throw err;
+      }
       fs.rmSync(old, { recursive: true, force: true });
     } else {
       fs.renameSync(tmp, target);

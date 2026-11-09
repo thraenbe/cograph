@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { activate, deactivate } from '../../extension';
 import { SidebarProvider } from '../../sidebarProvider';
 import { GraphProvider } from '../../graphProvider';
+import { defaultExec } from '../../vcs/ghCliSource';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -122,7 +123,18 @@ suite('extension activate()', () => {
       `expected >= 6 subscriptions, got ${context.subscriptions.length}`);
   });
 
-  test('deactivate is a no-op (does not throw)', () => {
+  test('deactivate does not throw', () => {
     assert.doesNotThrow(() => deactivate());
+  });
+
+  test('deactivate ends a gh/git child that is still running', async () => {
+    // A `gh pr list` of the Version Control view outlived VS Code: the host does not take its children down.
+    // ELECTRON_RUN_AS_NODE: inside the test host process.execPath is VS Code itself, which must never open a window.
+    const pending = defaultExec(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], os.tmpdir(), { env: { ELECTRON_RUN_AS_NODE: '1' }, timeoutMs: 60000 });
+    const t0 = Date.now();
+    await deactivate();
+    const res = await pending;
+    assert.strictEqual(res.code, null, 'the child was killed, it did not exit on its own');
+    assert.ok(Date.now() - t0 < 10000, `deactivate ended the child (took ${Date.now() - t0} ms)`);
   });
 });

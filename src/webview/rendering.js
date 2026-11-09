@@ -10,10 +10,13 @@ const defs = svg.append('defs');
 // (userSpaceOnUse): with the default strokeWidth units an aggregated Global
 // edge (stroke = linkThickness × edgeWeightScale) grew the head to 30-160px
 // on screen (F20). Like #arrow-bundle it scales with the zoom, not the stroke.
+// fb14 D2: refX = 10 * ARROW_TUCK (crossLinks.js) — lines end ARROW_TRIM short of the
+// target's rim (rimEnds), the tip lands on the rim, the head covers the line's last
+// stretch, and it is opaque because links fade with stroke-opacity, not opacity.
 defs.append('marker')
   .attr('id', 'arrow')
   .attr('viewBox', '0 -5 10 10')
-  .attr('refX', 10)
+  .attr('refX', 2.5)
   .attr('refY', 0)
   .attr('markerWidth', 9)
   .attr('markerHeight', 9)
@@ -78,6 +81,9 @@ const nodeG = g.append('g').attr('class', 'nodes');
 const labelG = g.append('g').attr('class', 'labels');
 const libNodeG = g.append('g').attr('class', 'lib-nodes');
 const libLabelG = g.append('g').attr('class', 'lib-labels');
+// fb14 D4: a hovered function's lines are lifted here — above every node (Global path;
+// Shelf lifts into its frame's g.f-hl, frameRender.frameLiftLayer).
+const hlLinkG = g.insert('g', 'g.labels').attr('class', 'hl-links');
 
 // ── Zoom ──────────────────────────────────────────────────────────────────────
 const zoomBehavior = d3.zoom()
@@ -341,18 +347,19 @@ function ticked(movedNode) {
   requestAnimationFrame(() => { __tickPending = false; tickedNow(); });
 }
 
+const __ends = { x1: 0, y1: 0, x2: 0, y2: 0 };   // rimEnds scratch (no allocation per link)
+function linkTrim() { return settings.arrows ? ARROW_TRIM : 0; }
+
 function tickedNow() {
   const __perfT0 = (typeof perfOn === 'function' && perfOn()) ? perfNow() : 0;
+  const trim = linkTrim();
   state.svgLinks?.each(function (d) {
-    const sx = d.source.x, sy = d.source.y;
-    const tx = d.target.x, ty = d.target.y;
-    const dx = tx - sx, dy = ty - sy;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    const r1 = nodeRadius(d.source), r2 = nodeRadius(d.target);
-    this.setAttribute('x1', sx + (dx / dist) * r1);
-    this.setAttribute('y1', sy + (dy / dist) * r1);
-    this.setAttribute('x2', tx - (dx / dist) * r2);
-    this.setAttribute('y2', ty - (dy / dist) * r2);
+    const s = d.source, t = d.target;
+    rimEnds(__ends, s.x, s.y, t.x, t.y, nodeRadius(s), nodeRadius(t), trim);
+    this.setAttribute('x1', __ends.x1);
+    this.setAttribute('y1', __ends.y1);
+    this.setAttribute('x2', __ends.x2);
+    this.setAttribute('y2', __ends.y2);
   });
   state.svgNodes?.each(function (d) {
     this.setAttribute('cx', d.x);
@@ -413,13 +420,62 @@ function __pe(name, t0) { if (t0) { perfEnd(name, t0); } }
 const __hover = (typeof createHoverIndex === 'function') ? createHoverIndex() : null;
 
 function hoverLinksOn(d, hlWidth) {
+  focusDimCancel();
   if (!__hover) { return; }
   __hover.sync(state.svgLinks, state.svgLabels);
   __hover.highlight(g.node(), d.id, hlWidth);
 }
 
 function hoverLinksOff() {
+  focusDimCancel();
   if (__hover) { __hover.clear(); }
+}
+
+// fb14 D4: the function being hovered (kept across a re-render, see renderElements).
+let __focusId = null;
+// The dim comes after a short dwell: it repaints the whole view (10k fixture, headless,
+// 1 176 circles: +7-10 ms median per hover when immediate). Lines, lift and name stay
+// immediate; sweeping the pointer across nodes no longer repaints the canvas per node.
+const FOCUS_DIM_DELAY_MS = 100;
+let __focusDimTimer = 0;
+
+function focusDimCancel() {
+  __focusId = null;
+  if (__focusDimTimer) { clearTimeout(__focusDimTimer); __focusDimTimer = 0; }
+}
+
+/** Where a hovered function's line is lifted to: above every node, same coordinate space. */
+function hoverLiftTarget(el) {
+  if (typeof usesFrames === 'function' && usesFrames()) {
+    return typeof frameLiftLayer === 'function' ? frameLiftLayer(el) : null;
+  }
+  return el.parentNode === linkG.node() ? hlLinkG.node() : null;
+}
+
+/** Function hover: its lines on top, its callers/callees full, everything else dimmed. */
+function hoverFocusOn(d, hlWidth) {
+  if (!__hover) { return; }
+  __hover.sync(state.svgLinks, state.svgLabels);
+  __hover.syncNodes([state.svgNodes, state.svgCloudNodes, state.svgLibNodes]);
+  const extra = (typeof crossPartnersOf === 'function' && typeof usesFrames === 'function' && usesFrames())
+    ? crossPartnersOf(d.id) : [];
+  const wasDimmed = __focusId === d.id && g.classed('cg-focus');   // a refresh keeps the dim
+  focusDimCancel();
+  __hover.focus(g.node(), d.id, hlWidth, extra, hoverLiftTarget);
+  __focusId = d.id;
+  if (wasDimmed) { __hover.dim(); return; }
+  __focusDimTimer = setTimeout(() => {
+    __focusDimTimer = 0;
+    if (__focusId === d.id && __hover) { __hover.dim(); }
+  }, FOCUS_DIM_DELAY_MS);
+}
+
+/** After a re-render: the focus follows the new elements, or ends with its node. */
+function refreshHoverFocus() {
+  if (__focusId == null || !__hover) { return; }
+  const id = __focusId;
+  const alive = state.currentNodes.some(n => n.id === id) && getVisibleNodeIds().has(id);
+  if (alive) { hoverFocusOn({ id }, Math.max(1.5, settings.linkThickness)); } else { hoverLinksOff(); }
 }
 
 function hoverLabelSel(d, on) {
@@ -445,7 +501,7 @@ function onNodeMouseOver(event, d) {
     .style('fill', getCSSVar('--cograph-node-hover'))
     .attr('r', nodeRadius(d) * 1.15)
     .attr('filter', 'url(#glow-hover)');
-  hoverLinksOn(d, Math.max(1.5, settings.linkThickness));
+  hoverFocusOn(d, Math.max(1.5, settings.linkThickness));
   hoverLabelSel(d, true)
     ?.style('opacity', 1)
     .attr('font-size', `${11.5 * settings.textSize}px`)
@@ -563,7 +619,7 @@ function renderLinks(allLinks, visibleSet, parent = linkG) {
     // F1 (1.4 feedback): dashed means only "not there yet"; library calls differ by colour.
     .attr('stroke-dasharray', d => d.pending ? '4,3' : null)
     .attr('stroke-width', d => settings.linkThickness * edgeWeightScale(d._count))
-    .attr('opacity', d => d.pending ? 0.4 : 0.7)
+    .attr('stroke-opacity', d => d.pending ? 0.4 : 0.7)   // not opacity: the head stays opaque (fb14 D2)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
     .each(function(d) {
       // Tooltip for aggregated edges (folder/file clusters); skipped for plain 1-call edges.
@@ -859,6 +915,8 @@ function renderElements(elements, positionHints = new Map()) {
   // W3: culled frames / parked LOD layers go back into the document first —
   // the d3 joins below only see attached elements.
   if (typeof restoreFrameDom === 'function') { restoreFrameDom(); }
+  // fb14 D4: lifted lines go home first, or the link joins would miss them.
+  if (__hover) { __hover.unlift(); }
   const { allLinks, visibleSet } = prepareRenderData(elements, positionHints);
   // X3: computed once per render; read by the ↗ node cues (xfileGlyph.js), the Shelf slot
   // labels (count) and the hover card (count in words).
@@ -873,6 +931,7 @@ function renderElements(elements, positionHints = new Map()) {
   if (state.gitMode) applyGitColors();
   applySameFileEdges();
   if (typeof applyFnNames === 'function') { applyFnNames(); }
+  refreshHoverFocus();
   if (typeof perfMeasure === 'function') { perfMeasure('renderElements', 'render:start'); }
 }
 

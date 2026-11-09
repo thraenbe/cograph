@@ -2,7 +2,7 @@
   "name": "cograph",
   "displayName": "CoGraph | Live codebase map",
   "description": "Read your codebase like a metro map",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "publisher": "thraenbe",
   "icon": "media/icon.png",
   "galleryBanner": {

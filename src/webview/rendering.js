@@ -358,6 +358,7 @@ function tickedNow() {
     this.setAttribute('cx', d.x);
     this.setAttribute('cy', d.y);
   });
+  if (typeof writeXfileCue === 'function') { writeXfileCue('global'); }   // F1 ↗ cues
   state.svgCloudNodes?.each(function (d) {
     this.setAttribute('transform', `translate(${d.x},${d.y})`);
   });
@@ -559,7 +560,8 @@ function renderLinks(allLinks, visibleSet, parent = linkG) {
     .join('line')
     .classed('xfile', d => !isSameFileLink(d, fileOf))
     .attr('stroke', d => d.isLibraryEdge ? getCSSVar('--cograph-link-library') : getCSSVar('--cograph-link-default'))
-    .attr('stroke-dasharray', d => d.isLibraryEdge ? '6,3' : (d.pending ? '4,3' : null))
+    // F1 (1.4 feedback): dashed means only "not there yet"; library calls differ by colour.
+    .attr('stroke-dasharray', d => d.pending ? '4,3' : null)
     .attr('stroke-width', d => settings.linkThickness * edgeWeightScale(d._count))
     .attr('opacity', d => d.pending ? 0.4 : 0.7)
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
@@ -588,7 +590,6 @@ function renderNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
       update => update,
       exit => exit.remove()
     )
-    .classed('has-xfile', d => !!(state.xfileCue && state.xfileCue.hiddenOnly.has(d.id)))   // X3 ring
     .attr('r', d => nodeRadius(d))
     .style('fill', d => resolveNodeFill(d))
     .attr('stroke', d => resolveNodeStroke(d))
@@ -844,8 +845,10 @@ function renderElements(elements, positionHints = new Map()) {
   // the d3 joins below only see attached elements.
   if (typeof restoreFrameDom === 'function') { restoreFrameDom(); }
   const { allLinks, visibleSet } = prepareRenderData(elements, positionHints);
-  // X3: computed once per render; read by renderNodes (ring) and the Shelf slot labels (count).
+  // X3: computed once per render; read by the ↗ node cues (xfileGlyph.js), the Shelf slot
+  // labels (count) and the hover card (count in words).
   state.xfileCue = (typeof xfileCue === 'function') ? xfileCue(allLinks, linkFileOf()) : null;
+  if (typeof resetXfileCues === 'function') { resetXfileCues(visibleSet); }
   if (typeof usesFrames === 'function' && usesFrames()) {
     renderFrameLayout(allLinks, visibleSet);
   } else {
@@ -873,6 +876,9 @@ function renderGlobalLayout(allLinks, visibleSet) {
   }
   state.svgLinks = renderLinks(drawLinks, visibleSet);
   state.svgNodes = renderNodes(visibleSet);
+  if (typeof registerXfileCue === 'function') {
+    registerXfileCue('global', nodeG, state.currentNodes, state.xfileCue, () => null, nodeRadius);
+  }
   state.svgCloudNodes = renderCloudNodes(visibleSet);
   state.svgLabels = renderLabels(visibleSet);
   const libNodeData = state.currentNodes.filter(n => n.isLibrary);

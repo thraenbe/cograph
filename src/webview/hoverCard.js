@@ -166,7 +166,7 @@ function hcBuildElement(doc) {
   card.className = 'hover-card';
   card.setAttribute('role', 'tooltip');
   const parts = {};
-  for (const name of ['name', 'badge', 'sig', 'path', 'role', 'summary', 'hint', 'doc', 'code', 'more', 'calls', 'facts']) {
+  for (const name of ['name', 'badge', 'sig', 'path', 'role', 'summary', 'hint', 'doc', 'code', 'more', 'calls', 'hidden', 'facts']) {
     const node = doc.createElement(name === 'code' ? 'pre' : 'div');
     node.className = 'hc-' + name;
     parts[name] = node;
@@ -174,14 +174,14 @@ function hcBuildElement(doc) {
   const head = doc.createElement('div');
   head.className = 'hc-head';
   head.append(parts.name, parts.badge);
-  card.append(head, parts.sig, parts.path, parts.role, parts.summary, parts.hint, parts.doc, parts.code, parts.more, parts.calls, parts.facts);
+  card.append(head, parts.sig, parts.path, parts.role, parts.summary, parts.hint, parts.doc, parts.code, parts.more, parts.calls, parts.hidden, parts.facts);
   parts.badge.textContent = 'outdated';
   doc.body.appendChild(card);
   return { card, parts };
 }
 
 /**
- * Wire the card to a document. `env` = { doc, win, getState, post } so tests can
+ * Wire the card to a document. `env` = { doc, win, getState, post, sameFileOnly? } so tests can
  * inject jsdom; the webview calls it once with its globals (see bottom).
  */
 function createHoverCard(env) {
@@ -218,10 +218,11 @@ function createHoverCard(env) {
     parts.doc.textContent = c.doc || '';
     parts.more.textContent = c.more || '';
     parts.calls.textContent = c.calls || '';
+    parts.hidden.textContent = c.hidden || '';
     parts.code.textContent = '';
     if (c.code) { parts.code.appendChild(fcCodeNodes(doc, c.code, c.file)); }
     parts.badge.style.display = c.outdated ? '' : 'none';
-    for (const name of ['role', 'hint', 'facts', 'sig', 'doc', 'code', 'more', 'calls']) { parts[name].style.display = c[name] ? '' : 'none'; }
+    for (const name of ['role', 'hint', 'facts', 'sig', 'doc', 'code', 'more', 'calls', 'hidden']) { parts[name].style.display = c[name] ? '' : 'none'; }
     parts.summary.style.display = (c.summary || c.error) ? '' : 'none';
   }
 
@@ -255,6 +256,10 @@ function createHoverCard(env) {
     if (!callIdx) { callIdx = fcCallIndex(st && st.graphData); nameOf = fcNameOf(st && st.graphData); }
     const c = fcContent(d, briefs.get(d.id) || null, hcRelPath(ann.root, d.file), callIdx, nameOf);
     c.file = d.file;
+    // F1: the node's ↗ in words (only while the same-file rule hides those calls)
+    if (typeof fcHiddenText === 'function') {
+      c.hidden = fcHiddenText(d.id, st && st.xfileCue, env.sameFileOnly ? env.sameFileOnly() : false);
+    }
     return c;
   }
 
@@ -387,6 +392,7 @@ if (typeof module !== 'undefined') {
     win: window,
     root: document.getElementById('graph'),
     getState: () => state,
+    sameFileOnly: () => typeof settings !== 'undefined' && !!settings.sameFileEdgesOnly,
     post: (m) => vscode.postMessage(m),
   });
 }

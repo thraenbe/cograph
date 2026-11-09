@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list handed to the analyzers already left links out, and the only reader that followed one
   was the Python analyzer's fallback walk, which runs when that list cannot be written.
 
+### Changed
+- **A dashed outline means one thing: empty or not there yet** (a file with no functions, calls
+  still being parsed). With *Only calls within a file* on, a function whose calls all go to other
+  files shows a small `↗` at its dot instead of a dashed ring, the same symbol as the file label's
+  hidden-call count; its hover card says how many. The root frame and, in Global, library calls
+  are drawn solid, and a collapsible Legend in the Folder panel names every outline and glyph.
+
 ## [1.4.2] - 2026-10-27
 
 A patch release with two new languages and a round of analyzer work from

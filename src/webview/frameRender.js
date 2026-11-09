@@ -26,7 +26,11 @@ const __fr = {
   posDirty: new Set(),    // frame paths awaiting a coalesced position write
   posRaf: 0,
   hoverDrawn: false,      // cross-hover lines currently in the DOM
+  ends: { x1: 0, y1: 0, x2: 0, y2: 0 },   // rimEnds scratch for the per-tick link writes
 };
+
+// fb14 D5: an off-screen partner gets a stub at most this long on screen.
+const FR_STUB_MAX_PX = 120;
 
 function frInnerOrigin(f) { return innerOrigin(f); } // frames.js global
 
@@ -312,7 +316,7 @@ function renderFrameLayout(allLinks, visibleSet) {
     }
     const labels = renderLabels(visibleSet, memberNodes, sub.select('g.f-labels'));
     const links = renderLinks(intra.get(f.path) || [], visibleSet, sub.select('g.f-links'));
-    links.attr('opacity', d => d.pending ? 0.25 : linkRestOpacity());
+    links.attr('stroke-opacity', d => d.pending ? 0.25 : linkRestOpacity());   // fb14 D2: heads stay opaque
     __fr.frameDom.set(f.path, { sub, circles, clouds, labels, links });
     if (f.kind === 'root') { applyRootFrameChrome(sub); }
   }
@@ -775,17 +779,57 @@ function tickFramePositions(path) {
     this.setAttribute('y', y);
     for (let i = 0; i < this.children.length; i++) { this.children[i].setAttribute('x', x); }
   });
+  const e = __fr.ends;
+  const trim = settings.arrows ? ARROW_TRIM : 0;   // fb14 D2: the head's tip on the rim
   links.each(function (d) {
     const s = d._s, t = d._t;
     if (!s || !t) { return; }
-    const dx = t.x - s.x, dy = t.y - s.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    const r1 = nodeRadius(s), r2 = nodeRadius(t);
-    this.setAttribute('x1', s.x + (dx / dist) * r1 - ox);
-    this.setAttribute('y1', s.y + (dy / dist) * r1 - oy);
-    this.setAttribute('x2', t.x - (dx / dist) * r2 - ox);
-    this.setAttribute('y2', t.y - (dy / dist) * r2 - oy);
+    rimEnds(e, s.x, s.y, t.x, t.y, nodeRadius(s), nodeRadius(t), trim);
+    this.setAttribute('x1', e.x1 - ox);
+    this.setAttribute('y1', e.y1 - oy);
+    this.setAttribute('x2', e.x2 - ox);
+    this.setAttribute('y2', e.y2 - oy);
   });
+}
+
+/**
+ * fb14 D4: the hovered function's in-file lines are lifted into this per-frame group,
+ * drawn above the frame's nodes (below its labels when those are attached). Same frame
+ * coordinates, so tickFramePositions keeps moving them. Created on first use.
+ */
+function frameLiftLayer(el) {
+  // The frame comes from the line's data: while the zoom LOD has parked g.f-links
+  // (detached), the DOM parent chain ends there and the hover would stay unlifted.
+  const d = el && el.__data__;
+  const end = d && (d._s || d.source);
+  const sel = end && end._frame != null ? __fr.frameSel.get(end._frame) : null;
+  const holder = el && el.parentNode;
+  const frameEl = sel ? sel.node()
+    : (holder && holder.classList && holder.classList.contains('f-links') ? holder.parentNode : null);
+  if (!frameEl) { return null; }
+  let hl = null;
+  let labels = null;
+  for (const c of frameEl.children) {
+    if (c.classList.contains('f-hl')) { hl = c; }
+    if (c.classList.contains('f-labels')) { labels = c; }
+  }
+  if (!hl) {
+    hl = frameEl.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
+    hl.setAttribute('class', 'f-hl');
+    frameEl.insertBefore(hl, labels);
+  }
+  return hl;
+}
+
+/** Ids at the other end of a node's cross-frame links (hover focus neighbours). */
+function crossPartnersOf(id) {
+  const out = [];
+  for (const l of (crossCaches().crossByNode.get(id) || [])) {
+    const s = l.source && l.source.id !== undefined ? l.source.id : l.source;
+    const t = l.target && l.target.id !== undefined ? l.target.id : l.target;
+    out.push(s === id ? t : s);
+  }
+  return out;
 }
 
 /**
@@ -931,6 +975,9 @@ function applyFrameCulling() {
     if (freshDom || __cull.titles.get(path) !== wide) { __cull.dom.applyLod(path, lodWantFor(path)); }
   }
   if (bundlesChanged) { updateCrossBundles(); }
+  // fb14 D5: hovering while zooming — which partner is on screen, and the stub's
+  // on-screen length, both follow the zoom. O(degree), once per culling pass.
+  if (state._frameHoverId != null && typeof linkG !== 'undefined') { updateCrossHover(); }
   if (shown.length && __fr.sched) { __fr.sched.wake(); }
   if (__perfT0) { perfEnd('cull', __perfT0); }
 }
@@ -1053,22 +1100,46 @@ function updateCrossHover() {
   if (!state.frames || !usesFrames()) { return; }
   const hoverId = state._frameHoverId ?? null;
   const touching = hoverId == null ? [] : (crossCaches().crossByNode.get(hoverId) || []);
-  const individual = individualLinksFor(touching, hoverId,
+  const raw = individualLinksFor(touching, hoverId,
     id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; });
-  if (!individual.length && !__fr.hoverDrawn) { return; }
-  __fr.hoverDrawn = individual.length > 0;
+  if (!raw.length && !__fr.hoverDrawn) { return; }
+  __fr.hoverDrawn = raw.length > 0;
+  const individual = raw.length ? shapeHoverLinks(raw, hoverId, hoverShapeCtx()) : raw;
   // pointer-events none (F10): these lines start at the hovered glyph, i.e.
   // under the cursor. As event targets they stole the hover → mouseout →
   // removed → mouseover → redrawn, ~30 times per second.
   linkG.selectAll('line.cross-hover').data(individual).join('line')
     .attr('class', 'cross-hover')
     .attr('pointer-events', 'none')
+    .classed('cross-stub', d => d.stub)
     .attr('stroke', getCSSVar('--cograph-link-hover'))
     .attr('stroke-width', Math.max(1.5, settings.linkThickness))
-    .attr('opacity', 0.9)
-    .attr('marker-end', settings.arrows ? 'url(#arrow-bundle)' : null)
+    .attr('stroke-opacity', 0.9)
+    .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
     .attr('x1', d => d.x1).attr('y1', d => d.y1)
     .attr('x2', d => d.x2).attr('y2', d => d.y2);
+}
+
+/** What shapeHoverLinks needs: radii, the on-screen rect and the hovered node's frame (graph units). */
+function hoverShapeCtx() {
+  let view = null, k = state.currentZoom || 1;
+  if (typeof svg !== 'undefined' && typeof d3 !== 'undefined' && typeof viewportRect === 'function') {
+    const el = svg.node();
+    const t = d3.zoomTransform(el);
+    k = t.k || k;
+    view = viewportRect(t, el.clientWidth || window.innerWidth, el.clientHeight || window.innerHeight, 0);
+  }
+  return {
+    view,
+    radiusOf: (id) => { const n = __fr.byId.get(id); return n ? nodeRadius(n) : 0; },
+    frameRectOf: (id) => {
+      const n = __fr.byId.get(id);
+      const f = n && n._frame && state.frames.byPath.get(n._frame);
+      return f ? f.abs : null;
+    },
+    trim: settings.arrows ? ARROW_TRIM : 0,
+    stubMax: FR_STUB_MAX_PX / k,
+  };
 }
 
 // ── Teardown (leaving the frames engine / drill-down) ─────────────────────────
@@ -1418,7 +1489,7 @@ function applyFrameDisplaySettings() {
 if (typeof module !== 'undefined') {
   module.exports = {
     usesFrames, renderFrameLayout, tickFrames, tickFrame, tickFrameChrome,
-    tickFramePositions, tickFrameOfNode, onFramesZoom, applyFrameCulling, restoreFrameDom, borrowHoverLabel, teardownFrames,
+    tickFramePositions, tickFrameOfNode, frameLiftLayer, crossPartnersOf, hoverShapeCtx, onFramesZoom, applyFrameCulling, restoreFrameDom, borrowHoverLabel, teardownFrames,
     resetFrames, updateCrossLinks, updateCrossBundles, updateCrossHover, syncFrameSims, applySimResult, applySimData,
     applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit, stampLinkRefs,
     snapBackToSlot,

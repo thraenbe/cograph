@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files shows a small `↗` at its dot instead of a dashed ring, the same symbol as the file label's
   hidden-call count; its hover card says how many. The root frame and, in Global, library calls
   are drawn solid, and a collapsible Legend in the Folder panel names every outline and glyph.
+- **In-file call arrows you can read.** Arrow heads are opaque and end at the target's rim
+  instead of running under the dot. Hovering a function lifts its lines above the dots, keeps its
+  callers and callees at full strength and, after a short dwell, dims the rest. A caller in a
+  root-level file is drawn rim to rim or as a short stub, not as a line across the canvas to the folder title.
 
 ## [1.4.2] - 2026-10-27
 

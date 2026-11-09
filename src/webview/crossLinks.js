@@ -149,6 +149,83 @@ function individualLinksFor(links, hoverId, absPosOf) {
   return individual;
 }
 
+// ── Arrow geometry (fb14 D2): the head's tip touches the target's rim, the line stops
+// inside the head. Heads are opaque (links fade with stroke-opacity, which a
+// context-stroke marker does not inherit), so a translucent line crossing under a head
+// no longer shows through it, and a line never pokes out beside the narrow tip.
+// #arrow (rendering.js) is ARROW_HEAD graph units long with refX = 10 * ARROW_TUCK.
+const ARROW_HEAD = 9;
+const ARROW_TUCK = 0.25;                         // share of the head the line runs under
+const ARROW_TRIM = ARROW_HEAD * (1 - ARROW_TUCK); // rim -> line end, when arrows are drawn
+
+/**
+ * Line ends between two circles, written into `out` (hot path: no allocation).
+ * `trim` = ARROW_TRIM with arrows on, 0 without. The end never passes the start rim.
+ */
+function rimEnds(out, sx, sy, tx, ty, r1, r2, trim) {
+  const dx = tx - sx, dy = ty - sy;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux = dx / dist, uy = dy / dist;
+  const back = Math.min(r2 + trim, Math.max(0, dist - r1));
+  out.x1 = sx + ux * r1;
+  out.y1 = sy + uy * r1;
+  out.x2 = tx - ux * back;
+  out.y2 = ty - uy * back;
+  return out;
+}
+
+/** Where a ray from p (inside rect) along unit (ux, uy) leaves rect; null when p is outside. */
+function rayExit(rect, p, ux, uy) {
+  if (p.x < rect.x || p.x > rect.x + rect.w || p.y < rect.y || p.y > rect.y + rect.h) { return null; }
+  let t = Infinity;
+  if (ux > 0) { t = Math.min(t, (rect.x + rect.w - p.x) / ux); }
+  if (ux < 0) { t = Math.min(t, (rect.x - p.x) / ux); }
+  if (uy > 0) { t = Math.min(t, (rect.y + rect.h - p.y) / uy); }
+  if (uy < 0) { t = Math.min(t, (rect.y - p.y) / uy); }
+  return Number.isFinite(t) ? t : null;
+}
+
+// no view known (DOM-less callers) = everything counts as on screen
+const inRect = (r, p) => !r || p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+
+/**
+ * fb14 D5: shape the hovered node's individual cross links (from individualLinksFor).
+ * The other end on screen (`ctx.view`, graph units) → rim to rim with the arrow trim.
+ * Off screen → a STUB: from the hovered node towards the other end, stopping at the
+ * hovered node's frame edge and at most ctx.stubMax long; the head sits on the end the
+ * call flows into (the edge for an outgoing call, the hovered node's rim for an incoming
+ * one). Never a line across the canvas to a node nobody can see.
+ *   ctx: { radiusOf(id), view, frameRectOf(id), trim, stubMax }
+ */
+function shapeHoverLinks(individual, hoverId, ctx) {
+  const out = [];
+  for (const l of individual) {
+    const outgoing = l.source === hoverId;
+    const h = outgoing ? { x: l.x1, y: l.y1 } : { x: l.x2, y: l.y2 };
+    const o = outgoing ? { x: l.x2, y: l.y2 } : { x: l.x1, y: l.y1 };
+    const rh = ctx.radiusOf(hoverId), ro = ctx.radiusOf(outgoing ? l.target : l.source);
+    if (inRect(ctx.view, o)) {
+      const e = rimEnds({}, l.x1, l.y1, l.x2, l.y2,
+        outgoing ? rh : ro, outgoing ? ro : rh, ctx.trim);
+      out.push({ ...l, ...e, stub: false });
+      continue;
+    }
+    const dx = o.x - h.x, dy = o.y - h.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const ux = dx / dist, uy = dy / dist;
+    const edge = rayExit(ctx.frameRectOf(hoverId), h, ux, uy);
+    const len = Math.max(rh + ctx.trim + 2, Math.min(edge ?? ctx.stubMax, ctx.stubMax, dist));
+    const far = { x: h.x + ux * len, y: h.y + uy * len };
+    // outgoing: hovered rim -> far point (head at the far end, nothing to trim there);
+    // incoming: far point -> hovered rim minus the arrow trim.
+    const e = outgoing
+      ? { x1: h.x + ux * rh, y1: h.y + uy * rh, x2: far.x, y2: far.y }
+      : rimEnds({}, far.x, far.y, h.x, h.y, 0, rh, ctx.trim);
+    out.push({ ...l, ...e, stub: true });
+  }
+  return out;
+}
+
 /**
  * Aggregate cross links per frame pair (one-shot composition of the helpers).
  *   cross: link objects (source/target as ids or node objects)
@@ -230,6 +307,7 @@ if (typeof module !== 'undefined') {
     xfileCue,
     splitEdgesByFrame, buildCrossLinks, portOn, pairKey, nearestEdgePoint, CL_SEP,
     aggregateCrossPairs, routeBundle, routeBundles, indexCrossByNode, individualLinksFor,
+    ARROW_HEAD, ARROW_TUCK, ARROW_TRIM, rimEnds, rayExit, shapeHoverLinks,
     fileOfNode, isSameFileLink, partitionByFile, fileLookup,
   };
 }

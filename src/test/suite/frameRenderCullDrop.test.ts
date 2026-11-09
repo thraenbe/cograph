@@ -16,7 +16,8 @@ suite('frameRender: frame moves re-run culling (drop pushes a culled sibling on 
     'resolveAbs', 'clampFrameLocal', 'FRAME', 'innerOrigin', 'TAB', 'tabWidth', 'tabChars', 'cutLabel', 'countsText',
     'tabBodyPath', 'tabOnlyPath', 'rectPath', 'ddHue', 'folderFillColor', 'folderStrokeColor', 'folderTitlebarColor',
     'viewportRect', 'createFrameCuller', 'createLod', 'createDomCuller', 'gestureBudget', 'requestAnimationFrame',
-    'aggregateCrossPairs', 'routeBundles', 'indexCrossByNode', 'individualLinksFor', 'getCSSVar', 'titleBarRect', 'edgeWeightScale'];
+    'aggregateCrossPairs', 'routeBundles', 'indexCrossByNode', 'individualLinksFor', 'getCSSVar', 'titleBarRect', 'edgeWeightScale',
+    'shapeHoverLinks', 'ARROW_TRIM', 'nodeRadius'];
   const saved: Record<string, unknown> = {};
   let fr: any;
   let dom: JSDOM;
@@ -175,6 +176,21 @@ suite('frameRender: frame moves re-run culling (drop pushes a culled sibling on 
     assert.strictEqual(titleOf('/r/p/a'), null);
     assert.ok(titleOf('/r/p'));
     delete g.svg.node().__zoom;
+  });
+
+  test('fb14 D5: a zoom pass while a node is hovered re-shapes its hover lines (stub vs line follows the view)', () => {
+    const cl = require('../../../src/webview/crossLinks.js');
+    Object.assign(g, {
+      shapeHoverLinks: cl.shapeHoverLinks, ARROW_TRIM: cl.ARROW_TRIM, nodeRadius: () => 6,
+      individualLinksFor: (_l: any, id: any) => (id == null ? [] : [{ source: 'far', target: 'h', count: 1, pending: false, x1: 9000, y1: 100, x2: 100, y2: 100 }]),
+    });
+    fr.__frState.byId = new Map([['h', { id: 'h', x: 100, y: 100, _frame: '/r/p/a' }], ['far', { id: 'far', x: 9000, y: 100, _frame: '/r/p/far' }]]);
+    g.state._frameHoverId = 'h';
+    fr.applyFrameCulling();
+    const lines = g.linkG.selectAll('line.cross-hover').nodes();
+    assert.strictEqual(lines.length, 1, 'drawn by the culling pass');
+    assert.ok(lines[0].classList.contains('cross-stub'), 'the caller 9 000 px away is off screen: a stub');
+    g.state._frameHoverId = null;
   });
 
   test('DOM-less callers (frameDrag.test world) are still safe', () => {

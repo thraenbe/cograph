@@ -5,7 +5,9 @@
 // PLAYWRIGHT_DIR at any node_modules that has it.
 //
 // Usage: DISPLAY=:0 PLAYWRIGHT_DIR=/path/to/node_modules \
-//   node scripts/perf/calibrate.mjs [--reps 3] [--fixtures 3k,10k,repo=/abs/real/repo] [--out file.json] name:/abs/checkout ...
+//   node scripts/perf/calibrate.mjs [--reps 3] [--fixtures 3k,10k,repo=/abs/real/repo] [--size 1600x1000] [--out file.json] name:/abs/checkout ...
+// --size sets the window size only; the position stays with the window manager (a machine may keep test windows on
+// one particular screen).
 // A `repo=<path>` fixture opens that folder as the workspace and runs
 // "CoGraph: Visualize Project" (real analyzers) instead of the synthetic loader.
 // Each checkout must be compiled + bundled (dist/extension.js).
@@ -28,6 +30,11 @@ const REPS = +opt('--reps', '3');
 const FIXTURES = opt('--fixtures', '3k,10k').split(',');
 const OUT = opt('--out', join(DIR, '.out', `calibration-${new Date().toISOString().slice(0, 10)}.json`));
 const MAX_MS = opt('--max', '20000');
+const SIZE = opt('--size', '1600x1000').split('x').map(Number);
+if (SIZE.length !== 2 || SIZE.some(n => !Number.isInteger(n) || n < 200)) { throw new Error('--size takes WIDTHxHEIGHT, e.g. 1600x1000'); }
+// Same contract as src/test/windowArgs.ts (this script runs without a compile step): switches only.
+const WINDOW_ARGS = (process.env.COGRAPH_TEST_WINDOW_ARGS ?? '').split(/\s+/).filter(Boolean);
+if (WINDOW_ARGS.some(a => !a.startsWith('--'))) { throw new Error('COGRAPH_TEST_WINDOW_ARGS takes switches only'); }
 const CODE = process.env.VSCODE_BIN || join(ROOT, '.vscode-test', 'vscode-linux-x64-1.116.0', 'code');
 const checkouts = args.map(a => { const i = a.indexOf(':'); return { name: a.slice(0, i), dir: a.slice(i + 1) }; });
 const PICK = { '1k': '1 000', '3k': '3 000', '10k': '10 000' };
@@ -73,7 +80,8 @@ async function oneRun(checkout, fixture) {
   writeFileSync(join(ud, 'User', 'settings.json'), JSON.stringify(SETTINGS, null, 1));
   const app = await _electron.launch({
     executablePath: CODE,
-    args: [`--extensionDevelopmentPath=${checkout.dir}`, `--user-data-dir=${ud}`, `--extensions-dir=${ed}`,
+    // WINDOW_ARGS first: an unknown switch right before `ws` would swallow it as its value (VS Code's argv is minimist).
+    args: [...WINDOW_ARGS, `--extensionDevelopmentPath=${checkout.dir}`, `--user-data-dir=${ud}`, `--extensions-dir=${ed}`,
       '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates', '--new-window', ws],
     env: { ...process.env },
     timeout: 60000,
@@ -91,10 +99,11 @@ async function oneRun(checkout, fixture) {
       await new Promise(r => setTimeout(r, 1500));
       return a.getGPUFeatureStatus();
     });
-    await app.evaluate(({ BrowserWindow }) => {
+    await app.evaluate(({ BrowserWindow }, [width, height]) => {
       const w = BrowserWindow.getAllWindows()[0];
-      w.setBounds({ x: 0, y: 0, width: 1600, height: 1000 }); w.show(); w.focus();
-    });
+      w.setSize(width, height); w.show(); w.focus();
+    }, SIZE);
+    result.windowSize = SIZE;
     await sleep(2500);
     await page.keyboard.press('Control+KeyB');               // close the primary side bar
     await sleep(300);

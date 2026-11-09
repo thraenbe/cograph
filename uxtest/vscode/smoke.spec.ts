@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { launchVsCode, within } from './launch';
-import { answerQuickInput, frameBackground, frameElementCenter, frameHittable, frameSetSlider, runCommand, runCommandAny, waitForGraph } from './drive';
+import { answerQuickInput, frameBackground, frameElementCenter, frameSetSlider, runCommand, runCommandAny, waitForGraph, zoomUntilHittable } from './drive';
 import { SkipStep } from '../lib/step';
 import { SEL } from '../selectors';
 
@@ -90,13 +90,8 @@ for (const repo of repos) {
       await ux.step('Click a function node → source popup from the real host', async () => {
         const f = await graphFrame();
         if (!f) { throw new Error('no webview'); }
-        let c = await frameHittable(f, '#graph circle.regular-node', 300);
-        if (!c) { // at fit zoom nodes can be too small to hit: zoom into the middle of the canvas
-          const bg = await frameBackground(f);
-          if (bg) { await page.mouse.move(bg.x, bg.y); for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, -240); await page.waitForTimeout(80); } }
-          await page.waitForTimeout(600);
-          c = await frameHittable(f, '#graph circle.regular-node', 300);
-        }
+        // At fit zoom nodes can be too small to hit (always in a 1080 px wide portrait window): zoom in at a file slot / folder.
+        const c = await zoomUntilHittable(page, f, '#graph circle.regular-node', 300);
         if (!c) { throw new SkipStep('no hittable function node on screen'); }
         await page.mouse.move(c.x, c.y, { steps: 10 });
         await page.mouse.click(c.x, c.y);

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The function popup highlights C code with C keywords, not TypeScript ones ([#139](https://github.com/thraenbe/cograph/issues/139)).
 - With the Global engine and Static motion, opened folders get their folder boxes (they were never drawn, so they could not be seen or dragged), and functions are grouped by file.
 - Switching the layout engine fits the view to the new layout. The graph could end up partly or entirely off screen.
+- Child processes (git, gh, the analyzers) end when the extension deactivates. A pull request listing could keep running after VS Code was closed.
 
 ### Security
 - **Pull request copies hold regular files only.** The copy CoGraph makes of a pull request's

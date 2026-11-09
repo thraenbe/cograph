@@ -8,6 +8,7 @@ import { scanStructure } from './structureScanner';
 import { pickFolder } from './folderPicker';
 import { specForFolder } from './subgraphScope';
 import { flushCacheWrites } from './cacheStore';
+import { killRunningChildren } from './childProcesses';
 import { GhCliSource } from './vcs/ghCliSource';
 import { PrController } from './vcs/prController';
 import { VcsSidebar } from './vcs/vcsSidebar';
@@ -160,6 +161,8 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 // VS Code awaits a returned promise on shutdown: persist a still-debounced graph cache.
+// Child processes (gh, git, analyzers) do not die with the extension host: end them first.
 export function deactivate(): Promise<void> {
+  killRunningChildren();
   return flushCacheWrites();
 }

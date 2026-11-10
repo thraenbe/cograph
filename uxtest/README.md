@@ -96,8 +96,9 @@ Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 | `60-settings` | search / Ctrl+F / clear / count, filter toggles, display sliders, global forces, reset |
 | `70-canvas` | pan, zoom, drag node, drag folder, resize frame, context menus — with collateral-movement check (H4) and hover-overlay churn under a resting pointer (F10) |
 | `75-lazy-expand` | lazy host: skeleton → `expand-folder` → `graph-patch` → background graph keeps the drill-down |
-| `80-popups` | function popup (drag, resize, edit + Ctrl+S, close, Escape), navigate fallback, libraries (F5), `save-request` |
+| `80-popups` | function popup via the pinned card's *Open function* (drag, resize, edit + Ctrl+S, close, Escape), navigate fallback, libraries (F5), `save-request` |
 | `85-hover-card` | annotate's hover card (optional; canned `annotations`, AI off) |
+| `86-pinned-cards` | a click pins a function's card: two pinned across folders keep cards + focus with the pointer away, cards follow zoom, Open file / Open function / close, Tab, Escape; dark + light (`PINNED_SHOTS_DIR` saves the shots) |
 | `87-same-file-edges` | U1: two seeded boots (setting on vs off) settle to the same layout and orphan set; toggling keeps elements and positions; hover reveals cross-file lines |
 | `90-timeline` | timeline HTML + `timeline-data`, transport |
 | `99-save-roundtrip` | v2 save → fresh panel → `graph-loaded` delta (R5), v1 payload migration |

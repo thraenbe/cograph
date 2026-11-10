@@ -101,6 +101,20 @@ export async function clickNode(page: Page, q: NodePick): Promise<{ id: string; 
   return hit;
 }
 
+/**
+ * A click on a function pins its card (pinnedCards.js); the card's "Open function" opens the source
+ * popup, then the card is unpinned so only the popup stays, as a click left it before. On checkouts
+ * without pinned cards the click opens the popup itself.
+ */
+export async function openFunctionPopup(page: Page, q: NodePick = { kind: 'fn' }): Promise<{ id: string; label: string }> {
+  const hit = await clickNode(page, q);
+  const card = page.locator('.pinned-card').last();
+  try { await card.locator('.pc-open-fn').waitFor({ state: 'visible', timeout: 1500 }); } catch { return hit; }
+  await card.locator('.pc-open-fn').click();
+  await page.evaluate("typeof unpinAllCards === 'function' && unpinAllCards()");   // the popup now covers the card
+  return hit;
+}
+
 export async function dragBy(page: Page, from: Point, dx: number, dy: number): Promise<void> {
   await glideTo(page, from);
   await page.mouse.down();

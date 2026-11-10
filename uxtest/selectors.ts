@@ -83,16 +83,21 @@ export const SEL = {
   // actions
   saveGraph: { css: '#btn-save-graph' },
 
-  // settings (gear) panel
-  settingsBtn: { css: '#settings-btn' },
-  settingsPanel: { css: '#settings-panel' },
+  // search bar (top right, left of the gear; ux16 search-bar: moved out of the settings panel)
+  searchBar: { css: '#search-bar', optional: true, note: 'ux16: always-visible bar; before it the box sat in #settings-panel' },
   search: { css: '#search' },
   clearSearch: { css: '#btn-clear-search' },
   searchCount: { css: '#search-count' },
+  searchFiltersBtn: { css: '#btn-search-filters', optional: true, note: 'ux16: funnel that opens the visibility switches' },
+  searchFilters: { css: '#search-filters', optional: true, note: 'ux16: popover with Show Orphans / Libraries / Empty Files (class open)' },
   toggleOrphans: { css: '#toggle-orphans' },
   toggleLibraries: { css: '#toggle-libraries' },
   librariesHint: { css: '#libraries-hint', optional: true, note: 'ux: shown while the Shelf engine disables Show Libraries (F5)' },
   toggleEmptyFiles: { css: '#toggle-empty-files' },
+
+  // settings (gear) panel
+  settingsBtn: { css: '#settings-btn' },
+  settingsPanel: { css: '#settings-panel' },
   toggleArrows: { css: '#toggle-arrows' },
   toggleFuncPopup: { css: '#toggle-func-popup' },
   toggleSameFileEdges: { css: '#toggle-same-file-edges', optional: true, note: 'U1: Display > "Only calls within a file", setting cograph.display.sameFileEdgesOnly (default on)' },

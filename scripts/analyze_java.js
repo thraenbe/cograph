@@ -198,6 +198,10 @@ class DefinitionCollector extends BaseJavaCstVisitorWithDefaults {
 // handed to collectCalls, so every file is parsed once for both passes.
 const typeTables = new WeakMap(); // definitions object → type table
 
+/**
+ * Definitions pass: the method and constructor nodes of every file, plus the project type
+ * table built from the same CSTs (kept per definitions object for collectCalls).
+ */
 function collectDefinitions(files) {
   const definitions = {};
   const table = createTable();
@@ -222,6 +226,7 @@ function collectDefinitions(files) {
 // (library::<package>.<Class>::<method>, constructors <init>); receivers of unknown
 // type get no edge. `sites` records every call site's outcome (not part of the graph).
 
+/** Calls pass: edges, library nodes, narrowing stats and the call-site records of every file. */
 function collectCalls(files, definitions, root) {
   const narrower = createNarrower((id) => definitions[id] && definitions[id].file, root);
   const { edges, libraryNodes, sites } = resolveCalls(files, getCst, definitions, narrower.narrow, typeTables.get(definitions));
@@ -251,6 +256,7 @@ function collectExportInfo(files, sites) {
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
 
+/** CLI entry: analyse the workspace (or the `--files` list) and write the graph to stdout. */
 function main() {
   if (process.argv.length < 3) {
     process.stderr.write('Usage: analyze_java.js <workspace_root> [--files <listpath>] [--export-info]\n');

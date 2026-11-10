@@ -69,12 +69,17 @@ function buildTree(index: GraphIndex, scope: string, syms: Sym[], depth: number)
   return get(scope);
 }
 
+/**
+ * Overview of the workspace, a folder or a file: function and file counts, languages, the
+ * folder tree (`depth` levels) or a file's functions, and the top entry points and hot spots.
+ */
 export function overviewOf(index: GraphIndex, path: string | undefined, depth: number): OverviewData {
   const scope = scopeOf(index, path);
   const isFile = index.byFile.has(scope);
   const syms = index.symbols.filter((s) => isLocal(s) && inScope(s.rel, scope));
   const langs = new Map<string, number>();
   for (const s of syms) { const l = s.language ?? 'unknown'; langs.set(l, (langs.get(l) ?? 0) + 1); }
+  /** Order by a count, highest first, then by location. */
   const rank = (a: Sym, b: Sym, f: (s: Sym) => number) => f(b) - f(a) || ordinal(a.rel ?? '', b.rel ?? '') || a.line - b.line || ordinal(a.id, b.id);
   return {
     scope,

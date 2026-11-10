@@ -8,6 +8,7 @@ import { ExportError } from './analyze';
 /** Marker file of an export folder: `--clean` only ever replaces a folder that holds one. */
 export const MANIFEST = 'manifest.json';
 
+/** Hex sha256 of a string or buffer. */
 export const sha256 = (data: string | Buffer): string => crypto.createHash('sha256').update(data).digest('hex');
 /** Words: maximal runs of non-whitespace characters. */
 export const wordCount = (s: string): number => (s.match(/\S+/g) ?? []).length;
@@ -17,6 +18,7 @@ export function escapeSegment(seg: string): string {
   return seg.replace(/[<>:"|?*\\%]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
 }
 
+/** `<prefix>/<rel, each segment escaped><suffix>`, e.g. `files/src/a/Score.java.md`. */
 export function relPathFile(prefix: string, rel: string, suffix = '.md'): string {
   return `${prefix}/${rel.split('/').map(escapeSegment).join('/')}${suffix}`;
 }
@@ -46,6 +48,7 @@ export class Pages {
     this.pages.set(rel, `${text.replace(/\r\n?/g, '\n').replace(/\n+$/, '')}\n`);
   }
 
+  /** All pages in ordinal path order. */
   entries(): Array<[string, string]> {
     return [...this.pages].sort((a, b) => ordinal(a[0], b[0]));
   }
@@ -53,6 +56,7 @@ export class Pages {
 
 export interface FileEntry { path: string; bytes: number; words: number; sha256: string; }
 
+/** Path, byte count, word count and sha256 of every page. */
 export function fileEntries(pages: Pages): FileEntry[] {
   return pages.entries().map(([p, text]) => ({ path: p, bytes: Buffer.byteLength(text, 'utf8'), words: wordCount(text), sha256: sha256(text) }));
 }

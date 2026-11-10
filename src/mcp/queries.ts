@@ -34,6 +34,7 @@ export function inScope(rel: string | null, scope: string): boolean {
   return scope === '' || rel === scope || rel.startsWith(scope + '/');
 }
 
+/** Order by relative path, then line, then id. */
 export function byLocation(a: Sym, b: Sym): number {
   return ordinal(a.rel ?? '', b.rel ?? '') || a.line - b.line || ordinal(a.id, b.id);
 }
@@ -138,6 +139,10 @@ export function seedsForPath(index: GraphIndex, input: string): Sym[] {
   return seeds;
 }
 
+/**
+ * Everything that transitively calls the seeds (up to IMPACT_DEPTH_CAP hops), with the files
+ * nearest first and the tests and entry points among the callers.
+ */
 export function impactOf(index: GraphIndex, seeds: Sym[]): ImpactResult {
   const seen = new Set(seeds.map((s) => s.rawId));
   const affected: Reached[] = [];

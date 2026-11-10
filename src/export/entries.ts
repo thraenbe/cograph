@@ -13,6 +13,7 @@ export interface Resolved {
   classes: string[];
 }
 
+/** `<rel>::<Class>`, the key of a class in `Resolved.classes`. */
 const classKey = (rel: string, cls: string) => `${rel}::${cls}`;
 
 /**

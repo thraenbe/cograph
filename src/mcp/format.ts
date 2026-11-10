@@ -79,6 +79,7 @@ export function formatSource(slice: SliceResult | null, s: Sym, fileChanged = fa
   return `\n\nSource ${s.rel}:${slice.startLine}-${slice.endLine} (best-effort slice, ${ENDED[slice.endReason]}; read the file at this range before editing):${drift}\n\`\`\`\n${slice.source}\n\`\`\``;
 }
 
+/** Direct callers or callees as symbol lines in location order, capped, with a note on how to see the rest. */
 function neighbourList(index: GraphIndex, title: string, raws: Set<string> | undefined, cap: number): string {
   const syms = [...(raws ?? [])].map((r) => index.byRaw.get(r)).filter((x): x is Sym => !!x).sort(byLocation);
   if (syms.length === 0) { return `\n\n${title}: none in the graph.`; }
@@ -120,6 +121,10 @@ export function formatWalk(index: GraphIndex, s: Sym, dir: 'callers' | 'callees'
   return parts.join('\n') + tail;
 }
 
+/**
+ * The impact reply: affected files nearest first, the tests and entry points that reach the
+ * seeds, and the nearest callers; `caps` bound the first three lists, `limit` the last.
+ */
 export function formatImpact(index: GraphIndex, label: string, r: ImpactResult, limit: number, caps: Caps = MCP_CAPS): string {
   if (r.affected.length === 0) {
     return `Nothing in the graph calls into ${label} (${r.seeds.length} function(s)). Static analysis misses dynamic dispatch, callbacks and reflection; check those before assuming it is safe.`;
@@ -150,6 +155,10 @@ function treeLines(n: FolderNode, indent: string, out: string[], maxChildren: nu
   if (n.children.length > maxChildren) { out.push(`${indent}  … ${n.children.length - maxChildren} more folder(s)`); }
 }
 
+/**
+ * The overview reply: counts and languages, then a file's functions or the folder tree, and
+ * for a folder the entry points and hot spots; `caps` bound the function list and the tree.
+ */
 export function formatOverview(index: GraphIndex, o: OverviewData, caps: Caps = MCP_CAPS): string {
   const where = o.scope === '' ? 'workspace' : o.scope;
   if (o.functions === 0) { return `No analysed functions under ${where}.`; }

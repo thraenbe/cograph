@@ -14,6 +14,7 @@ export const REASONS: Record<string, string> = {
   'not-recorded': 'the parser sees the call but the resolver records none (should not happen; please report it)',
 };
 
+/** One field of a class card: line, modifiers, type, name and initialiser. */
 const fieldLine = (f: JavaClass['fields'][number]) => `- L${f.line} ${f.modifiers ? `${f.modifiers} ` : ''}${f.type} ${f.name}${f.init ? ` = ${f.init}` : ''}`;
 
 /** The class card of the paper's S context: declaration, fields, literals, methods count. */
@@ -30,6 +31,7 @@ export function classCard(c: JavaClass, rel: string, methodCount: number): strin
   return out.join('\n');
 }
 
+/** MCP ids of a site's targets (the raw id when the graph has no node for one). */
 const targetIds = (index: GraphIndex, s: JavaSite) => s.targets.map((t) => index.byRaw.get(t)?.id ?? t);
 
 /** One line per call site of a method, linked or not. */
@@ -70,7 +72,9 @@ function staticReads(facts: JavaFacts, reads: string[]): string[] {
   return out;
 }
 
+/** A TSV cell: tabs and line breaks become spaces. */
 const tsvCell = (v: string | number) => String(v).replace(/[\t\r\n]+/g, ' ');
+/** Rows -> tab-separated lines. */
 const tsv = (rows: Array<Array<string | number>>) => rows.map((r) => r.map(tsvCell).join('\t')).join('\n');
 
 /**
@@ -79,6 +83,7 @@ const tsv = (rows: Array<Array<string | number>>) => rows.map((r) => r.map(tsvCe
  */
 const SITE_HEAD = ['rel', 'line', 'col', 'caller', 'kind', 'receiver', 'method', 'args'];
 
+/** The SITE_HEAD columns of one call site: rel, line, col, caller id, kind, receiver, method, args. */
 function siteRow(root: string, index: GraphIndex, s: JavaSite): Array<string | number> {
   const kind = s.form === 'new' ? 'new' : s.form.startsWith('ctor-') ? 'ctor' : 'call';
   const method = kind === 'new' ? s.name.replace(/^new /, '') : s.name;
@@ -97,6 +102,7 @@ export function unresolvedTsv(root: string, index: GraphIndex, facts: JavaFacts)
   return tsv([[...SITE_HEAD, 'form', 'reason'], ...rows]);
 }
 
+/** The class card named `name` in file rel, when the Java facts have one. */
 const classOf = (facts: JavaFacts, rel: string, name: string | undefined) =>
   name ? (facts.classesByRel.get(rel) ?? []).find((c) => c.name === name) : undefined;
 

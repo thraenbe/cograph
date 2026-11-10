@@ -23,8 +23,11 @@
 
 // ── CST access ────────────────────────────────────────────────────────────────
 
+/** Children of CST node n under the rule or token key k; [] when there are none. */
 const kids = (n, k) => (n && n.children && n.children[k]) || [];
+/** First child of n under key k, or undefined. */
 const kid = (n, k) => kids(n, k)[0];
+/** True for a token (it carries an image), false for a rule node. */
 const isTok = (n) => n && n.image !== undefined;
 
 /** Smallest start offset in a CST node (tokens carry startOffset, rules a location). */
@@ -62,6 +65,7 @@ const dimsCount = (dimsNode) => (dimsNode ? kids(dimsNode, 'LSquare').length : 0
 
 const PRIM_TOKENS = ['Int', 'Long', 'Short', 'Byte', 'Char', 'Float', 'Double', 'Boolean'];
 
+/** Name of the primitive type token below n ('int', 'boolean', ...), or null. */
 function primName(n) {
   let found = null;
   (function rec(x) {
@@ -147,6 +151,7 @@ function typeRef(n) {
   }
 }
 
+/** The ref with `extra` array dimensions added; unchanged when ref is null or extra is 0. */
 function withDims(ref, extra) {
   if (!ref || !extra) { return ref; }
   return { ...ref, dims: (ref.dims || 0) + extra };
@@ -172,7 +177,12 @@ const JAVA_LANG = new Set([
 
 let anonCounter = 0;
 
+/** One project class as declared, with lazily resolved supertypes (supersOf, ancestors) and its members. */
 class ClassInfo {
+  /**
+   * Copy the declaration fields of `o` (key, simple, kind, file, fileInfo, outer, isStatic, local,
+   * extends / implements refs, type parameters); members are added later by the register* functions.
+   */
   constructor(o) {
     this.key = o.key;              // fqn for named classes, '<outer>$<offset>' for anonymous / local
     this.simple = o.simple;        // simple name ('' for anonymous)
@@ -196,7 +206,9 @@ class ClassInfo {
   }
 }
 
+/** One method or constructor: node id, owner class and the parameter and return refs as written. */
 class MethodInfo {
+  /** Copy the declaration fields of `o`; `_params` and `_ret` cache the resolved types. */
   constructor(o) {
     this.id = o.id; this.name = o.name; this.owner = o.owner;
     this.paramRefs = o.paramRefs; this.varargs = !!o.varargs; this.retRef = o.retRef || null;
@@ -205,6 +217,7 @@ class MethodInfo {
   }
 }
 
+/** Type parameters declared on a class or method header node: [{ name, bound: ref | null }]. */
 function typeParamsOf(node) {
   const tps = kid(node, 'typeParameters');
   const list = tps && kid(tps, 'typeParameterList');
@@ -216,10 +229,16 @@ function typeParamsOf(node) {
   });
 }
 
+/** Whether any modifier node in `mods` holds the given token (e.g. 'Static'). */
 function hasModifier(mods, tokenName) {
   return mods.some(m => kids(m, tokenName).length > 0);
 }
 
+/**
+ * Package and imports of a compilation unit: single-type imports by simple name, wildcard
+ * packages, static single imports (member -> owner fqn) and static wildcard owners. A file
+ * without an ordinaryCompilationUnit gives an empty header.
+ */
 function parseFileHeader(cst) {
   const info = { pkg: '', single: new Map(), wildcard: [], staticSingle: new Map(), staticWildcard: [], topLevel: new Map() };
   const ocu = kid(cst, 'ordinaryCompilationUnit');
@@ -271,6 +290,7 @@ function addFile(table, file, cst) {
  * resolves the same way whatever order the caller passed the files in.
  */
 function finalizeTable(table) {
+  /** Ordinal order, independent of the locale. */
   const ord = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
   for (const list of table.byFqn.values()) { list.sort((a, b) => ord(a.file, b.file)); }
   return table;
@@ -283,6 +303,7 @@ function buildTypeTable(files, getCst) {
   return finalizeTable(table);
 }
 
+/** Register every top-level class and interface declaration of a compilation unit. */
 function registerFile(table, file, fileInfo, cst) {
   const ocu = kid(cst, 'ordinaryCompilationUnit');
   for (const td of kids(ocu, 'typeDeclaration')) {
@@ -291,6 +312,10 @@ function registerFile(table, file, fileInfo, cst) {
   }
 }
 
+/**
+ * Add ci to the table: the class list, the fqn index (named, non-local classes only) and the
+ * body-position index the resolver looks classes up by.
+ */
 function addClass(table, ci, bodyNode) {
   table.classes.push(ci);
   if (ci.kind !== 'anon' && !ci.local) {
@@ -373,6 +398,7 @@ function registerTypeDecl(table, file, fileInfo, decl, outer, local) {
   return ci;
 }
 
+/** Record every declarator of a field or constant declaration on ci with its declared type (dims on the name count). */
 function addField(ci, fieldDeclLike, isStatic) {
   const baseRef = typeRef(kid(fieldDeclLike, 'unannType'));
   for (const vd of kids(kid(fieldDeclLike, 'variableDeclaratorList'), 'variableDeclarator')) {
@@ -382,6 +408,7 @@ function addField(ci, fieldDeclLike, isStatic) {
   }
 }
 
+/** Parameter refs and names of a formalParameterList, and whether the last one is varargs (one extra dimension). */
 function paramsOf(fpl) {
   const refs = []; let varargs = false; const names = [];
   for (const fp of kids(fpl, 'formalParameter')) {
@@ -400,12 +427,14 @@ function paramsOf(fpl) {
   return { refs, varargs, names };
 }
 
+/** File mi under its name on ci and under its id on the table. */
 function addMethod(table, ci, mi) {
   const list = ci.methods.get(mi.name);
   if (list) { list.push(mi); } else { ci.methods.set(mi.name, [mi]); }
   table.methodById.set(mi.id, mi);
 }
 
+/** A method declaration of a class or interface body -> MethodInfo on ci; a header without a name is skipped. */
 function registerMethodDecl(table, file, fileInfo, md, ci, isInterface) {
   const header = kid(md, 'methodHeader');
   const decl = kid(header, 'methodDeclarator');
@@ -421,6 +450,7 @@ function registerMethodDecl(table, file, fileInfo, md, ci, isInterface) {
   addMethod(table, ci, mi);
 }
 
+/** One classBodyDeclaration of ci: a field, a method, a member type or a constructor. Initializers are left to the resolver. */
 function registerMember(table, file, fileInfo, cbd, ci) {
   const cmd = kid(cbd, 'classMemberDeclaration');
   if (cmd) {
@@ -449,6 +479,7 @@ function registerMember(table, file, fileInfo, cbd, ci) {
   }
 }
 
+/** One interfaceMemberDeclaration of ci: a constant (always static), an interface method or a member type. */
 function registerInterfaceMember(table, file, fileInfo, imd, ci) {
   const cd = kid(imd, 'constantDeclaration');
   if (cd) { addField(ci, cd, true); return; }
@@ -503,6 +534,11 @@ function ensureLocal(table, file, decl, outer) {
 
 // ── Resolution of names and references ────────────────────────────────────────
 
+/**
+ * The ClassInfo registered under `fqn`, or null. When the same name is declared in several
+ * files (copies of a class, test doubles), the one in `fromFile` wins, then one under the
+ * caller's directory, then the first in ordinal file order.
+ */
 function pickClass(table, fqn, fromFile) {
   const list = table.byFqn.get(fqn);
   if (!list || !list.length) { return null; }
@@ -518,6 +554,7 @@ function pickClass(table, fqn, fromFile) {
   return list.find(c => fwdSlashes(c.file).startsWith(dir)) || list[0];
 }
 
+/** Path with forward slashes only. */
 const fwdSlashes = (p) => (p.includes('\\') ? p.replace(/\\/g, '/') : p);
 
 /** Member type `name` of ci or of its project supertypes. */
@@ -719,11 +756,13 @@ function ancestors(table, ci) {
   return out;
 }
 
+/** Fully qualified name of the nearest library class above ci (found while collecting ancestors), or null. */
 function libSuperOf(table, ci) {
   ancestors(table, ci);
   return ci._libSuper || null;
 }
 
+/** Whether sub is sup itself or has it among its project ancestors (classes and interfaces). */
 function isSubclass(table, sub, sup) {
   if (sub === sup) { return true; }
   return ancestors(table, sub).includes(sup);
@@ -740,11 +779,13 @@ function fieldOf(table, ci, name) {
   return null;
 }
 
+/** Resolved type of a field entry { ref, owner } (see fieldOf), cached on the entry. */
 function resolvedFieldType(table, f) {
   if (f._t === undefined) { f._t = resolveRef(table, f.ref, f.owner, f.owner.fileInfo, null); }
   return f._t;
 }
 
+/** Resolved parameter types of m (null for an unknown one), cached on m. */
 function methodParams(table, m) {
   if (!m._params) {
     m._params = m.paramRefs.map(r => resolveRef(table, r, m.owner, m.owner.fileInfo, m.typeParams));
@@ -752,6 +793,7 @@ function methodParams(table, m) {
   return m._params;
 }
 
+/** Resolved return type of m (null for constructors and unknown types), cached on m. */
 function methodReturn(table, m) {
   if (m._ret === undefined) { m._ret = resolveRef(table, m.retRef, m.owner, m.owner.fileInfo, m.typeParams); }
   return m._ret;

@@ -30,8 +30,10 @@ export interface CliOptions {
   featuresFile: string | null; featureSet: string | null; depth: number; source: boolean; python: string; clean: boolean;
 }
 
+/** Command line -> options; a usage error is an ExportError with exit code 2, `--help` one with exit code 0. */
 export function parseArgs(argv: string[]): CliOptions {
   const o: CliOptions = { repo: '', out: '', languages: [...LANGUAGES], symbols: null, featuresFile: null, featureSet: null, depth: 2, source: false, python: 'python3', clean: false };
+  /** The value after argument i; a missing one is a usage error. */
   const value = (i: number, flag: string) => {
     const v = argv[i + 1];
     if (v === undefined || v.startsWith('--')) { throw new ExportError(`${flag} needs a value\n${USAGE}`, 2); }
@@ -77,8 +79,13 @@ export function parseArgs(argv: string[]): CliOptions {
 
 const FEATURE_NAME = /^[A-Za-z0-9][A-Za-z0-9._ -]*$/;
 
+/** A plain object (not null, not an array). */
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
+/**
+ * Features from the JSON file: `{feature: [entries]}` or, when grouped by project, the group
+ * named `set`. Names and entry lists are validated; both come out sorted and deduplicated.
+ */
 function readFeatures(file: string, set: string): Array<{ name: string; entries: string[] }> {
   let data: unknown;
   try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (err) { throw new ExportError(`cannot read ${file}: ${(err as Error).message}`, 2); }
@@ -100,10 +107,12 @@ function readFeatures(file: string, set: string): Array<{ name: string; entries:
 
 interface ToolInfo { version: string; commit: string | null; dirty: boolean | null; analyzers: Record<string, string>; analyzerId: string; }
 
+/** Version, commit and dirty state of this checkout, plus the sha256 of every analyser file and their combined id. */
 function toolInfo(): ToolInfo {
   const repo = path.resolve(__dirname, '..', '..');
   let version = 'unknown';
   try { version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version; } catch { /* not in a checkout */ }
+  /** Trimmed git output, or null when git or the checkout is missing. */
   const git = (args: string[]) => { try { return cp.execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
   const commit = git(['rev-parse', 'HEAD']);
   const status = git(['status', '--porcelain', '--', 'scripts', 'src']);
@@ -119,6 +128,7 @@ function toolInfo(): ToolInfo {
   return { version, commit, dirty: status === null ? null : status !== '', analyzers: Object.fromEntries(sorted.map((k) => [k, analyzers[k]])), analyzerId };
 }
 
+/** README.md of the export: format and options, what each file holds, and the limits of the analysis. */
 function readme(o: CliOptions, tool: ToolInfo, result: AnalysisResult): string {
   const langs = result.runs.map((r) => `${r.language} (${r.files} files)`).join(', ') || 'none';
   return `# CoGraph Markdown export
@@ -156,6 +166,7 @@ change when lines move. Library ids are \`library::<package>.<Class>::<method>\`
 `;
 }
 
+/** manifest.json: tool, options, inputs with hashes, analyser runs and the per-file and per-folder totals. */
 function manifest(o: CliOptions, tool: ToolInfo, result: AnalysisResult, features: Array<{ name: string; entries: Resolved[] }>, pages: Pages): string {
   const files = fileEntries(pages);
   return stableJson({
@@ -182,6 +193,7 @@ export function runExport(o: CliOptions): number {
   const facts: JavaFacts = indexJavaFacts(root, result.java);
   const sourceRels = new Set(result.files.map((f) => f.rel));
   const classNames = allClassNames(index, [...facts.classesByRel].flatMap(([rel, cs]) => cs.map((c) => ({ rel, name: c.name }))));
+  /** An entry string -> its functions and classes. */
   const resolve = (e: string) => resolveEntry(index, e, sourceRels, classNames);
   const set = o.featureSet ?? path.basename(root);
   const features = o.featuresFile ? readFeatures(o.featuresFile, set).map((f) => ({ name: f.name, entries: f.entries.map(resolve) })) : [];
@@ -195,6 +207,7 @@ export function runExport(o: CliOptions): number {
   return pages.entries().length;
 }
 
+/** Run the export and return the process exit code; an ExportError prints one line, anything else its stack. */
 export function main(argv = process.argv.slice(2)): number {
   try {
     const o = parseArgs(argv);

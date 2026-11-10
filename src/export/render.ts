@@ -21,9 +21,15 @@ export interface RenderOptions {
 }
 
 const ALL = Number.MAX_SAFE_INTEGER;
+/** First lines of every page. */
 const header = (title: string) => `# ${title}\n\nCoGraph export: deterministic, no AI. Ids are CoGraph's MCP ids (see README.md).`;
+/** A `##` section with its body. */
 const section = (title: string, body: string) => `\n## ${title}\n\n${body}`;
 
+/**
+ * Class cards of a file (only those in `only` when given): from the Java facts, or from what
+ * the graph knows about each class for the other languages.
+ */
 function classCards(root: string, index: GraphIndex, facts: JavaFacts, rel: string, only?: Set<string>): string[] {
   const cards = (facts.classesByRel.get(rel) ?? []).filter((c) => !only || only.has(`${rel}::${c.name}`));
   if (cards.length) {
@@ -38,16 +44,19 @@ function classCards(root: string, index: GraphIndex, facts: JavaFacts, rel: stri
   });
 }
 
+/** Callers or callees of s within depth, formatted as the MCP server does (callees include libraries). */
 function walkText(index: GraphIndex, s: Sym, dir: 'callers' | 'callees', depth: number): string {
   return formatWalk(index, s, dir, depth, walk(index, s, dir, depth, ALL, dir === 'callees'));
 }
 
+/** Source slice of s up to the next function in its file, or '' for a symbol without a file. */
 function sourceText(root: string, index: GraphIndex, s: Sym): string {
   if (!s.rel || !s.file) { return ''; }
   const next = index.byFile.get(s.rel)?.find((o) => o.line > s.line);
   return formatSource(readSlice(path.join(root, ...s.rel.split('/')), s.line, { maxLines: 400, nextStartLine: next?.line ?? null }), s);
 }
 
+/** symbols/<path>/<Class.method>.md: card, Java signature, callers and callees within depth, impact and call sites. */
 function symbolPage(root: string, index: GraphIndex, facts: JavaFacts, s: Sym, o: RenderOptions): string {
   const parts = [header(s.id), formatSymbol(index, s, o.source ? sourceText(root, index, s) : '', ALL)];
   const m = methodLines(facts, s);
@@ -62,6 +71,7 @@ function symbolPage(root: string, index: GraphIndex, facts: JavaFacts, s: Sym, o
   return parts.join('\n');
 }
 
+/** files/<path>.md: class cards, the function overview and each function's direct callers and callees. */
 function filePage(root: string, index: GraphIndex, facts: JavaFacts, rel: string): string {
   const parts = [header(rel)];
   const cards = classCards(root, index, facts, rel);
@@ -71,6 +81,7 @@ function filePage(root: string, index: GraphIndex, facts: JavaFacts, rel: string
   for (const s of fns) {
     const callers = walk(index, s, 'callers', 1, ALL, false).items;
     const callees = walk(index, s, 'callees', 1, ALL, true).items;
+    /** One symbol line per item, or 'none'. */
     const list = (items: Reached[]) => (items.length ? items.map((r) => symbolLine(index, r.sym)).join('\n') : 'none');
     parts.push(`\n### ${s.id}\n\nCalled by (${callers.length}):\n${list(callers)}\n\nCalls (${callees.length}):\n${list(callees)}`);
   }
@@ -91,6 +102,10 @@ function neighbourhood(index: GraphIndex, seeds: Sym[], dir: 'callers' | 'callee
   return [...near.values()].sort((a, b) => a.depth - b.depth || byLocation(a.sym, b.sym));
 }
 
+/**
+ * features/<name>.md: the entries, their class cards, the entry functions with call sites, the
+ * callers and callees around them (entries left out) and the combined impact.
+ */
 function featurePage(root: string, index: GraphIndex, facts: JavaFacts, name: string, entries: Resolved[], o: RenderOptions): string {
   const seedMap = new Map<string, Sym>();
   const classes = new Set<string>();
@@ -138,6 +153,7 @@ function edgesReport(index: GraphIndex, files: SourceFile[], facts: JavaFacts, r
     [1, fns.length, out, inn, lib, noCaller, sites, unlinked].forEach((v, i) => { t[i] += v; });
     totals.set(f.language, t);
   }
+  /** One Markdown table row. */
   const md = (r: Array<string | number>) => `| ${r.join(' | ')} |`;
   const head = '| Language | Files | Functions | Internal edges | Library edges | Functions without callers | Call sites | Not linked |\n|---|---|---|---|---|---|---|---|';
   const langRows = [...totals].map(([l, t]) => md([l, t[0], t[1], t[2], t[4], t[5], l === 'java' ? t[6] : '-', l === 'java' ? t[7] : '-']));

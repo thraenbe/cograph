@@ -31,6 +31,11 @@ function link(map: Map<string, Set<string>>, from: string, to: string): void {
   if (set) { set.add(to); } else { map.set(from, new Set([to])); }
 }
 
+/**
+ * Build the index from a cache file: symbols with their ids, lookups by raw id, id, base, loose
+ * `<rel>::<name>` and file (sorted by line), and caller / callee sets without self-edges or
+ * edges to unknown nodes.
+ */
 export function buildIndex(root: string, data: NonNullable<ReturnType<typeof readCacheFile>>,
   annotations: AnnotationFile): GraphIndex {
   const symbols = data.graph.nodes.map((n) => toSym(root, n));

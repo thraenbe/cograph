@@ -35,11 +35,15 @@ const LIB_ELEMENT_METHODS = new Set(['get', 'remove', 'elementAt', 'firstElement
   'pop', 'next', 'previous', 'getFirst', 'getLast', 'removeFirst', 'removeLast', 'pollFirst', 'pollLast',
   'peekFirst', 'peekLast', 'element', 'take', 'first', 'last', 'set', 'push', 'floor', 'ceiling', 'higher', 'lower']);
 const MAP_VALUE_METHODS = new Set(['get', 'put', 'remove', 'getOrDefault', 'putIfAbsent', 'replace']);
+/** Whether a library fqn is a java.util map type (values come from the second type argument). */
 const isMapType = (fqn) => /(^|\.)(Map|HashMap|TreeMap|LinkedHashMap|Hashtable|SortedMap|NavigableMap|ConcurrentHashMap|WeakHashMap|IdentityHashMap|EnumMap|Dictionary)$/.test(fqn);
+/** Whether a library fqn may be a generic container whose element type is its first type argument. */
 const isContainerType = (fqn) => fqn.startsWith('java.util.');
 
 const STRING = { k: 'l', fqn: 'java.lang.String', args: [], dims: 0 };
+/** Primitive type value ('int', 'boolean', 'null', ...), with optional array dims. */
 const prim = (name, dims) => ({ k: 'p', name, dims: dims || 0 });
+/** Library class type value by fully qualified name, with optional type arguments. */
 const lib = (fqn, args) => ({ k: 'l', fqn, args: args || [], dims: 0 });
 
 const STRING_RETURNS = {
@@ -120,6 +124,11 @@ function elementType(t) {
 
 // ── Assignability, for overload choice ────────────────────────────────────────
 
+/**
+ * Whether an argument of type `arg` may be passed to a parameter of type `param`, following
+ * Java's widening, boxing and subtyping rules as far as the type model allows. An unknown
+ * type (null) on either side is accepted, so an unresolved argument never rules a candidate out.
+ */
 function assignable(table, arg, param) {
   if (!arg || !param) { return true; }
   if (arg.k === 'p' && arg.name === 'null') { return !(param.k === 'p' && !param.dims); }
@@ -149,12 +158,14 @@ function assignable(table, arg, param) {
   return true;
 }
 
+/** Whether two resolved types are the same class, library type or primitive with the same dims. */
 function sameType(a, b) {
   if (!a || !b) { return false; }
   if (a.k !== b.k || (a.dims || 0) !== (b.dims || 0)) { return false; }
   return a.k === 'c' ? a.cls === b.cls : a.k === 'l' ? a.fqn === b.fqn : a.name === b.name;
 }
 
+/** Whether method m accepts n arguments (a varargs method accepts n >= params - 1). */
 function arityOk(m, n) {
   const p = m.paramRefs.length;
   return m.varargs ? n >= p - 1 : n === p;
@@ -182,6 +193,7 @@ function chooseOverload(table, cands, argTypes) {
   return specific.length ? specific : applicable;
 }
 
+/** Whether every parameter type of a is assignable to b's and at least one differs: javac's "more specific" test. */
 function moreSpecific(table, a, b) {
   const pa = T.methodParams(table, a); const pb = T.methodParams(table, b);
   if (pa.length !== pb.length) { return false; }
@@ -211,6 +223,7 @@ function visibleMethods(table, ci, name) {
   return out;
 }
 
+/** Erased signature text of one resolved type ('?' for unknown), used to detect overrides. */
 function sigOf(t) {
   if (!t) { return '?'; }
   const d = '[]'.repeat(t.dims || 0);
@@ -219,7 +232,9 @@ function sigOf(t) {
 
 // ── Resolver ──────────────────────────────────────────────────────────────────
 
+/** Walks the bodies of one project with a scope stack and records edges, library nodes and call sites. */
 class Resolver {
+  /** `narrow(ids, file)` trims an ambiguous target list (the D6 narrower); identity when not given. */
   constructor(table, definitions, narrow) {
     this.table = table;
     this.definitions = definitions;
@@ -233,6 +248,7 @@ class Resolver {
 
   // -- output --
 
+  /** Record one call edge once; self-calls and calls outside a method (no src) are dropped. */
   addEdge(src, target, isLibrary) {
     if (!src || src === target) { return; }
     const key = `${src}|${target}`;
@@ -243,6 +259,7 @@ class Resolver {
     this.edges.push(e);
   }
 
+  /** Id of the library node `library::<fqn>::<name>`, creating the node on first use. */
   libraryTarget(fqn, name) {
     const id = `library::${fqn}::${name}`;
     if (!this.libraryNodes.has(id)) {
@@ -251,6 +268,10 @@ class Resolver {
     return id;
   }
 
+  /**
+   * Record one call site: edges from the caller to its targets (narrowed when more than eight)
+   * and a site entry with its form and, when nothing was linked, the reason.
+   */
   site(env, tok, name, form, targets, reason) {
     if (!env.caller) { return; }
     const ids = targets.length > 8 ? this.narrow(targets, env.file) : targets;
@@ -261,6 +282,10 @@ class Resolver {
 
   // -- scopes --
 
+  /**
+   * Variable `name` at the current point: locals innermost first, then fields (inherited and
+   * outer ones), then static single imports. Returns { type, local | field } or null.
+   */
   lookupVar(env, name) {
     for (let i = env.frames.length - 1; i >= 0; i--) {
       const f = env.frames[i];
@@ -279,10 +304,12 @@ class Resolver {
     return null;
   }
 
+  /** Simple type name seen from the current class and lexical scope (javaTypes.lookupTypeName). */
   lookupType(env, name) {
     return T.lookupTypeName(this.table, name, env.cls, env.fileInfo, undefined, this.scopeOf(env));
   }
 
+  /** Resolve a written type ref in the current class, method type parameters and lexical scope. */
   resolveRef(env, ref) {
     return T.resolveRef(this.table, ref, env.cls, env.fileInfo, env.methodTypeParams, undefined, this.scopeOf(env));
   }
@@ -309,18 +336,23 @@ class Resolver {
     else { env.frames.push({ vars: new Map(), types: new Map([[ci.simple, ci]]) }); }
   }
 
+  /** Bind a variable in the innermost block frame (a fresh one when the top frame is a class). */
   declare(env, name, type) {
     const f = env.frames[env.frames.length - 1];
     if (f && f.vars) { f.vars.set(name, type); } else { env.frames.push({ vars: new Map([[name, type]]) }); }
   }
 
+  /** Open a block frame. */
   pushVars(env) { env.frames.push({ vars: new Map() }); }
+  /** Close the innermost frame. */
   pop(env) { env.frames.pop(); }
 
+  /** The type of `this` in the current class, or null outside a class. */
   thisType(env) { return env.cls ? { k: 'c', cls: env.cls, args: [], dims: 0 } : null; }
 
   // -- entry --
 
+  /** Walk every top-level type declaration of one file; a file the table does not know is skipped. */
   resolveFile(file, cst) {
     const fileInfo = this.table.files.get(file);
     if (!fileInfo) { return; }
@@ -345,6 +377,10 @@ class Resolver {
     }
   }
 
+  /**
+   * Run `body` as the method or constructor `id`: its parameters are declared in a fresh frame
+   * and calls inside it get `id` as caller (null when the analyzer has no node for it).
+   */
   enterCallable(env, id, params, methodTypeParams, body) {
     const saved = { caller: env.caller, mtp: env.methodTypeParams, inBody: this.inBody };
     this.inBody = true;
@@ -359,11 +395,17 @@ class Resolver {
 
   // -- statements --
 
+  /** Walk every child of a rule node. */
   walkChildren(node, env) {
     if (!node || isTok(node)) { return; }
     for (const k of Object.keys(node.children)) { for (const c of node.children[k]) { this.walk(c, env); } }
   }
 
+  /**
+   * Statement-level walk: opens class frames for type declarations, callable frames for methods
+   * and constructors, block frames for blocks, loops, catch and try-with-resources, declares the
+   * variables they introduce, and hands expressions to evalExpr.
+   */
   walk(node, env) {
     if (!node || isTok(node)) { return; }
     switch (node.name) {
@@ -481,6 +523,7 @@ class Resolver {
     }
   }
 
+  /** Declare the variables of a localVariableDeclaration; `var` takes the initialiser's type. */
   localVars(env, node) {
     const ref = T.typeRef(kid(node, 'localVariableType'));
     for (const vd of kids(kid(node, 'variableDeclaratorList'), 'variableDeclarator')) {
@@ -500,6 +543,10 @@ class Resolver {
 
   // -- expressions (walk and type in one pass) --
 
+  /**
+   * Walk an expression node and return its static type (null when unknown). A ternary takes the
+   * first non-null branch type; a lambda is walked but has no type.
+   */
   evalExpr(env, node) {
     if (!node) { return null; }
     if (isTok(node)) { return null; }
@@ -537,6 +584,11 @@ class Resolver {
     }
   }
 
+  /**
+   * Type of a binaryExpression: an assignment keeps the left operand's type, comparisons and
+   * logical operators give boolean, `+` with a String gives String, numeric operators the
+   * promoted type (int at least; a shift takes the left operand's width).
+   */
   binary(env, node) {
     const ch = node.children;
     if (ch.unaryExpression && ch.unaryExpression.length === 1 && Object.keys(ch).length === 1) { return this.evalExpr(env, ch.unaryExpression[0]); }
@@ -566,6 +618,7 @@ class Resolver {
     return prim(NUM_RANK[best] < 3 ? 'int' : best);
   }
 
+  /** `x instanceof Foo f`: declare the pattern variable f in the current scope. */
   pattern(env, p) {
     // `x instanceof Foo f` binds f in the current scope
     let tp = p;
@@ -575,6 +628,7 @@ class Resolver {
     if (lvd) { this.localVars(env, lvd); }
   }
 
+  /** Walk a lambda in its own frame; inferred parameters have unknown type, explicit ones their declared type. */
   lambda(env, node) {
     this.pushVars(env);
     try {
@@ -596,10 +650,12 @@ class Resolver {
     } finally { this.pop(env); }
   }
 
+  /** Walk the arguments of a call and return their types, in order. */
   evalArgs(env, argList) {
     return argList ? kids(argList, 'expression').map(e => this.evalExpr(env, e)) : [];
   }
 
+  /** Type of a literal node: String, char, boolean, null, int / long or float / double by suffix. */
   literalType(lit) {
     if (kid(lit, 'StringLiteral') || kid(lit, 'TextBlock')) { return STRING; }
     if (kid(lit, 'CharLiteral')) { return prim('char'); }
@@ -689,6 +745,7 @@ class Resolver {
     return cur ? cur.t : null;
   }
 
+  /** The call form of a receiver value for the site record: this, super, static, array, local, field or receiver. */
   formOf(cur) {
     if (!cur) { return 'unknown'; }
     if (cur.isThis) { return 'this'; }
@@ -759,6 +816,10 @@ class Resolver {
     return cur;
   }
 
+  /**
+   * `cur.name` as a field (own, inherited or outer), an array's length, a member type when cur
+   * is a type, or a known library static field (System.out). Unknown: { t: null }.
+   */
   fieldAccess(env, cur, name) {
     const t = cur && cur.t;
     if (!t) { return { t: null }; }
@@ -783,11 +844,13 @@ class Resolver {
     return { t: null };
   }
 
+  /** Member type `name` of ci or of a project ancestor, or null. */
   memberTypeOf(ci, name) {
     for (const c of [ci, ...T.ancestors(this.table, ci)]) { const m = c.memberTypes.get(name); if (m) { return m; } }
     return null;
   }
 
+  /** Walk the operand of a cast and return the cast type (reference or primitive). */
   cast(env, ce) {
     const ref = kid(ce, 'referenceTypeCastExpression');
     if (ref) {
@@ -804,6 +867,7 @@ class Resolver {
     return null;
   }
 
+  /** `new`: an array creation gives the array type (dims from the expression), a class instance goes to classInstance. */
   newExpr(env, ne, outer) {
     const ace = kid(ne, 'arrayCreationExpression');
     if (ace) {
@@ -845,6 +909,10 @@ class Resolver {
     return t;
   }
 
+  /**
+   * Record a constructor call site on project class ci, choosing the overload by the argument
+   * types; a class without written constructors is recorded as `implicit-constructor`.
+   */
   linkCtor(env, tok, ci, args, form) {
     if (!ci) { this.site(env, tok, '<init>', form, [], 'unknown-type'); return; }
     if (!ci.ctors.length) { this.site(env, tok, '<init>', form, [], 'implicit-constructor'); return; }
@@ -852,6 +920,10 @@ class Resolver {
     this.site(env, tok, '<init>', form, chosen.map(m => m.id));
   }
 
+  /**
+   * `this(..)` or `super(..)` at the start of a constructor body: link the own or base class
+   * constructor (a library base class gets a library edge).
+   */
   explicitCtor(env, node) {
     const u = kid(node, 'unqualifiedExplicitConstructorInvocation');
     const q = kid(node, 'qualifiedExplicitConstructorInvocation');

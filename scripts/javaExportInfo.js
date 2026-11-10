@@ -21,9 +21,12 @@ const CLASS_NODES = { normalClassDeclaration: 'class', normalInterfaceDeclaratio
 const JAVADOC_HOLDERS = new Set(['classBodyDeclaration', 'classMemberDeclaration', 'interfaceMemberDeclaration', 'typeDeclaration',
   'classDeclaration', 'interfaceDeclaration', 'annotationTypeMemberDeclaration', 'enumBodyDeclarations']);
 
+/** Whitespace runs collapsed to one space, trimmed. */
 const flat = (s) => s.replace(/\s+/g, ' ').trim();
+/** Flattened text cut to `max` characters with an ellipsis. */
 const oneLine = (s, max = 60) => { const t = flat(s); return t.length > max ? `${t.slice(0, max - 3)}...` : t; };
 
+/** All children of a CST node in source order (the CST groups them by rule name). */
 function children(n) {
   const kids = [];
   for (const k in n.children) { for (const c of n.children[k]) { kids.push(c); } }
@@ -33,11 +36,17 @@ function children(n) {
 
 /** Facts of one file. `src` is the text the CST was parsed from. */
 function fileFacts(file, src, cst) {
+  /** Source text of a located CST node, '' otherwise. */
   const slice = (node) => (node && node.location ? src.slice(node.location.startOffset, node.location.endOffset + 1) : '');
+  /** Modifier texts without the annotations. */
   const mods = (nodes) => (nodes ?? []).map((m) => flat(slice(m))).filter((m) => !m.startsWith('@'));
+  /** Annotation texts among the modifier nodes. */
   const anns = (nodes) => (nodes ?? []).map((m) => flat(slice(m))).filter((m) => m.startsWith('@'));
+  /** Parameter texts of a formalParameterList, as written. */
   const params = (fpl) => (fpl?.children?.formalParameter ?? []).map((p) => flat(slice(p)));
+  /** Dotted identifier chain of a classType node (type arguments left out). */
   const typeName = (ct) => (ct?.children?.Identifier ?? []).map((t) => t.image).join('.');
+  /** The Identifier (or Super) tokens of an fqnOrRefType chain, in order. */
   const fqnTokens = (fqn) => [fqn.children.fqnOrRefTypePartFirst?.[0], ...(fqn.children.fqnOrRefTypePartRest ?? [])]
     .map((p) => { const c = p?.children?.fqnOrRefTypePartCommon?.[0]?.children; return c?.Identifier?.[0] ?? c?.Super?.[0]; })
     .filter(Boolean);
@@ -51,6 +60,10 @@ function fileFacts(file, src, cst) {
   const stack = [];
   const fileArgTokens = new Set();
 
+  /**
+   * Javadoc of a declaration: the last `/**` comment leading the node or one of the declaration
+   * wrappers above it, flattened to one line; '' when there is none.
+   */
   function javadocOf(node) {
     const cands = [node];
     for (let i = stack.length - 1; i >= 0 && JAVADOC_HOLDERS.has(stack[i].name); i--) { cands.push(stack[i]); }
@@ -60,6 +73,10 @@ function fileFacts(file, src, cst) {
     return flat(doc.image.replace(/^\/\*\*/, '').replace(/\*\/$/, '').split('\n').map((l) => l.replace(/^\s*\*(?!\/)/, '')).join(' '));
   }
 
+  /**
+   * Class card of a type declaration node: name, kind, lines, outer class, modifiers, type
+   * parameters, Javadoc, extends and implements as written (fields and literals are filled later).
+   */
   function classCard(n, kind) {
     const c = n.children;
     const id = c.typeIdentifier?.[0]?.children?.Identifier?.[0];
@@ -76,6 +93,7 @@ function fileFacts(file, src, cst) {
     return card;
   }
 
+  /** Add every declarator of a field or constant declaration to the current class card. */
   function field(n) {
     const c = n.children;
     const cls = classStack[classStack.length - 1];
@@ -91,6 +109,10 @@ function fileFacts(file, src, cst) {
     }
   }
 
+  /**
+   * Signature text, modifiers, annotations and abstractness of a method or constructor
+   * declaration; a bodiless interface method that is neither default nor static counts as abstract.
+   */
   function signature(name, n) {
     const c = n.children;
     const cls = classStack[classStack.length - 1];
@@ -115,6 +137,7 @@ function fileFacts(file, src, cst) {
     return { signature: text, modifiers: m, annotations: anns(modNodes), abstract: isAbstract };
   }
 
+  /** Open a method or constructor: record its facts under the analyzer's id and make it the current caller. */
   function enterMethod(name, tok, n) {
     const id = `${file}::${name}::${tok.startLine}`;
     const m = { id, endLine: n.location.endLine, javadoc: javadocOf(n), ...signature(name, n), reads: [] };
@@ -123,6 +146,7 @@ function fileFacts(file, src, cst) {
     methodStack.push(id);
   }
 
+  /** Mark the first string literal inside the first argument of a file, resource or URL call. */
   function markFileArg(argList) {
     const todo = [argList?.children?.expression?.[0]];
     while (todo.length) {
@@ -133,12 +157,17 @@ function fileFacts(file, src, cst) {
     }
   }
 
+  /** Record a call or `new` site with its receiver and argument text; sites outside a method are dropped. */
   function site(tok, kind, receiver, name, argNode, anonymous = false) {
     if (!methodStack.length) { return; }
     sites.push({ line: tok.startLine, col: tok.startColumn, kind, receiver, name, args: oneLine(slice(argNode)),
       caller: methodStack[methodStack.length - 1], anonymous });
   }
 
+  /**
+   * A `primary` chain: records every method call and `new` in it with the receiver text as
+   * written, a `Class.CONSTANT` prefix as a candidate static read, and the file arguments.
+   */
   function primary(n) {
     const pre = n.children.primaryPrefix?.[0];
     if (!pre) { return; }
@@ -182,6 +211,7 @@ function fileFacts(file, src, cst) {
     }
   }
 
+  /** A string literal naming a URL, an asset or a file argument: record it on its class and with its owner. */
   function literal(tok) {
     const v = tok.image.slice(1, -1);
     const why = /^https?:\/\//i.test(v) ? 'url' : ASSET_EXT.test(v) ? 'asset' : fileArgTokens.has(tok) ? 'file-arg' : null;
@@ -192,6 +222,7 @@ function fileFacts(file, src, cst) {
     literals.push({ file, line: tok.startLine, why, text: tok.image, method: methodStack[methodStack.length - 1] ?? null, cls: cls ? cls.name : null });
   }
 
+  /** Depth-first walk keeping the class and method stacks; string literals inside annotations are skipped. */
   function walk(n) {
     if (!n || typeof n !== 'object') { return; }
     if (n.tokenType) { if (n.tokenType.name === 'StringLiteral' && !stack.some((x) => x.name === 'annotation')) { literal(n); } return; }
@@ -235,6 +266,7 @@ const CTOR_FORMS = { 'ctor-super': 'super', 'ctor-this': 'this', 'ctor-super-imp
  * and name (the resolver records the method name token, or the type name for `new`).
  */
 function joinSites(resolverSites, textSites) {
+  /** Position key of a site. */
   const key = (file, line, col, name) => `${file}\u0000${line}\u0000${col}\u0000${name}`;
   const byPos = new Map();
   for (const t of textSites) {

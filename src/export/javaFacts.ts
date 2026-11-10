@@ -34,14 +34,20 @@ export interface JavaFacts {
   classes: JavaClass[];
 }
 
+/** Append v to the list under k, creating the list. */
 function push<K, V>(m: Map<K, V[]>, k: K, v: V): void {
   const l = m.get(k);
   if (l) { l.push(v); } else { m.set(k, [v]); }
 }
 
+/**
+ * Index the analyser's Java facts for rendering, sorted by relative path and line so the output
+ * does not depend on the analyser's file order; empty when `info` is null (no Java).
+ */
 export function indexJavaFacts(root: string, info: JavaExportInfo | null): JavaFacts {
   const facts: JavaFacts = { classesByRel: new Map(), classesByName: new Map(), methodById: new Map(), sitesByCaller: new Map(), sites: [], literals: [], classes: [] };
   if (!info) { return facts; }
+  /** Order by relative path, then line. */
   const bySource = (a: { file: string; line: number }, b: { file: string; line: number }) =>
     ordinal(relOf(root, a.file), relOf(root, b.file)) || a.line - b.line;
   for (const c of [...info.classes].sort((a, b) => bySource(a, b) || ordinal(a.name, b.name))) {
@@ -56,6 +62,7 @@ export function indexJavaFacts(root: string, info: JavaExportInfo | null): JavaF
   return facts;
 }
 
+/** The declaration line of a class card: package, modifiers, kind, name with type parameters, extends, implements. */
 export function classDeclaration(c: JavaClass): string {
   const kw = c.kind === 'interface' ? 'extends' : 'implements';
   return `${c.pkg ? `package ${c.pkg}; ` : ''}${[...c.modifiers, c.kind, c.name + c.typeParams].join(' ')}`

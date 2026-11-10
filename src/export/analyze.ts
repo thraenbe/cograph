@@ -21,6 +21,7 @@ export const ANALYZER_FILES = [
   'narrowCalls.js', 'graphOutput.js', 'sourceFiles.js', 'skipDirs.js', 'skipDirs.json',
 ];
 
+/** Vue and Svelte single-file components. */
 const isComponent = (rel: string) => /\.(vue|svelte)$/i.test(rel);
 
 const MAX_OUTPUT_BYTES = 1024 * 1024 * 1024;
@@ -35,10 +36,12 @@ export interface AnalysisResult {
   runs: Array<{ language: StructureLanguage; files: number; stats?: Record<string, number> }>;
 }
 
+/** A failure reported to the user as one line; `exitCode` becomes the process exit code (0 for --help). */
 export class ExportError extends Error {
   constructor(message: string, readonly exitCode = 1) { super(message); this.name = 'ExportError'; }
 }
 
+/** Path of `abs` relative to `root`, with forward slashes. */
 export function relOf(root: string, abs: string): string {
   return path.relative(root, abs).split(path.sep).join('/');
 }
@@ -66,6 +69,7 @@ export function scriptsDir(fromDir: string = __dirname): { bundled: string | nul
   return { bundled: fs.existsSync(path.join(bundled, 'analyze_java.js')) ? bundled : null, sources: path.join(repo, 'scripts') };
 }
 
+/** The analyser script of a language: the source under scripts/ when present, else the bundled copy. */
 function scriptPath(language: StructureLanguage): string {
   const dirs = scriptsDir();
   const source = path.join(dirs.sources, SCRIPT[language]);
@@ -73,6 +77,10 @@ function scriptPath(language: StructureLanguage): string {
   return path.join(dirs.bundled, SCRIPT[language]);
 }
 
+/**
+ * Run one analyser on the file list and parse its JSON graph. A start failure, a non-zero
+ * exit or invalid output is an ExportError.
+ */
 function runOne(language: StructureLanguage, root: string, listPath: string, python: string): GraphData & { stats?: Record<string, number>; exportInfo?: JavaExportInfo } {
   const bin = language === 'python' ? python : process.execPath;
   const args = [scriptPath(language), root, '--files', listPath];

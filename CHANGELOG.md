@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Pinned function cards.** A click on a function keeps the card that hovering shows, with
+  *Open function* (the source popup a click opened before), *Open file* (the editor at the
+  function's line) and a close button. Several functions can be pinned at once; each pinned
+  function keeps its lines and its callers and callees in focus after the pointer leaves, and
+  wears a ring in the theme's focus colour (named in the Legend). Close, a second click on the
+  function or Escape unpins; pins are not saved across sessions.
+
 ## [1.4.3] - 2026-11-09
 
 A patch release that makes the canvas easier to read, with fixes from the 1.4 feedback. A dashed

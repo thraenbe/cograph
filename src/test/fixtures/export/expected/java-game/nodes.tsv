@@ -1,0 +1,36 @@
+id	kind	rel	class	name	line	end_line	extends	implements
+library::java.io.DataOutputStream::<init>	library			<init>				
+library::java.io.DataOutputStream::close	library			close				
+library::java.io.DataOutputStream::writeBytes	library			writeBytes				
+library::java.io.FileWriter::<init>	library			<init>				
+library::java.io.FileWriter::close	library			close				
+library::java.io.FileWriter::write	library			write				
+library::java.lang.Math::max	library			max				
+library::java.lang.Math::min	library			min				
+library::java.lang.Runnable::run	library			run				
+library::java.lang.String::valueOf	library			valueOf				
+library::java.lang.Thread::start	library			start				
+library::java.net.URL::<init>	library			<init>				
+library::java.net.URL::openConnection	library			openConnection				
+library::java.net.URLConnection::getOutputStream	library			getOutputStream				
+library::java.util.ArrayList::<init>	library			<init>				
+library::java.util.List::forEach	library			forEach				
+library::java.util.List::get	library			get				
+library::java.util.List::size	library			size				
+game/Constants.java::Constants	class	game/Constants.java	Constants	Constants	3	8		
+game/Entity.java::Entity	class	game/Entity.java	Entity	Entity	4	17		
+game/Entity.java::Entity.constructor	constructor	game/Entity.java	Entity	constructor	8	8		
+game/Entity.java::Entity.move:10	method	game/Entity.java	Entity	move	10	10		
+game/Entity.java::Entity.move:12	method	game/Entity.java	Entity	move	12	12		
+game/Entity.java::Entity.clamp	method	game/Entity.java	Entity	clamp	14	14		
+game/Entity.java::Entity.update	method	game/Entity.java	Entity	update	16	16		
+game/Item.java::Item	class	game/Item.java	Item	Item	3	9		
+game/Item.java::Item.constructor	constructor	game/Item.java	Item	constructor	6	6		
+game/Item.java::Item.use	method	game/Item.java	Item	use	8	8		
+game/Player.java::Player	class	game/Player.java	Player	Player	7	34	Entity	
+game/Player.java::Player.constructor	constructor	game/Player.java	Player	constructor	12	15	Entity	
+game/Player.java::Player.update	method	game/Player.java	Player	update	18	31	Entity	
+game/Player.java::Player.addPoints	method	game/Player.java	Player	addPoints	33	33	Entity	
+game/io/Highscore.java::Highscore	class	game/io/Highscore.java	Highscore	Highscore	10	31		
+game/io/Highscore.java::Highscore.getInstance	method	game/io/Highscore.java	Highscore	getInstance	14	14		
+game/io/Highscore.java::Highscore.save	method	game/io/Highscore.java	Highscore	save	16	30		

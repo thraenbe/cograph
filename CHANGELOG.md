@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Markdown export** (`npm run export:md -- <repo> --out <dir>`): writes CoGraph's call-graph context for
+  a whole repository to files, with no VS Code, no network and no AI. Per source file, per function and per
+  feature (a list of methods, classes or files) it writes the same text the MCP tools return, without the
+  reply caps, plus edge counts and TSV tables of edges, nodes and Java call sites. Java pages add class cards
+  (fields, URL and asset literals), signatures, Javadoc, static constant reads and every call site with its
+  target or the reason it has none. Two runs on the same code give byte-identical files. See
+  `docs/export-markdown.md`.
+
+### Changed
+
+- MCP replies sort ties ordinally instead of by locale, and list direct callers and callees in location
+  order (they were in analysis order).
+- Java analyzer: calls are resolved by declared type instead of by method name
+  (`scripts/javaTypes.js` builds a project type table in the definitions pass,
+  `scripts/javaResolve.js` resolves every receiver form with scopes). Receivers on locals,
+  parameters, fields, casts, array elements, static `Class.m()` and chained calls now link;
+  constructors (`new X()`, `super(..)`, `this(..)`, implicit `super()`) get edges; `super.m()`
+  and bare calls follow the class hierarchy and outer classes; overloads are chosen by argument
+  count and types. Receivers of unknown type get no edge instead of a name-only guess. Against
+  javac on ten open-source Java games: call recall 61 % → 99.9 %, precision 51 % → 100 %.
+- Java library nodes are keyed by class: `library::java.net.URLEncoder::encode` (was
+  `library::java.net::encode`), `libraryName` is the class's full name, constructors are
+  `<init>`. Calls on imported project classes no longer become library nodes. Saved Java graphs
+  keep their project node ids; only library node ids change.
+
 ## [1.4.3] - 2026-11-09
 
 A patch release that makes the canvas easier to read, with fixes from the 1.4 feedback. A dashed

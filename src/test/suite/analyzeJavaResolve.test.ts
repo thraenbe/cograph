@@ -100,6 +100,33 @@ suite('declared-type resolution (Java fixture)', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
+  // Expected targets confirmed with the JDK 'java A.java' source launcher, which prints the overload javac picks.
+  test('varargs: used when no fixed-arity overload applies by type, not only when none has the arity', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-java-varargs-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'A.java'), [
+        'class A {',                                                        // 1
+        '  void f(String a, String b) { }',                                 // 2
+        '  void f(Integer... xs) { }',                                      // 3
+        '  void g(String s) { }',                                           // 4
+        '  void g(int... xs) { }',                                          // 5
+        '  void ints() { f(1, 2); }',                                       // 6
+        '  void strings() { f("a", "b"); }',                                // 7
+        '  void one() { g(1); }',                                           // 8
+        '  void array() { g(new int[] { 1 }); }',                           // 9
+        '  void text() { g("s"); }',                                        // 10
+        '}',
+      ].join('\n'));
+      const { edges } = analyze(dir);
+      const out = (m: string) => outOf(edges, `A.java::${m}`).filter(t => !t.startsWith('library::'));
+      assert.deepStrictEqual(out('ints::6'), ['A.java::f::3']);
+      assert.deepStrictEqual(out('strings::7'), ['A.java::f::2']);
+      assert.deepStrictEqual(out('one::8'), ['A.java::g::5']);
+      assert.deepStrictEqual(out('array::9'), ['A.java::g::5']);
+      assert.deepStrictEqual(out('text::10'), ['A.java::g::4']);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test('a receiver of unknown type gets no edge and is recorded as unknown-type', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-java-unknown-'));
     try {

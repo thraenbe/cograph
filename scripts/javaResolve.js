@@ -171,31 +171,56 @@ function arityOk(m, n) {
   return m.varargs ? n >= p - 1 : n === p;
 }
 
-/** Choose among same-named methods (or constructors) for the given argument types. */
-function chooseOverload(table, cands, argTypes) {
-  if (cands.length <= 1) { return cands.filter(m => arityOk(m, argTypes.length)); }
-  const byArity = cands.filter(m => arityOk(m, argTypes.length));
-  if (byArity.length <= 1) { return byArity; }
-  const fixed = byArity.filter(m => !m.varargs || m.paramRefs.length === argTypes.length);
-  const pool = fixed.length ? fixed : byArity;
-  const applicable = pool.filter(m => {
-    const ps = T.methodParams(table, m);
-    return argTypes.every((a, i) => assignable(table, a, ps[Math.min(i, ps.length - 1)]));
-  });
-  if (applicable.length <= 1) { return applicable.length ? applicable : pool; }
+/**
+ * Parameter types of m for n arguments. Fixed arity: the declared list. Variable arity (javac's
+ * phase 3): the leading parameters, then the varargs component type for every remaining argument.
+ */
+function paramsFor(table, m, n, variable) {
+  const ps = T.methodParams(table, m);
+  if (!variable) { return ps; }
+  const last = ps[ps.length - 1];
+  const comp = last && last.dims ? { ...last, dims: last.dims - 1 } : null;
+  return Array.from({ length: n }, (_, i) => (i < ps.length - 1 ? ps[i] : comp));
+}
+
+/** The most specific of the applicable candidates; `params(m)` gives each one's parameter list for this call. */
+function mostSpecific(table, applicable, argTypes, params) {
+  if (applicable.length <= 1) { return applicable; }
   const exact = applicable.filter(m => {
-    const ps = T.methodParams(table, m);
+    const ps = params(m);
     return argTypes.every((a, i) => a && sameType(a, ps[i]));
   });
   if (exact.length) { return exact; }
   // most specific: m is kept unless another candidate's parameters are all assignable to m's
-  const specific = applicable.filter(m => !applicable.some(o => o !== m && moreSpecific(table, o, m)));
+  const specific = applicable.filter(m => !applicable.some(o => o !== m && moreSpecific(table, params(o), params(m))));
   return specific.length ? specific : applicable;
 }
 
-/** Whether every parameter type of a is assignable to b's and at least one differs: javac's "more specific" test. */
-function moreSpecific(table, a, b) {
-  const pa = T.methodParams(table, a); const pb = T.methodParams(table, b);
+/**
+ * Choose among same-named methods (or constructors) for the given argument types, in javac's order:
+ * first the candidates that apply by fixed arity (a varargs method counts when an array is passed
+ * for its array parameter), then, only if none does, the varargs ones with the trailing arguments
+ * checked against the component type. When neither phase finds one, the arity matches are kept.
+ */
+function chooseOverload(table, cands, argTypes) {
+  const n = argTypes.length;
+  if (cands.length <= 1) { return cands.filter(m => arityOk(m, n)); }
+  const byArity = cands.filter(m => arityOk(m, n));
+  if (byArity.length <= 1) { return byArity; }
+  const applies = (m, variable) => {
+    const ps = paramsFor(table, m, n, variable);
+    return argTypes.every((a, i) => assignable(table, a, ps[i]));
+  };
+  const fixed = byArity.filter(m => m.paramRefs.length === n);
+  const phase1 = fixed.filter(m => applies(m, false));
+  if (phase1.length) { return mostSpecific(table, phase1, argTypes, m => paramsFor(table, m, n, false)); }
+  const phase3 = byArity.filter(m => m.varargs && applies(m, true));
+  if (phase3.length) { return mostSpecific(table, phase3, argTypes, m => paramsFor(table, m, n, true)); }
+  return fixed.length ? fixed : byArity;
+}
+
+/** Whether every parameter type in pa is assignable to pb's and at least one differs: javac's "more specific" test. */
+function moreSpecific(table, pa, pb) {
   if (pa.length !== pb.length) { return false; }
   let strict = false;
   for (let i = 0; i < pa.length; i++) {

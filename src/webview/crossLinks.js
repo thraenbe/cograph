@@ -226,6 +226,39 @@ function shapeHoverLinks(individual, hoverId, ctx) {
   return out;
 }
 
+// ── Pinned cards (P1): the focus is the hovered function plus every pinned one ──
+/** True while a function is hovered or pinned, i.e. updateCrossHover has lines to keep current. */
+function crossFocusActive(st) {
+  return st._frameHoverId != null || !!(st.pinnedFns && st.pinnedFns.size);
+}
+
+/** The ids whose own cross links are drawn: the hovered one first, then the pinned ones. */
+function crossFocusIds(st) {
+  const ids = st._frameHoverId != null ? [st._frameHoverId] : [];
+  for (const id of st.pinnedFns || []) { if (!ids.includes(id)) { ids.push(id); } }
+  return ids;
+}
+
+/**
+ * Individual cross links of several focused ids: linksOf(id) = individualLinksFor of that
+ * id, each shaped from its own end by shape(raw, id). A link between two focused ids is
+ * drawn once (for the first of them).
+ */
+function focusCrossLinks(ids, linksOf, shape) {
+  const out = [];
+  const seen = new Set();
+  for (const id of ids) {
+    const raw = linksOf(id).filter(l => {
+      const k = l.source + '\u0000' + l.target;
+      if (seen.has(k)) { return false; }
+      seen.add(k);
+      return true;
+    });
+    if (raw.length) { out.push(...shape(raw, id)); }
+  }
+  return out;
+}
+
 /**
  * Aggregate cross links per frame pair (one-shot composition of the helpers).
  *   cross: link objects (source/target as ids or node objects)
@@ -308,6 +341,7 @@ if (typeof module !== 'undefined') {
     splitEdgesByFrame, buildCrossLinks, portOn, pairKey, nearestEdgePoint, CL_SEP,
     aggregateCrossPairs, routeBundle, routeBundles, indexCrossByNode, individualLinksFor,
     ARROW_HEAD, ARROW_TUCK, ARROW_TRIM, rimEnds, rayExit, shapeHoverLinks,
+    crossFocusActive, crossFocusIds, focusCrossLinks,
     fileOfNode, isSameFileLink, partitionByFile, fileLookup,
   };
 }

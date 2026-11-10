@@ -114,8 +114,14 @@ function fcCodeNodes(doc, code, file) {
   return frag;
 }
 
+// What the "Whole function" line offers: a click pins the card (pinnedCards.js) unless the
+// "Open Function Popup" switch is off (then a click jumps to the file); a pinned card has the button.
+const FC_MORE_HOVER = 'click to pin this card';
+const FC_MORE_CLICK_FILE = 'click to open the file';
+const FC_MORE_PINNED = 'Open function to edit';
+
 /** Card content for a function node. `brief` = the host's func-source reply, or null while loading. */
-function fcContent(d, brief, rel, idx, nameOf) {
+function fcContent(d, brief, rel, idx, nameOf, moreAction = FC_MORE_HOVER) {
   const name = d.name || d.label || String(d.id);
   const content = {
     name,
@@ -136,7 +142,7 @@ function fcContent(d, brief, rel, idx, nameOf) {
   content.code = brief.body || '';
   const shown = content.code ? content.code.split('\n').length : 0;
   if (brief.totalLines && brief.totalLines > shown) {
-    content.more = 'Whole function: ' + brief.totalLines + ' lines · click to open and edit';
+    content.more = 'Whole function: ' + brief.totalLines + ' lines · ' + moreAction;
   }
   return content;
 }
@@ -145,5 +151,6 @@ if (typeof module !== 'undefined') {
   module.exports = {
     HOVER_FN_DELAY_MS, HOVER_FN_DWELL_PX, FN_PEEK_LINES, fcIsFunctionNode, fcCallIndex, fcNameOf,
     fcCallsText, fcHiddenText, fcShortDoc, fcCodeNodes, fcContent, fcLang,
+    FC_MORE_HOVER, FC_MORE_CLICK_FILE, FC_MORE_PINNED,
   };
 }

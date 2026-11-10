@@ -11,6 +11,7 @@
 //   ↗ at a function     its calls go to other files and are hidden by "Only calls within a file"
 //   ↗N after a file     N calls leave that file, hidden by the same switch
 //   thick slot border   the file changed (Git mode)
+//   ringed function     its card is pinned (pinnedCards.js)
 
 interface LegendRow { swatch: string; label: string; title?: string }
 
@@ -54,6 +55,12 @@ const ROWS: LegendRow[] = [
     swatch: `<svg ${SW}><rect x="1.5" y="1.5" width="21" height="11" rx="3" fill="none" stroke="#ff9800" stroke-width="2"/></svg>`,
     label: 'File changed (Git)',
   },
+  {
+    // pinnedCards.js: the ring is the theme's focus border (styles.css .tl-legend-pin / .cg-pinned)
+    swatch: `<svg class="tl-legend-pin" ${SW}><circle cx="12" cy="7" r="4"/></svg>`,
+    label: 'Pinned function (its card stays open)',
+    title: 'A click on a function keeps its card and its lines. Close, click the function again or press Escape to unpin.',
+  },
 ];
 
 function rowHtml(r: LegendRow): string {
@@ -63,7 +70,7 @@ function rowHtml(r: LegendRow): string {
 }
 
 /** Collapsible "Legend" header + body for the Folder panel (wired by controls.js). Collapsed by
- *  default: open, its eight rows cover part of the canvas at 1280x800 (Tier A shot, 2026-11-06). */
+ *  default: open, its rows cover part of the canvas at 1280x800 (Tier A shot, 2026-11-06). */
 export const SHAPES_LEGEND_HTML = `<div class="tl-legend-header" id="toggle-shapes-legend">
         <span>Legend</span>
         <span class="tl-chevron collapsed">▾</span>

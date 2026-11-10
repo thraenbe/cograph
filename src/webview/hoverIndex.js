@@ -99,7 +99,10 @@ function createHoverIndex() {
     nodesOf(id) { return nodes.get(id) || []; },
     linksOf(id) { return links.get(id) || []; },
     labelOf(id) { return labels.get(id) || null; },
-    /** Dim everything via the root class, light the node's own links. */
+    /**
+     * Dim everything via the root class, light the node's own links. `id` may be an
+     * array (pinned cards, P1: the focus is the union of the pinned and the hovered).
+     */
     highlight(rootEl, id, hlWidth) {
       this.clear();
       root = rootEl;
@@ -108,7 +111,7 @@ function createHoverIndex() {
         root.classList.add(HI_ROOT_CLASS);
         if (wide) { root.style.setProperty('--cg-hl-width', String(hlWidth)); }
       }
-      lit = this.linksOf(id);
+      lit = Array.isArray(id) ? [...new Set(id.flatMap(x => this.linksOf(x)))] : this.linksOf(id);
       for (const el of lit) {
         el.classList.add(HI_LINK_CLASS);
         if (wide) { el.classList.add(HI_WIDE_CLASS); }
@@ -119,11 +122,11 @@ function createHoverIndex() {
      * Function hover: highlight, then mark the node + its neighbours (ends of its lines
      * plus `extraIds`, e.g. cross-frame partners) and lift its lines into liftTo(el)
      * (a parent element above the nodes, or null to leave a line where it is).
-     * Returns the neighbour id set (hovered id included).
+     * Returns the neighbour id set (hovered id included). `id` may be an array (union).
      */
     focus(rootEl, id, hlWidth, extraIds, liftTo) {
       this.highlight(rootEl, id, hlWidth);
-      const ids = new Set([id]);
+      const ids = new Set(Array.isArray(id) ? id : [id]);
       for (const el of lit) {
         const d = el.__data__;
         ids.add(hiIdOf(d.source)); ids.add(hiIdOf(d.target));

@@ -288,6 +288,37 @@ suite('Markdown export: entries, names, writing', function () {
     assert.strictEqual(wordCount('a  b\n\tc '), 3);
   });
 
+  test('--out may not be the repo or one of its parents; a subfolder of the repo is fine', () => {
+    const base = tmpDir('out-guard');
+    const repo = path.join(base, 'games', 'game');
+    copyTree(JAVA, repo);
+    const link = path.join(tmpDir('out-guard-link'), 'link'); // outside base, so tree(base) does not walk it
+    fs.symlinkSync(path.join(base, 'games'), link);
+    const before = tree(base);
+    const usage = (e: Error) => e instanceof ExportError && e.exitCode === 2 && /repo folder or one of its parents/.test(e.message);
+    for (const out of [repo, path.join(repo, '.'), path.dirname(repo), base, link, path.join(link, 'game')]) {
+      for (const extra of [[], ['--clean']]) {
+        assert.throws(() => runExport(parseArgs([repo, '--out', out, ...extra])), usage, `${out} ${extra.join(' ')}`);
+      }
+    }
+    assert.deepStrictEqual(tree(base), before);
+    // Beside the repo, under a sibling name that starts with the repo's, and inside it: all allowed.
+    for (const out of [path.join(base, 'games', 'game-export'), path.join(repo, 'export'), path.join(link, 'game', 'ctx', 'deep')]) {
+      runExport(parseArgs([repo, '--out', out]));
+      assert.ok(fs.existsSync(path.join(out, MANIFEST)), out);
+    }
+  });
+
+  test('a repo path that does not exist is a usage error with exit code 2, not an internal error', () => {
+    const missing = path.join(tmpDir('missing'), 'nope');
+    assert.throws(() => runExport(parseArgs([missing, '--out', path.join(tmpDir('out'), 'x')])),
+      (e: Error) => e instanceof ExportError && e.exitCode === 2 && e.message.includes(missing) && /ENOENT/.test(e.message));
+    const r = cp.spawnSync(process.execPath, [CLI, missing, '--out', path.join(tmpDir('out'), 'x')], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 2, r.stderr);
+    assert.ok(!/internal error|\n\s+at /.test(r.stderr), r.stderr);
+    assert.strictEqual(r.stderr.trim().split('\n').length, 1, r.stderr);
+  });
+
   test('argument mistakes are usage errors with exit code 2', () => {
     for (const argv of [[JAVA], ['--out', 'x'], [JAVA, '--out', 'x', '--depth', '9'], [JAVA, '--out', 'x', '--lang', 'cobol']]) {
       assert.throws(() => parseArgs(argv), (e: Error) => e instanceof ExportError && e.exitCode === 2);

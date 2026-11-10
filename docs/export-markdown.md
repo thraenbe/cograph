@@ -101,6 +101,8 @@ time zone or Python hash seed (tested).
 5. UTF-8 without BOM, LF line endings, exactly one trailing newline.
 6. An existing `<dir>` is replaced only with `--clean` and only when it holds a `manifest.json` written by
    this exporter (`tool.name` is `cograph-export`); a foreign `manifest.json` is refused.
+7. `<dir>` may not be the repo or one of its parents (real paths, so a symlink does not get around it);
+   a subfolder such as `<repo>/export` is fine. A missing repo path is a usage error (exit 2).
 
 Changes to shared code: the MCP tie-breaks are ordinal, `formatSymbol` sorts its neighbour lists, walks
 and impact iterate neighbours in location order, the formatters take caps as a parameter (MCP defaults

@@ -182,10 +182,48 @@ function manifest(o: CliOptions, tool: ToolInfo, result: AnalysisResult, feature
   });
 }
 
+/** Real path of `p`; a path that does not exist yet resolves its nearest existing ancestor and keeps the rest. */
+export function realPathOf(p: string): string {
+  let cur = path.resolve(p);
+  const rest: string[] = [];
+  while (!fs.existsSync(cur)) {
+    const up = path.dirname(cur);
+    if (up === cur) { break; }
+    rest.unshift(path.basename(cur));
+    cur = up;
+  }
+  return path.join(fs.realpathSync(cur), ...rest);
+}
+
+/** The repo folder as a real path; a missing or unreadable path is a usage error, not an internal one. */
+function repoRoot(repo: string): string {
+  let root: string;
+  try {
+    root = fs.realpathSync(path.resolve(repo));
+  } catch (err) {
+    throw new ExportError(`cannot open the repo folder ${path.resolve(repo)}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`, 2);
+  }
+  if (!fs.statSync(root).isDirectory()) { throw new ExportError(`${root} is not a folder`, 2); }
+  return root;
+}
+
+/**
+ * The output folder must not be the repo or one of its parents: with --clean the swap would replace
+ * the analysed sources. A folder inside the repo (`<repo>/export`) is fine.
+ */
+function checkOutDir(root: string, outDir: string): void {
+  const out = realPathOf(outDir);
+  const up = path.relative(out, root);
+  const outside = up === '..' || up.startsWith(`..${path.sep}`) || path.isAbsolute(up);
+  if (!outside) {
+    throw new ExportError(`--out ${out} is the repo folder or one of its parents; use a folder beside the repo or a subfolder of it`, 2);
+  }
+}
+
 /** The whole export: analyse, index, render, write. Returns the number of files written. */
 export function runExport(o: CliOptions): number {
-  const root = fs.realpathSync(path.resolve(o.repo));
-  if (!fs.statSync(root).isDirectory()) { throw new ExportError(`${root} is not a folder`, 2); }
+  const root = repoRoot(o.repo);
+  checkOutDir(root, o.out);
   const result = analyze(root, o.languages, o.python);
   if (result.graph.nodes.length === 0) { throw new ExportError(`no functions found in ${root} for ${o.languages.join(', ')}`); }
   const empty = { version: 0, provider: '', model: '', generatedAt: '', files: {}, folders: {} };

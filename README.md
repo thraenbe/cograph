@@ -59,7 +59,8 @@ toolbar to toggle overlays.
 - **Hover card** — rest the pointer on a function for its name, signature, doc comment, the first lines of its code and how many functions call it; on a folder or file for its path, size and languages, plus its AI summary once generated.
 - **Hide what you do not need** — right-click a folder or a file for **Hide** or **Show only this one**: it leaves the layout entirely and the remaining folders close the gap. Every hide is listed under **FILTERS** in the Folder panel and is reversible one by one or with **Show all**, and hides are saved with the layout.
 - **Forces box** — the left toolbar shows only the forces the current engine uses, with a **show more forces** expander for the advanced ones. Under Static motion it explains that forces are off instead of showing dead sliders.
-- **Settings panel** — display options (node size, text size, link thickness, arrows) and visibility toggles (orphan nodes, library nodes).
+- **Search bar** — top right of the canvas: filter functions by name with the match count inline; its funnel holds the visibility toggles (orphan nodes, library nodes, empty files).
+- **Settings panel** — display options (node size, text size, link thickness, arrows).
 
 ## Graph Intelligence (AI features)
 
@@ -109,7 +110,7 @@ On VS Code 1.101 and later, agent mode (Copilot) sees CoGraph without any setup.
 1. Open a Python, TypeScript, JavaScript, Java, C, or C++ project folder in VS Code.
 2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run **`CoGraph: Visualize Project`**.
 3. The graph opens in a side panel.
-4. Use the search bar to filter functions by name (`Ctrl+F` / `Cmd+F` focuses it).
+4. Use the search bar at the top right to filter functions by name (`Ctrl+F` / `Cmd+F` focuses it, `Esc` clears it).
 5. Hover a function to see its name, signature and first lines; click it to navigate to its definition, or open its source in a popup.
 6. Toggle **Git** or **Language** coloring with the buttons in the top-left.
 7. Toggle the **Class** button to overlay OOP class hierarchy and field information.

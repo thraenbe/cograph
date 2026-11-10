@@ -40,6 +40,7 @@ searchInput?.addEventListener('input', (e) => {
   if (btnClearSearch) {
     btnClearSearch.style.display = e.target.value.length > 0 ? 'block' : 'none';
   }
+  document.getElementById('search-bar')?.classList.toggle('has-query', e.target.value.length > 0);
   applyFilters();
 });
 
@@ -63,7 +64,7 @@ document.getElementById('toggle-empty-files')?.addEventListener('change', (e) =>
   applyComplexity();
 });
 
-/** Empties the filter box; returns false if it was already empty, so Escape can move on to the panel. */
+/** Empties the filter box; returns false if it was already empty, so Escape can move on to the panels. */
 function clearSearch() {
   if (!searchInput || searchInput.value === '') return false;
   searchInput.value = '';
@@ -73,19 +74,26 @@ function clearSearch() {
   return true;
 }
 
-/** Tells the user how many nodes survived the current filter — silent until they type, red at zero. */
+/** Tells the user how many nodes survived the current filter, inline in the search bar: silent until they
+ *  type, "No matches" in the error colour (and an error border on the bar) at zero. The bar's `has-query`
+ *  class keeps it expanded on a narrow canvas while a query is in it. */
 function updateSearchCount(visibleIds) {
+  const bar = document.getElementById('search-bar');
+  const hasQuery = !!searchInput?.value;
+  bar?.classList.toggle('has-query', hasQuery);
   if (!searchCount) return;
-  if (!searchInput?.value) {
+  if (!hasQuery) {
     searchCount.style.display = 'none';
     searchCount.textContent = '';
     searchCount.classList.remove('search-count--none');
+    bar?.classList.remove('search-container--none');
     return;
   }
   const count = visibleIds ? visibleIds.size : 0;
-  searchCount.style.display = 'block';
-  searchCount.textContent = count === 1 ? '1 match' : `${count} matches`;
+  searchCount.style.display = 'inline';
+  searchCount.textContent = count === 0 ? 'No matches' : count === 1 ? '1 match' : `${count} matches`;
   searchCount.classList.toggle('search-count--none', count === 0);
+  bar?.classList.toggle('search-container--none', count === 0);
 }
 
 // ── Configuration controls ────────────────────────────────────────────────────
@@ -586,7 +594,7 @@ document.getElementById('lib-doc-goto-btn')?.addEventListener('click', () => {
 // ── Global keyboard shortcuts ─────────────────────────────────────────────────
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    // Unwind order: topmost popup, then the filter query, then the panel.
+    // Unwind order: topmost popup, then the filter query, then the open popover / panel, then the box's focus.
     if (state.funcPopups.size > 0) {
       const top = [...state.funcPopups.values()].reduce((a, b) =>
         parseInt(b.element.style.zIndex) > parseInt(a.element.style.zIndex) ? b : a);
@@ -594,17 +602,20 @@ document.addEventListener('keydown', (e) => {
       return;
     }
     if (clearSearch()) return;
+    // Then whatever drops from the top right: the visibility switches, the Settings panel.
+    if (typeof closeSearchFilters === 'function' && closeSearchFilters()) return;
     if (settingsPanel?.classList.contains('open')) {
       settingsPanel.classList.remove('open');
-      searchInput?.blur();
+      return;
     }
+    // Last: leave the empty box, so a collapsed bar (narrow canvas) folds back to its magnifier.
+    if (document.activeElement === searchInput) searchInput.blur();
     return;
   }
 
-  // Ctrl/Cmd+F — open the panel first, the box is display:none while it's closed.
+  // Ctrl/Cmd+F — the search bar is always on the canvas; focusing it also expands a collapsed bar.
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
     e.preventDefault();
-    settingsPanel?.classList.add('open');
     searchInput?.focus();
     searchInput?.select();
   }

@@ -99,7 +99,8 @@ time zone or Python hash seed (tested).
 4. No silent truncation: the MCP caps (60 functions, 15 folders, 50 files, 25 tests, 15 entry points,
    25 neighbours) are lifted.
 5. UTF-8 without BOM, LF line endings, exactly one trailing newline.
-6. An existing `<dir>` is replaced only with `--clean` and only when it holds a `manifest.json`.
+6. An existing `<dir>` is replaced only with `--clean` and only when it holds a `manifest.json` written by
+   this exporter (`tool.name` is `cograph-export`); a foreign `manifest.json` is refused.
 
 Changes to shared code: the MCP tie-breaks are ordinal, `formatSymbol` sorts its neighbour lists, walks
 and impact iterate neighbours in location order, the formatters take caps as a parameter (MCP defaults

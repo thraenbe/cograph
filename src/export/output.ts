@@ -5,7 +5,7 @@ import { ordinal } from '../mcp/compare';
 import type { Sym } from '../mcp/ids';
 import { ExportError } from './analyze';
 
-/** Marker file of an export folder: `--clean` only ever replaces a folder that holds one. */
+/** Marker file of an export folder: `--clean` only ever replaces a folder whose manifest is ours. */
 export const MANIFEST = 'manifest.json';
 
 /** Hex sha256 of a string or buffer. */
@@ -77,9 +77,26 @@ export function folderTotals(entries: FileEntry[]): Record<string, { files: numb
 export const stableJson = (v: unknown): string => JSON.stringify(v, null, 2);
 
 /**
+ * True when `dir` holds a manifest this exporter wrote: it parses and names `cograph-export` as its
+ * tool with a numeric format. Any other `manifest.json` (a web app's, an extension's) is foreign.
+ */
+export function isEarlierExport(dir: string): boolean {
+  const file = path.join(dir, MANIFEST);
+  let m: unknown;
+  try {
+    if (!fs.statSync(file).isFile()) { return false; }
+    m = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return false; // missing, unreadable or not JSON: not ours
+  }
+  const o = m as { format?: unknown; tool?: { name?: unknown } } | null;
+  return typeof o === 'object' && o !== null && typeof o.format === 'number' && o.tool?.name === 'cograph-export';
+}
+
+/**
  * Write the pages to a fresh folder next to `outDir` and swap it into place, so a failed run
  * leaves nothing half written and no file of an earlier export survives. An existing `outDir`
- * is replaced only with `clean` and only when it holds an earlier export's manifest.
+ * is replaced only with `clean` and only when it holds an earlier export's manifest (`isEarlierExport`).
  */
 export function writeExport(outDir: string, pages: Pages, clean: boolean): void {
   const target = path.resolve(outDir);
@@ -87,8 +104,8 @@ export function writeExport(outDir: string, pages: Pages, clean: boolean): void 
     const entries = fs.readdirSync(target);
     if (entries.length > 0) {
       if (!clean) { throw new ExportError(`${target} is not empty; pass --clean to replace an earlier export`, 2); }
-      if (!fs.existsSync(path.join(target, MANIFEST))) {
-        throw new ExportError(`${target} holds no ${MANIFEST}, so it is not an earlier export; refusing to replace it`, 2);
+      if (!isEarlierExport(target)) {
+        throw new ExportError(`${target} holds no CoGraph export ${MANIFEST}, so it is not an earlier export; refusing to replace it`, 2);
       }
     }
   }

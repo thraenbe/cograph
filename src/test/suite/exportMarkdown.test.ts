@@ -225,6 +225,28 @@ suite('Markdown export: entries, names, writing', function () {
     assert.strictEqual(fs.readFileSync(path.join(foreign, 'notes.txt'), 'utf8'), 'mine');
   });
 
+  test('--clean refuses a folder whose manifest.json is not ours and leaves it untouched', () => {
+    const foreign = tmpDir('foreign-manifest');
+    const own = { 'manifest.json': '{"name":"my-web-app","version":"1.0.0"}\n', 'src/index.js': 'x' };
+    fs.mkdirSync(path.join(foreign, 'src'));
+    for (const [rel, text] of Object.entries(own)) { fs.writeFileSync(path.join(foreign, rel), text); }
+    const before = tree(foreign);
+    assert.throws(() => runExport(parseArgs([JAVA, '--out', foreign, '--clean'])),
+      (e: Error) => e instanceof ExportError && e.exitCode === 2 && /not an earlier export/.test(e.message));
+    assert.deepStrictEqual(tree(foreign), before);
+    for (const bad of ['not json', 'null', '{"format":1,"tool":{"name":"other"}}', '{"tool":{"name":"cograph-export"}}']) {
+      fs.writeFileSync(path.join(foreign, MANIFEST), bad);
+      assert.throws(() => writeExport(foreign, new Pages(), true), /not an earlier export/, bad);
+    }
+    assert.strictEqual(fs.readFileSync(path.join(foreign, 'src/index.js'), 'utf8'), 'x');
+    // A real export is still replaced.
+    const out = exportTo(JAVA);
+    fs.writeFileSync(path.join(out, 'stale.md'), 'old');
+    runExport(parseArgs([JAVA, '--out', out, '--clean']));
+    assert.ok(!fs.existsSync(path.join(out, 'stale.md')));
+    assert.ok(fs.existsSync(path.join(out, MANIFEST)));
+  });
+
   test('--clean puts the old export back when the final rename fails', () => {
     const out = exportTo(JAVA);
     const before = tree(out);

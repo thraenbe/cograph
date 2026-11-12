@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-11-12
+
+A release for reading the graph and taking it elsewhere: a click pins a function's card
+with its callers and callees in focus, older pins fade a step as a click trail, and the function
+search and visibility filters sit in a search bar on the canvas. The Java analyzer now resolves
+calls by declared type instead of by name, a new Markdown export writes the call-graph context of
+a whole repository to files, and dependency updates patch the packages behind five Dependabot alerts.
+
 ### Added
 
 - **Pinned function cards.** A click on a function keeps the card that hovering shows, with
@@ -14,18 +22,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   function's line) and a close button. Several functions can be pinned at once; each pinned
   function keeps its lines and its callers and callees in focus after the pointer leaves, and
   wears a ring in the theme's focus colour (named in the Legend). Close, a second click on the
-  function or Escape unpins; pins are not saved across sessions.
+  function or Escape unpins; pins are not saved across sessions ([#157](https://github.com/thraenbe/cograph/pull/157)).
 - **Click trail on pinned functions.** Each newer pin fades the lines of the older pins a step
   (newest full, then 0.7, 0.5, 0.35, the oldest stay at 0.3), arrowheads and lines between
   folders alike, so the lines of each pinned function can be told apart. Unpinning closes the
-  trail up; a line between two pins takes the stronger; the hovered function's lines are full.
+  trail up; a line between two pins takes the stronger; the hovered function's lines are full ([#157](https://github.com/thraenbe/cograph/pull/157)).
 - **Markdown export** (`npm run export:md -- <repo> --out <dir>`): writes CoGraph's call-graph context for
   a whole repository to files, with no VS Code, no network and no AI. Per source file, per function and per
   feature (a list of methods, classes or files) it writes the same text the MCP tools return, without the
   reply caps, plus edge counts and TSV tables of edges, nodes and Java call sites. Java pages add class cards
   (fields, URL and asset literals), signatures, Javadoc, static constant reads and every call site with its
   target or the reason it has none. Two runs on the same code give byte-identical files. See
-  `docs/export-markdown.md`.
+  `docs/export-markdown.md` ([#143](https://github.com/thraenbe/cograph/pull/143), [#142](https://github.com/thraenbe/cograph/pull/142)).
+  - `--clean` replaces an existing output folder only when its `manifest.json` names the CoGraph
+    exporter; a folder with any other `manifest.json` is refused and left untouched. An output path
+    that is the repository or contains it is refused before anything is analysed or written (a
+    subfolder such as `<repo>/export` stays allowed), and a repository path that does not exist is a
+    usage error. All three exit with code 2 ([#142](https://github.com/thraenbe/cograph/pull/142)).
 
 ### Changed
 
@@ -34,9 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   border red). Its funnel holds Show Orphans, Show Libraries and Show Empty Files, and carries a dot while one
   of them is off its default. `Ctrl+F` / `Cmd+F` focuses the bar without opening Settings; on a canvas
   narrower than 520 px an empty bar folds to a magnifier. The bar moves below the timeline transport or the
-  pull request banner when they share its row. Settings keeps Display and Configuration.
+  pull request banner when they share its row. Settings keeps Display and Configuration ([#158](https://github.com/thraenbe/cograph/pull/158)).
 - MCP replies sort ties ordinally instead of by locale, and list direct callers and callees in location
-  order (they were in analysis order).
+  order instead of analysis order ([#143](https://github.com/thraenbe/cograph/pull/143)).
 - Java analyzer: calls are resolved by declared type instead of by method name
   (`scripts/javaTypes.js` builds a project type table in the definitions pass,
   `scripts/javaResolve.js` resolves every receiver form with scopes). Receivers on locals,
@@ -44,13 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   constructors (`new X()`, `super(..)`, `this(..)`, implicit `super()`) get edges; `super.m()`
   and bare calls follow the class hierarchy and outer classes; overloads are chosen by argument
   count and types. Receivers of unknown type get no edge instead of a name-only guess. Against
-  javac on ten open-source Java games: call recall 61 % → 99.9 %, precision 51 % → 100 %.
+  javac on ten open-source Java games: call recall 61 % → 99.9 %, precision 51 % → 100 % ([#142](https://github.com/thraenbe/cograph/pull/142)).
 - Java library nodes are keyed by class: `library::java.net.URLEncoder::encode` (was
   `library::java.net::encode`), `libraryName` is the class's full name, constructors are
   `<init>`. Calls on imported project classes no longer become library nodes. Saved Java graphs
-  keep their project node ids; only library node ids change.
+  keep their project node ids; only library node ids change ([#142](https://github.com/thraenbe/cograph/pull/142)).
 - Dependencies: lodash 4.18.1 in the Java analyzer bundle; development-only patches of msal-node,
-  minimatch and qs.
+  minimatch and qs ([#147](https://github.com/thraenbe/cograph/pull/147), [#159](https://github.com/thraenbe/cograph/pull/159)).
 
 ## [1.4.3] - 2026-11-09
 
@@ -613,7 +626,8 @@ Measured on a 3 000-function repository in VS Code: four open folders settle in 
 - Library node clustering.
 - Click-to-navigate to function definitions.
 
-[Unreleased]: https://github.com/thraenbe/cograph/compare/v1.4.3...HEAD
+[Unreleased]: https://github.com/thraenbe/cograph/compare/v1.4.4...HEAD
+[1.4.4]: https://github.com/thraenbe/cograph/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/thraenbe/cograph/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/thraenbe/cograph/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/thraenbe/cograph/compare/v1.4.0...v1.4.1

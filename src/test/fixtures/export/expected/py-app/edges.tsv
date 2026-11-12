@@ -1,0 +1,5 @@
+caller	callee	kind
+app/main.py::run	app/main.py::report	internal
+app/main.py::run	app/store.py::make_store	internal
+app/store.py::load	library::json::load	library
+app/store.py::save	library::json::dump	library

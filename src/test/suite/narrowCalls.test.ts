@@ -90,7 +90,26 @@ suite('D6 end to end — every analyzer', function () {
   setup(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-d6-')); });
   teardown(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
 
-  for (const a of ANALYZERS) {
+  // Java resolves calls by declared type (javaResolve.js): a bare call never fans out to
+  // same-named methods of unrelated classes, so the name-pool tests below do not apply to it.
+  test('java: a bare call links the own class only, never same-named methods elsewhere (no stats field)', () => {
+    const a = ANALYZERS.find(x => x.lang === 'java')!;
+    for (let i = 0; i < 12; i++) {
+      fs.mkdirSync(path.join(tmp, `pkg${i}`), { recursive: true });
+      fs.writeFileSync(path.join(tmp, `pkg${i}`, `d.${a.ext}`), a.def('helper'));
+    }
+    fs.mkdirSync(path.join(tmp, 'app'));
+    fs.writeFileSync(path.join(tmp, 'app', `main.${a.ext}`), a.call('helper'));
+    const { raw, graph } = run(a, tmp);
+    assert.strictEqual(graph.stats, undefined, 'nothing narrowed or dropped');
+    assert.ok(!raw.includes('"stats"'));
+    const caller = graph.nodes.find((n: any) => n.name === 'caller');
+    const targets = graph.edges.filter((e: any) => e.source === caller.id && !e.isLibraryEdge)
+      .map((e: any) => graph.nodes.find((n: any) => n.id === e.target));
+    assert.deepStrictEqual(targets.map((n: any) => [path.relative(tmp, n.file), n.className]), [[path.join('app', 'main.java'), 'C']]);
+  });
+
+  for (const a of ANALYZERS.filter(x => x.lang !== 'java')) {
     test(`${a.lang}: a name with ≤ 8 definitions keeps fanning out exactly as before (no stats field)`, function () {
       if (a.lang === 'python') { try { cp.execFileSync('python3', ['--version']); } catch { this.skip(); } }
       // Java's caller class declares the method itself (bare calls resolve through `this`): 7 + 1 = 8.

@@ -1,11 +1,24 @@
 import type { Sym } from './ids';
 import type { GraphIndex, Staleness } from './graphIndex';
 import type { FolderNode, OverviewData } from './overview';
-import { callerCount, calleeCount, type ImpactResult, type Reached, type WalkResult } from './queries';
+import { byLocation, callerCount, calleeCount, type ImpactResult, type Reached, type WalkResult } from './queries';
 import type { SliceResult } from './sourceSlice';
 
 /** Hard cap per tool result (~5k tokens); Claude Code warns at 10k and cuts at 25k by default. */
 export const MAX_RESULT_CHARS = 20_000;
+
+/** List caps of the MCP replies. The Markdown export passes `NO_CAPS`, so nothing is cut there. */
+export interface Caps {
+  fileFunctions: number;
+  folderChildren: number;
+  impactFiles: number;
+  impactTests: number;
+  impactEntryPoints: number;
+}
+export const MCP_CAPS: Caps = { fileFunctions: 60, folderChildren: 15, impactFiles: 50, impactTests: 25, impactEntryPoints: 15 };
+export const NO_CAPS: Caps = {
+  fileFunctions: Infinity, folderChildren: Infinity, impactFiles: Infinity, impactTests: Infinity, impactEntryPoints: Infinity,
+};
 
 export function location(s: Sym): string {
   if (s.isLibrary) { return `library ${s.libraryName ?? '?'}`; }
@@ -66,8 +79,9 @@ export function formatSource(slice: SliceResult | null, s: Sym, fileChanged = fa
   return `\n\nSource ${s.rel}:${slice.startLine}-${slice.endLine} (best-effort slice, ${ENDED[slice.endReason]}; read the file at this range before editing):${drift}\n\`\`\`\n${slice.source}\n\`\`\``;
 }
 
+/** Direct callers or callees as symbol lines in location order, capped, with a note on how to see the rest. */
 function neighbourList(index: GraphIndex, title: string, raws: Set<string> | undefined, cap: number): string {
-  const syms = [...(raws ?? [])].map((r) => index.byRaw.get(r)).filter((x): x is Sym => !!x);
+  const syms = [...(raws ?? [])].map((r) => index.byRaw.get(r)).filter((x): x is Sym => !!x).sort(byLocation);
   if (syms.length === 0) { return `\n\n${title}: none in the graph.`; }
   const shown = syms.slice(0, cap).map((s) => symbolLine(index, s));
   return `\n\n${title} (${syms.length}):\n${shown.join('\n')}${moreNote(shown.length, syms.length, 'use callers/callees with a limit')}`;
@@ -107,21 +121,27 @@ export function formatWalk(index: GraphIndex, s: Sym, dir: 'callers' | 'callees'
   return parts.join('\n') + tail;
 }
 
-export function formatImpact(index: GraphIndex, label: string, r: ImpactResult, limit: number): string {
+/**
+ * The impact reply: affected files nearest first, the tests and entry points that reach the
+ * seeds, and the nearest callers; `caps` bound the first three lists, `limit` the last.
+ */
+export function formatImpact(index: GraphIndex, label: string, r: ImpactResult, limit: number, caps: Caps = MCP_CAPS): string {
   if (r.affected.length === 0) {
     return `Nothing in the graph calls into ${label} (${r.seeds.length} function(s)). Static analysis misses dynamic dispatch, callbacks and reflection; check those before assuming it is safe.`;
   }
   const out = [`Changing ${label} (${r.seeds.length} function(s)) can affect ${r.affected.length} caller(s) in ${r.files.length} file(s), up to ${r.maxDepth} call(s) away.`];
   out.push('\nBy file (nearest first: file, functions affected, nearest distance):');
-  const files = r.files.slice(0, 50).map((f) => `- ${f.rel}  ${f.count} fn, ${f.nearest} hop(s)`);
+  const files = r.files.slice(0, caps.impactFiles).map((f) => `- ${f.rel}  ${f.count} fn, ${f.nearest} hop(s)`);
   out.push(files.join('\n') + moreNote(files.length, r.files.length, 'narrow the path'));
   if (r.tests.length) {
     out.push(`\nTests that reach it (${r.tests.length}):`);
-    out.push(r.tests.slice(0, 25).map((s) => symbolLine(index, s)).join('\n') + moreNote(Math.min(25, r.tests.length), r.tests.length, 'see By file'));
+    out.push(r.tests.slice(0, caps.impactTests).map((s) => symbolLine(index, s)).join('\n')
+      + moreNote(Math.min(caps.impactTests, r.tests.length), r.tests.length, 'see By file'));
   }
   if (r.entryPoints.length) {
     out.push(`\nEntry points on these call chains (nothing calls them) (${r.entryPoints.length}):`);
-    out.push(r.entryPoints.slice(0, 15).map((s) => symbolLine(index, s)).join('\n') + moreNote(Math.min(15, r.entryPoints.length), r.entryPoints.length, 'narrow the path'));
+    out.push(r.entryPoints.slice(0, caps.impactEntryPoints).map((s) => symbolLine(index, s)).join('\n')
+      + moreNote(Math.min(caps.impactEntryPoints, r.entryPoints.length), r.entryPoints.length, 'narrow the path'));
   }
   out.push(`\nNearest callers (${Math.min(limit, r.affected.length)} of ${r.affected.length}):`);
   out.push(r.affected.slice(0, limit).map((a) => symbolLine(index, a.sym, `  ${a.depth} hop(s)`)).join('\n'));
@@ -135,7 +155,11 @@ function treeLines(n: FolderNode, indent: string, out: string[], maxChildren: nu
   if (n.children.length > maxChildren) { out.push(`${indent}  … ${n.children.length - maxChildren} more folder(s)`); }
 }
 
-export function formatOverview(index: GraphIndex, o: OverviewData): string {
+/**
+ * The overview reply: counts and languages, then a file's functions or the folder tree, and
+ * for a folder the entry points and hot spots; `caps` bound the function list and the tree.
+ */
+export function formatOverview(index: GraphIndex, o: OverviewData, caps: Caps = MCP_CAPS): string {
   const where = o.scope === '' ? 'workspace' : o.scope;
   if (o.functions === 0) { return `No analysed functions under ${where}.`; }
   const out = [`${where}: ${o.functions} function(s) in ${o.files} file(s).`];
@@ -143,11 +167,12 @@ export function formatOverview(index: GraphIndex, o: OverviewData): string {
   if (o.isFile) {
     if (o.fileSummary) { out.push(`Summary: ${o.fileSummary}`); }
     out.push('\nFunctions (id, line, ←callers →callees):');
-    out.push(o.fileFunctions.slice(0, 60).map((s) => symbolLine(index, s)).join('\n') + moreNote(Math.min(60, o.fileFunctions.length), o.fileFunctions.length, 'use find_symbol with path'));
+    out.push(o.fileFunctions.slice(0, caps.fileFunctions).map((s) => symbolLine(index, s)).join('\n')
+      + moreNote(Math.min(caps.fileFunctions, o.fileFunctions.length), o.fileFunctions.length, 'use find_symbol with path'));
   } else if (o.tree) {
     out.push('\nFolders (functions, files, AI summary if annotated):');
     const lines: string[] = [];
-    treeLines(o.tree, '', lines, 15);
+    treeLines(o.tree, '', lines, caps.folderChildren);
     out.push(lines.join('\n'));
   }
   if (!o.isFile && o.entryPoints.length) { out.push('\nEntry points (nothing calls them; tests excluded):'); out.push(o.entryPoints.map((s) => symbolLine(index, s)).join('\n')); }

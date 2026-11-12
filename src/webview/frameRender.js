@@ -26,6 +26,7 @@ const __fr = {
   posDirty: new Set(),    // frame paths awaiting a coalesced position write
   posRaf: 0,
   hoverDrawn: false,      // cross-hover lines currently in the DOM
+  trailDrawn: false,      // click-trail cross lines currently in the DOM (updateCrossTrail)
   ends: { x1: 0, y1: 0, x2: 0, y2: 0 },   // rimEnds scratch for the per-tick link writes
 };
 
@@ -124,6 +125,7 @@ function applySimResult(r) {
   // Frame geometry does not move during settle: positions only, no chrome.
   tickFramePositions(r.path);
   if (state._frameHoverId != null) { updateCrossHover(); }
+  updateCrossTrail();
 }
 
 function applySimData(r, f) {
@@ -328,6 +330,7 @@ function renderFrameLayout(allLinks, visibleSet) {
   state.svgCloudNodes = frameG.selectAll('path.cloud-node');
   state.svgLabels = frameG.selectAll('g.f-labels text');
   state.svgLinks = frameG.selectAll('g.f-links line');
+  if (typeof applyClickTrail === 'function') { applyClickTrail(); }
 
   // 6) The per-file grouping is the slot rects above — the bounding-circle
   // overlay would just draw halos across frames, so it stays empty here.
@@ -852,6 +855,7 @@ function flushFramePositions() {
   for (const path of __fr.posDirty) { tickFramePositions(path); }
   __fr.posDirty.clear();
   if (state._frameHoverId != null) { updateCrossHover(); }
+  updateCrossTrail();
   if (__perfT0) { perfEnd('drag:flush', __perfT0); }
 }
 
@@ -978,6 +982,7 @@ function applyFrameCulling() {
   // fb14 D5: hovering while zooming — which partner is on screen, and the stub's
   // on-screen length, both follow the zoom. O(degree), once per culling pass.
   if (state._frameHoverId != null && typeof linkG !== 'undefined') { updateCrossHover(); }
+  updateCrossTrail();
   if (shown.length && __fr.sched) { __fr.sched.wake(); }
   if (__perfT0) { perfEnd('cull', __perfT0); }
 }
@@ -1033,11 +1038,14 @@ function updateCrossLinks() {
     linkG.selectAll('line.cross-bundle').remove();
     linkG.selectAll('line.cross-hover').remove();
     __fr.hoverDrawn = false;
+    linkG.selectAll('line.cross-trail').remove();
+    __fr.trailDrawn = false;
     return;
   }
   const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
   updateCrossBundles();
   updateCrossHover();
+  updateCrossTrail();
   if (__perfT0) { perfEnd('updateCrossLinks', __perfT0); }
 }
 
@@ -1120,6 +1128,40 @@ function updateCrossHover() {
     .attr('x2', d => d.x2).attr('y2', d => d.y2);
 }
 
+/**
+ * The click trail's cross-frame links (clickTrail.js): Shelf draws calls between files
+ * only while a node is hovered, so each clicked node keeps its own lines here, shaped
+ * like the hover's (stubs for off-screen partners), at its age's strength. Oldest
+ * first, so the newest click draws on top. O(degree) per trail node.
+ */
+function updateCrossTrail() {
+  if (typeof linkG === 'undefined') { return; }
+  const ids = (state.frames && usesFrames() && typeof clickTrailIds === 'function') ? clickTrailIds() : [];
+  if (!ids.length && !__fr.trailDrawn) { return; }
+  const lines = [];
+  if (ids.length) {
+    const byNode = crossCaches().crossByNode;
+    const ctx = hoverShapeCtx();
+    const posOf = id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; };
+    for (let age = ids.length - 1; age >= 0; age--) {
+      const id = ids[age];
+      const raw = individualLinksFor(byNode.get(id) || [], id, posOf);
+      for (const l of shapeHoverLinks(raw, id, ctx)) { lines.push({ ...l, trailO: trailOpacity(age) }); }
+    }
+  }
+  __fr.trailDrawn = lines.length > 0;
+  linkG.selectAll('line.cross-trail').data(lines).join('line')
+    .attr('class', 'cross-trail cg-tr')
+    .attr('pointer-events', 'none')
+    .classed('cross-stub', d => d.stub)
+    .attr('stroke', getCSSVar('--cograph-link-hover'))
+    .attr('stroke-width', Math.max(1.5, settings.linkThickness))
+    .style('--cg-tr-o', d => String(d.trailO))
+    .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
+    .attr('x1', d => d.x1).attr('y1', d => d.y1)
+    .attr('x2', d => d.x2).attr('y2', d => d.y2);
+}
+
 /** What shapeHoverLinks needs: radii, the on-screen rect and the hovered node's frame (graph units). */
 function hoverShapeCtx() {
   let view = null, k = state.currentZoom || 1;
@@ -1159,6 +1201,8 @@ function teardownFrames() {
   frameG.selectAll('*').remove();
   linkG.selectAll('line.cross-bundle').remove();
   linkG.selectAll('line.cross-hover').remove();
+  linkG.selectAll('line.cross-trail').remove();
+  __fr.trailDrawn = false;
   if (state.simulation && state.simulation.isFrameFacade) {
     state.simulation = null;
     state.pendingReheat = false;
@@ -1490,7 +1534,7 @@ if (typeof module !== 'undefined') {
   module.exports = {
     usesFrames, renderFrameLayout, tickFrames, tickFrame, tickFrameChrome,
     tickFramePositions, tickFrameOfNode, frameLiftLayer, crossPartnersOf, hoverShapeCtx, onFramesZoom, applyFrameCulling, restoreFrameDom, borrowHoverLabel, teardownFrames,
-    resetFrames, updateCrossLinks, updateCrossBundles, updateCrossHover, syncFrameSims, applySimResult, applySimData,
+    resetFrames, updateCrossLinks, updateCrossBundles, updateCrossHover, updateCrossTrail, syncFrameSims, applySimResult, applySimData,
     applyPendingLayout, migrateV1IntoFrames, placeMembersInSlots, shouldRefit, stampLinkRefs,
     snapBackToSlot,
     resolveDropOverlaps, translateFrameSubtree, onFrameMoveSettled,

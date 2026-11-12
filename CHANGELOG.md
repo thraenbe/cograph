@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Click trail**: a clicked function's edges stay lit, and each newer click fades the older ones a step
+  (1 → 0.7 → 0.5 → 0.35 → 0.25, last five clicks), so the connections of each clicked node can be told apart.
+  Edges of no clicked node step back; hover still wins while the pointer rests on a node. In Shelf the trail
+  also keeps the calls between files that otherwise show only on hover. Click empty canvas or press Escape to clear.
 - **Markdown export** (`npm run export:md -- <repo> --out <dir>`): writes CoGraph's call-graph context for
   a whole repository to files, with no VS Code, no network and no AI. Per source file, per function and per
   feature (a list of methods, classes or files) it writes the same text the MCP tools return, without the

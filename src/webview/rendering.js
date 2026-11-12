@@ -100,6 +100,11 @@ const zoomBehavior = d3.zoom()
 
 svg.call(zoomBehavior);
 svg.on('dblclick.zoom', null); // Remove D3's default dblclick-to-zoom
+// A click on empty canvas clears the click trail (node clicks stop propagation;
+// d3-zoom swallows the click that ends a pan).
+svg.on('click.trail', (event) => {
+  if (event.target === svg.node() && typeof clickTrailClear === 'function') { clickTrailClear(); }
+});
 svg.on('dblclick', (event) => {
   const t = event.target;
   if (t.tagName === 'circle' || t.classList.contains('cloud-node')) return;
@@ -431,6 +436,32 @@ function hoverLinksOff() {
   if (__hover) { __hover.clear(); }
 }
 
+// Click trail (clickTrail.js): clicked nodes keep their links lit, older clicks fainter.
+const __trail = (typeof createClickTrail === 'function') ? createClickTrail() : null;
+
+/** Repaint the trail on the current link elements; a render replaces them. */
+function applyClickTrail() {
+  if (!__trail || !__hover) { return; }
+  __hover.sync(state.svgLinks, state.svgLabels);
+  __trail.apply(g.node(), id => __hover.linksOf(id));
+  if (typeof updateCrossTrail === 'function') { updateCrossTrail(); }   // Shelf: calls between files
+}
+
+/** Clicked node ids, newest first (frameRender's cross-frame trail reads them). */
+function clickTrailIds() { return __trail ? __trail.ids() : []; }
+
+function clickTrailPush(d) {
+  if (__trail && __trail.push(d.id)) { applyClickTrail(); }
+}
+
+/** Returns true if there was a trail to clear (Escape stops unwinding there). */
+function clickTrailClear() {
+  if (!__trail || !__trail.reset()) { return false; }
+  __trail.unpaint();
+  if (typeof updateCrossTrail === 'function') { updateCrossTrail(); }
+  return true;
+}
+
 // fb14 D4: the function being hovered (kept across a re-render, see renderElements).
 let __focusId = null;
 // The dim comes after a short dwell: it repaints the whole view (10k fixture, headless,
@@ -656,6 +687,7 @@ function renderNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
     .call(drag)
     .on('click', (event, d) => {
       event.stopPropagation();
+      clickTrailPush(d);
       if (settings.openFunctionPopup) {
         showFuncPopup(d);
       } else if (d.file && d.line > 0) {
@@ -949,6 +981,7 @@ function renderGlobalLayout(allLinks, visibleSet) {
     }
   }
   state.svgLinks = renderLinks(drawLinks, visibleSet);
+  applyClickTrail();
   state.svgNodes = renderNodes(visibleSet);
   if (typeof registerXfileCue === 'function') {
     registerXfileCue('global', nodeG, state.currentNodes, state.xfileCue, () => null, nodeRadius);

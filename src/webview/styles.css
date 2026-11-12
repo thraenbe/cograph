@@ -1291,6 +1291,14 @@ body.vscode-light {
 /* Sliders without effect under the frames layout engine */
 .is-noop { opacity: 0.4; }
 
+/* Click trail (clickTrail.js): while nodes are clicked, links of none of them step
+   back; each clicked node's links keep its age's strength (--cg-tr-o, newest 1).
+   stroke-opacity, not opacity, so the context-stroke arrowheads stay opaque (fb14 D2).
+   Before the hover rules, so a hover still wins while the pointer rests on a node. */
+#graph g.cg-trail g.links > line:not(.cg-tr):not(.cross-bundle):not(.cross-hover),
+#graph g.cg-trail g.f-links > line:not(.cg-tr) { stroke-opacity: 0.15; }
+#graph g.cg-trail line.cg-tr { stroke: var(--cograph-link-hover); stroke-opacity: var(--cg-tr-o, 1); }
+
 /* ── perf: hover + LOD (session perf) ─────────────────────────────────────────
    Toggled by hoverIndex.js: one class on the root <g> dims every link, the
    hovered node's own links carry .cg-hl. Replaces per-link attribute passes. */

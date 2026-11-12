@@ -593,6 +593,7 @@ document.addEventListener('keydown', (e) => {
       closeFuncPopupInstance(top);
       return;
     }
+    if (typeof clickTrailClear === 'function' && clickTrailClear()) return;
     if (clearSearch()) return;
     if (settingsPanel?.classList.contains('open')) {
       settingsPanel.classList.remove('open');

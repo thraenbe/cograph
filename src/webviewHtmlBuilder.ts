@@ -210,6 +210,7 @@ export function getWebviewHtml(
   const readyHandshakeUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'readyHandshake.js'));
   const hotCacheUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hotCache.js'));
   const hoverIndexUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'hoverIndex.js'));
+  const clickTrailUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'clickTrail.js'));
   const visibilityUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'visibility.js'));
   const viewCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'viewCull.js'));
   const frameCullUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameCull.js'));
@@ -501,6 +502,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${perfUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${hotCacheUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${hoverIndexUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${clickTrailUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${visibilityUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${viewCullUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${frameCullUri}?v=${nonce}"></script>

@@ -16,6 +16,12 @@ const repo = process.env.UXTEST_REPOS ?? '';
 const STAGE = Number(process.env.UXTEST_VCS_STAGE ?? 1);
 
 /** The PR panel's webview: the one carrying the banner. */
+/** Pinned cards: a click on a function keeps its card; "Open function" opens the source popup. No card (older build): nothing to do. */
+async function openPinnedFunction(f: Frame): Promise<void> {
+  const openFn = f.locator('.pinned-card .pc-open-fn').last();
+  await openFn.waitFor({ state: 'visible', timeout: 3000 }).then(() => openFn.click()).catch(() => undefined);
+}
+
 async function prFrame(page: Page): Promise<Frame | null> {
   for (const f of page.frames()) {
     if (!f.url().startsWith('vscode-webview://')) { continue; }
@@ -238,6 +244,7 @@ test('vcs-explore', async () => {
         const node = await frameHittable(g, '#graph circle.regular-node', 230); if (!node) { throw new Error('no function node'); }
         const before = await g.evaluate(() => document.querySelectorAll('.func-card').length);
         await page.mouse.click(node.x, node.y); await page.waitForTimeout(1500);
+        await openPinnedFunction(g);   // a click pins the card; its Open function opens the popup
         const ta = g.locator('.func-card .func-source-textarea').last();
         const box = await ta.boundingBox(); if (box) { await page.mouse.move(box.x + box.width / 2, box.y + 20); await page.waitForTimeout(1500); }
         const info = await ta.evaluate(el => ({ readOnly: (el as HTMLTextAreaElement).readOnly, title: el.getAttribute('title') || '' }));
@@ -332,6 +339,7 @@ test('vcs-explore', async () => {
         }
         const node = await frameHittable(g, '#graph circle.regular-node', 230); if (!node) { throw new Error('no function node'); }
         await page.mouse.click(node.x, node.y); await page.waitForTimeout(1500);
+        await openPinnedFunction(g);   // a click pins the card; its Open function opens the popup
         const ta = g.locator('.func-card .func-source-textarea').first();
         const info = await ta.evaluate(el => ({ readOnly: (el as HTMLTextAreaElement).readOnly, title: el.getAttribute('title') || '', value: (el as HTMLTextAreaElement).value.slice(0, 40) }));
         await ta.click().catch(() => undefined); await page.keyboard.type('zzz'); await page.waitForTimeout(400);
@@ -466,6 +474,7 @@ test('vcs-explore', async () => {
         const node = await frameHittable(g, '#graph circle.regular-node', 330);
         if (node) {
           await page.mouse.click(node.x, node.y); await page.waitForTimeout(1500);
+          await openPinnedFunction(g);   // a click pins the card; its Open function opens the popup
           const ta = g.locator('.func-card .func-source-textarea').first();
           const ro = await ta.evaluate(el => (el as HTMLTextAreaElement).readOnly).catch(() => null);
           if (ro === false) { await ta.click(); await page.keyboard.press('Control+End'); await page.keyboard.type('\n// popup edit'); await page.keyboard.press('Control+s'); await page.waitForTimeout(2500); }
@@ -544,6 +553,7 @@ test('vcs-explore', async () => {
       const node = await frameHittable(f, '#graph circle.regular-node', 330);
       if (!node) { throw new Error('no hittable function node'); }
       await page.mouse.click(node.x, node.y);
+      await openPinnedFunction(f);   // a click pins the card; its Open function opens the popup
       await page.waitForTimeout(1500);
       const ta = f.locator('.func-card .func-source-textarea').first();
       const readOnly = await ta.evaluate(el => (el as HTMLTextAreaElement).readOnly).catch(() => null);

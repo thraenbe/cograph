@@ -420,15 +420,29 @@ function __pe(name, t0) { if (t0) { perfEnd(name, t0); } }
 const __hover = (typeof createHoverIndex === 'function') ? createHoverIndex() : null;
 
 function hoverLinksOn(d, hlWidth) {
+  if (pinnedFocusIds().length) { hoverFocusOn(d, hlWidth); return; }   // P1: union with the pins
   focusDimCancel();
   if (!__hover) { return; }
   __hover.sync(state.svgLinks, state.svgLabels);
   __hover.highlight(g.node(), d.id, hlWidth);
 }
 
+/** The pointer left a node: the pinned focus stays (pinnedCards.js), else everything clears. */
 function hoverLinksOff() {
   focusDimCancel();
+  if (pinnedFocusIds().length) { hoverFocusOn(null, Math.max(1.5, settings.linkThickness)); return; }
   if (__hover) { __hover.clear(); }
+}
+
+/** Pinned function ids (pinnedCards.js keeps state.pinnedFns); [] without the module. */
+function pinnedFocusIds() { return state.pinnedFns ? [...state.pinnedFns] : []; }
+
+/** pinnedCards.js: a pin was added or removed — redraw the focus with the pointer's node kept. */
+function pinnedFocusChanged() {
+  const hovered = __focusId;
+  if (hovered != null || pinnedFocusIds().length) { hoverFocusOn(hovered == null ? null : { id: hovered }, Math.max(1.5, settings.linkThickness)); }
+  else if (__hover) { focusDimCancel(); __hover.clear(); }
+  if (typeof updateCrossHover === 'function' && typeof usesFrames === 'function' && usesFrames()) { updateCrossHover(); }
 }
 
 // fb14 D4: the function being hovered (kept across a re-render, see renderElements).
@@ -452,29 +466,41 @@ function hoverLiftTarget(el) {
   return el.parentNode === linkG.node() ? hlLinkG.node() : null;
 }
 
-/** Function hover: its lines on top, its callers/callees full, everything else dimmed. */
+/**
+ * Function hover: its lines on top, its callers/callees full, everything else dimmed.
+ * Pinned functions (pinnedCards.js, P1) join the focus: it is the union of the pinned
+ * ones and `d` (null = only the pins, the pointer is elsewhere). The pins form a click
+ * trail: each older pin's lines are a step fainter (pcTrailWeights), `d`'s are full.
+ */
 function hoverFocusOn(d, hlWidth) {
   if (!__hover) { return; }
+  const hoverId = d ? d.id : null;
+  const ids = pinnedFocusIds();
+  if (hoverId != null && !ids.includes(hoverId)) { ids.push(hoverId); }
+  if (!ids.length) { return; }
   __hover.sync(state.svgLinks, state.svgLabels);
   __hover.syncNodes([state.svgNodes, state.svgCloudNodes, state.svgLibNodes]);
   const extra = (typeof crossPartnersOf === 'function' && typeof usesFrames === 'function' && usesFrames())
-    ? crossPartnersOf(d.id) : [];
-  const wasDimmed = __focusId === d.id && g.classed('cg-focus');   // a refresh keeps the dim
+    ? ids.flatMap(crossPartnersOf) : [];
+  // a refresh keeps the dim; so does any change while a pin holds it
+  const wasDimmed = g.classed('cg-focus') && (__focusId === hoverId || ids.length > (hoverId != null ? 1 : 0));
   focusDimCancel();
-  __hover.focus(g.node(), d.id, hlWidth, extra, hoverLiftTarget);
-  __focusId = d.id;
+  // click trail: the newest pin's lines full, each older pin's a step fainter, the hovered full
+  const weights = typeof pcTrailWeights === 'function' ? pcTrailWeights(pinnedFocusIds(), hoverId) : null;
+  __hover.focus(g.node(), ids, hlWidth, extra, hoverLiftTarget, weights);
+  __focusId = hoverId;
   if (wasDimmed) { __hover.dim(); return; }
   __focusDimTimer = setTimeout(() => {
     __focusDimTimer = 0;
-    if (__focusId === d.id && __hover) { __hover.dim(); }
+    if (__focusId === hoverId && __hover) { __hover.dim(); }
   }, FOCUS_DIM_DELAY_MS);
 }
 
-/** After a re-render: the focus follows the new elements, or ends with its node. */
+/** After a re-render: the focus follows the new elements, or ends with its node (pins: P4). */
 function refreshHoverFocus() {
-  if (__focusId == null || !__hover) { return; }
+  if (!__hover || (__focusId == null && !pinnedFocusIds().length)) { return; }
   const id = __focusId;
-  const alive = state.currentNodes.some(n => n.id === id) && getVisibleNodeIds().has(id);
+  const alive = id != null && state.currentNodes.some(n => n.id === id) && getVisibleNodeIds().has(id);
   if (alive) { hoverFocusOn({ id }, Math.max(1.5, settings.linkThickness)); } else { hoverLinksOff(); }
 }
 
@@ -657,6 +683,8 @@ function renderNodes(visibleSet, nodes = state.currentNodes, parent = nodeG) {
     .on('click', (event, d) => {
       event.stopPropagation();
       if (settings.openFunctionPopup) {
+        // Pinned cards (Bela 2026-11-10): a click keeps the hover card; its button opens the popup.
+        if (typeof togglePinnedCard === 'function' && togglePinnedCard(d)) { return; }
         showFuncPopup(d);
       } else if (d.file && d.line > 0) {
         vscode.postMessage({ type: 'navigate', file: d.file, line: d.line });
@@ -931,6 +959,7 @@ function renderElements(elements, positionHints = new Map()) {
   if (state.gitMode) applyGitColors();
   applySameFileEdges();
   if (typeof applyFnNames === 'function') { applyFnNames(); }
+  if (typeof pinnedCardsAfterRender === 'function') { pinnedCardsAfterRender(); }   // P4: drop pins whose node is gone
   refreshHoverFocus();
   if (typeof perfMeasure === 'function') { perfMeasure('renderElements', 'render:start'); }
 }

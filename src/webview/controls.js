@@ -594,13 +594,14 @@ document.getElementById('lib-doc-goto-btn')?.addEventListener('click', () => {
 // ── Global keyboard shortcuts ─────────────────────────────────────────────────
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    // Unwind order: topmost popup, then the filter query, then the open popover / panel, then the box's focus.
+    // Unwind order: topmost popup, then the pinned cards, then the filter query, then the panel.
     if (state.funcPopups.size > 0) {
       const top = [...state.funcPopups.values()].reduce((a, b) =>
         parseInt(b.element.style.zIndex) > parseInt(a.element.style.zIndex) ? b : a);
       closeFuncPopupInstance(top);
       return;
     }
+    if (typeof unpinAllCards === 'function' && unpinAllCards()) return;   // pinned cards (P4)
     if (clearSearch()) return;
     // Then whatever drops from the top right: the visibility switches, the Settings panel.
     if (typeof closeSearchFilters === 'function' && closeSearchFilters()) return;

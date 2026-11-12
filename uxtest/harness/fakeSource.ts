@@ -30,6 +30,16 @@ export function loadFuncEnd(extRoot: string = EXT_ROOT): FuncEndLib | null {
   return fs.existsSync(p) ? require(p) as FuncEndLib : null;
 }
 
+/** The host's hover-card peek (out/funcBrief.js, U3), or null on checkouts without it. */
+export interface FuncBriefLib {
+  readFuncSlice(file: string, readText: (p: string) => string, opts: { startLine: number; maxLines: number }): Record<string, unknown> & { ok: boolean };
+}
+export function loadFuncBrief(extRoot: string = EXT_ROOT): FuncBriefLib | null {
+  const p = path.join(extRoot, 'out', 'funcBrief.js');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return fs.existsSync(p) ? require(p) as FuncBriefLib : null;
+}
+
 export type SaveResult = { ok: true } | { ok: false; reason: string; current?: string; line?: number };
 
 export class VirtualSources {

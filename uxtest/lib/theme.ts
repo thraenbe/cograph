@@ -19,6 +19,10 @@ const DARK: Record<string, string> = {
   'menu-background': '#1f1f1f', 'menu-foreground': '#cccccc', 'menu-border': '#454545',
   'menu-selectionBackground': '#0078d4', 'menu-selectionForeground': '#ffffff',
   'textLink-foreground': '#4daafc', 'notificationCenterHeader-background': '#1f1f1f',
+  // hover / pinned cards (hoverCard.js, pinnedCards.js): without these the cards fell back to dark in Light
+  'editorHoverWidget-background': '#202020', 'editorHoverWidget-foreground': '#cccccc', 'editorHoverWidget-border': '#454545',
+  'button-secondaryForeground': '#cccccc', 'button-secondaryHoverBackground': '#3c3c3c', 'button-border': 'rgba(255,255,255,0.07)',
+  'textCodeBlock-background': '#2b2b2b', 'badge-background': '#616161', 'badge-foreground': '#f8f8f8',
 };
 
 const LIGHT: Record<string, string> = {
@@ -33,6 +37,9 @@ const LIGHT: Record<string, string> = {
   'menu-background': '#ffffff', 'menu-foreground': '#3b3b3b', 'menu-border': '#cecece',
   'menu-selectionBackground': '#005fb8', 'textLink-foreground': '#005fb8',
   'notificationCenterHeader-background': '#ffffff',
+  'editorHoverWidget-background': '#f8f8f8', 'editorHoverWidget-foreground': '#3b3b3b', 'editorHoverWidget-border': '#c8c8c8',
+  'button-secondaryForeground': '#3b3b3b', 'button-secondaryHoverBackground': '#cccccc', 'button-border': 'rgba(0,0,0,0.1)',
+  'textCodeBlock-background': '#f8f8f8', 'badge-background': '#cccccc', 'badge-foreground': '#3b3b3b',
 };
 
 /** Runs in the page (addInitScript). Self-contained. */

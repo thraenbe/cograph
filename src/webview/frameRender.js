@@ -123,7 +123,7 @@ function applySimResult(r) {
   applySimData(r, f);
   // Frame geometry does not move during settle: positions only, no chrome.
   tickFramePositions(r.path);
-  if (state._frameHoverId != null) { updateCrossHover(); }
+  if (crossFocusActive(state)) { updateCrossHover(); }
 }
 
 function applySimData(r, f) {
@@ -851,7 +851,7 @@ function flushFramePositions() {
   const __perfT0 = (typeof perfBegin === 'function') ? perfBegin() : 0;
   for (const path of __fr.posDirty) { tickFramePositions(path); }
   __fr.posDirty.clear();
-  if (state._frameHoverId != null) { updateCrossHover(); }
+  if (crossFocusActive(state)) { updateCrossHover(); }
   if (__perfT0) { perfEnd('drag:flush', __perfT0); }
 }
 
@@ -977,7 +977,7 @@ function applyFrameCulling() {
   if (bundlesChanged) { updateCrossBundles(); }
   // fb14 D5: hovering while zooming — which partner is on screen, and the stub's
   // on-screen length, both follow the zoom. O(degree), once per culling pass.
-  if (state._frameHoverId != null && typeof linkG !== 'undefined') { updateCrossHover(); }
+  if (crossFocusActive(state) && typeof linkG !== 'undefined') { updateCrossHover(); }
   if (shown.length && __fr.sched) { __fr.sched.wake(); }
   if (__perfT0) { perfEnd('cull', __perfT0); }
 }
@@ -1095,16 +1095,18 @@ function updateCrossBundles() {
     });
 }
 
-/** The hovered node's individual cross links — O(degree) via the node index. */
+/** The hovered (and pinned, P1) nodes' individual cross links — O(degree) via the node index. */
 function updateCrossHover() {
   if (!state.frames || !usesFrames()) { return; }
-  const hoverId = state._frameHoverId ?? null;
-  const touching = hoverId == null ? [] : (crossCaches().crossByNode.get(hoverId) || []);
-  const raw = individualLinksFor(touching, hoverId,
-    id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; });
-  if (!raw.length && !__fr.hoverDrawn) { return; }
-  __fr.hoverDrawn = raw.length > 0;
-  const individual = raw.length ? shapeHoverLinks(raw, hoverId, hoverShapeCtx()) : raw;
+  const ids = crossFocusIds(state);
+  const byNode = ids.length ? crossCaches().crossByNode : null, ctx = ids.length ? hoverShapeCtx() : null;
+  const absPos = id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; };
+  // click trail (pinnedCards.js): each older pin's lines a step fainter, the hovered full
+  const w = ids.length && typeof pcTrailWeights === 'function' ? pcTrailWeights(state.pinnedFns, state._frameHoverId) : null;
+  const individual = focusCrossLinks(ids, id => individualLinksFor(byNode.get(id) || [], id, absPos), (raw, id) => shapeHoverLinks(raw, id, ctx),
+    w ? (id => w.get(id) ?? 1) : null);
+  if (!individual.length && !__fr.hoverDrawn) { return; }
+  __fr.hoverDrawn = individual.length > 0;
   // pointer-events none (F10): these lines start at the hovered glyph, i.e.
   // under the cursor. As event targets they stole the hover → mouseout →
   // removed → mouseover → redrawn, ~30 times per second.
@@ -1115,6 +1117,7 @@ function updateCrossHover() {
     .attr('stroke', getCSSVar('--cograph-link-hover'))
     .attr('stroke-width', Math.max(1.5, settings.linkThickness))
     .attr('stroke-opacity', 0.9)
+    .style('--cg-tr-o', d => (d.trailO < 1 ? String(d.trailO) : null))
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
     .attr('x1', d => d.x1).attr('y1', d => d.y1)
     .attr('x2', d => d.x2).attr('y2', d => d.y2);

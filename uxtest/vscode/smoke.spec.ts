@@ -95,6 +95,9 @@ for (const repo of repos) {
         if (!c) { throw new SkipStep('no hittable function node on screen'); }
         await page.mouse.move(c.x, c.y, { steps: 10 });
         await page.mouse.click(c.x, c.y);
+        // pinned cards: the click keeps the function's card, its "Open function" opens the popup
+        const openFn = f.locator('.pinned-card .pc-open-fn').last();
+        await openFn.waitFor({ state: 'visible', timeout: 3000 }).then(() => openFn.click()).catch(() => undefined);
         await expect(f.locator('.func-card').first()).toBeVisible({ timeout: 8000 });
         await expect(f.locator('.func-card .func-source-textarea').first()).not.toHaveValue('', { timeout: 8000 });
         await page.keyboard.press('Escape');

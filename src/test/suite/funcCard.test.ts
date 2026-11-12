@@ -58,7 +58,7 @@ suite('funcCard: content of the function hover card (U3 = B2 peek)', () => {
     assert.strictEqual(full.path, 'a.py:10 · 40 lines');
     assert.strictEqual(full.doc, 'Print a message.\n\nMore.…', 'doc cut to 3 lines');
     assert.strictEqual(full.code.split('\n').length, 3);
-    assert.strictEqual(full.more, 'Whole function: 40 lines · click to open and edit');
+    assert.strictEqual(full.more, 'Whole function: 40 lines · click to pin this card');
     const short = fc.fcContent(d, { ...BRIEF, totalLines: 3, endReason: 'detected' }, 'a.py', idx, nameOf);
     assert.strictEqual(short.more, '', 'nothing more to open when the peek is the whole body');
     const err = fc.fcContent(d, { type: 'func-source', error: 'ENOENT' }, 'a.py', idx, nameOf);
@@ -90,10 +90,11 @@ suite('funcCard: content of the function hover card (U3 = B2 peek)', () => {
 });
 
 suite('hoverCard + funcCard: the live function card', () => {
-  const GLOBALS = ['fcIsFunctionNode', 'fcCallIndex', 'fcNameOf', 'fcContent', 'fcCodeNodes', 'fcHiddenText', 'HOVER_FN_DELAY_MS', 'HOVER_FN_DWELL_PX', 'FN_PEEK_LINES', 'highlightCode'];
+  const GLOBALS = ['fcIsFunctionNode', 'fcCallIndex', 'fcNameOf', 'fcContent', 'fcCodeNodes', 'fcHiddenText', 'HOVER_FN_DELAY_MS', 'HOVER_FN_DWELL_PX', 'FN_PEEK_LINES', 'highlightCode', 'FC_MORE_CLICK_FILE'];
   const saved: Record<string, unknown> = {};
   let dom: JSDOM, card: any, clock: sinon.SinonFakeTimers, posted: any[], node: any, other: any, state: any;
   let sameFileOn = true;
+  let clickPins = true;
 
   const fire = (el: Element, type: string, init: Record<string, unknown> = {}) =>
     el.dispatchEvent(new (dom.window as any).MouseEvent(type, { bubbles: true, ...init }));
@@ -105,7 +106,7 @@ suite('hoverCard + funcCard: the live function card', () => {
     Object.assign(g, {
       fcIsFunctionNode: fc.fcIsFunctionNode, fcCallIndex: fc.fcCallIndex, fcNameOf: fc.fcNameOf, fcContent: fc.fcContent,
       fcCodeNodes: fc.fcCodeNodes, fcHiddenText: fc.fcHiddenText, HOVER_FN_DELAY_MS: fc.HOVER_FN_DELAY_MS, HOVER_FN_DWELL_PX: fc.HOVER_FN_DWELL_PX,
-      FN_PEEK_LINES: fc.FN_PEEK_LINES, highlightCode: undefined,
+      FN_PEEK_LINES: fc.FN_PEEK_LINES, highlightCode: undefined, FC_MORE_CLICK_FILE: fc.FC_MORE_CLICK_FILE,
     });
     dom = new JSDOM('<div id="graph"></div>', { pretendToBeVisual: true });
     const doc = dom.window.document;
@@ -121,8 +122,9 @@ suite('hoverCard + funcCard: the live function card', () => {
     win.setTimeout = (fn: () => void, ms: number) => setTimeout(fn, ms);
     win.clearTimeout = (id: any) => clearTimeout(id);
     sameFileOn = true;
+    clickPins = true;
     card = hc.createHoverCard({ doc, win, root: doc.getElementById('graph'), getState: () => state,
-      sameFileOnly: () => sameFileOn, post: (m: any) => posted.push(m) });
+      sameFileOnly: () => sameFileOn, clickPins: () => clickPins, post: (m: any) => posted.push(m) });
     win.dispatchEvent(new win.MessageEvent('message', { data: { type: 'annotations', root: '/ws', aiEnabled: false, files: {}, folders: {}, stale: [] } }));
     posted.length = 0;
   });
@@ -144,6 +146,22 @@ suite('hoverCard + funcCard: the live function card', () => {
     assert.ok(card.element.classList.contains('hc-function'));
   });
 
+  test('pinned cards: the "more" line says what a click does (pin, or the file with the popup switch off)', () => {
+    clickPins = false;
+    rest(node);
+    clock.tick(fc.HOVER_FN_DELAY_MS);
+    reply();
+    assert.strictEqual(text('hc-more'), 'Whole function: 40 lines · click to open the file');
+  });
+
+  test('a pinned function gets no hover card (its pinned card is on screen)', () => {
+    state.pinnedFns = new Set([node.__data__.id]);
+    rest(node);
+    clock.tick(fc.HOVER_FN_DELAY_MS);
+    assert.strictEqual(card.isVisible(), false);
+    assert.strictEqual(posted.length, 0);
+  });
+
   test('one request per function, only when the card opens; the reply fills sig, doc, code and more', () => {
     rest(node);
     assert.strictEqual(posted.length, 0, 'nothing posted on mouseover');
@@ -158,7 +176,7 @@ suite('hoverCard + funcCard: the live function card', () => {
     assert.strictEqual(text('hc-sig'), 'def echo(message=None, file=None)');
     assert.strictEqual(text('hc-path'), 'a.py:10 · 40 lines');
     assert.ok(text('hc-code').startsWith('    if file is None:'));
-    assert.strictEqual(text('hc-more'), 'Whole function: 40 lines · click to open and edit');
+    assert.strictEqual(text('hc-more'), 'Whole function: 40 lines · click to pin this card');
     assert.strictEqual(shown('hc-facts'), false, 'folder/file parts stay hidden');
     // leave, come back: served from the cache
     fire(node, 'mouseout', { relatedTarget: null });

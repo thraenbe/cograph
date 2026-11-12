@@ -12,7 +12,7 @@ const g = global as any;
 // replaces every node object. Frames whose member ids did not change REUSE
 // their simulation record — which must then write into the new objects.
 suite('frameRender.syncFrameSims keeps records wired to the rendered nodes (F13)', () => {
-  const GLOBALS = ['state', 'settings', 'slotInteriors', 'innerOrigin', 'createScheduler', 'createFrameSimFacade',
+  const GLOBALS = ['crossFocusActive', 'crossFocusIds', 'focusCrossLinks', 'state', 'settings', 'slotInteriors', 'innerOrigin', 'createScheduler', 'createFrameSimFacade',
     'syncPins', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance', 'd3',
     ...Object.keys(localSim)];
   const saved: Record<string, unknown> = {};
@@ -37,6 +37,7 @@ suite('frameRender.syncFrameSims keeps records wired to the rendered nodes (F13)
     for (const k of GLOBALS) { saved[k] = g[k]; }
     rafQueue = [];
     Object.assign(g, localSim, {
+      crossFocusActive: require('../../../src/webview/crossLinks.js').crossFocusActive, crossFocusIds: require('../../../src/webview/crossLinks.js').crossFocusIds, focusCrossLinks: require('../../../src/webview/crossLinks.js').focusCrossLinks,
       state: { layoutEngine: 'shelf', layoutMode: 'dynamic', frames: { byPath: new Map([['/r/a', FRAME]]) }, currentNodes: [] },
       settings: { repelForce: 250, linkForce: 1 },
       slotInteriors: frames.slotInteriors, innerOrigin: frames.innerOrigin,

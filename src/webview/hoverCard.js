@@ -180,6 +180,26 @@ function hcBuildElement(doc) {
   return { card, parts };
 }
 
+/** Write a content object into a card's parts (textContent only; shared with pinnedCards.js). */
+function hcFill(doc, parts, c) {
+  parts.name.textContent = c.name;
+  parts.path.textContent = c.path;
+  parts.role.textContent = c.role || '';
+  parts.summary.textContent = c.summary || c.error || '';
+  parts.hint.textContent = c.hint || '';
+  parts.facts.textContent = c.facts || '';
+  parts.sig.textContent = c.sig || '';
+  parts.doc.textContent = c.doc || '';
+  parts.more.textContent = c.more || '';
+  parts.calls.textContent = c.calls || '';
+  parts.hidden.textContent = c.hidden || '';
+  parts.code.textContent = '';
+  if (c.code) { parts.code.appendChild(fcCodeNodes(doc, c.code, c.file)); }
+  parts.badge.style.display = c.outdated ? '' : 'none';
+  for (const name of ['role', 'hint', 'facts', 'sig', 'doc', 'code', 'more', 'calls', 'hidden']) { parts[name].style.display = c[name] ? '' : 'none'; }
+  parts.summary.style.display = (c.summary || c.error) ? '' : 'none';
+}
+
 /**
  * Wire the card to a document. `env` = { doc, win, getState, post, sameFileOnly? } so tests can
  * inject jsdom; the webview calls it once with its globals (see bottom).
@@ -207,24 +227,7 @@ function createHoverCard(env) {
     if (shownKey) { shownKey = null; shownTarget = null; card.classList.remove('visible'); }
   }
 
-  function fill(c) {
-    parts.name.textContent = c.name;
-    parts.path.textContent = c.path;
-    parts.role.textContent = c.role || '';
-    parts.summary.textContent = c.summary || c.error || '';
-    parts.hint.textContent = c.hint || '';
-    parts.facts.textContent = c.facts || '';
-    parts.sig.textContent = c.sig || '';
-    parts.doc.textContent = c.doc || '';
-    parts.more.textContent = c.more || '';
-    parts.calls.textContent = c.calls || '';
-    parts.hidden.textContent = c.hidden || '';
-    parts.code.textContent = '';
-    if (c.code) { parts.code.appendChild(fcCodeNodes(doc, c.code, c.file)); }
-    parts.badge.style.display = c.outdated ? '' : 'none';
-    for (const name of ['role', 'hint', 'facts', 'sig', 'doc', 'code', 'more', 'calls', 'hidden']) { parts[name].style.display = c[name] ? '' : 'none'; }
-    parts.summary.style.display = (c.summary || c.error) ? '' : 'none';
-  }
+  const fill = (c) => hcFill(doc, parts, c);
 
   function place() {
     const box = card.getBoundingClientRect(); // one layout read per open (and per late fill)
@@ -238,6 +241,8 @@ function createHoverCard(env) {
     if (target.kind === 'function') {
       // The editable source popup for this node is open: it already shows everything.
       if (st && st.funcPopups && st.funcPopups.has(target.node.id)) { return; }
+      // Its pinned card (pinnedCards.js) is already on screen.
+      if (st && st.pinnedFns && st.pinnedFns.has(target.node.id)) { return; }
       fill(fnContent(target.node, st));
       requestBrief(target.node);
     } else {
@@ -254,7 +259,10 @@ function createHoverCard(env) {
   // ── Function cards (U3): graph facts now, source once per function from the host ──
   function fnContent(d, st) {
     if (!callIdx) { callIdx = fcCallIndex(st && st.graphData); nameOf = fcNameOf(st && st.graphData); }
-    const c = fcContent(d, briefs.get(d.id) || null, hcRelPath(ann.root, d.file), callIdx, nameOf);
+    // a click pins the card (pinnedCards.js) unless "Open Function Popup" is off: then it jumps to the file
+    const clickPins = env.clickPins ? env.clickPins() : true;
+    const c = fcContent(d, briefs.get(d.id) || null, hcRelPath(ann.root, d.file), callIdx, nameOf,
+      clickPins || typeof FC_MORE_CLICK_FILE === 'undefined' ? undefined : FC_MORE_CLICK_FILE);
     c.file = d.file;
     // F1: the node's ↗ in words (only while the same-file rule hides those calls)
     if (typeof fcHiddenText === 'function') {
@@ -383,7 +391,7 @@ function createHoverCard(env) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    createHoverCard, hcResolveTarget, hcRelPath, hcContent, hcFacts, hcFunctionCounts, hcPlace,
+    createHoverCard, hcResolveTarget, hcRelPath, hcContent, hcFacts, hcFunctionCounts, hcPlace, hcBuildElement, hcFill,
     hcResolveAt, hcIsLink, HOVER_DELAY_MS, HOVER_BG_DELAY_MS, HOVER_LEAVE_GRACE_MS, HOVER_TARGETS,
   };
 } else if (typeof document !== 'undefined' && document.getElementById('graph')) {
@@ -393,6 +401,7 @@ if (typeof module !== 'undefined') {
     root: document.getElementById('graph'),
     getState: () => state,
     sameFileOnly: () => typeof settings !== 'undefined' && !!settings.sameFileEdgesOnly,
+    clickPins: () => typeof settings === 'undefined' || settings.openFunctionPopup !== false,
     post: (m) => vscode.postMessage(m),
   });
 }

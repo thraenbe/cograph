@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   function keeps its lines and its callers and callees in focus after the pointer leaves, and
   wears a ring in the theme's focus colour (named in the Legend). Close, a second click on the
   function or Escape unpins; pins are not saved across sessions.
+- **Click trail on pinned functions.** Each newer pin fades the lines of the older pins a step
+  (newest full, then 0.7, 0.5, 0.35, the oldest stay at 0.3), arrowheads and lines between
+  folders alike, so the lines of each pinned function can be told apart. Unpinning closes the
+  trail up; a line between two pins takes the stronger; the hovered function's lines are full.
 
 ## [1.4.3] - 2026-11-09
 

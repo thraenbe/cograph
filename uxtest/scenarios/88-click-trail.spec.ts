@@ -45,10 +45,12 @@ function findTrioInPage(): { a: Spot; b: Spot; c: Spot; d: Spot | null } | null 
   }
   const far = (p: { x: number; y: number }, q: { x: number; y: number }) => Math.hypot(p.x - q.x, p.y - q.y) >= 120;
   const spot = (id: string): Spot => ({ id, x: at.get(id)!.x, y: at.get(id)!.y });
+  // each end needs a call of its own besides the A-B one, or it has no line to measure
+  const more = (id: string, other: string) => [...(nbrs.get(id) || [])].some(n => n !== other && at.has(n));
   let best: { a: string; b: string; dist: number } | null = null;
   for (const [s, t] of edges) {
     const ps = at.get(s), pt = at.get(t);
-    if (!ps || !pt || s === t || ps.dir === pt.dir || !far(ps, pt)) { continue; }
+    if (!ps || !pt || s === t || ps.dir === pt.dir || !far(ps, pt) || !more(s, t) || !more(t, s)) { continue; }
     const dist = Math.hypot(ps.x - pt.x, ps.y - pt.y);
     if (!best || dist < best.dist) { best = { a: s, b: t, dist }; }
   }

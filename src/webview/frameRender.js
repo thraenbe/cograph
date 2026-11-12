@@ -1101,7 +1101,10 @@ function updateCrossHover() {
   const ids = crossFocusIds(state);
   const byNode = ids.length ? crossCaches().crossByNode : null, ctx = ids.length ? hoverShapeCtx() : null;
   const absPos = id => { const n = __fr.byId.get(id); return n ? { x: n.x, y: n.y } : null; };
-  const individual = focusCrossLinks(ids, id => individualLinksFor(byNode.get(id) || [], id, absPos), (raw, id) => shapeHoverLinks(raw, id, ctx));
+  // click trail (pinnedCards.js): each older pin's lines a step fainter, the hovered full
+  const w = ids.length && typeof pcTrailWeights === 'function' ? pcTrailWeights(state.pinnedFns, state._frameHoverId) : null;
+  const individual = focusCrossLinks(ids, id => individualLinksFor(byNode.get(id) || [], id, absPos), (raw, id) => shapeHoverLinks(raw, id, ctx),
+    w ? (id => w.get(id) ?? 1) : null);
   if (!individual.length && !__fr.hoverDrawn) { return; }
   __fr.hoverDrawn = individual.length > 0;
   // pointer-events none (F10): these lines start at the hovered glyph, i.e.
@@ -1114,6 +1117,7 @@ function updateCrossHover() {
     .attr('stroke', getCSSVar('--cograph-link-hover'))
     .attr('stroke-width', Math.max(1.5, settings.linkThickness))
     .attr('stroke-opacity', 0.9)
+    .style('--cg-tr-o', d => (d.trailO < 1 ? String(d.trailO) : null))
     .attr('marker-end', settings.arrows ? 'url(#arrow)' : null)
     .attr('x1', d => d.x1).attr('y1', d => d.y1)
     .attr('x2', d => d.x2).attr('y2', d => d.y2);

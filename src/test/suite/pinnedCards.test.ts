@@ -259,34 +259,35 @@ suite('pinned cards: pin, buttons, re-render (P3-P5)', () => {
   });
 });
 
-suite('pinned cards: the focus is the union (P1)', () => {
-  /** rendering.js's focus block, evaluated with the real hoverIndex against a jsdom graph. */
-  function focusBlock(pinned: string[]) {
-    const src = fs.readFileSync(path.join(SRC, 'rendering.js'), 'utf8');
-    const start = src.indexOf('const __hover = ');
-    const end = src.indexOf('function hoverLabelSel');
-    assert.ok(start > 0 && end > start, 'focus block found in rendering.js');
-    const dom = new JSDOM('<!doctype html><svg><g id="root"><g class="links"></g><g class="nodes"></g></g></svg>');
-    const doc = dom.window.document;
-    const root = doc.getElementById('root')!;
-    const mk = (parent: string, tag: string, datum: any) => { const el = doc.createElementNS(SVG, tag) as any; el.__data__ = datum; root.querySelector(parent)!.appendChild(el); return el; };
-    // a→b, c→d, e alone
-    const lines = [mk('g.links', 'line', { source: 'a', target: 'b' }), mk('g.links', 'line', { source: 'c', target: 'd' })];
-    const circles = ['a', 'b', 'c', 'd', 'e'].map(id => mk('g.nodes', 'circle', { id }));
-    const sel = (els: any[]) => ({ nodes: () => els });
-    const state: any = { svgLinks: sel(lines), svgLabels: sel([]), svgNodes: sel(circles), svgCloudNodes: null, svgLibNodes: null,
-      pinnedFns: new Set(pinned), currentNodes: ['a', 'b', 'c', 'd', 'e'].map(id => ({ id })) };
-    const g = { node: () => root, classed: (c: string) => root.classList.contains(c) };
-    const timers: Array<() => void> = [];
-    const fns = new Function('createHoverIndex', 'state', 'settings', 'g', 'getVisibleNodeIds', 'setTimeout', 'clearTimeout', 'linkG', 'hlLinkG',
-      src.slice(start, end) + '; return { hoverFocusOn, hoverLinksOff, pinnedFocusChanged, refreshHoverFocus };')(
-      hi.createHoverIndex, state, { linkThickness: 1 }, g, () => new Set(['a', 'b', 'c', 'd', 'e']),
-      (f: () => void) => { timers.push(f); return timers.length; }, () => undefined, { node: () => null }, { node: () => null });
-    const nb = () => circles.filter(c => c.classList.contains('cg-nb')).map(c => c.__data__.id);
-    const lit = () => lines.filter(l => l.classList.contains('cg-hl')).length;
-    return { fns, state, root, nb, lit, flush: () => { while (timers.length) { timers.shift()!(); } } };
-  }
+/** rendering.js's focus block, evaluated with the real hoverIndex against a jsdom graph. */
+function focusBlock(pinned: string[], extraLines: Array<[string, string]> = []) {
+  const src = fs.readFileSync(path.join(SRC, 'rendering.js'), 'utf8');
+  const start = src.indexOf('const __hover = ');
+  const end = src.indexOf('function hoverLabelSel');
+  assert.ok(start > 0 && end > start, 'focus block found in rendering.js');
+  const dom = new JSDOM('<!doctype html><svg><g id="root"><g class="links"></g><g class="nodes"></g></g></svg>');
+  const doc = dom.window.document;
+  const root = doc.getElementById('root')!;
+  const mk = (parent: string, tag: string, datum: any) => { const el = doc.createElementNS(SVG, tag) as any; el.__data__ = datum; root.querySelector(parent)!.appendChild(el); return el; };
+  // a→b, c→d, e alone
+  const lines = [mk('g.links', 'line', { source: 'a', target: 'b' }), mk('g.links', 'line', { source: 'c', target: 'd' }),
+    ...extraLines.map(([s, t]) => mk('g.links', 'line', { source: s, target: t }))];
+  const circles = ['a', 'b', 'c', 'd', 'e'].map(id => mk('g.nodes', 'circle', { id }));
+  const sel = (els: any[]) => ({ nodes: () => els });
+  const state: any = { svgLinks: sel(lines), svgLabels: sel([]), svgNodes: sel(circles), svgCloudNodes: null, svgLibNodes: null,
+    pinnedFns: new Set(pinned), currentNodes: ['a', 'b', 'c', 'd', 'e'].map(id => ({ id })) };
+  const g = { node: () => root, classed: (c: string) => root.classList.contains(c) };
+  const timers: Array<() => void> = [];
+  const fns = new Function('createHoverIndex', 'pcTrailWeights', 'state', 'settings', 'g', 'getVisibleNodeIds', 'setTimeout', 'clearTimeout', 'linkG', 'hlLinkG',
+    src.slice(start, end) + '; return { hoverFocusOn, hoverLinksOff, pinnedFocusChanged, refreshHoverFocus };')(
+    hi.createHoverIndex, pc.pcTrailWeights, state, { linkThickness: 1 }, g, () => new Set(['a', 'b', 'c', 'd', 'e']),
+    (f: () => void) => { timers.push(f); return timers.length; }, () => undefined, { node: () => null }, { node: () => null });
+  const nb = () => circles.filter(c => c.classList.contains('cg-nb')).map(c => c.__data__.id);
+  const lit = () => lines.filter(l => l.classList.contains('cg-hl')).length;
+  return { fns, state, root, lines, nb, lit, flush: () => { while (timers.length) { timers.shift()!(); } } };
+}
 
+suite('pinned cards: the focus is the union (P1)', () => {
   test('pointer leaves a node: the pinned focus stays (lines, neighbours, dim)', () => {
     const t = focusBlock(['a']);
     t.fns.pinnedFocusChanged();
@@ -335,7 +336,7 @@ suite('pinned cards: the focus is the union (P1)', () => {
 });
 
 suite('pinned cards: Shelf cross links for every pinned function (P1)', () => {
-  test('crossFocusIds: hovered first, then the pins; crossFocusActive with only a pin', () => {
+  test('crossFocusIds: hovered first, then the pins newest first; crossFocusActive with only a pin', () => {
     assert.deepStrictEqual(cl.crossFocusIds({ _frameHoverId: 'h', pinnedFns: new Set(['p', 'h']) }), ['h', 'p']);
     assert.strictEqual(cl.crossFocusActive({ _frameHoverId: null, pinnedFns: new Set(['p']) }), true);
     assert.strictEqual(cl.crossFocusActive({ _frameHoverId: null, pinnedFns: new Set() }), false);
@@ -360,6 +361,92 @@ suite('pinned cards: Shelf cross links for every pinned function (P1)', () => {
   });
 });
 
+// Bela, 2026-11-12: "Every time I click a new node make sure that the connections from the
+// older clicked nodes fade a bit. So it is possible to see a difference between the
+// connections of each clicked node." The pin order is the trail.
+suite('pinned cards: click trail, older pins fade a step (2026-11-12)', () => {
+  const strengthOf = (pins: string[], hover: string | null = null) => Object.fromEntries(pc.pcTrailWeights(pins, hover));
+  const tr = (el: any) => el.style.getPropertyValue('--cg-tr-o');
+
+  test('per-rank strength: 1, 0.7, 0.5, 0.35, then a floor of 0.3 above the dimmed rest', () => {
+    assert.deepStrictEqual([0, 1, 2, 3, 4, 5, 9].map(pc.pcTrailOpacity), [1, 0.7, 0.5, 0.35, 0.3, 0.3, 0.3]);
+    assert.ok(pc.PC_TRAIL_FLOOR > 0.2, 'the oldest pin stays above the dimmed rest (0.15 lines, 0.2 nodes)');
+  });
+
+  test('rank follows the pin order: add, remove (the trail closes up), re-add (newest again)', () => {
+    const s = pc.createPinSet();
+    ['a', 'b', 'c'].forEach(id => s.add(id));
+    assert.deepStrictEqual(strengthOf([...s.ids]), { a: 0.5, b: 0.7, c: 1 });
+    s.toggle('b');                                   // a second click unpins (kept)
+    assert.deepStrictEqual(strengthOf([...s.ids]), { a: 0.7, c: 1 }, 'closed up');
+    s.toggle('b');                                   // pinned again: the newest
+    assert.deepStrictEqual(strengthOf([...s.ids]), { a: 0.5, c: 0.7, b: 1 });
+  });
+
+  test('the hovered function is full; hovering a pin lights it full without moving it in the trail', () => {
+    assert.deepStrictEqual(strengthOf(['a', 'b'], 'x'), { a: 0.7, b: 1, x: 1 });
+    assert.deepStrictEqual(strengthOf(['a', 'b'], 'a'), { a: 1, b: 1 });
+    assert.deepStrictEqual(strengthOf(['a', 'b']), { a: 0.7, b: 1 }, 'pointer away: the trail as it was');
+  });
+
+  test('rendering.js: each older pin\'s lines carry their strength, the newest none (full)', () => {
+    const t = focusBlock(['a', 'c']);                // a older, c newest
+    t.fns.pinnedFocusChanged();
+    assert.strictEqual(tr(t.lines[0]), '0.7', 'a→b: one step');
+    assert.strictEqual(tr(t.lines[1]), '', 'c→d: full');
+  });
+
+  test('a line between two pins takes the stronger of the two', () => {
+    const t = focusBlock(['a', 'b', 'c'], [['a', 'c']]);   // a 0.5, b 0.7, c 1
+    t.fns.pinnedFocusChanged();
+    assert.strictEqual(tr(t.lines[0]), '0.7', 'a→b: b is the stronger');
+    assert.strictEqual(tr(t.lines[2]), '', 'a→c: c, full');
+    assert.strictEqual(hi.hiLinkStrength({ source: { id: 'a' }, target: { id: 'b' } }, new Map([['a', 0.5], ['b', 0.7]])), 0.7, 'd3 node objects');
+  });
+
+  test('hovering an unpinned function: its lines full, the trail unchanged; pointer away restores', () => {
+    const t = focusBlock(['a', 'c'], [['e', 'b']]);
+    t.fns.pinnedFocusChanged();
+    t.fns.hoverFocusOn({ id: 'e' }, 1.5);
+    assert.strictEqual(tr(t.lines[2]), '', 'e→b full (b is no pin)');
+    assert.strictEqual(tr(t.lines[0]), '0.7', 'a→b still one step');
+    t.fns.hoverLinksOff();
+    assert.strictEqual(t.lines[2].classList.contains('cg-hl'), false);
+    assert.strictEqual(tr(t.lines[0]), '0.7');
+  });
+
+  test('unpinning the last pin leaves no strength behind', () => {
+    const t = focusBlock(['a', 'c']);
+    t.fns.pinnedFocusChanged();
+    t.state.pinnedFns.clear();
+    t.fns.pinnedFocusChanged();
+    assert.deepStrictEqual(t.lines.map(tr), ['', '']);
+  });
+
+  test('Shelf cross lines: strongest first, a shared link drawn once at the stronger strength', () => {
+    assert.deepStrictEqual(cl.crossFocusIds({ _frameHoverId: null, pinnedFns: new Set(['a', 'b', 'c']) }), ['c', 'b', 'a']);
+    const links = [{ source: 'a', target: 'b' }, { source: 'a', target: 'z' }];
+    const byNode = cl.indexCrossByNode(links);
+    const pos = (id: string) => ({ x: id.charCodeAt(0), y: 0 });
+    const w = pc.pcTrailWeights(['b', 'a'], null);   // b older (0.7), a newest
+    const ids = cl.crossFocusIds({ _frameHoverId: null, pinnedFns: new Set(['b', 'a']) });
+    const out = cl.focusCrossLinks(ids, (id: string) => cl.individualLinksFor(byNode.get(id) || [], id, pos), (raw: any[]) => raw, (id: string) => w.get(id));
+    assert.deepStrictEqual(out.map((l: any) => `${l.source}>${l.target}:${l.trailO}`), ['a>b:1', 'a>z:1']);
+    const older = cl.focusCrossLinks(['b'], (id: string) => cl.individualLinksFor(byNode.get(id) || [], id, pos), (raw: any[]) => raw, (id: string) => w.get(id));
+    assert.deepStrictEqual(older.map((l: any) => l.trailO), [0.7]);
+    const src = fs.readFileSync(path.join(SRC, 'frameRender.js'), 'utf8');
+    const body = /function updateCrossHover\(\) \{[\s\S]*?\n\}/.exec(src)![0];
+    assert.ok(/pcTrailWeights\(state\.pinnedFns, state\._frameHoverId\)/.test(body), 'frameRender weighs the cross lines');
+    assert.ok(/\.style\('--cg-tr-o', d => \(d\.trailO < 1 \? String\(d\.trailO\) : null\)\)/.test(body), 'and writes the strength');
+  });
+
+  test('the stylesheet fades line and arrowhead together by the strength, focus and Shelf lines alike', () => {
+    const css = fs.readFileSync(path.join(SRC, 'styles.css'), 'utf8');
+    assert.ok(/#graph g\.cg-hovering line\.cg-hl \{[^}]*\bopacity: var\(--cg-tr-o, 1\)/.test(css), 'focus lines');
+    assert.ok(/#graph line\.cross-hover \{[^}]*\bopacity: var\(--cg-tr-o, 1\)/.test(css), 'Shelf cross lines');
+  });
+});
+
 suite('pinned cards: wiring', () => {
   test('a function click pins (popup only as the fallback), the render prunes pins before the focus refresh', () => {
     const src = fs.readFileSync(path.join(SRC, 'rendering.js'), 'utf8');
@@ -368,12 +455,12 @@ suite('pinned cards: wiring', () => {
     assert.ok(render.indexOf('pinnedCardsAfterRender()') > 0 && render.indexOf('pinnedCardsAfterRender()') < render.indexOf('refreshHoverFocus()'));
   });
 
-  test('loaded after its dependencies; the legend explains the ring in one line', () => {
+  test('loaded after its dependencies; the legend explains the ring and the trail in one line', () => {
     const html = fs.readFileSync(path.resolve(SRC, '../webviewHtmlBuilder.ts'), 'utf8');
     const at = (name: string) => html.indexOf(`src="\${${name}}?v=`);
     assert.ok(at('pinnedCardsUri') > at('hoverCardUri') && at('pinnedCardsUri') > at('funcCardUri') && at('pinnedCardsUri') > at('fnNamesUri'));
     const legend = fs.readFileSync(path.resolve(SRC, '../webviewLegend.ts'), 'utf8');
-    assert.ok(legend.includes("label: 'Pinned function (its card stays open)'"));
+    assert.ok(legend.includes("label: 'Pinned function (its card stays open, older pins fade)'"));
   });
 
   test('every pinned colour comes from a theme variable', () => {

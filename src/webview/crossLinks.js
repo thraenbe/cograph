@@ -232,19 +232,23 @@ function crossFocusActive(st) {
   return st._frameHoverId != null || !!(st.pinnedFns && st.pinnedFns.size);
 }
 
-/** The ids whose own cross links are drawn: the hovered one first, then the pinned ones. */
+/**
+ * The ids whose own cross links are drawn, strongest first (click trail): the hovered one,
+ * then the pinned ones newest first.
+ */
 function crossFocusIds(st) {
   const ids = st._frameHoverId != null ? [st._frameHoverId] : [];
-  for (const id of st.pinnedFns || []) { if (!ids.includes(id)) { ids.push(id); } }
+  for (const id of [...(st.pinnedFns || [])].reverse()) { if (!ids.includes(id)) { ids.push(id); } }
   return ids;
 }
 
 /**
  * Individual cross links of several focused ids: linksOf(id) = individualLinksFor of that
  * id, each shaped from its own end by shape(raw, id). A link between two focused ids is
- * drawn once (for the first of them).
+ * drawn once (for the first of them, the stronger in crossFocusIds order). Each line
+ * carries `trailO` = strengthOf(id) of the id it is drawn for (1 without strengthOf).
  */
-function focusCrossLinks(ids, linksOf, shape) {
+function focusCrossLinks(ids, linksOf, shape, strengthOf) {
   const out = [];
   const seen = new Set();
   for (const id of ids) {
@@ -254,7 +258,9 @@ function focusCrossLinks(ids, linksOf, shape) {
       seen.add(k);
       return true;
     });
-    if (raw.length) { out.push(...shape(raw, id)); }
+    if (!raw.length) { continue; }
+    const trailO = strengthOf ? strengthOf(id) : 1;
+    for (const l of shape(raw, id)) { out.push({ ...l, trailO }); }
   }
   return out;
 }

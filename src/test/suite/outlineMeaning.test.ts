@@ -289,7 +289,7 @@ suite('F1 outline meaning: legend', () => {
     assert.deepStrictEqual([...SHAPES_LEGEND_LABELS], [
       'File', 'File with no functions found', 'Folder', 'Files at the top level of the repository',
       'Calls still being parsed', 'Only calls other files (hidden)', 'Calls leaving the file (hidden)', 'File changed (Git)',
-      'Pinned function (its card stays open)',
+      'Pinned function (its card stays open, older pins fade)',
     ]);
   });
 

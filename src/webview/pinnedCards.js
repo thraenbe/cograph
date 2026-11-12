@@ -50,6 +50,29 @@ function createPinSet() {
   };
 }
 
+// ── Click trail (pure, Bela 2026-11-12) ─────────────────────────────────────
+// "Every time I click a new node make sure that the connections from the older clicked nodes
+// fade a bit." The pin order is the trail: the newest pin's lines are full, each older pin's a
+// step fainter, down to a floor that stays above the dimmed rest (0.15 lines, 0.2 nodes).
+// Unpinning closes the trail up; a line of two pins takes the stronger; the hovered function's
+// lines are full (hoverIndex.js / crossLinks.js read the weights, styles.css --cg-tr-o).
+const PC_TRAIL = [1, 0.7, 0.5, 0.35];   // by rank, 0 = newest pin
+const PC_TRAIL_FLOOR = 0.3;             // rank 4 and older
+
+/** Line strength of a pin `rank` steps older than the newest (0 = newest). */
+function pcTrailOpacity(rank) {
+  return rank < PC_TRAIL.length ? PC_TRAIL[Math.max(0, rank)] : PC_TRAIL_FLOOR;
+}
+
+/** id → line strength for the pins (pin order, newest last) and the hovered id (full). */
+function pcTrailWeights(pinIds, hoverId) {
+  const ids = [...(pinIds || [])];
+  const w = new Map();
+  ids.forEach((id, i) => w.set(id, pcTrailOpacity(ids.length - 1 - i)));
+  if (hoverId != null) { w.set(hoverId, 1); }
+  return w;
+}
+
 // ── Placement (pure) ─────────────────────────────────────────────────────────
 function pcRect(left, top, w, h) { return { left, top, right: left + w, bottom: top + h }; }
 function pcOverlap(a, b) { return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; }
@@ -436,7 +459,7 @@ function createPinnedCards(env) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { createPinSet, pcPlace, pcLeader, pcOverlap, pcSegHitsRect, pcOpenFileMessage, createPinnedCards, PC_GAP, PC_MARGIN };
+  module.exports = { createPinSet, pcTrailOpacity, pcTrailWeights, PC_TRAIL, PC_TRAIL_FLOOR, pcPlace, pcLeader, pcOverlap, pcSegHitsRect, pcOpenFileMessage, createPinnedCards, PC_GAP, PC_MARGIN };
 } else if (typeof document !== 'undefined' && document.getElementById('graph')) {
   const __pinned = createPinnedCards({
     doc: document,

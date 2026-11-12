@@ -58,8 +58,8 @@ const ROWS: LegendRow[] = [
   {
     // pinnedCards.js: the ring is the theme's focus border (styles.css .tl-legend-pin / .cg-pinned)
     swatch: `<svg class="tl-legend-pin" ${SW}><circle cx="12" cy="7" r="4"/></svg>`,
-    label: 'Pinned function (its card stays open)',
-    title: 'A click on a function keeps its card and its lines. Close, click the function again or press Escape to unpin.',
+    label: 'Pinned function (its card stays open, older pins fade)',
+    title: 'A click on a function keeps its card and its lines. Each newer pin fades the lines of the older ones a step, so each pin\'s lines can be told apart. Close, click the function again or press Escape to unpin.',
   },
 ];
 

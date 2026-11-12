@@ -469,7 +469,8 @@ function hoverLiftTarget(el) {
 /**
  * Function hover: its lines on top, its callers/callees full, everything else dimmed.
  * Pinned functions (pinnedCards.js, P1) join the focus: it is the union of the pinned
- * ones and `d` (null = only the pins, the pointer is elsewhere).
+ * ones and `d` (null = only the pins, the pointer is elsewhere). The pins form a click
+ * trail: each older pin's lines are a step fainter (pcTrailWeights), `d`'s are full.
  */
 function hoverFocusOn(d, hlWidth) {
   if (!__hover) { return; }
@@ -484,7 +485,9 @@ function hoverFocusOn(d, hlWidth) {
   // a refresh keeps the dim; so does any change while a pin holds it
   const wasDimmed = g.classed('cg-focus') && (__focusId === hoverId || ids.length > (hoverId != null ? 1 : 0));
   focusDimCancel();
-  __hover.focus(g.node(), ids, hlWidth, extra, hoverLiftTarget);
+  // click trail: the newest pin's lines full, each older pin's a step fainter, the hovered full
+  const weights = typeof pcTrailWeights === 'function' ? pcTrailWeights(pinnedFocusIds(), hoverId) : null;
+  __hover.focus(g.node(), ids, hlWidth, extra, hoverLiftTarget, weights);
   __focusId = hoverId;
   if (wasDimmed) { __hover.dim(); return; }
   __focusDimTimer = setTimeout(() => {

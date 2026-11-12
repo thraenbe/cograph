@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `library::java.net::encode`), `libraryName` is the class's full name, constructors are
   `<init>`. Calls on imported project classes no longer become library nodes. Saved Java graphs
   keep their project node ids; only library node ids change.
+- Dependencies: lodash 4.18.1 in the Java analyzer bundle; development-only patches of msal-node,
+  minimatch and qs.
 
 ## [1.4.3] - 2026-11-09
 

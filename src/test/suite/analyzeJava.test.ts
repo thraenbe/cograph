@@ -205,8 +205,10 @@ suite('collectCalls (Java)', () => {
     ].join('\n'));
     const defs = collectDefinitions([file]);
     const { libraryNodes, edges } = collectCalls([file], defs);
-    const lib = libraryNodes.find((n: any) => n.libraryName === 'java.util' && n.name === 'of');
-    assert.ok(lib, 'java.util library node for List.of should exist');
+    // library nodes are keyed by class: library::java.util.List::of
+    const lib = libraryNodes.find((n: any) => n.libraryName === 'java.util.List' && n.name === 'of');
+    assert.ok(lib, 'java.util.List library node for List.of should exist');
+    assert.strictEqual(lib.id, 'library::java.util.List::of');
     assert.strictEqual(lib.language, 'java');
     assert.strictEqual(lib.isLibrary, true);
     assert.strictEqual(lib.file, null);
@@ -224,7 +226,7 @@ suite('collectCalls (Java)', () => {
     const defs = collectDefinitions([file]);
     const { libraryNodes } = collectCalls([file], defs);
     const lib = libraryNodes.find((n: any) =>
-      n.libraryName === 'org.apache.commons.lang3' && n.name === 'isEmpty');
+      n.libraryName === 'org.apache.commons.lang3.StringUtils' && n.name === 'isEmpty');
     assert.ok(lib, 'StringUtils.isEmpty library node should exist');
   });
 
@@ -257,7 +259,7 @@ suite('collectCalls (Java)', () => {
     const defs = collectDefinitions([file]);
     const { libraryNodes } = collectCalls([file], defs);
     const matching = libraryNodes.filter((n: any) =>
-      n.libraryName === 'org.apache.commons.lang3' && n.name === 'isEmpty');
+      n.libraryName === 'org.apache.commons.lang3.StringUtils' && n.name === 'isEmpty');
     assert.strictEqual(matching.length, 1, 'only one library node despite two calls');
   });
 
@@ -280,7 +282,8 @@ suite('collectCalls (Java)', () => {
     const fileA = path.join(tmpDir, 'A.java');
     const fileB = path.join(tmpDir, 'B.java');
     fs.writeFileSync(fileA, 'class A {\n  void helper() {}\n}\n');
-    fs.writeFileSync(fileB, 'class B {\n  void run() { helper(); }\n}\n');
+    // bare calls resolve through the class hierarchy, so B inherits helper() from A
+    fs.writeFileSync(fileB, 'class B extends A {\n  void run() { helper(); }\n}\n');
     const defs = collectDefinitions([fileA, fileB]);
     const { edges } = collectCalls([fileA, fileB], defs);
     const list = Object.values(defs) as any[];

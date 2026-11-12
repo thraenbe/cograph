@@ -291,6 +291,7 @@
     "pretest": "npm run compile && npm run bundle",
     "test": "node ./out/test/runTest.js",
     "lint": "eslint src --ext ts",
+    "export:md": "node out/export/cli.js",
     "build:cpp-grammar": "tree-sitter build --wasm node_modules/tree-sitter-cpp -o scripts/tree-sitter-cpp.wasm",
     "build:c-grammar": "tree-sitter build --wasm node_modules/tree-sitter-c -o scripts/tree-sitter-c.wasm",
     "package": "node --require ./scripts/node18-polyfill.js ./node_modules/@vscode/vsce/vsce package",

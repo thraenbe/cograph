@@ -1,5 +1,6 @@
 import type { Sym } from './ids';
 import type { GraphIndex } from './graphIndex';
+import { ordinal } from './compare';
 import { callerCount, calleeCount, inScope, isLocal, isTestPath, scopeOf } from './queries';
 
 export interface FolderNode {
@@ -64,23 +65,28 @@ function buildTree(index: GraphIndex, scope: string, syms: Sym[], depth: number)
     if (rel === scope) { continue; }
     nodes.get(folderOf(rel))?.children.push(n);
   }
-  for (const n of nodes.values()) { n.children.sort((a, b) => b.functions - a.functions || a.name.localeCompare(b.name)); }
+  for (const n of nodes.values()) { n.children.sort((a, b) => b.functions - a.functions || ordinal(a.name, b.name)); }
   return get(scope);
 }
 
+/**
+ * Overview of the workspace, a folder or a file: function and file counts, languages, the
+ * folder tree (`depth` levels) or a file's functions, and the top entry points and hot spots.
+ */
 export function overviewOf(index: GraphIndex, path: string | undefined, depth: number): OverviewData {
   const scope = scopeOf(index, path);
   const isFile = index.byFile.has(scope);
   const syms = index.symbols.filter((s) => isLocal(s) && inScope(s.rel, scope));
   const langs = new Map<string, number>();
   for (const s of syms) { const l = s.language ?? 'unknown'; langs.set(l, (langs.get(l) ?? 0) + 1); }
-  const rank = (a: Sym, b: Sym, f: (s: Sym) => number) => f(b) - f(a) || (a.rel ?? '').localeCompare(b.rel ?? '') || a.line - b.line;
+  /** Order by a count, highest first, then by location. */
+  const rank = (a: Sym, b: Sym, f: (s: Sym) => number) => f(b) - f(a) || ordinal(a.rel ?? '', b.rel ?? '') || a.line - b.line || ordinal(a.id, b.id);
   return {
     scope,
     isFile,
     functions: syms.length,
     files: new Set(syms.map((s) => s.rel)).size,
-    languages: [...langs].map(([language, functions]) => ({ language, functions })).sort((a, b) => b.functions - a.functions),
+    languages: [...langs].map(([language, functions]) => ({ language, functions })).sort((a, b) => b.functions - a.functions || ordinal(a.language, b.language)),
     tree: isFile || syms.length === 0 ? null : buildTree(index, scope, syms, depth),
     fileSummary: isFile ? index.annotations.files[scope]?.summary : undefined,
     fileFunctions: isFile ? (index.byFile.get(scope) ?? []).filter(isLocal) : [],

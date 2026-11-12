@@ -1,0 +1,31 @@
+rel	line	col	caller	kind	receiver	method	args	linked	form	reason	targets
+game/Entity.java	10	34	game/Entity.java::Entity.move:10	call		clamp	x + dx	1	bare		game/Entity.java::Entity.clamp
+game/Entity.java	12	38	game/Entity.java::Entity.move:12	call		move	dx	1	bare		game/Entity.java::Entity.move:10
+game/Entity.java	12	52	game/Entity.java::Entity.move:12	call		clamp	y + dy	1	bare		game/Entity.java::Entity.clamp
+game/Entity.java	14	34	game/Entity.java::Entity.clamp	call	Math	max	0, Math.min(v, Constants.WIDTH)	1	static		library::java.lang.Math::max
+game/Entity.java	14	46	game/Entity.java::Entity.clamp	call	Math	min	v, Constants.WIDTH	1	static		library::java.lang.Math::min
+game/Item.java	8	33	game/Item.java::Item.use	call	p	addPoints	value	1	local		game/Player.java::Player.addPoints
+game/Player.java	13	5	game/Player.java::Player.constructor	ctor		super		1	ctor-super		game/Entity.java::Entity.constructor
+game/Player.java	14	23	game/Player.java::Player.constructor	call	Highscore	getInstance		1	static		game/io/Highscore.java::Highscore.getInstance
+game/Player.java	19	5	game/Player.java::Player.update	call		move	1, 1	1	bare		game/Entity.java::Entity.move:12
+game/Player.java	20	31	game/Player.java::Player.update	call	items	size		1	field		library::java.util.List::size
+game/Player.java	21	13	game/Player.java::Player.update	call	items	get	i	1	field		library::java.util.List::get
+game/Player.java	21	20	game/Player.java::Player.update	call	items.get(i)	use	this	1	receiver		game/Item.java::Item.use
+game/Player.java	24	13	game/Player.java::Player.update	call	score	save	points	1	field		game/io/Highscore.java::Highscore.save
+game/Player.java	26	15	game/Player.java::Player.update	call	Highscore	getInstance		1	static		game/io/Highscore.java::Highscore.getInstance
+game/Player.java	26	29	game/Player.java::Player.update	call	Highscore.getInstance()	save	points	1	receiver		game/io/Highscore.java::Highscore.save
+game/Player.java	28	7	game/Player.java::Player.update	call	r	run		1	local		library::java.lang.Runnable::run
+game/Player.java	29	11	game/Player.java::Player.update	call	items	forEach	it -> it.use(this)	1	field		library::java.util.List::forEach
+game/Player.java	29	28	game/Player.java::Player.update	call	it	use	this	0	local	unknown-type	
+game/Player.java	30	9	game/Player.java::Player.update	new		Thread	r	0	new	anonymous-class	
+game/Player.java	30	23	game/Player.java::Player.update	call	new Thread(r) { }	start		1	receiver		library::java.lang.Thread::start
+game/io/Highscore.java	18	21	game/io/Highscore.java::Highscore.save	new		URL	Constants.SAVE_URL	1	new		library::java.net.URL::<init>
+game/io/Highscore.java	19	32	game/io/Highscore.java::Highscore.save	call	url	openConnection		1	local		library::java.net.URL::openConnection
+game/io/Highscore.java	20	34	game/io/Highscore.java::Highscore.save	new		DataOutputStream	conn.getOutputStream()	1	new		library::java.io.DataOutputStream::<init>
+game/io/Highscore.java	20	56	game/io/Highscore.java::Highscore.save	call	conn	getOutputStream		1	local		library::java.net.URLConnection::getOutputStream
+game/io/Highscore.java	21	11	game/io/Highscore.java::Highscore.save	call	out	writeBytes	"points=" + points	1	local		library::java.io.DataOutputStream::writeBytes
+game/io/Highscore.java	22	11	game/io/Highscore.java::Highscore.save	call	out	close		1	local		library::java.io.DataOutputStream::close
+game/io/Highscore.java	23	26	game/io/Highscore.java::Highscore.save	new		FileWriter	file	1	new		library::java.io.FileWriter::<init>
+game/io/Highscore.java	24	9	game/io/Highscore.java::Highscore.save	call	w	write	String.valueOf(points)	1	local		library::java.io.FileWriter::write
+game/io/Highscore.java	24	22	game/io/Highscore.java::Highscore.save	call	String	valueOf	points	1	static		library::java.lang.String::valueOf
+game/io/Highscore.java	25	9	game/io/Highscore.java::Highscore.save	call	w	close		1	local		library::java.io.FileWriter::close

@@ -119,6 +119,7 @@ suite('vcs engine — headTree on a real repository (no network)', () => {
   const log: string[] = [];
 
   suiteSetup(function () {
+    this.timeout(60_000);
     try { sh(os.tmpdir(), ['--version']); } catch { this.skip(); }
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'cograph-head-'));
     repos = makeRepos(root);

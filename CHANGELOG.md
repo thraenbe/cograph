@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Search and filters are on the canvas.** The function filter left the Settings panel for an always-visible
+  search bar at the top right, next to the gear, with the match count inline ("No matches" turns the bar's
+  border red). Its funnel holds Show Orphans, Show Libraries and Show Empty Files, and carries a dot while one
+  of them is off its default. `Ctrl+F` / `Cmd+F` focuses the bar without opening Settings; on a canvas
+  narrower than 520 px an empty bar folds to a magnifier. The bar moves below the timeline transport or the
+  pull request banner when they share its row. Settings keeps Display and Configuration.
 - MCP replies sort ties ordinally instead of by locale, and list direct callers and callees in location
   order (they were in analysis order).
 - Java analyzer: calls are resolved by declared type instead of by method name

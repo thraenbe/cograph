@@ -1,14 +1,15 @@
-// 60 — Gear panel: search (+ Ctrl+F, clear, count), filters, display sliders,
-// global forces, function-popup toggle, reset layout.
+// 60 — Search bar (always on the canvas: query, Ctrl+F, clear, count, the visibility
+// switches behind its funnel), then the gear panel: display sliders, global forces,
+// function-popup toggle, reset layout.
 import { expect } from '@playwright/test';
 import { scenario } from '../lib/scenario';
-import { clickSel, openSettings, setSlider, toggleSwitch, typeInto } from '../lib/actions';
+import { clickSel, setSlider, toggleSwitch, typeInto } from '../lib/actions';
 import { SEL } from '../selectors';
 
 scenario('settings', { perMotion: false }, async ({ page, ux, repo, host }) => {
   const probe = (repo.graph.nodes.find(n => !n.isLibrary && n.file && String(n.name ?? '').length > 3)?.name as string | undefined) ?? 'test';
-  await ux.step('Open the gear panel', async () => { await openSettings(page); }, { metrics: false });
   await ux.step(`Search "${probe.slice(0, 4)}"`, async () => { await typeInto(page, 'search', probe.slice(0, 4)); });
+  expect(await page.locator(SEL.settingsPanel.css).evaluate(el => el.classList.contains('open'))).toBe(false);
   expect(await page.locator(SEL.searchCount.css).innerText()).not.toBe('');
   await ux.step('Clear search', async () => { await clickSel(page, 'clearSearch'); });
   await ux.step('Ctrl+F focuses search', async () => {

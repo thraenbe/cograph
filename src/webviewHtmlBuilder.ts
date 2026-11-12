@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SHAPES_LEGEND_HTML } from './webviewLegend';
+import { SEARCH_BAR_HTML } from './webviewSearchBar';
 
 export function getLoadingHtml(message = 'Analyzing project…'): string {
   const esc = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -198,6 +199,7 @@ export function getWebviewHtml(
   const frameInteractUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameInteract.js'));
   const scriptUri    = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'main.js'));
   const controlsUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'controls.js'));
+  const searchBarUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'searchBar.js'));
   const timelineUri  = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'timeline.js'));
   const frameChromeUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'frameChrome.js'));
   const forcesPanelUri = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'forcesPanel.js'));
@@ -400,30 +402,9 @@ export function getWebviewHtml(
     </div>
   </div>
   ${timelinePanelHtml}
+  ${SEARCH_BAR_HTML}
   <button id="settings-btn" title="Settings">&#9881;</button>
   <div id="settings-panel">
-
-    <div class="panel-section">
-      <h4>Filters</h4>
-      <div class="search-container">
-        <input id="search" type="text" placeholder="Filter functions..." />
-        <span id="btn-clear-search" class="clear-icon" title="Clear Search">&#x2715;</span>
-      </div>
-      <div id="search-count" class="search-count"></div>
-      <div class="toggle-row">
-        <span>Show Orphans</span>
-        <label class="switch"><input type="checkbox" id="toggle-orphans" checked /><span class="pill"></span></label>
-      </div>
-      <div class="toggle-row" id="row-show-libraries">
-        <span>Show Libraries</span>
-        <label class="switch"><input type="checkbox" id="toggle-libraries" /><span class="pill"></span></label>
-      </div>
-      <p id="libraries-hint" class="forces-hint" style="display:none">Libraries are shown in the Global engine.</p>
-      <div class="toggle-row">
-        <span>Show Empty Files</span>
-        <label class="switch"><input type="checkbox" id="toggle-empty-files" /><span class="pill"></span></label>
-      </div>
-    </div>
 
     <div class="panel-section">
       <h4>Display</h4>
@@ -531,6 +512,7 @@ export function getWebviewHtml(
   <script nonce="${nonce}" src="${readyHandshakeUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${scriptUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${controlsUri}?v=${nonce}"></script>
+  <script nonce="${nonce}" src="${searchBarUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${forcesPanelUri}?v=${nonce}"></script>
   <script nonce="${nonce}" src="${slotDragUri}?v=${nonce}"></script>
   ${timelineScriptTag}

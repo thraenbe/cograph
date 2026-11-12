@@ -6,6 +6,7 @@ import * as assert from 'assert';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { JSDOM } = require('jsdom');
+import { SEARCH_BAR_HTML } from '../../webviewSearchBar';
 
 /** Build the minimal HTML that controls.js accesses at module load time. */
 function makeDOM() {
@@ -16,11 +17,7 @@ function makeDOM() {
     <button id="btn-layout-static"></button>
     <button id="btn-engine-shelf"></button>
     <button id="btn-engine-global"></button>
-    <input id="search" type="text" />
-    <span id="btn-clear-search" style="display:none"></span>
-    <div id="search-count"></div>
-    <input id="toggle-orphans" type="checkbox" checked />
-    <input id="toggle-libraries" type="checkbox" />
+    ${SEARCH_BAR_HTML}
     <input id="toggle-arrows" type="checkbox" checked />
     <input id="toggle-same-file-edges" type="checkbox" checked />
     <input id="slider-text-fade" type="range" value="0.5" /><span id="val-text-fade">0.5</span>
@@ -138,6 +135,12 @@ require('../../../src/webview/controls.js');
 // Also get applyResizeDelta / applySavedViewSettings / buildSavePayload for direct testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { applyResizeDelta, applySavedViewSettings, applySavedDrilldownState, applySavedFileFilters, fileFilterAllows, buildSavePayload, clearSearch, updateSearchCount, updateFolderPanel } = require('../../../src/webview/controls.js');
+
+// The search bar's popover module, loaded the way the webview loads it (after controls.js); controls.js
+// reaches its closeSearchFilters() as a global in the Escape chain.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const searchBar = require('../../../src/webview/searchBar.js');
+(global as any).closeSearchFilters = searchBar.closeSearchFilters;
 
 // Load popups.js factory for textarea handler tests
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -925,24 +928,40 @@ suite('search box UX', () => {
   const doc = dom.window.document;
   const searchEl = () => doc.getElementById('search') as any;
   const panel = () => doc.getElementById('settings-panel')!;
+  const filters = () => doc.getElementById('search-filters')!;
+  const bar = () => doc.getElementById('search-bar')!;
   const countEl = () => doc.getElementById('search-count')!;
 
   setup(() => {
     searchEl().value = '';
+    searchEl().blur();
     panel().classList.remove('open');
+    searchBar.setSearchFiltersOpen(false);
     (global as any).state.funcPopups = new Map();
     updateSearchCount(null);
   });
 
-  test('Ctrl+F opens the settings panel so the hidden search box is reachable', () => {
-    dispatchKey(doc, 'keydown', 'f', { ctrlKey: true });
-    assert.ok(panel().classList.contains('open'), 'panel must open — it is display:none while closed');
-    assert.strictEqual(doc.activeElement, searchEl());
+  test('the box, its cross and its count live in the canvas search bar, not in the settings panel', () => {
+    for (const id of ['search', 'btn-clear-search', 'search-count']) {
+      const el = doc.getElementById(id)!;
+      assert.ok(el.closest('#search-bar'), `#${id} sits in #search-bar`);
+      assert.strictEqual(el.closest('#settings-panel'), null, `#${id} is not in the settings panel`);
+    }
   });
 
-  test('Cmd+F behaves like Ctrl+F', () => {
-    dispatchKey(doc, 'keydown', 'f', { metaKey: true });
-    assert.ok(panel().classList.contains('open'));
+  test('Ctrl+F focuses the box without opening the settings panel', () => {
+    dispatchKey(doc, 'keydown', 'f', { ctrlKey: true });
+    assert.strictEqual(doc.activeElement, searchEl());
+    assert.ok(!panel().classList.contains('open'), 'the box is always visible, the panel stays shut');
+  });
+
+  test('Cmd+F behaves like Ctrl+F and selects the existing query', () => {
+    searchEl().value = 'foo';
+    const ev = dispatchKey(doc, 'keydown', 'f', { metaKey: true });
+    assert.strictEqual(doc.activeElement, searchEl());
+    assert.strictEqual(searchEl().selectionStart, 0);
+    assert.strictEqual(searchEl().selectionEnd, 3);
+    assert.ok(ev.defaultPrevented, 'the browser find never opens over the graph');
   });
 
   test('Escape clears a non-empty query before closing the panel', () => {
@@ -953,6 +972,20 @@ suite('search box UX', () => {
     assert.ok(panel().classList.contains('open'), 'first Escape only clears the query');
     dispatchKey(doc, 'keydown', 'Escape');
     assert.ok(!panel().classList.contains('open'), 'second Escape closes the panel');
+  });
+
+  test('Escape order: query, then the visibility popover, then the focus of the empty box', () => {
+    searchEl().focus();
+    searchEl().value = 'foo';
+    searchBar.setSearchFiltersOpen(true);
+    dispatchKey(doc, 'keydown', 'Escape');
+    assert.strictEqual(searchEl().value, '', '1st Escape: the query');
+    assert.ok(filters().classList.contains('open'), '1st Escape leaves the popover open');
+    dispatchKey(doc, 'keydown', 'Escape');
+    assert.ok(!filters().classList.contains('open'), '2nd Escape: the popover');
+    assert.strictEqual(doc.activeElement, searchEl(), '2nd Escape keeps the focus');
+    dispatchKey(doc, 'keydown', 'Escape');
+    assert.notStrictEqual(doc.activeElement, searchEl(), '3rd Escape: leaves the box (a collapsed bar folds)');
   });
 
   test('Escape with an open function popup does not touch the query', () => {
@@ -976,18 +1009,125 @@ suite('search box UX', () => {
     updateSearchCount(new Set(['a', 'b']));
     assert.strictEqual(countEl().style.display, 'none');
     assert.strictEqual(countEl().textContent, '');
+    assert.ok(!bar().classList.contains('has-query'));
   });
 
-  test('match count pluralizes and flags zero matches', () => {
+  test('match count sits inline in the bar, pluralizes, and says "No matches" at zero', () => {
     searchEl().value = 'foo';
     updateSearchCount(new Set(['a']));
     assert.strictEqual(countEl().textContent, '1 match');
+    assert.strictEqual(countEl().style.display, 'inline');
+    assert.ok(bar().classList.contains('has-query'), 'a query keeps a collapsed bar open');
     updateSearchCount(new Set(['a', 'b']));
     assert.strictEqual(countEl().textContent, '2 matches');
     assert.ok(!countEl().classList.contains('search-count--none'));
+    assert.ok(!bar().classList.contains('search-container--none'));
     updateSearchCount(new Set());
-    assert.strictEqual(countEl().textContent, '0 matches');
+    assert.strictEqual(countEl().textContent, 'No matches');
     assert.ok(countEl().classList.contains('search-count--none'));
+    assert.ok(bar().classList.contains('search-container--none'), 'the bar border turns to the error colour');
+  });
+
+  test('typing marks the bar as holding a query before any filter pass ran', () => {
+    searchEl().value = 'a';
+    searchEl().dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    assert.ok(bar().classList.contains('has-query'));
+    assert.strictEqual(doc.getElementById('btn-clear-search')!.style.display, 'block');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite: the search bar's visibility popover (searchBar.js)
+// ---------------------------------------------------------------------------
+
+suite('search bar: visibility switches popover', () => {
+  const doc = dom.window.document;
+  const filters = () => doc.getElementById('search-filters')!;
+  const funnel = () => doc.getElementById('btn-search-filters')!;
+  const panel = () => doc.getElementById('settings-panel')!;
+  const click = (el: Element) => el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  const flip = (id: string) => {
+    const el = doc.getElementById(id) as any;
+    el.checked = !el.checked;
+    el.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  };
+
+  setup(() => { searchBar.setSearchFiltersOpen(false); panel().classList.remove('open'); });
+
+  test('Show Orphans, Show Libraries and Show Empty Files sit in the popover, not in the settings panel', () => {
+    for (const id of ['toggle-orphans', 'toggle-libraries', 'toggle-empty-files', 'libraries-hint']) {
+      const el = doc.getElementById(id)!;
+      assert.ok(el.closest('#search-filters'), `#${id} is in #search-filters`);
+      assert.strictEqual(el.closest('#settings-panel'), null);
+    }
+  });
+
+  test('the funnel opens and closes the popover and reports it to assistive tech', () => {
+    click(funnel());
+    assert.ok(filters().classList.contains('open'));
+    assert.strictEqual(funnel().getAttribute('aria-expanded'), 'true');
+    click(funnel());
+    assert.ok(!filters().classList.contains('open'));
+    assert.strictEqual(funnel().getAttribute('aria-expanded'), 'false');
+  });
+
+  test('popover and settings panel exclude each other', () => {
+    panel().classList.add('open');
+    click(funnel());
+    assert.ok(filters().classList.contains('open'));
+    assert.ok(!panel().classList.contains('open'), 'opening the switches closes the settings panel');
+    click(doc.getElementById('settings-btn')!);
+    assert.ok(!filters().classList.contains('open'), 'the gear closes the switches');
+  });
+
+  test('a click on a switch keeps the popover open, a click on the canvas closes it', () => {
+    click(funnel());
+    click(filters().querySelector('.toggle-row > span')!);
+    assert.ok(filters().classList.contains('open'));
+    click(doc.body);
+    assert.ok(!filters().classList.contains('open'));
+  });
+
+  test('closeSearchFilters() returns whether it closed something (the Escape chain moves on otherwise)', () => {
+    assert.strictEqual(searchBar.closeSearchFilters(), false);
+    searchBar.setSearchFiltersOpen(true);
+    assert.strictEqual(searchBar.closeSearchFilters(), true);
+  });
+
+  test('the funnel shows a dot while any switch is off its default', () => {
+    assert.ok(!funnel().classList.contains('has-changes'));
+    flip('toggle-orphans');
+    assert.ok(funnel().classList.contains('has-changes'), 'orphans hidden');
+    assert.ok(doc.getElementById('search-bar')!.classList.contains('has-changes'), 'keeps a collapsed bar open');
+    flip('toggle-orphans');
+    assert.ok(!funnel().classList.contains('has-changes'), 'back to default');
+    flip('toggle-empty-files');
+    assert.ok(funnel().classList.contains('has-changes'), 'empty files shown');
+    flip('toggle-empty-files');
+    assert.ok(!funnel().classList.contains('has-changes'));
+  });
+});
+
+suite('search bar: placement below the timeline transport / PR banner (searchBarTop)', () => {
+  const rect = (left: number, top: number, w: number, h: number) =>
+    ({ left, top, right: left + w, bottom: top + h, width: w, height: h });
+
+  test('nothing in its row: top 10 px', () => {
+    assert.strictEqual(searchBar.searchBarTop(700, 960, []), 10);
+  });
+
+  test('a PR banner across its row: 6 px below the banner', () => {
+    assert.strictEqual(searchBar.searchBarTop(700, 960, [rect(212, 10, 800, 45.2)]), 62);
+  });
+
+  test('an obstacle left of the bar or below its row does not move it', () => {
+    assert.strictEqual(searchBar.searchBarTop(700, 960, [rect(200, 10, 400, 50)]), 10, 'left of the bar');
+    assert.strictEqual(searchBar.searchBarTop(700, 960, [rect(700, 60, 200, 50)]), 10, 'below the row');
+  });
+
+  test('hidden obstacles (zero size) are ignored; the lowest overlapping one wins', () => {
+    assert.strictEqual(searchBar.searchBarTop(700, 960, [rect(700, 10, 0, 0)]), 10);
+    assert.strictEqual(searchBar.searchBarTop(700, 960, [rect(500, 16, 600, 50), rect(212, 10, 800, 40)]), 72);
   });
 });
 

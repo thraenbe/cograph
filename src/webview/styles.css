@@ -147,49 +147,176 @@ body.vscode-light {
   margin-bottom: 8px;
 }
 
-/* ── Search input inside panel ── */
+/* ── Search bar (top right, 8 px left of the gear; markup in src/webviewSearchBar.ts) ──
+   Same surface, border and radius as the gear and the tl-panel boxes, 30 px tall like the gear. The whole bar
+   takes the focus ring. Width never reaches the left strip (10 + 190 + 12 px gap) or the gear (48 px). */
 .search-container {
-  position: relative;
-  width: 100%;
-  margin-bottom: 8px;
+  position: fixed;
+  top: 10px;              /* searchBar.js moves it below the timeline transport / PR banner */
+  right: 48px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 260px;
+  max-width: calc(100vw - 260px);
+  min-width: 30px;
+  height: 30px;
+  padding-right: 3px;
+  background: var(--vscode-sideBar-background, #252526);
+  border: 1px solid var(--vscode-widget-border, #444);
+  border-radius: 6px;
 }
 
-.panel-section input[type="text"] {
-  width: 100%;
-  padding: 5px 24px 5px 8px;
-  background: var(--vscode-input-background, #3c3c3c);
-  border: 1px solid var(--vscode-input-border, #555);
-  border-radius: 4px;
-  color: var(--vscode-input-foreground, #cccccc);
-  font-size: 12px;
-  outline: none;
-  box-sizing: border-box;
-}
-
-.search-container .clear-icon {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  cursor: pointer;
-  display: none;
-  color: var(--vscode-input-foreground, #cccccc);
-  font-size: 12px;
-}
-
-.panel-section input[type="text"]:focus {
+.search-container:focus-within {
   border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.search-container.search-container--none {
+  border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+}
+
+.search-bar-icon {
+  flex: 0 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--vscode-descriptionForeground, #858585);
+  cursor: text;
+}
+
+.search-container:focus-within .search-bar-icon {
+  color: var(--vscode-foreground, #cccccc);
+}
+
+.search-container input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--vscode-input-foreground, #cccccc);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.search-container input[type="text"]::placeholder {
+  color: var(--vscode-input-placeholderForeground, #8b8b8b);
 }
 
 .search-count {
   display: none;
-  margin: -4px 0 8px;
-  font-size: 10px;
+  flex: 0 0 auto;
+  padding: 0 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
   color: var(--vscode-descriptionForeground, #858585);
 }
 
 .search-count--none {
   color: var(--vscode-errorForeground, #f14c4c);
+}
+
+.search-bar-btn {
+  position: relative;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--vscode-foreground, #cccccc);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.search-bar-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground, #2a2d2e));
+}
+
+.search-bar-btn:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: -1px;
+}
+
+.search-container .clear-icon {
+  display: none;          /* controls.js shows it while there is a query */
+}
+
+#btn-search-filters[aria-expanded="true"] {
+  background: var(--vscode-inputOption-activeBackground, var(--vscode-list-hoverBackground, #2a2d2e));
+  border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder, #007fd4));
+}
+
+/* A switch is off its default: a dot on the funnel, ringed in the bar's own surface. */
+#btn-search-filters.has-changes::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--vscode-button-background, #0e639c);
+  box-shadow: 0 0 0 1.5px var(--vscode-sideBar-background, #252526);
+}
+
+.search-bar-sep {
+  flex: 0 0 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--vscode-widget-border, #444);
+}
+
+/* The visibility switches, right under the bar, right-aligned with it. */
+.search-filters {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  right: -1px;
+  width: 220px;
+  padding: 6px 10px;
+  background: var(--vscode-sideBar-background, #252526);
+  border: 1px solid var(--vscode-widget-border, #444);
+  border-radius: 6px;
+  box-shadow: 0 4px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.5));
+}
+
+.search-filters.open {
+  display: block;
+}
+
+.search-filters .forces-hint {
+  margin: 0 0 4px;
+}
+
+/* Narrow canvas: an empty, unfocused bar folds to its magnifier (a 30 px square like the gear). The input
+   stays in the layout at zero width so the magnifier label can still focus it, which expands the bar.
+   While typing it may run over the strip, never over the gear. */
+@media (max-width: 519px) {
+  .search-container:not(:focus-within):not(.has-query):not(.filters-open):not(.has-changes) {
+    width: 30px;
+    padding-right: 0;
+  }
+  .search-container:not(:focus-within):not(.has-query):not(.filters-open):not(.has-changes) > :not(.search-bar-icon):not(input) {
+    display: none;
+  }
+  .search-container:not(:focus-within):not(.has-query):not(.filters-open):not(.has-changes) > input[type="text"] {
+    flex: 0 0 0;
+    width: 0;
+    padding: 0;
+  }
+  .search-container:focus-within {
+    max-width: calc(100vw - 58px);
+  }
 }
 
 /* ── Toggle rows ── */

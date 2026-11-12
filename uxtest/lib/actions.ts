@@ -226,14 +226,25 @@ export async function openSettings(page: Page): Promise<void> {
   await page.waitForTimeout(150);
 }
 
-/** Make a control reachable: open the gear panel for controls inside it, and the "show more forces"
- *  expander (ux: #forces-advanced, class `open`) for the advanced force sliders. */
+/** Opens the search bar's visibility switches (ux16: the funnel left of the gear) unless they are open. */
+export async function openSearchFilters(page: Page): Promise<void> {
+  if (await page.locator(`${SEL.searchFilters.css}.open`).count() > 0) { return; }
+  const p = await centerOf(page, SEL.searchFiltersBtn.css);
+  await glideTo(page, p);
+  await page.mouse.click(p.x, p.y);
+  await page.waitForTimeout(150);
+}
+
+/** Make a control reachable: open the gear panel or the search bar's switches popover for controls inside
+ *  them, and the "show more forces" expander (ux: #forces-advanced, class `open`) for the advanced sliders. */
 async function reveal(page: Page, css: string): Promise<void> {
-  const where = await page.locator(css).first().evaluate((el, panelCss) => ({
-    inSettings: !!el.closest(panelCss),
+  const where = await page.locator(css).first().evaluate((el, panels) => ({
+    inSettings: !!el.closest(panels.settings),
+    inSearchFilters: !!el.closest(panels.filters),
     inClosedAdvanced: !!el.closest('#forces-advanced') && !el.closest('#forces-advanced')?.classList.contains('open'),
-  }), SEL.settingsPanel.css);
+  }), { settings: SEL.settingsPanel.css, filters: SEL.searchFilters.css });
   if (where.inSettings) { await openSettings(page); }
+  if (where.inSearchFilters) { await openSearchFilters(page); }
   if (where.inClosedAdvanced && await page.locator(SEL.showMoreForces.css).count() > 0) {
     const p = await centerOf(page, SEL.showMoreForces.css);
     await glideTo(page, p);

@@ -25,14 +25,15 @@ for (const size of [{ width: 1280, height: 800 }, { width: 762, height: 1800 }])
     try {
       await lab.page.setViewportSize(size);
       await fitToView(lab.page);
-      await lab.page.waitForTimeout(800);
-      expect(await lab.page.evaluate(offscreenShare), 'fitted Shelf to start with').toBe(0);
+      // Poll, not a fixed wait: beside a CPU-heavy neighbour (the real-analyzer test) the 500 ms fit
+      // transition can outlast 800 ms. Without the fix the share stays at ~26 %, so the poll still fails.
+      await expect.poll(() => lab.page.evaluate(offscreenShare), { message: 'fitted Shelf to start with', timeout: 8000 }).toBe(0);
       await switchEngine(lab.page, 'global');
       await lab.page.waitForTimeout(1400);
       await switchEngine(lab.page, 'shelf');
       await lab.page.waitForTimeout(1400); // fit transition is 500 ms
       expect(await lab.page.evaluate('state.layoutEngine')).toBe('shelf');
-      expect(await lab.page.evaluate(offscreenShare), 'share of nodes off screen after the switch back').toBe(0);
+      await expect.poll(() => lab.page.evaluate(offscreenShare), { message: 'share of nodes off screen after the switch back', timeout: 8000 }).toBe(0);
     } finally {
       await lab.close();
     }

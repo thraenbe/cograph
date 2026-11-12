@@ -36,8 +36,8 @@ same graph settling live and in the Global engine.*
 2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 3. Run **`CoGraph: Visualize Project`**.
 
-The graph opens in a side panel. Click a node to jump to its definition; use the
-toolbar to toggle overlays.
+The graph opens in a side panel. Click a function to pin its card, then open its source or
+jump to its definition from there; use the toolbar to toggle overlays.
 
 ## Features
 
@@ -45,8 +45,9 @@ toolbar to toggle overlays.
 - **Two layout engines** — **Shelf** packs every open folder into its own non-overlapping frame with a slot per file and simulates only what is open (the default, and what keeps large repositories navigable); **Global** is the classic single force-directed graph. **Dynamic | Static** picks whether the layout keeps settling or is frozen where it was placed. Shelf simulations run in background workers.
 - **Interactive graph** — zoom, pan, drag nodes and frames, and filter by function name.
 - **A readable default** — only the calls that stay inside a file are drawn, so a folder shows its structure instead of a hairball (`cograph.display.sameFileEdgesOnly`, on by default; turn it off to draw every call). Function names appear when you hover one, and on every match while you filter. A function whose calls all leave its file carries a dashed ring, and each file name shows how many calls leave it — `auth.py · 6 ↗44` — so nothing looks unconnected when it is not.
-- **Click-to-navigate** — click any node to open the file and jump to the function definition.
-- **Function source popup** — click a node to open a draggable, resizable popup showing syntax-highlighted source code; multiple popups can be open simultaneously.
+- **Pinned cards** — click a function to keep its hover card on screen, with its lines and its callers and callees in focus, so you can follow a call to the other end. Pin several at once; each card has **Open function**, **Open file** and a close button, and Escape unpins all.
+- **Click-to-navigate** — **Open file** on a pinned card opens the file at the function definition (with *Open Function Popup* switched off in the settings, a click on a function goes there directly).
+- **Function source popup** — **Open function** on a pinned card opens a draggable, resizable popup showing syntax-highlighted source code; multiple popups can be open simultaneously.
 - **OOP class overlay** — visualize class hierarchies, fields, and methods; toggle with the **Class** button.
 - **Folder/file structure overlay** — hierarchical grouping by directory with drag/resize support; toggle with the **Folder** button.
 - **Git integration** — color nodes by their git status (modified, new, deleted, staged); toggle with the **Git** button.

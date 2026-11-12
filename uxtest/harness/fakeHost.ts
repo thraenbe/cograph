@@ -2,7 +2,7 @@
 // message the webview posts and answers the ones a real host would answer.
 // Never writes to the repository under test.
 import * as fs from 'fs';
-import { MAX_SOURCE_LINES, VirtualSources, type FuncEndLib } from './fakeSource';
+import { MAX_SOURCE_LINES, VirtualSources, loadFuncBrief, type FuncEndLib } from './fakeSource';
 
 export interface HostMessage { type: string; [k: string]: unknown }
 export interface HostReply { message: HostMessage; delayMs?: number }
@@ -168,9 +168,20 @@ export class FakeHost {
     return [this.subgraphMessage(), { message: { type: 'graph-patch', patch: { nodes: [], edges: [] }, replacedFiles: files, fileGitStatus: this.opts.fileGitStatus ?? {} } }];
   }
 
+  private readonly brief = loadFuncBrief();
+
   private funcSource(msg: HostMessage): HostReply {
     const file = String(msg.file ?? '');
     const line = Number(msg.line ?? 1);
+    if (typeof msg.maxLines === 'number' && this.brief) {   // hover / pinned card peek, as graphProvider answers it
+      try {
+        const r = this.brief.readFuncSlice(file, (p) => this.sources.text(p), { startLine: line, maxLines: Math.max(1, Math.min(80, msg.maxLines)) });
+        const { ok, error, ...fields } = r;
+        return { message: ok ? { type: 'func-source', reqId: msg.reqId, ...fields } : { type: 'func-source', reqId: msg.reqId, source: '', error }, delayMs: 30 };
+      } catch (err) {
+        return { message: { type: 'func-source', source: '', error: (err as Error).message, reqId: msg.reqId } };
+      }
+    }
     try {
       const source = this.sources.read(file, line);
       const endLine = line + source.split('\n').length - 1;

@@ -13,7 +13,7 @@ const g = global as any;
 // removed → mouseover → redrawn … ~30×/s. jsdom has no hit-testing, so the
 // contract is asserted at both layers that enforce it (attribute + stylesheet).
 suite('frameRender hover links (F10)', () => {
-  const GLOBALS = ['document', 'state', 'settings', 'linkG', 'getCSSVar', 'isDrilldown',
+  const GLOBALS = ['crossFocusActive', 'crossFocusIds', 'focusCrossLinks', 'document', 'state', 'settings', 'linkG', 'getCSSVar', 'isDrilldown',
     'individualLinksFor', 'indexCrossByNode', 'aggregateCrossPairs', 'routeBundles', 'titleBarRect', 'edgeWeightScale',
     'shapeHoverLinks', 'ARROW_TRIM', 'nodeRadius'];
   const saved: Record<string, unknown> = {};
@@ -31,6 +31,7 @@ suite('frameRender hover links (F10)', () => {
       ['/r/b', { path: '/r/b', kind: 'folder', abs: { x: 400, y: 0, w: 200, h: 200 } }],
     ]);
     Object.assign(g, {
+      crossFocusActive: crossLinks.crossFocusActive, crossFocusIds: crossLinks.crossFocusIds, focusCrossLinks: crossLinks.focusCrossLinks,
       state: { layoutEngine: 'shelf', frames: { byPath: frames }, _frameHoverId: null },
       settings: { linkThickness: 1, arrows: false },
       linkG: svg.append('g').attr('class', 'links'),

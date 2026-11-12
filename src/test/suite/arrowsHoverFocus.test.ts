@@ -230,7 +230,7 @@ suite('Shelf lift layer (fb14 D4)', () => {
 
 // fb14 D5 through the real Shelf path: updateCrossHover with a viewport.
 suite('updateCrossHover: off-screen caller becomes a short stub (fb14 D5)', () => {
-  const GLOBALS = ['document', 'state', 'settings', 'linkG', 'getCSSVar', 'isDrilldown', 'svg', 'd3', 'window', 'viewportRect',
+  const GLOBALS = ['crossFocusActive', 'crossFocusIds', 'focusCrossLinks', 'document', 'state', 'settings', 'linkG', 'getCSSVar', 'isDrilldown', 'svg', 'd3', 'window', 'viewportRect',
     'individualLinksFor', 'indexCrossByNode', 'aggregateCrossPairs', 'routeBundles', 'edgeWeightScale',
     'shapeHoverLinks', 'ARROW_TRIM', 'nodeRadius'];
   const saved: Record<string, unknown> = {};
@@ -248,6 +248,7 @@ suite('updateCrossHover: off-screen caller becomes a short stub (fb14 D5)', () =
       ['/r/code', { path: '/r/code', kind: 'folder', abs: { x: 0, y: 0, w: 600, h: 400 } }],
     ]);
     Object.assign(g, {
+      crossFocusActive: cl.crossFocusActive, crossFocusIds: cl.crossFocusIds, focusCrossLinks: cl.focusCrossLinks,
       state: { layoutEngine: 'shelf', frames: { byPath: frames }, _frameHoverId: null, currentZoom: 1 },
       settings: { linkThickness: 1, arrows: true },
       linkG: root.append('g').attr('class', 'links'),

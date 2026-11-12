@@ -1,8 +1,8 @@
-// 80 — Function popup (open, edit, Ctrl+S / Save, resize, drag, close), navigate
+// 80 — Function popup (open from the pinned card, edit, Ctrl+S / Save, resize, drag, close), navigate
 // fallback, library popup, Ctrl+S layout save.
 import { expect } from '@playwright/test';
 import { scenario } from '../lib/scenario';
-import { clickNode, dragBy, fitToView, locateFrame, openSettings, toggleSwitch, wheelZoom } from '../lib/actions';
+import { clickNode, dragBy, fitToView, locateFrame, openFunctionPopup, openSettings, toggleSwitch, wheelZoom } from '../lib/actions';
 import { SkipStep } from '../lib/step';
 import { SEL } from '../selectors';
 
@@ -21,8 +21,8 @@ scenario('popups', { perMotion: false }, async ({ page, ux, host, post }) => {
     await wheelZoom(page, { x: f.rect.x + f.rect.w / 2, y: f.rect.y + f.rect.h / 2 }, -240, 5);
   });
 
-  await ux.step('Click a function → source popup', async () => {
-    await clickNode(page, { kind: 'fn' });
+  await ux.step('Click a function → pinned card → Open function → source popup', async () => {
+    await openFunctionPopup(page);
     await expect(page.locator('.func-card').first()).toBeVisible();
     await expect.poll(() => host.posted('get-func-source').length).toBeGreaterThan(0);
   }, { metrics: false });
@@ -67,7 +67,7 @@ scenario('popups', { perMotion: false }, async ({ page, ux, host, post }) => {
 
   await ux.step('A save over a changed file is refused, keeps the edit; Reload from file, then save', async () => {
     if (host.posted('save-func-source').at(-1)?.reqId === undefined) { throw new SkipStep('no func-source-saved round trip on this branch (before PR #69)'); }
-    await clickNode(page, { kind: 'fn' });
+    await openFunctionPopup(page);
     const ta = page.locator('.func-card .func-source-textarea').first();
     await expect(ta).not.toHaveValue('', { timeout: 5000 });
     const t = lastPopupTarget(host);
@@ -103,7 +103,7 @@ scenario('popups', { perMotion: false }, async ({ page, ux, host, post }) => {
   }, { metrics: false });
 
   await ux.step('Open a popup again and dismiss it with Escape', async () => {
-    await clickNode(page, { kind: 'fn' });
+    await openFunctionPopup(page);
     await expect(page.locator('.func-card').first()).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('.func-card')).toHaveCount(0);

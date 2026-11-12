@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 const frames = require('../../../src/webview/frames.js');
 const chrome = require('../../../src/webview/frameChrome.js');
 const viewCull = require('../../../src/webview/viewCull.js');
+const crossLinks = require('../../../src/webview/crossLinks.js');
 const frameCull = require('../../../src/webview/frameCull.js');
 const g = global as any;
 
@@ -12,7 +13,7 @@ const g = global as any;
 // release, drop-overlap resolution) can carry a detached frame into the
 // viewport; it must come back right then, not at the next zoom/pan.
 suite('frameRender: frame moves re-run culling (drop pushes a culled sibling on screen)', () => {
-  const GLOBALS = ['document', 'window', 'd3', 'state', 'settings', 'svg', 'g', 'frameG', 'linkG', 'isDrilldown',
+  const GLOBALS = ['crossFocusActive', 'crossFocusIds', 'focusCrossLinks', 'document', 'window', 'd3', 'state', 'settings', 'svg', 'g', 'frameG', 'linkG', 'isDrilldown',
     'resolveAbs', 'clampFrameLocal', 'FRAME', 'innerOrigin', 'TAB', 'tabWidth', 'tabChars', 'cutLabel', 'countsText',
     'tabBodyPath', 'tabOnlyPath', 'rectPath', 'ddHue', 'folderFillColor', 'folderStrokeColor', 'folderTitlebarColor',
     'viewportRect', 'createFrameCuller', 'createLod', 'createDomCuller', 'gestureBudget', 'requestAnimationFrame',
@@ -63,6 +64,7 @@ suite('frameRender: frame moves re-run culling (drop pushes a culled sibling on 
       gestureBudget: viewCull.gestureBudget, createDomCuller: frameCull.createDomCuller,
       requestAnimationFrame: undefined,
       aggregateCrossPairs: () => [], routeBundles: () => [], indexCrossByNode: () => new Map(), individualLinksFor: () => [],
+      crossFocusActive: crossLinks.crossFocusActive, crossFocusIds: crossLinks.crossFocusIds, focusCrossLinks: crossLinks.focusCrossLinks,
       getCSSVar: () => '#888', edgeWeightScale: () => 1,
     });
     delete require.cache[require.resolve('../../../src/webview/frameRender.js')];

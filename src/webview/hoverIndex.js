@@ -16,6 +16,17 @@ const HI_FOCUS_CLASS = 'cg-focus';
 const HI_NB_CLASS = 'cg-nb';
 
 const hiIdOf = (e) => (e && typeof e === 'object' ? e.id : e);
+// Click trail (pinnedCards.js pcTrailWeights): a lit line below full strength carries it in
+// this property (styles.css fades the line and its arrowhead by it).
+const HI_STRENGTH_PROP = '--cg-tr-o';
+
+/** A line's strength under `weights` (id → 0..1): the stronger of its two ends; 1 without weights. */
+function hiLinkStrength(d, weights) {
+  if (!weights || !d) { return 1; }
+  const s = weights.get(hiIdOf(d.source)), t = weights.get(hiIdOf(d.target));
+  if (s === undefined && t === undefined) { return 1; }
+  return Math.max(s === undefined ? 0 : s, t === undefined ? 0 : t);
+}
 
 /** node id → [link elements]; elements carry their datum as d3's __data__. */
 function buildLinkIndex(linkEls) {
@@ -64,6 +75,7 @@ function createHoverIndex() {
   let linkSel = null, labelSel = null, nodeSels = [];
   let links = new Map(), labels = new Map(), nodes = new Map();
   let lit = [];
+  let faded = [];    // lit lines carrying HI_STRENGTH_PROP
   let root = null;
   let marked = [];   // elements carrying cg-nb
   let lifted = [];   // { el, parent, next } in lift order
@@ -99,8 +111,12 @@ function createHoverIndex() {
     nodesOf(id) { return nodes.get(id) || []; },
     linksOf(id) { return links.get(id) || []; },
     labelOf(id) { return labels.get(id) || null; },
-    /** Dim everything via the root class, light the node's own links. */
-    highlight(rootEl, id, hlWidth) {
+    /**
+     * Dim everything via the root class, light the node's own links. `id` may be an
+     * array (pinned cards, P1: the focus is the union of the pinned and the hovered);
+     * `weights` (id → strength, the click trail) fades each lit line to its stronger end.
+     */
+    highlight(rootEl, id, hlWidth, weights) {
       this.clear();
       root = rootEl;
       const wide = hlWidth != null;
@@ -108,10 +124,12 @@ function createHoverIndex() {
         root.classList.add(HI_ROOT_CLASS);
         if (wide) { root.style.setProperty('--cg-hl-width', String(hlWidth)); }
       }
-      lit = this.linksOf(id);
+      lit = Array.isArray(id) ? [...new Set(id.flatMap(x => this.linksOf(x)))] : this.linksOf(id);
       for (const el of lit) {
         el.classList.add(HI_LINK_CLASS);
         if (wide) { el.classList.add(HI_WIDE_CLASS); }
+        const o = hiLinkStrength(el.__data__, weights);
+        if (o < 1) { el.style.setProperty(HI_STRENGTH_PROP, String(o)); faded.push(el); }
       }
       return lit.length;
     },
@@ -119,11 +137,11 @@ function createHoverIndex() {
      * Function hover: highlight, then mark the node + its neighbours (ends of its lines
      * plus `extraIds`, e.g. cross-frame partners) and lift its lines into liftTo(el)
      * (a parent element above the nodes, or null to leave a line where it is).
-     * Returns the neighbour id set (hovered id included).
+     * Returns the neighbour id set (hovered id included). `id` may be an array (union).
      */
-    focus(rootEl, id, hlWidth, extraIds, liftTo) {
-      this.highlight(rootEl, id, hlWidth);
-      const ids = new Set([id]);
+    focus(rootEl, id, hlWidth, extraIds, liftTo, weights) {
+      this.highlight(rootEl, id, hlWidth, weights);
+      const ids = new Set(Array.isArray(id) ? id : [id]);
       for (const el of lit) {
         const d = el.__data__;
         ids.add(hiIdOf(d.source)); ids.add(hiIdOf(d.target));
@@ -157,6 +175,8 @@ function createHoverIndex() {
       marked = [];
       for (const el of lit) { el.classList.remove(HI_LINK_CLASS, HI_WIDE_CLASS); }
       lit = [];
+      for (const el of faded) { el.style.removeProperty(HI_STRENGTH_PROP); }
+      faded = [];
       if (root) { root.classList.remove(HI_ROOT_CLASS, HI_FOCUS_CLASS); root = null; }
     },
   };
@@ -164,7 +184,7 @@ function createHoverIndex() {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    createHoverIndex, buildLinkIndex, buildLabelIndex, buildNodeIndex,
+    createHoverIndex, buildLinkIndex, buildLabelIndex, buildNodeIndex, hiLinkStrength, HI_STRENGTH_PROP,
     HI_ROOT_CLASS, HI_LINK_CLASS, HI_WIDE_CLASS, HI_FOCUS_CLASS, HI_NB_CLASS,
   };
 }

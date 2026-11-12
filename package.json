@@ -335,5 +335,13 @@
     "tree-sitter-cli": "0.26.9",
     "tree-sitter-cpp": "^0.22.3",
     "zod": "3.25.76"
+  },
+  "overrides": {
+    "java-parser": {
+      "lodash": "^4.18.0"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^9.0.7"
+    }
   }
 }

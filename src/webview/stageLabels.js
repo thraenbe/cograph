@@ -1,7 +1,8 @@
 // stageLabels.js — full names beside the nodes a tour step is about (stageApi.labels, an optional
 // addition to docs/tour-protocol.md section 5). The stage cuts file and function names to fit their
 // slots; a step's own subject is shown whole, on the stage overlay, at one size on screen whatever
-// the zoom. Pure helpers: stageApi.js draws with them, tests call them directly.
+// the zoom. Pure helpers: stageApi.js draws with them, tests call them directly. The overlay's call edges carry
+// an arrowhead (stageArrow), so a caller and its callee read apart on the picture.
 
 /** On-screen size of a label, in CSS pixels; divided by the zoom so it stays this size. */
 const STAGE_LABEL_PX = 12;
@@ -100,6 +101,33 @@ function stageDrawLabels(svgEl, overlay, items, k) {
   }
 }
 
+/** Arrowhead size on screen (CSS pixels): length along the edge and half its width (tour review round 3, N14). */
+const STAGE_ARROW_PX = { len: 10, half: 5, gap: 2 };
+
+/**
+ * A directed edge from `a` to the target box `to`, sized for zoom `k`: the line stops at the arrow's base and the
+ * arrow's tip touches the target's rim (its circle for a node, `maxR` > 0; its frame for a folder), so the head is
+ * never hidden under the node it points at. `a` is the caller's centre. Null when the two are too close for a head.
+ */
+function stageArrow(a, to, k) {
+  const z = k > 0 ? k : 1;
+  const cx = (to.minX + to.maxX) / 2, cy = (to.minY + to.maxY) / 2;
+  const dx = cx - a.x, dy = cy - a.y, dist = Math.hypot(dx, dy);
+  if (!(dist > 0)) { return null; }
+  const ux = dx / dist, uy = dy / dist;
+  // Distance from the target's centre back to its rim along the edge: a circle, or the frame's box.
+  const hw = (to.maxX - to.minX) / 2, hh = (to.maxY - to.minY) / 2;
+  const rim = to.maxR > 0 ? to.maxR : Math.min(Math.abs(ux) > 1e-9 ? hw / Math.abs(ux) : Infinity, Math.abs(uy) > 1e-9 ? hh / Math.abs(uy) : Infinity);
+  const len = STAGE_ARROW_PX.len / z, half = STAGE_ARROW_PX.half / z;
+  const tipD = dist - rim - STAGE_ARROW_PX.gap / z;
+  if (tipD < len * 1.5) { return null; }
+  const tip = { x: a.x + ux * tipD, y: a.y + uy * tipD };
+  const base = { x: tip.x - ux * len, y: tip.y - uy * len };
+  const l = { x: base.x - uy * half, y: base.y + ux * half }, r = { x: base.x + uy * half, y: base.y - ux * half };
+  const f = (v) => Math.round(v * 100) / 100;
+  return { end: base, tip, d: `M${f(tip.x)},${f(tip.y)}L${f(l.x)},${f(l.y)}L${f(r.x)},${f(r.y)}Z` };
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { stageLabelText, stageLabelSpot, stageSlotCandidates, stageLabelBox, stageLayoutLabels, stageDrawLabels, STAGE_LABEL_PX, STAGE_LABEL_GAP_PX };
+  module.exports = { stageLabelText, stageLabelSpot, stageSlotCandidates, stageLabelBox, stageLayoutLabels, stageDrawLabels, stageArrow, STAGE_LABEL_PX, STAGE_LABEL_GAP_PX, STAGE_ARROW_PX };
 }

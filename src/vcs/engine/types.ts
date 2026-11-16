@@ -12,6 +12,8 @@ export interface EngineNode {
   line: number;
   /** The line of the definition's closing token (analyzers since N1); absent from older graphs. */
   endLine?: number;
+  /** The first line of its decorators (Python analyzer, F3); `line` and the id stay the def line. */
+  startLine?: number;
   className?: string;
   isLibrary?: boolean;
   libraryName?: string;

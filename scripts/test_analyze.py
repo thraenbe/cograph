@@ -70,6 +70,30 @@ class TestCollectDefinitions(unittest.TestCase):
         ends = {v['name']: (v['line'], v['endLine']) for v in defs.values()}
         self.assertEqual(ends, {'vat': (4, 5), 'vat_for_lines': (8, 10)})
 
+    def test_start_line_of_decorators(self):
+        """F3: a decorated def starts at its first decorator; line and id stay the def line."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 't.py', """
+                import pytest
+
+
+                @pytest.mark.parametrize("n", [
+                    1, 2,
+                ])
+                @pytest.mark.slow
+                def test_n(n):
+                    assert n
+
+
+                def plain():
+                    pass
+            """)
+            defs = analyze.collect_definitions(d)
+        by = {v['name']: v for v in defs.values()}
+        self.assertEqual((by['test_n']['line'], by['test_n']['startLine'], by['test_n']['endLine']), (8, 4, 9))
+        self.assertTrue(by['test_n']['id'].endswith('::test_n::8'))
+        self.assertNotIn('startLine', by['plain'])
+
     def test_async_function(self):
         """async def is collected alongside regular def."""
         with tempfile.TemporaryDirectory() as d:

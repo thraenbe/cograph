@@ -348,6 +348,7 @@ stageApi.spotlight(ids | null, { edges = true })   // dims everything else to 0.
 stageApi.pulse(id | null)                          // one ring animation on the node; null stops
 stageApi.ghost(list | null)                        // [{ id, file, name, line, callers: [ids] }]; id any unique string, file absolute or repo-relative POSIX (resolved like resolve()); dashed nodes in the file's slot, or the folder's margin when the file is gone
 stageApi.edges(list | null)                        // [{ source, target, kind: 'added'|'removed'|'path' }] on an overlay layer, independent of bundling
+stageApi.labels?(ids | null)                       // optional, added 16.11.2026: the whole name beside each node id (Class.method), above a `file::` slot or `folder::` frame; 12 px on screen at any zoom; null clears. The layer feature-detects it; a stage without it shows the stage's own (shortened) names
 stageApi.expand(folderPaths)                       // Promise<void>; absolute tree paths; posts expand-folder through the host when needed
 stageApi.chrome(visible)                           // hides/shows toolbar, forces box, PR banner, panel actions
 stageApi.theme()                                   // 'dark'|'light'

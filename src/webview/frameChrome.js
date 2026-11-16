@@ -29,9 +29,14 @@ function tabChars(tw) {
   return Math.max(1, Math.floor((tw - 34) / TAB.CHAR_W));
 }
 
+/** Shortens from the middle, so a name keeps its start and its end (a file keeps its extension):
+ *  "checkout.py" in 7 becomes "che….py". Never empty: at least one character and the ellipsis. */
 function cutLabel(s, maxChars) {
   s = String(s ?? '');
-  return s.length > maxChars ? s.slice(0, Math.max(1, maxChars - 1)) + '…' : s;
+  if (s.length <= maxChars) { return s; }
+  const keep = Math.max(1, maxChars - 1);
+  const head = Math.ceil(keep / 2), tail = keep - head;
+  return s.slice(0, head) + '…' + (tail > 0 ? s.slice(s.length - tail) : '');
 }
 
 /** Manila-folder outline: the flap occupies the top-left, and the body's top

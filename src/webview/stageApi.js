@@ -31,6 +31,7 @@ const STAGE_CSS = `
   .stage-overlay .stage-ghost text { fill: var(--vscode-descriptionForeground, #999); font-size: 10px; text-anchor: middle; }
   .stage-overlay .stage-pulse { fill: none; stroke: var(--vscode-focusBorder, #3794ff); stroke-width: 3; transform-box: fill-box; transform-origin: center; animation: stage-pulse 1.2s ease-out 1 forwards; }
   @keyframes stage-pulse { from { transform: scale(1); opacity: 0.9; } to { transform: scale(2.6); opacity: 0; } }
+  .stage-overlay .stage-label { fill: var(--vscode-foreground, #ddd); stroke: var(--vscode-editor-background, #1e1e1e); paint-order: stroke; stroke-linejoin: round; font-family: var(--vscode-font-family, system-ui, sans-serif); font-weight: 600; }
   body.stage-chrome-off #top-left-controls, body.stage-chrome-off #pr-view-banner,
   body.stage-chrome-off #settings-btn, body.stage-chrome-off #settings-panel, body.stage-chrome-off #tour-pill { display: none !important; }
 `;
@@ -83,7 +84,7 @@ function stageFitTransform(box, view, opts, fitScaleFn) {
 
 function createStageApi(env) {
   const listeners = { ready: new Set(), 'node-click': new Set(), graph: new Set() };
-  const look = { spot: null, spotEdges: true, pulse: null, ghosts: [], edges: [] };
+  const look = { spot: null, spotEdges: true, pulse: null, ghosts: [], edges: [], labels: [] };
   const ghostPos = new Map();
   const queue = [];
   let isReady = false;
@@ -282,8 +283,39 @@ function createStageApi(env) {
       const kind = ['added', 'removed', 'path'].includes(e.kind) ? e.kind : 'path';
       svgEl('line', { class: 'stage-edge ' + kind, x1: a.x, y1: a.y, x2: b.x, y2: b.y }, overlay);
     }
+    drawLabels();
     const c = pulseEl && look.pulse && centre(look.pulse);
     if (c) { pulseEl.setAttribute('cx', String(c.x)); pulseEl.setAttribute('cy', String(c.y)); }
+  }
+
+  /** A file slot's box in graph space (Shelf engine), from its folder frame; null when not drawn. */
+  function slotBox(file) {
+    const fs = state().frames;
+    const f = fs && fs.byPath && env.innerOrigin && fs.byPath.get(stageDirname(file));
+    const slot = f && f.slots && f.slots.get('file:' + file);
+    if (!f || !slot) { return null; }
+    const o = env.innerOrigin(f);
+    const x = o.x + f.contentPos.x + slot.x, y = o.y + f.contentPos.y + slot.y;
+    return { minX: x, minY: y, maxX: x + slot.w, maxY: y + slot.h };
+  }
+
+  /** The labels of the step's subject: a node's box (right of it), else a file slot or frame (above it). */
+  function labelItems() {
+    const out = [];
+    for (const id of look.labels) {
+      const n = shown(id);
+      if (n) { out.push({ text: env.labelText(n), box: boxOf(n.id) }); continue; }
+      const file = id.startsWith('file::') ? id.slice(6) : null;
+      const box = file ? slotBox(file) : (id.startsWith('folder::') ? boxOf(id) : null);
+      const name = (file || id.slice(8)).replace(/\\/g, '/').split('/').pop();
+      if (box) { out.push({ text: name, box, above: true }); }
+    }
+    return out;
+  }
+
+  function drawLabels() {
+    if (!look.labels.length || !env.drawLabels || !env.labelText) { return; }
+    env.drawLabels(svgEl, overlay, labelItems(), env.zoomScale ? env.zoomScale() : 1);
   }
 
   function startPulse() {
@@ -300,7 +332,7 @@ function createStageApi(env) {
   /** Nodes keep moving in a dynamic layout: while something is drawn, follow them. */
   let tracking = false;
   function track() {
-    const busy = look.ghosts.length || look.edges.length || pulseEl;
+    const busy = look.ghosts.length || look.edges.length || look.labels.length || pulseEl;
     if (!busy) { tracking = false; return; }
     drawOverlay();
     env.setTimeout(track, 250);
@@ -310,6 +342,8 @@ function createStageApi(env) {
   function ghost(list) { look.ghosts = Array.isArray(list) ? list.filter(Boolean) : []; drawOverlay(); startTracking(); }
   function edges(list) { look.edges = Array.isArray(list) ? list.filter(Boolean) : []; drawOverlay(); startTracking(); }
   function pulse(id) { look.pulse = typeof id === 'string' ? id : null; startPulse(); startTracking(); }
+  /** Optional (stageApi v1 addition): full names beside these ids; null or [] clears. Unknown ids are skipped. */
+  function labels(ids) { look.labels = Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []; drawOverlay(); startTracking(); }
 
   // ── Expansion and chrome ────────────────────────────────────────────────────
   function expand(folderPaths) {
@@ -447,6 +481,7 @@ function createStageApi(env) {
     pulse: guarded('pulse', pulse, false),
     ghost: guarded('ghost', ghost, false),
     edges: guarded('edges', edges, false),
+    labels: guarded('labels', labels, false),
     expand: guarded('expand', expand, true),
     chrome: guarded('chrome', chrome, false),
     theme: guarded('theme', theme, false),
@@ -480,6 +515,9 @@ function bootStageApi(win) {
     },
     reducedMotion: () => !!(motion && motion.matches),
     nodeRadius, fitScale: typeof fitScale === 'function' ? fitScale : null,
+    zoomScale: () => d3.zoomTransform(svg.node()).k,
+    labelText: typeof stageLabelText === 'function' ? stageLabelText : null,
+    drawLabels: typeof stageDrawLabels === 'function' ? stageDrawLabels : null,
     usesFrames: typeof usesFrames === 'function' ? usesFrames : null,
     frameBounds: typeof frameBounds === 'function' ? frameBounds : null,
     innerOrigin: typeof innerOrigin === 'function' ? innerOrigin : null,

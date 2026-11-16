@@ -20,9 +20,11 @@ suite('frameChrome — tab geometry', () => {
     assert.strictEqual(short, 3 * fc.TAB.CHAR_W + fc.TAB.EXTRA);
   });
 
-  test('cutLabel ellipsizes only when needed', () => {
+  test('cutLabel shortens from the middle only when needed, keeping start and end (tour review M3)', () => {
     assert.strictEqual(fc.cutLabel('webview', 10), 'webview');
-    assert.strictEqual(fc.cutLabel('graphIntelligence', 8), 'graphIn…');
+    assert.strictEqual(fc.cutLabel('graphIntelligence', 8), 'grap…nce');
+    assert.strictEqual(fc.cutLabel('checkout.py', 7), 'che….py', 'a file keeps its extension');
+    assert.strictEqual(fc.cutLabel('checkout.py', 2), 'c…');
     assert.strictEqual(fc.cutLabel('ab', 1), 'a…', 'never returns an empty label');
   });
 

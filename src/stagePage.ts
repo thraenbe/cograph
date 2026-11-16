@@ -80,7 +80,7 @@ const SCRIPTS_BEFORE_TIMELINE = [
 ] as const;
 const SCRIPTS_AFTER_TIMELINE = ['hoverCard.js', 'funcSave.js'] as const;
 const PR_VIEW_SCRIPT = 'prView.js';
-const SCRIPTS_LATE = ['scopeFit.js', 'funcCard.js', 'fnNames.js', 'hoverPin.js'] as const;
+const SCRIPTS_LATE = ['scopeFit.js', 'funcCard.js', 'fnNames.js', 'hoverPin.js', 'stageLabels.js'] as const;
 const STAGE_API_SCRIPT = 'stageApi.js';
 
 /** Every stage script of a page without the timeline, in load order. */

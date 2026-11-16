@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { relPath } from './treeAnalysis';
+import { hasEnd, ownedRanges, withoutEnd } from './ownedRanges';
 import type { EngineGraph, EngineNode } from './types';
 
 /**
@@ -126,8 +127,13 @@ function index(tree: DiffTree): Indexed {
   return { byKey, keyById, byFile, files };
 }
 
-/** A function's source: from its definition line to its end line (or, without one, to the line before the next definition), trailing blanks dropped. */
-function functionText(tree: DiffTree, fnsInFile: Keyed[], i: number, cache: Map<string, string[] | null>, read: (p: string) => string | null): string | null {
+/**
+ * A function's source: the lines it owns (ownedRanges: from its start, or its decorators, to its
+ * closing token, without the lines of a definition nested in it), trailing blanks dropped. With
+ * `useEnd` false the analyzer's range is ignored and the old rule holds (to the line before the
+ * next definition), for a pair where one side's graph has no endLine (C1).
+ */
+function functionText(tree: DiffTree, fnsInFile: Keyed[], i: number, useEnd: boolean, cache: Map<string, string[] | null>, read: (p: string) => string | null): string | null {
   const k = fnsInFile[i];
   let lines = cache.get(k.file);
   if (lines === undefined) {
@@ -136,15 +142,11 @@ function functionText(tree: DiffTree, fnsInFile: Keyed[], i: number, cache: Map<
     cache.set(k.file, lines);
   }
   if (!lines) { return null; }
-  // fnsInFile is in line order: the next definition on a later line ends this one.
-  let next: Keyed | undefined;
-  for (let j = i + 1; j < fnsInFile.length; j++) { if (fnsInFile[j].line > k.line) { next = fnsInFile[j]; break; } }
-  const byNext = next ? next.line - 1 : lines.length;
-  // N1: the function's own end when the analyzer gives one, so a line after its closing token
-  // (module code, the next class's header) is not part of it. A nested definition still cuts it.
-  const own = k.node.endLine;
-  const end = typeof own === 'number' && own >= k.line ? Math.min(own, byNext) : byNext;
-  const slice = lines.slice(Math.max(0, k.line - 1), end).map(l => l.trimEnd());
+  const nodes = fnsInFile.map(f => (useEnd ? { line: f.line, endLine: f.node.endLine, startLine: f.node.startLine } : withoutEnd(f)));
+  const owned = ownedRanges(nodes).get(nodes[i]) ?? [];
+  const out: string[] = [];
+  for (const [from, to] of owned) { out.push(...lines.slice(Math.max(0, from - 1), Math.min(to, lines.length))); }
+  const slice = out.map(l => l.trimEnd());
   while (slice.length && slice[slice.length - 1] === '') { slice.pop(); }
   return slice.join('\n');
 }
@@ -184,8 +186,11 @@ export function diffGraphs(base: DiffTree, head: DiffTree, opts: DiffOptions = {
     }
     const bl = b.byFile.get(bk.file) ?? [];
     const hl = h.byFile.get(hk.file) ?? [];
-    const before = functionText(base, bl, bl.indexOf(bk), baseCache, read);
-    const after = functionText(head, hl, hl.indexOf(hk), headCache, read);
+    // C1: the analyzer's range only when both sides have it, so a graph from an older analyzer
+    // (a cached tree, another engine) compared with a new one gives no false change.
+    const useEnd = hasEnd(bk.node) && hasEnd(hk.node);
+    const before = functionText(base, bl, bl.indexOf(bk), useEnd, baseCache, read);
+    const after = functionText(head, hl, hl.indexOf(hk), useEnd, headCache, read);
     // Unreadable on either side: say nothing rather than guess.
     if (before === null || after === null) { continue; }
     if (before !== after) {

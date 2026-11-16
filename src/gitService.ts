@@ -1,5 +1,6 @@
 import * as cp from 'child_process';
 import * as path from 'path';
+import { ownedRanges } from './vcs/engine/ownedRanges';
 
 function toFwdSlash(p: string): string {
   return p.replace(/\\/g, '/');
@@ -12,6 +13,8 @@ interface GraphNode {
   line: number;
   /** The definition's closing line (analyzers since N1); absent from older graphs. */
   endLine?: number;
+  /** The first line of its decorators (Python, F3); absent when undecorated. */
+  startLine?: number;
   language?: 'python' | 'typescript' | 'javascript' | 'java' | 'cpp' | 'c';
   gitStatus?: { unstaged: 'added' | 'modified' | 'deleted' | null; staged: 'added' | 'modified' | 'deleted' | null };
   isLibrary?: boolean;
@@ -242,15 +245,11 @@ export class GitService {
       if (!nodesByFile.has(node.file)) { nodesByFile.set(node.file, []); }
       nodesByFile.get(node.file)!.push(node);
     }
-    // End line of each definition = its own end line when the analyzer gives one (N1), else the
-    // next definition's line − 1. Computed once per file (was an indexOf per node → O(n²)).
-    const endLineOf = new Map<GraphNode, number>();
+    // The lines each definition owns (C2, F3): innermost owner by its [startLine ?? line, endLine],
+    // the old rule (to the next definition) where the analyzer gave no endLine. Once per file.
+    const ownedOf = new Map<GraphNode, Array<[number, number]>>();
     for (const list of nodesByFile.values()) {
-      list.sort((a, b) => a.line - b.line);
-      list.forEach((n, i) => {
-        const byNext = i + 1 < list.length ? list[i + 1].line - 1 : Infinity;
-        endLineOf.set(n, typeof n.endLine === 'number' && n.endLine >= n.line ? Math.min(n.endLine, byNext) : byNext);
-      });
+      for (const [n, r] of ownedRanges(list)) { ownedOf.set(n, r); }
     }
 
     for (const node of nodes) {
@@ -261,9 +260,9 @@ export class GitService {
         node.gitStatus = fileStatus; continue;
       }
       const nodeStart = node.line;
-      const nodeEnd   = endLineOf.get(node) ?? Infinity;
+      const owned = ownedOf.get(node) ?? [];
       const hunkStatus = (hunks: Array<{start: number; end: number; isNew: boolean}>): 'added'|'modified'|null => {
-        const overlapping = hunks.filter(h => h.start <= nodeEnd && h.end >= nodeStart);
+        const overlapping = hunks.filter(h => owned.some(([from, to]) => h.start <= to && h.end >= from));
         if (overlapping.length === 0) { return null; }
         const defLineIsNew = overlapping.some(h => h.isNew && h.start <= nodeStart && nodeStart <= h.end);
         return defLineIsNew ? 'added' : 'modified';

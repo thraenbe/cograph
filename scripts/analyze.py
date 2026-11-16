@@ -53,6 +53,8 @@ def collect_definitions(root: str) -> dict[str, dict]:
                     'line': node.lineno,
                     # Where the def ends (N1): a module-level line after the last def is not inside it.
                     **({'endLine': node.end_lineno} if getattr(node, 'end_lineno', None) else {}),
+                    # Where its decorators begin (F3): decorators are code of the function.
+                    **({'startLine': min(d.lineno for d in node.decorator_list)} if node.decorator_list else {}),
                     'language': 'python',
                 }
     return definitions

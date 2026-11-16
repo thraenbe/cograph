@@ -1315,6 +1315,8 @@ function renderFrameSlots(f, sub) {
       update => update,
       exit => exit.remove(),
     );
+  // A name may run past its slot into free space on its right, up to the frame's inner edge.
+  const labelEdge = (f.abs && f.abs.w ? f.abs.w : Infinity) - (f.kind === 'root' ? 0 : FRAME.PAD);
   sel.each(function (d) {
     const grp = d3.select(this);
     let color = slotColor(d.file);
@@ -1338,7 +1340,7 @@ function renderFrameSlots(f, sub) {
       .attr('x', d.x + 6).attr('y', d.y + 11)
       .attr('font-size', `${9 * settings.textSize}px`)
       .attr('fill', color).attr('fill-opacity', 0.9)
-      .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize))
+      .text(slotLabelText(slotBasename(d.file), d.count, typeof slotLabelRoom === 'function' ? slotLabelRoom(d, data, labelEdge, SLOT.LABEL_H) : d.w, 5 * settings.textSize))
       .each(function () {
         // X3: calls leaving this file, shown only while the same-file rule hides them (CSS)
         const out = state.xfileCue && state.xfileCue.outByFile.get(d.file);

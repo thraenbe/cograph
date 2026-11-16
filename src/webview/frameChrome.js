@@ -90,6 +90,19 @@ function slotLabelText(name, count, slotW, charW) {
   return cutLabel(name, budget) + suffix;
 }
 
+/** The width a slot's name may use: its own width, or more when nothing stands to its right in its name
+ *  strip, up to the next slot of that strip or the frame's right edge (tour review round 2, M3).
+ *  `slots` are `{ x, y, w }` in one frame's coordinates; `stripH` is the name strip's height. */
+function slotLabelRoom(d, slots, rightEdge, stripH) {
+  let next = rightEdge;
+  for (const s of slots) {
+    if (s === d || s.x < d.x + d.w - 1) { continue; }
+    const strip = s.y < d.y + stripH && d.y < s.y + Math.max(stripH, s.h || 0);
+    if (strip) { next = Math.min(next, s.x); }
+  }
+  return Math.max(d.w, next - d.x - 4);
+}
+
 /** Counts for the free strip right of the tab: long form while it fits,
  *  compact "N · M" when the strip is narrow. */
 function countsText(files, fns, freeW) {
@@ -148,7 +161,7 @@ function closedFolderLabelPos(r) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    TAB, DENSE, FOLDER_GLYPH, tabWidth, tabChars, cutLabel, slotLabelText, fitScale,
+    TAB, DENSE, FOLDER_GLYPH, tabWidth, tabChars, cutLabel, slotLabelText, slotLabelRoom, fitScale,
     tabBodyPath, tabOnlyPath, rectPath, countsText, memberCounts, closedFolderPath, closedFolderDims,
     closedFolderLabelPos,
   };

@@ -243,3 +243,22 @@ suite('W3: name inside the collapsed glyph', () => {
     assert.ok(r.includes("(!inGlyph || inGlyph.fits2)"), 'the count line drops when it does not fit');
   });
 });
+
+suite('frameChrome — slot name room (tour review round 2, M3)', () => {
+  test('a name may run to the next slot of its strip, or the frame edge; never less than its slot', () => {
+    const a = { x: 0, y: 0, w: 40, h: 60 }, b = { x: 120, y: 0, w: 40, h: 60 }, below = { x: 50, y: 80, w: 40, h: 60 };
+    const slots = [a, b, below];
+    assert.strictEqual(fc.slotLabelRoom(a, slots, 300, 16), 116, 'to the next slot of the strip, minus a 4-unit gap');
+    assert.strictEqual(fc.slotLabelRoom(b, slots, 300, 16), 176, 'the last one runs to the frame edge');
+    assert.strictEqual(fc.slotLabelRoom(below, slots, 300, 16), 246, 'a slot in another row is no obstacle');
+    const tight = { x: 42, y: 0, w: 40, h: 60 };
+    assert.strictEqual(fc.slotLabelRoom(a, [a, tight], 300, 16), 40, 'a neighbour right beside it: its own width');
+    assert.strictEqual(fc.slotLabelRoom(a, [a], Infinity, 16), Infinity);
+  });
+
+  test('with that room, a name that fits is no longer cut', () => {
+    const room = fc.slotLabelRoom({ x: 0, y: 0, w: 40, h: 60 }, [{ x: 0, y: 0, w: 40, h: 60 }], 200, 16);
+    assert.strictEqual(fc.slotLabelText('checkout.py', 3, 40, 5), 'c… · 3');
+    assert.strictEqual(fc.slotLabelText('checkout.py', 3, room, 5), 'checkout.py · 3');
+  });
+});

@@ -31,6 +31,7 @@ const STAGE_CSS = `
   .stage-overlay .stage-ghost text { fill: var(--vscode-descriptionForeground, #999); font-size: 10px; text-anchor: middle; }
   .stage-overlay .stage-pulse { fill: none; stroke: var(--vscode-focusBorder, #3794ff); stroke-width: 3; transform-box: fill-box; transform-origin: center; animation: stage-pulse 1.2s ease-out 1 forwards; }
   @keyframes stage-pulse { from { transform: scale(1); opacity: 0.9; } to { transform: scale(2.6); opacity: 0; } }
+  .file-slot.stage-label-covered .file-slot-label { visibility: hidden; }
   .stage-overlay .stage-label { fill: var(--vscode-foreground, #ddd); stroke: var(--vscode-editor-background, #1e1e1e); paint-order: stroke; stroke-linejoin: round; font-family: var(--vscode-font-family, system-ui, sans-serif); font-weight: 600; }
   body.stage-chrome-off #top-left-controls, body.stage-chrome-off #pr-view-banner,
   body.stage-chrome-off #settings-btn, body.stage-chrome-off #settings-panel, body.stage-chrome-off #tour-pill { display: none !important; }
@@ -308,14 +309,25 @@ function createStageApi(env) {
       const file = id.startsWith('file::') ? id.slice(6) : null;
       const box = file ? slotBox(file) : (id.startsWith('folder::') ? boxOf(id) : null);
       const name = (file || id.slice(8)).replace(/\\/g, '/').split('/').pop();
-      if (box) { out.push({ text: name, box, above: true }); }
+      if (box) { out.push(file ? { text: name, box, slot: file } : { text: name, box, above: true }); }
     }
     return out;
   }
 
   function drawLabels() {
-    if (!look.labels.length || !env.drawLabels || !env.labelText) { return; }
-    env.drawLabels(svgEl, overlay, labelItems(), env.zoomScale ? env.zoomScale() : 1);
+    const items = look.labels.length && env.drawLabels && env.labelText ? labelItems() : [];
+    coverSlotLabels(new Set(items.filter((it) => it.slot).map((it) => it.slot)));
+    if (items.length) { env.drawLabels(svgEl, overlay, items, env.zoomScale ? env.zoomScale() : 1); }
+  }
+
+  /** A file named whole on the overlay hides the stage's own shortened name in its slot; others show it again. */
+  function coverSlotLabels(files) {
+    const root = env.root();
+    if (!root) { return; }
+    for (const el of root.querySelectorAll('g.file-slot')) {
+      const d = el.__data__;
+      el.classList.toggle('stage-label-covered', !!(d && files.has(d.file)));
+    }
   }
 
   function startPulse() {

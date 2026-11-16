@@ -70,14 +70,14 @@ suite('stageLabels — full names for the step\'s subject (tour review M3)', () 
     assert.strictEqual(labels(st.overlay).length, 0);
   });
 
-  test('a file id is named whole above its slot; a folder id above its frame', () => {
+  test('a file id is named whole in its slot\'s name strip; a folder id above its frame', () => {
     const frame = { abs: { x: 0, y: 0, w: 400, h: 300 }, contentPos: { x: 10, y: 20 }, slots: new Map([['file:/r/shop/checkout.py', { x: 5, y: 7, w: 30, h: 40 }]]) };
     const frames = { root: '/r/shop', byPath: new Map([['/r/shop', frame]]) };
     const st = stage([fn('total', 100, 50)], frames, 1);
     st.api.labels(['file::/r/shop/checkout.py', 'folder::/r/shop', 'file::/r/nowhere.py']);
     const drawn = labels(st.overlay);
     assert.deepStrictEqual(drawn.map((l) => l.text), ['checkout.py', 'shop']);
-    assert.deepStrictEqual([drawn[0].x, drawn[0].y], [55, 108], 'slot at innerOrigin + contentPos + slot, label 5 px above');
+    assert.deepStrictEqual([drawn[0].x, drawn[0].y], [59, 121], 'slot at innerOrigin + contentPos + slot; label in its name strip (x + 4, y + 8)');
     assert.deepStrictEqual([drawn[1].x, drawn[1].y], [0, -5]);
   });
 
@@ -95,6 +95,39 @@ suite('stageLabels — full names for the step\'s subject (tour review M3)', () 
     assert.deepStrictEqual(sl.stageLayoutLabels(items, z), laid, 'the same input places the same way');
     const crowded = Array.from({ length: 12 }, (_, i) => ({ text: `fn${i}`, box: box(96) }));
     assert.strictEqual(sl.stageLayoutLabels(crowded, z).length, 12, 'no free place: the label still shows, on its last row');
+  });
+
+  test('a named file takes its slot\'s own name strip, and the slot\'s shortened name is hidden until the labels go', () => {
+    const frame = { abs: { x: 0, y: 0, w: 400, h: 300 }, contentPos: { x: 10, y: 20 }, slots: new Map([['file:/r/shop/checkout.py', { x: 5, y: 7, w: 30, h: 40 }]]) };
+    const frames = { root: '/r/shop', byPath: new Map([['/r/shop', frame]]) };
+    const st = stage([fn('total', 100, 50)], frames, 1);
+    const doc = st.overlay.ownerDocument!;
+    const g = doc.createElementNS(NS, 'g');
+    g.setAttribute('class', 'file-slot');
+    (g as any).__data__ = { file: '/r/shop/checkout.py' };
+    const other = doc.createElementNS(NS, 'g');
+    other.setAttribute('class', 'file-slot');
+    (other as any).__data__ = { file: '/r/shop/other.py' };
+    doc.getElementById('root')!.append(g, other);
+    st.api.labels(['file::/r/shop/checkout.py']);
+    const drawn = labels(st.overlay);
+    assert.deepStrictEqual([drawn[0].text, drawn[0].x, drawn[0].y], ['checkout.py', 59, 121], 'in the name strip: slot x + 4, slot y + 8');
+    assert.ok(g.classList.contains('stage-label-covered'));
+    assert.ok(!other.classList.contains('stage-label-covered'));
+    st.api.labels(null);
+    assert.ok(!g.classList.contains('stage-label-covered'), 'shown again when the step names nothing');
+    assert.ok(sa.STAGE_CSS.includes('.file-slot.stage-label-covered .file-slot-label { visibility: hidden; }'));
+  });
+
+  test('two files side by side: the second takes the row above when the strip is taken', () => {
+    const z = 1;
+    const items = [{ text: 'checkout.py', box: { minX: 0, minY: 100, maxX: 40, maxY: 160 }, slot: 'a' }, { text: 'orders.py', box: { minX: 44, minY: 100, maxX: 84, maxY: 160 }, slot: 'b' }];
+    const laid = sl.stageLayoutLabels(items, z);
+    assert.deepStrictEqual(laid[0].p, { x: 4, y: 108, anchor: 'start', baseline: 'middle' });
+    assert.notDeepStrictEqual(laid[1].p.y, 108, 'not on top of the first');
+    const boxes = laid.map((l: any) => sl.stageLabelBox(l.text, l.p, z));
+    const hit = (a: any, b: any) => a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
+    assert.ok(!hit(boxes[0], boxes[1]));
   });
 
   test('without the helpers (an older page) labels() draws nothing and throws nothing', () => {

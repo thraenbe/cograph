@@ -43,6 +43,19 @@ function stageLabelBox(text, p, z) {
   return { minX, minY, maxX: minX + w, maxY: minY + h };
 }
 
+/** Where a file's label may go (it takes the slot's own name strip, whose shortened name the stage then
+ *  hides), else just above the slot, then rows further up. Tour review round 2, M3. */
+function stageSlotCandidates(box, z) {
+  const strip = 8; // the middle of the slot's 16-unit name strip (frames.js SLOT.LABEL_H), graph units
+  const g = STAGE_LABEL_GAP_PX / z, row = (STAGE_LABEL_PX * 1.3) / z;
+  const out = [
+    { x: box.minX + 4, y: box.minY + strip, anchor: 'start', baseline: 'middle' },
+    { x: box.minX, y: box.minY - g, anchor: 'start', baseline: 'auto' },
+  ];
+  for (let i = 1; i <= STAGE_LABEL_MAX_ROWS; i++) { out.push({ x: box.minX, y: box.minY - g - i * row, anchor: 'start', baseline: 'auto' }); }
+  return out;
+}
+
 /** Where a node's label may go, in order: below, right, above, left; then further rows below. */
 function stageLabelCandidates(box, z) {
   const g = STAGE_LABEL_GAP_PX / z, cx = (box.minX + box.maxX) / 2, cy = (box.minY + box.maxY) / 2, row = (STAGE_LABEL_PX * 1.3) / z;
@@ -62,10 +75,10 @@ function stageLabelCandidates(box, z) {
  */
 function stageLayoutLabels(items, k) {
   const z = k > 0 ? k : 1;
-  const nodes = items.filter((it) => !it.above).map((it) => it.box);
+  const nodes = items.filter((it) => !it.above && !it.slot).map((it) => it.box);
   const placed = [];
   return items.map((it) => {
-    const options = it.above ? [stageLabelSpot(it.box, z, true)] : stageLabelCandidates(it.box, z);
+    const options = it.slot ? stageSlotCandidates(it.box, z) : it.above ? [stageLabelSpot(it.box, z, true)] : stageLabelCandidates(it.box, z);
     const free = options.find((p) => {
       const b = stageLabelBox(it.text, p, z);
       return !placed.some((q) => overlaps(b, q)) && !nodes.some((n) => n !== it.box && overlaps(b, n));
@@ -75,7 +88,7 @@ function stageLayoutLabels(items, k) {
   });
 }
 
-/** Draws each `{ text, box, above }` as one text element on the overlay, sized for zoom `k`. */
+/** Draws each `{ text, box, above, slot }` as one text element on the overlay, sized for zoom `k`. */
 function stageDrawLabels(svgEl, overlay, items, k) {
   const z = k > 0 ? k : 1;
   for (const { text, p } of stageLayoutLabels(items.filter((it) => it && it.text && it.box), z)) {
@@ -88,5 +101,5 @@ function stageDrawLabels(svgEl, overlay, items, k) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { stageLabelText, stageLabelSpot, stageLabelBox, stageLayoutLabels, stageDrawLabels, STAGE_LABEL_PX, STAGE_LABEL_GAP_PX };
+  module.exports = { stageLabelText, stageLabelSpot, stageSlotCandidates, stageLabelBox, stageLayoutLabels, stageDrawLabels, STAGE_LABEL_PX, STAGE_LABEL_GAP_PX };
 }

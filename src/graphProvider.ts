@@ -38,6 +38,8 @@ export interface GraphNode {
   name: string;
   file: string | null;
   line: number;
+  /** The line of the definition's closing token (analyzers since N1); absent from older graphs and some languages. */
+  endLine?: number;
   language?: 'python' | 'typescript' | 'javascript' | 'java' | 'cpp' | 'c';
   gitStatus?: { unstaged: 'added' | 'modified' | 'deleted' | null; staged: 'added' | 'modified' | 'deleted' | null };
   isLibrary?: boolean;

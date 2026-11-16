@@ -10,6 +10,8 @@ export interface EngineNode {
   name: string;
   file: string | null;
   line: number;
+  /** The line of the definition's closing token (analyzers since N1); absent from older graphs. */
+  endLine?: number;
   className?: string;
   isLibrary?: boolean;
   libraryName?: string;

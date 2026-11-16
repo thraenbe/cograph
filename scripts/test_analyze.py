@@ -49,6 +49,27 @@ class TestCollectDefinitions(unittest.TestCase):
         self.assertEqual(defn['name'], 'my_func')
         self.assertEqual(defn['line'], 1)
 
+    def test_end_line(self):
+        """N1: a def carries the line it ends on, so a module-level line after it is not inside it."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'tax.py', """
+                VAT_RATE = 0.19
+
+
+                def vat(net):
+                    return net * VAT_RATE
+
+
+                def vat_for_lines(lines):
+                    total = 0
+                    return total
+
+                print(vat(1))
+            """)
+            defs = analyze.collect_definitions(d)
+        ends = {v['name']: (v['line'], v['endLine']) for v in defs.values()}
+        self.assertEqual(ends, {'vat': (4, 5), 'vat_for_lines': (8, 10)})
+
     def test_async_function(self):
         """async def is collected alongside regular def."""
         with tempfile.TemporaryDirectory() as d:

@@ -51,6 +51,8 @@ def collect_definitions(root: str) -> dict[str, dict]:
                     'name': node.name,
                     'file': filepath,
                     'line': node.lineno,
+                    # Where the def ends (N1): a module-level line after the last def is not inside it.
+                    **({'endLine': node.end_lineno} if getattr(node, 'end_lineno', None) else {}),
                     'language': 'python',
                 }
     return definitions

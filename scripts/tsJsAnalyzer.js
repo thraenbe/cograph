@@ -29,6 +29,11 @@ function getLine(sourceFile, node) {
   return ts.getLineAndCharacterOfPosition(sourceFile, node.getStart(sourceFile)).line + 1;
 }
 
+/** The 1-based line of a node's last character: where a function ends, not where the next one starts. */
+function getEndLine(sourceFile, node) {
+  return ts.getLineAndCharacterOfPosition(sourceFile, node.getEnd()).line + 1;
+}
+
 // Listed files this run could not use, over both passes: they are missing from the graph, and the run says so.
 const notParsed = new Set();
 
@@ -76,17 +81,17 @@ function collectDefinitions(files, options) {
           const name = node.name.text;
           const line = getLine(sourceFile, node);
           const id = `${filepath}::${name}::${line}`;
-          definitions[id] = { id, name, file: filepath, line, language };
+          definitions[id] = { id, name, file: filepath, line, endLine: getEndLine(sourceFile, node), language };
         } else if (ts.isMethodDeclaration(node) && ts.isClassDeclaration(node.parent) && node.name) {
           const name = node.name.getText(sourceFile);
           const line = getLine(sourceFile, node);
           const id = `${filepath}::${name}::${line}`;
-          definitions[id] = { id, name, file: filepath, line, language,
+          definitions[id] = { id, name, file: filepath, line, endLine: getEndLine(sourceFile, node), language,
                               ...classInfo(node.parent, sourceFile) };
         } else if (ts.isConstructorDeclaration(node) && ts.isClassDeclaration(node.parent)) {
           const line = getLine(sourceFile, node);
           const id = `${filepath}::constructor::${line}`;
-          definitions[id] = { id, name: 'constructor', file: filepath, line, language,
+          definitions[id] = { id, name: 'constructor', file: filepath, line, endLine: getEndLine(sourceFile, node), language,
                               ...classInfo(node.parent, sourceFile) };
         } else if ((ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node))
                    && ts.isClassDeclaration(node.parent) && node.name) {
@@ -94,7 +99,7 @@ function collectDefinitions(files, options) {
           const name = prefix + node.name.getText(sourceFile);
           const line = getLine(sourceFile, node);
           const id = `${filepath}::${name}::${line}`;
-          definitions[id] = { id, name, file: filepath, line, language,
+          definitions[id] = { id, name, file: filepath, line, endLine: getEndLine(sourceFile, node), language,
                               ...classInfo(node.parent, sourceFile) };
         } else if (ts.isVariableStatement(node)) {
           for (const decl of node.declarationList.declarations) {
@@ -103,7 +108,8 @@ function collectDefinitions(files, options) {
               const name = decl.name.text;
               const line = getLine(sourceFile, decl);
               const id = `${filepath}::${name}::${line}`;
-              definitions[id] = { id, name, file: filepath, line, language };
+              // The statement, so `};` closes it: a one-line arrow ends on its own line.
+              definitions[id] = { id, name, file: filepath, line, endLine: getEndLine(sourceFile, node), language };
             }
           }
         }

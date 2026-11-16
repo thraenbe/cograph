@@ -126,7 +126,7 @@ function index(tree: DiffTree): Indexed {
   return { byKey, keyById, byFile, files };
 }
 
-/** A function's source: from its definition line to the line before the next definition, trailing blanks dropped. */
+/** A function's source: from its definition line to its end line (or, without one, to the line before the next definition), trailing blanks dropped. */
 function functionText(tree: DiffTree, fnsInFile: Keyed[], i: number, cache: Map<string, string[] | null>, read: (p: string) => string | null): string | null {
   const k = fnsInFile[i];
   let lines = cache.get(k.file);
@@ -139,7 +139,11 @@ function functionText(tree: DiffTree, fnsInFile: Keyed[], i: number, cache: Map<
   // fnsInFile is in line order: the next definition on a later line ends this one.
   let next: Keyed | undefined;
   for (let j = i + 1; j < fnsInFile.length; j++) { if (fnsInFile[j].line > k.line) { next = fnsInFile[j]; break; } }
-  const end = next ? next.line - 1 : lines.length;
+  const byNext = next ? next.line - 1 : lines.length;
+  // N1: the function's own end when the analyzer gives one, so a line after its closing token
+  // (module code, the next class's header) is not part of it. A nested definition still cuts it.
+  const own = k.node.endLine;
+  const end = typeof own === 'number' && own >= k.line ? Math.min(own, byNext) : byNext;
   const slice = lines.slice(Math.max(0, k.line - 1), end).map(l => l.trimEnd());
   while (slice.length && slice[slice.length - 1] === '') { slice.pop(); }
   return slice.join('\n');

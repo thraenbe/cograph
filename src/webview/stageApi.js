@@ -27,6 +27,9 @@ const STAGE_CSS = `
   .stage-overlay .stage-edge.added { stroke: var(--vscode-gitDecoration-addedResourceForeground, #4caf50); }
   .stage-overlay .stage-edge.removed { stroke: var(--vscode-gitDecoration-deletedResourceForeground, #e5534b); stroke-dasharray: 6 4; }
   .stage-overlay .stage-edge.path { stroke: var(--vscode-focusBorder, #3794ff); }
+  .stage-overlay .stage-arrow.added { fill: var(--vscode-gitDecoration-addedResourceForeground, #4caf50); }
+  .stage-overlay .stage-arrow.removed { fill: var(--vscode-gitDecoration-deletedResourceForeground, #e5534b); }
+  .stage-overlay .stage-arrow.path { fill: var(--vscode-focusBorder, #3794ff); }
   .stage-overlay .stage-ghost circle { fill: none; stroke: var(--vscode-descriptionForeground, #999); stroke-width: 1.5; stroke-dasharray: 4 3; }
   .stage-overlay .stage-ghost text { fill: var(--vscode-descriptionForeground, #999); font-size: 10px; text-anchor: middle; }
   .stage-overlay .stage-pulse { fill: none; stroke: var(--vscode-focusBorder, #3794ff); stroke-width: 3; transform-box: fill-box; transform-origin: center; animation: stage-pulse 1.2s ease-out 1 forwards; }
@@ -273,20 +276,29 @@ function createStageApi(env) {
       const grp = svgEl('g', { class: 'stage-ghost', 'data-id': g.id }, overlay);
       svgEl('circle', { cx: p.x, cy: p.y, r: 7 }, grp);
       svgEl('text', { x: p.x, y: p.y + 20 }, grp).textContent = String(g.name || '');
-      for (const c of g.callers || []) {
-        const q = centre(c);
-        if (q) { svgEl('line', { class: 'stage-edge removed', x1: q.x, y1: q.y, x2: p.x, y2: p.y }, overlay); }
-      }
+      for (const c of g.callers || []) { drawEdge(c, g.id, 'removed'); }
     });
     for (const e of look.edges) {
-      const a = e && centre(e.source), b = e && centre(e.target);
-      if (!a || !b) { continue; }
-      const kind = ['added', 'removed', 'path'].includes(e.kind) ? e.kind : 'path';
-      svgEl('line', { class: 'stage-edge ' + kind, x1: a.x, y1: a.y, x2: b.x, y2: b.y }, overlay);
+      if (e) { drawEdge(e.source, e.target, ['added', 'removed', 'path'].includes(e.kind) ? e.kind : 'path'); }
     }
     drawLabels();
     const c = pulseEl && look.pulse && centre(look.pulse);
     if (c) { pulseEl.setAttribute('cx', String(c.x)); pulseEl.setAttribute('cy', String(c.y)); }
+  }
+
+  /** One call edge, caller to callee, with its arrowhead at the callee's rim (tour review round 3, N14). */
+  function drawEdge(from, to, kind) {
+    const a = centre(from), box = boxOf(to);
+    if (!a || !box) { return; }
+    const head = env.arrow ? env.arrow(a, box, env.zoomScale ? env.zoomScale() : 1) : null;
+    const end = head ? head.end : { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 };
+    svgEl('line', { class: 'stage-edge ' + kind, x1: a.x, y1: a.y, x2: end.x, y2: end.y }, overlay);
+    if (head) { svgEl('path', { class: 'stage-arrow ' + kind, d: head.d }, overlay); }
+  }
+
+  /** The camera moved: labels and arrowheads are sized for the zoom, so they are drawn again at once. */
+  function onZoom() {
+    if (look.ghosts.length || look.edges.length || look.labels.length) { drawOverlay(); }
   }
 
   /** A file slot's box in graph space (Shelf engine), from its folder frame; null when not drawn. */
@@ -499,7 +511,7 @@ function createStageApi(env) {
     theme: guarded('theme', theme, false),
     on,
   };
-  return { api, onGraph, onClick, refresh, checkReady };
+  return { api, onGraph, onClick, refresh, checkReady, onZoom };
 }
 
 // ── Boot (graph webview and browser stage) ────────────────────────────────────
@@ -530,6 +542,7 @@ function bootStageApi(win) {
     zoomScale: () => d3.zoomTransform(svg.node()).k,
     labelText: typeof stageLabelText === 'function' ? stageLabelText : null,
     drawLabels: typeof stageDrawLabels === 'function' ? stageDrawLabels : null,
+    arrow: typeof stageArrow === 'function' ? stageArrow : null,
     usesFrames: typeof usesFrames === 'function' ? usesFrames : null,
     frameBounds: typeof frameBounds === 'function' ? frameBounds : null,
     innerOrigin: typeof innerOrigin === 'function' ? innerOrigin : null,
@@ -548,6 +561,8 @@ function bootStageApi(win) {
     if (t === 'graph' || t === 'graph-patch' || t === 'structure') { win.setTimeout(stage.onGraph, 0); }
   });
   svg.node().addEventListener('click', stage.onClick, true);
+  // A named listener beside rendering.js's own: overlay sizes follow every zoom frame, not the next 250 ms poll.
+  zoomBehavior.on('zoom.stageApi', stage.onZoom);
   // Layout is asynchronous (fit after settle, worker sims): watch for the first fit, then for re-renders.
   let pending = false;
   const overlayNode = overlay;

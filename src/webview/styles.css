@@ -1555,3 +1555,4 @@ g.frame.drag-hover > .folder-bubble-shape { stroke-opacity: 0.9; }
 }
 tspan.slot-xout { display: none; }
 #graph g.same-file-only tspan.slot-xout { display: inline; opacity: 0.75; font-weight: 400; }
+#graph g.same-file-only tspan.slot-xout.slot-xout-cut { display: none; } /* the file's whole name needed the room */

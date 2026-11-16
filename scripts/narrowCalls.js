@@ -98,6 +98,23 @@ function resolveThisCall(ids, callerDef, definitions, narrow, callerFile) {
   return narrow(ids, callerFile);
 }
 
+/**
+ * The declared constructors that run for class `className`: its own, else (an implicit
+ * constructor forwards to its base) the nearest base class's, walking `classExtends` by
+ * class name. `ctorIds` are the definitions named "constructor". A class the graph knows
+ * no base of, or a chain that leaves the workspace, gives [].
+ */
+function nearestConstructors(className, ctorIds, definitions) {
+  let cls = className;
+  for (let depth = 0; cls && depth <= MAX_EXTENDS_DEPTH; depth++) {
+    const name = cls;
+    const own = (ctorIds || []).filter(id => definitions[id] && definitions[id].className === name);
+    if (own.length) { return own; }
+    cls = extendsMap(definitions).get(name);
+  }
+  return [];
+}
+
 /** Attach the counters to the output graph — only when something happened, so
  *  graphs without an ambiguous name or a skipped file stay byte-identical to the previous format. */
 function withStats(graph, stats, filesNotParsed = 0) {
@@ -105,4 +122,4 @@ function withStats(graph, stats, filesNotParsed = 0) {
   return { ...graph, stats: { ...stats, ...(filesNotParsed ? { filesNotParsed } : {}) } };
 }
 
-module.exports = { createNarrower, withStats, topLevelOf, resolveThisCall, MAX_CANDIDATES };
+module.exports = { createNarrower, withStats, topLevelOf, resolveThisCall, nearestConstructors, MAX_CANDIDATES };

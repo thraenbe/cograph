@@ -23,7 +23,7 @@
 'use strict';
 
 const path = require('path');
-const { createNarrower, withStats } = require('./narrowCalls.js');
+const { createNarrower, withStats, nearestConstructors } = require('./narrowCalls.js');
 const { collectSourceFiles, explicitFileList } = require('./sourceFiles.js');
 const {
   createTreeSitterSession, isCFamilyFile, splitCFamilyFiles,
@@ -420,6 +420,35 @@ function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, import
     }
   }
 
+  /** Declared constructors that run for class `className` (nearest base when it declares none). */
+  function addConstructorEdges(className) {
+    if (!className || !currentCaller()) return;
+    const ctors = nearestConstructors(className, nameToIds.constructor, definitions);
+    if (ctors.length) for (const id of narrow(ctors)) addEdge(id, false);
+  }
+
+  /** `new X(…)`, `new ns::X<T>{…}`: X's constructor. Stack objects and temporaries add no edge. */
+  function handleNew(newExpr) {
+    let type = newExpr.childForFieldName('type');
+    if (type && type.type === 'qualified_identifier') {
+      while (type && type.type === 'qualified_identifier') type = type.childForFieldName('name');
+    }
+    if (type && type.type === 'template_type') type = type.childForFieldName('name');
+    if (type && type.type === 'type_identifier') addConstructorEdges(type.text);
+  }
+
+  /** `D(int x) : B(x) {}`: a base-class initializer runs that base's constructor. */
+  function handleBaseInitializers(funcDef) {
+    const caller = definitions[currentCaller()];
+    if (!caller || caller.name !== 'constructor') return;
+    const bases = new Set([caller.classExtends, ...(caller.classImplements ?? [])].filter(Boolean));
+    const list = funcDef.namedChildren.find(c => c.type === 'field_initializer_list');
+    for (const init of (list ? list.namedChildren : [])) {
+      const field = init.namedChildren[0];
+      if (field && bases.has(field.text)) addConstructorEdges(field.text);
+    }
+  }
+
   function visit(node) {
     const t = node.type;
 
@@ -437,10 +466,15 @@ function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, import
       const funcDecl = findFunctionDeclarator(node.childForFieldName('declarator'));
       const pushed = funcDecl ? pushCallerForFn(funcDecl) : false;
       try {
+        if (pushed) handleBaseInitializers(node);
         const body = node.childForFieldName('body');
         if (body) for (const c of body.namedChildren) visit(c);
       } finally { if (pushed) callerStack.pop(); }
       return;
+    }
+
+    if (t === 'new_expression') {
+      try { handleNew(node); } catch { /* skip malformed new */ }
     }
 
     if (t === 'call_expression') {

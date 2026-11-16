@@ -1,7 +1,7 @@
 // tsJsAnalyzer.js — the analyzer core shared by analyze_ts.js and analyze_js.js.
 'use strict';
 
-const { createNarrower, withStats, resolveThisCall } = require('./narrowCalls.js');
+const { createNarrower, withStats, resolveThisCall, nearestConstructors } = require('./narrowCalls.js');
 // Bare specifier so esbuild can inline it into the packaged bundle (dev runs
 // resolve it from the repo's node_modules via normal module resolution).
 const ts   = require('typescript');
@@ -182,6 +182,24 @@ function collectImportMap(sourceFile, options) {
   return importMap;
 }
 
+/**
+ * Names bound inside a function: its parameters and those of nested functions, and
+ * its variable declarations (binding patterns included). Scope-blind on purpose: it
+ * only ever removes a `new X()` edge, so a name bound anywhere in the caller wins.
+ */
+function boundNames(funcNode) {
+  const names = new Set();
+  const addBinding = (name) => {
+    if (ts.isIdentifier(name)) { names.add(name.text); return; }
+    for (const el of name.elements ?? []) { if (!ts.isOmittedExpression(el)) addBinding(el.name); }
+  };
+  (function walk(node) {
+    if (ts.isParameter(node) || ts.isVariableDeclaration(node)) addBinding(node.name);
+    ts.forEachChild(node, walk);
+  })(funcNode);
+  return names;
+}
+
 function collectCalls(files, definitions, root, options) {
   const language = options.language;
   // D6: a name with more than 8 definitions is narrowed (file → directory →
@@ -197,6 +215,30 @@ function collectCalls(files, definitions, root, options) {
   const seenEdges = new Set();
   const libraryNodes = new Map();
 
+  /**
+   * Constructor edges. `new X(…)` runs X's declared constructor; `super(…)` inside a
+   * constructor runs the base class's. A class without one runs its base's (implicit
+   * constructor), so both take the nearest declared constructor up the `extends` chain,
+   * narrowed like a bare call (D6). No edge for `new a.X()`, `new (f())()`, a base named
+   * by an expression (`extends mix(A)`) or a class outside the workspace.
+   */
+  function constructorTargets(node, callerId, callerFile, localNames) {
+    let className = null;
+    if (ts.isNewExpression(node)) {
+      // `new Ctor()` on a parameter or local variable (`function make(Class) { new Class() }`)
+      // is a value, not the workspace class of that name.
+      if (ts.isIdentifier(node.expression) && !localNames().has(node.expression.text)) {
+        className = node.expression.text;
+      }
+    } else if (node.expression.kind === ts.SyntaxKind.SuperKeyword) {
+      const base = definitions[callerId].classExtends;
+      if (base && /^[A-Za-z_$][\w$]*$/.test(base)) className = base;
+    }
+    if (!className) return [];
+    const ctors = nearestConstructors(className, nameToIds.constructor, definitions);
+    return ctors.length ? narrower.narrow(ctors, callerFile) : [];
+  }
+
   for (const filepath of files) {
     let sourceFile;
     try {
@@ -207,9 +249,21 @@ function collectCalls(files, definitions, root, options) {
     const importMap = collectImportMap(sourceFile, options);
 
     function visitFunc(funcNode, callerId) {
+      let locals = null;
+      const localNames = () => (locals ??= boundNames(funcNode));
       ts.forEachChild(funcNode, function walkCalls(node) {
         try {
-          if (ts.isCallExpression(node)) {
+          if (ts.isNewExpression(node) ||
+              (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.SuperKeyword)) {
+            // Static edges, unlike dynamic dispatch such as `discount.apply()`.
+            for (const calleeId of constructorTargets(node, callerId, filepath, localNames)) {
+              const key = `${callerId}|${calleeId}`;
+              if (!seenEdges.has(key) && callerId !== calleeId) {
+                seenEdges.add(key);
+                edges.push({ source: callerId, target: calleeId });
+              }
+            }
+          } else if (ts.isCallExpression(node)) {
             const callee = node.expression;
             let calleeName = null;
             let viaThis = false;

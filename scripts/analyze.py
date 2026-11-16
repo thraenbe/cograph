@@ -143,10 +143,14 @@ def collect_calls(root: str, definitions: dict) -> tuple[list[dict], list[dict]]
             caller_id = f"{filepath}::{func_node.name}::{func_node.lineno}"
             if caller_id not in definitions:
                 continue
+            values = _local_values(func_node)
             for child in ast.walk(func_node):
                 if not isinstance(child, ast.Call):
                     continue
                 callee_name = _bare_name(child.func) or _method_name(child.func)
+                # N7: a call of a parameter or a local value calls that value, not a function of the same name.
+                if isinstance(child.func, ast.Name) and callee_name in values:
+                    continue
                 if callee_name and callee_name in name_to_ids:
                     for callee_id in _narrow_candidates(name_to_ids[callee_name], filepath, definitions, root):
                         key = (caller_id, callee_id)
@@ -178,6 +182,29 @@ def _emit_library_edge(caller_id: str, lib_name: str, func_name: str, library_no
     if key not in seen_edges:
         seen_edges.add(key)
         edges.append({'source': caller_id, 'target': lib_id, 'isLibraryEdge': True})
+
+
+def _local_values(func_node: ast.AST) -> set[str]:
+    """Names a function binds to a value: its parameters and the targets of its own assignments,
+    loops, with/except clauses and walrus. Nested def/class bodies are their own scopes, and a nested
+    def or an import binds a function, so neither counts; a global or nonlocal name is not local."""
+    a = func_node.args
+    names = {x.arg for x in a.posonlyargs + a.args + a.kwonlyargs}
+    names.update(x.arg for x in (a.vararg, a.kwarg) if x is not None)
+    shared: set[str] = set()
+    todo = list(ast.iter_child_nodes(func_node))
+    while todo:
+        node = todo.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            shared.update(node.names)
+        todo.extend(ast.iter_child_nodes(node))
+    return names - shared
 
 
 def _bare_name(node: ast.expr) -> str | None:

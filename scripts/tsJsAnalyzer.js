@@ -206,6 +206,28 @@ function boundNames(funcNode) {
   return names;
 }
 
+/**
+ * N7: names a function binds to a value, so a bare call of one calls that value, not a workspace
+ * function of the same name. Parameters (destructured too) and variables, except a variable that
+ * holds an arrow or function expression: that is a definition of its own and resolves by name.
+ */
+function localValues(funcNode) {
+  const names = new Set();
+  const addBinding = (name) => {
+    if (ts.isIdentifier(name)) { names.add(name.text); return; }
+    for (const el of name.elements ?? []) { if (!ts.isOmittedExpression(el)) addBinding(el.name); }
+  };
+  (function walk(node) {
+    if (ts.isParameter(node)) addBinding(node.name);
+    else if (ts.isVariableDeclaration(node)) {
+      const fn = node.initializer && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer));
+      if (!(fn && ts.isIdentifier(node.name))) addBinding(node.name);
+    }
+    ts.forEachChild(node, walk);
+  })(funcNode);
+  return names;
+}
+
 function collectCalls(files, definitions, root, options) {
   const language = options.language;
   // D6: a name with more than 8 definitions is narrowed (file → directory →
@@ -257,6 +279,8 @@ function collectCalls(files, definitions, root, options) {
     function visitFunc(funcNode, callerId) {
       let locals = null;
       const localNames = () => (locals ??= boundNames(funcNode));
+      let values = null;
+      const valueNames = () => (values ??= localValues(funcNode));
       ts.forEachChild(funcNode, function walkCalls(node) {
         try {
           if (ts.isNewExpression(node) ||
@@ -274,7 +298,8 @@ function collectCalls(files, definitions, root, options) {
             let calleeName = null;
             let viaThis = false;
             if (ts.isIdentifier(callee)) {
-              calleeName = callee.text;
+              // N7: `priceOf(i)` where priceOf is a parameter or a local value calls that value.
+              calleeName = valueNames().has(callee.text) ? null : callee.text;
             } else if (ts.isPropertyAccessExpression(callee) &&
                        callee.expression.kind === ts.SyntaxKind.ThisKeyword) {
               // `this` is a ThisKeyword token, never an Identifier.

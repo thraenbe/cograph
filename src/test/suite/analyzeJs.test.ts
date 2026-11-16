@@ -191,6 +191,32 @@ suite('collectCalls (JS)', () => {
     assert.ok(edges.some((e: any) => e.source === mainId && e.target === greetId));
   });
 
+  test('N7: a call of a parameter or a local value is not resolved by name; a local function definition is', () => {
+    const lib = path.join(tmpDir, 'catalog.js');
+    const file = path.join(tmpDir, 'tax.js');
+    fs.writeFileSync(lib, ['function priceOf(item) { return 1; }', 'function rateFor(item) { return 0.19; }'].join('\n'));
+    fs.writeFileSync(file, [
+      'function vatForLines(lines, priceOf) {',
+      '  const fmt = String;',
+      '  return fmt(lines.map(i => priceOf(i) * rateFor(i)));',
+      '}',
+      'function usesLocal(items) {',
+      '  let rateFor = items.pick;',
+      '  return rateFor(items);',
+      '}',
+      'function nested() {',
+      '  const helper = () => 1;',
+      '  return helper();',
+      '}',
+      'function destructured({ priceOf }) { return priceOf(1); }',
+    ].join('\n'));
+    const defs = collectDefinitions([lib, file]);
+    const { edges } = collectCalls([lib, file], defs);
+    const name = (id: string) => (defs[id] as any)?.name;
+    const pairs = edges.filter((e: any) => name(e.source) && name(e.target)).map((e: any) => `${name(e.source)}->${name(e.target)}`).sort();
+    assert.deepStrictEqual(pairs, ['nested->helper', 'vatForLines->rateFor']);
+  });
+
   test('constructor body calls → edges created (regression)', () => {
     const file = path.join(tmpDir, 'ctor.js');
     fs.writeFileSync(file, [

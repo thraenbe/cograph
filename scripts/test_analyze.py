@@ -195,6 +195,46 @@ class TestCollectCalls(unittest.TestCase):
         self.assertEqual(len(callee_ids), 1)
         self.assertIn({'source': caller_ids[0], 'target': callee_ids[0]}, edges)
 
+    def test_parameter_or_local_call_is_not_resolved_by_name(self):
+        """N7: vat_for_lines(lines, price_of) calls its parameter, not catalog.price_of."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'catalog.py', """
+                def price_of(item):
+                    return 1
+
+                def rate_for(item):
+                    return 0.19
+            """)
+            write_py(d, 'tax.py', """
+                from catalog import rate_for
+
+                def vat_for_lines(lines, price_of):
+                    fmt = str
+                    for item, qty in lines.items():
+                        total = price_of(item) * qty * rate_for(item)
+                    return fmt(total)
+
+                def uses_local(items):
+                    rate_for = lambda x: 0
+                    return rate_for(items)
+
+                def nested_still_resolves():
+                    def helper():
+                        return 1
+                    return helper()
+
+                def outer_calls_module(items):
+                    def inner():
+                        rate_for = 0
+                        return rate_for
+                    return rate_for(items)
+            """)
+            defs = analyze.collect_definitions(d)
+            edges, _ = analyze.collect_calls(d, defs)
+        name = {qid: v['name'] for qid, v in defs.items()}
+        pairs = sorted((name[e['source']], name[e['target']]) for e in edges if e['source'] in name and e['target'] in name)
+        self.assertEqual(pairs, [('nested_still_resolves', 'helper'), ('outer_calls_module', 'rate_for'), ('vat_for_lines', 'rate_for')])
+
     def test_self_method_call_edge(self):
         """self.method() inside a class produces an edge to the method."""
         with tempfile.TemporaryDirectory() as d:

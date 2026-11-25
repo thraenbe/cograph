@@ -102,7 +102,7 @@ Pure functions in `metrics/compute.ts`, unit-tested in `unit/`.
 | `86-pinned-cards` | a click pins a function's card: two pinned across folders keep cards + focus with the pointer away, cards follow zoom, Open file / Open function / close, Tab, Escape; dark + light (`PINNED_SHOTS_DIR` saves the shots) |
 | `87-same-file-edges` | U1: two seeded boots (setting on vs off) settle to the same layout and orphan set; toggling keeps elements and positions; hover reveals cross-file lines |
 | `88-click-trail` | three pinned functions (two across folders): newest pin's lines full, each older one a step fainter (rendered opacity, Shelf cross lines too), rings full; unpin closes the trail up; hovering an unpinned function is full; dark + light (`TRAIL_SHOTS_DIR` saves the shots) |
-| `88-stage-api` | `window.stageApi`, the hooks a tour drives (both engines): ready after the first layout, a fit that leaves the overlays' inset free, spotlight, ghosts, overlay edges, pulse, expand, chrome |
+| `89-stage-api` | `window.stageApi`, the hooks a tour drives (both engines): ready after the first layout, a fit that leaves the overlays' inset free, spotlight, ghosts, overlay edges, pulse, expand, chrome |
 | `90-timeline` | timeline HTML + `timeline-data`, transport |
 | `99-save-roundtrip` | v2 save → fresh panel → `graph-loaded` delta (R5), v1 payload migration |
 

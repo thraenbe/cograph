@@ -1,4 +1,4 @@
-// 88-stage-api — window.stageApi (docs/tour-protocol.md section 5) on the real
+// 89-stage-api — window.stageApi (docs/tour-protocol.md section 5) on the real
 // webview in Chromium: ready after the first layout, a camera fit that lands the
 // node in the middle of the region the tour's overlays leave free, spotlight
 // opacity as rendered, ghosts, overlay edges, a pulse, expand, chrome, resolve.

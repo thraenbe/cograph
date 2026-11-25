@@ -82,7 +82,7 @@ suite('tour — registerTour', () => {
   });
   teardown(() => {
     sandbox.restore();
-    fs.rmSync(extRoot, { recursive: true, force: true });
+    fs.rmSync(extRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); // Windows: a handle closes late
   });
 
   const branchPill = { type: 'tour-availability', state: 'branch', branch: 'feat', baseRef: 'master', label: 'feat vs master · 3 commits · 1 file', counts: { commits: 3, files: 1 } } as const;

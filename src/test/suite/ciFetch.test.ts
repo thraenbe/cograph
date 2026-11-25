@@ -42,7 +42,7 @@ suite('ci fetch: ensureCommits on real remotes', function () {
     tip = commit(origin.work, { 'app.py': 'def a():\n    return 3\n' }, 'C');
     push(origin, 'main', 'feature');
   });
-  teardown(() => fs.rmSync(root, { recursive: true, force: true }));
+  teardown(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })); // a git still writing
 
   const run = (repoRoot: string, extra: Partial<EnsureCommitsOptions> = {}) => {
     const rec = recorded();

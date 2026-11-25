@@ -14,6 +14,16 @@ import type { AnalyzerResult } from '../../analyzerSpawn';
 const SCRIPTS = path.join(__dirname, '..', '..', '..', 'scripts');
 const PYTHON = cp.spawnSync('python3', ['--version']).status === 0 ? 'python3' : 'python';
 
+/**
+ * Whether this interpreter's own parser refuses the text. How deep code may go before ast.parse gives
+ * up depends on the Python build: the GitHub Ubuntu runner's python3 parses the attribute chain below,
+ * which 3.12.14 and 3.14 refuse with a RecursionError.
+ */
+function pythonRefuses(text: string): boolean {
+  const code = 'import ast, sys\ntry:\n    ast.parse(sys.stdin.buffer.read())\nexcept (SyntaxError, ValueError, RecursionError, MemoryError):\n    sys.exit(3)\n';
+  return cp.spawnSync(PYTHON, ['-I', '-c', code], { input: text, timeout: 30_000 }).status !== 0;
+}
+
 function project(files: Record<string, string>): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-poison-'));
   for (const [rel, text] of Object.entries(files)) { fs.writeFileSync(path.join(dir, rel), text); }
@@ -52,7 +62,8 @@ suite('analyzers: one poison file (F7)', () => {
         const r = await analyse(dir, 'python');
         assert.strictEqual(r.status, 'ok', r.detail);
         assert.deepStrictEqual(r.names.filter(n => n === 'backdoor' || n === 'run').sort(), ['backdoor', 'run']);
-        assert.strictEqual(r.filesNotParsed, 1);
+        // A file this Python parses is analysed (or, if the walk fails, counted); one it refuses is counted.
+        if (pythonRefuses(text)) { assert.strictEqual(r.filesNotParsed, 1); } else { assert.ok((r.filesNotParsed ?? 0) <= 1); }
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }
@@ -70,7 +81,7 @@ suite('analyzers: one poison file (F7)', () => {
   });
 
   test('REGRESSION (F3): under a memory limit an enormous file costs that file, not the run, and the limit is the job\'s to set', function () {
-    if (process.platform === 'win32') { this.skip(); } // no such limit there
+    if (process.platform === 'win32' || process.platform === 'darwin') { this.skip(); } // no such limit there (macOS does not enforce RLIMIT_AS)
     this.timeout(60_000);
     const huge = Array.from({ length: 120_000 }, (_, i) => `def fn${i}(): return 1\n`).join('');
     const dir = project({ 'kept.py': 'def kept():\n    pass\n', 'huge.py': huge });

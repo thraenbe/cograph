@@ -22,6 +22,11 @@ function scripts(html: string): string[] {
   return [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)].map(m => m[1].replace(/\?.*$/, '').replace(/^.*\/ext\//, '').replace(/^.*\/src\/webview\//, 'src/webview/'));
 }
 
+/** The CSP's words (directive names and sources) as a list, so a host is compared whole. */
+function cspSources(html: string): string[] {
+  return cspOf(html).split(/[\s;]+/).filter(Boolean);
+}
+
 function cspOf(html: string): string {
   return (/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/.exec(html)?.[1] ?? '').replace(/\s+/g, ' ');
 }
@@ -86,7 +91,7 @@ suite('browserView: browser HTML', () => {
   });
 
   test('cdnjs is allowed only while d3 is not vendored, as in the panel', () => {
-    assert.ok(cspOf(renderBrowserPage(page(), extRoot, 'dark')).includes('https://cdnjs.cloudflare.com'));
+    assert.ok(cspSources(renderBrowserPage(page(), extRoot, 'dark')).includes('https://cdnjs.cloudflare.com'));
     fs.mkdirSync(path.join(extRoot, 'dist', 'webview'), { recursive: true });
     fs.writeFileSync(path.join(extRoot, 'dist', 'webview', 'd3.min.js'), '');
     const html = renderBrowserPage(page(), extRoot, 'dark');

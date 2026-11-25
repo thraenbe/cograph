@@ -33,7 +33,7 @@ suite('build-stage.js: dist/stage', function () {
   });
 
   test('no inline script and no event attribute: script-src is self alone', () => {
-    const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
+    const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script[^>]*>/gi)];
     assert.deepStrictEqual(scripts.map(m => /src="([^"]+)"/.exec(m[1])?.[1]), [manifest.files.bridge, manifest.files.stage]);
     assert.ok(scripts.every(m => m[2] === ''));
     assert.ok(!/\son[a-z]+\s*=/i.test(html));

@@ -165,7 +165,10 @@ test('hover: a changed function shows its slice, any other the fallback sentence
   await page.mouse.move(changed.x, changed.y, { steps: 5 });
   await expect(page.locator('.hover-card')).toContainText(fixture.sources[key].signature.slice(0, 20), { timeout: 5000 });
 
-  const other = await page.evaluate(`stageApi.nodes().find((n) => n.kind === 'function' && n.file.endsWith('.py') && !${JSON.stringify(Object.keys(fixture.sources))}.includes(n.file.replace('/repo/', '') + ':' + n.line) && n.file.startsWith('/repo/src/requests'))`) as { file: string; line: number };
+  const other = await page.evaluate((keys) => {
+    const w = window as unknown as { stageApi: any };
+    return w.stageApi.nodes().find((n: any) => n.kind === 'function' && n.file.endsWith('.py') && !keys.includes(n.file.replace('/repo/', '') + ':' + n.line) && n.file.startsWith('/repo/src/requests'));
+  }, Object.keys(fixture.sources)) as { file: string; line: number };
   await page.mouse.move(5, 5);
   const unchanged = await centreOn(page, other.file.replace('/repo/', ''), other.line);
   await page.mouse.move(unchanged.x, unchanged.y, { steps: 5 });

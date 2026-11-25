@@ -116,7 +116,7 @@ suite('ci headless api', function () {
     assert.deepStrictEqual(await api.git.commentPr(1, 'b'), none);
     await api.openExternal('https://example.com/');
     api.notify('hello');
-    assert.ok(logged.some(l => l.includes('example.com')) && logged.some(l => l.includes('hello')), logged.join('|'));
+    assert.ok(logged.includes('[ci] nothing opens in CI: https://example.com/') && logged.some(l => l.includes('hello')), logged.join('|'));
   });
 
   test('trees live under the work dir, the source mode is the caller\'s, and git is the only tool', async () => {

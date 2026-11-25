@@ -22,6 +22,7 @@ scripts/perf/.out/
 uxtest/.cache/
 uxtest/artifacts/
 uxtest/test-results/
+test/browser/test-results/
 /test-results/
 
 # c8 coverage output. 20 files under coverage/tmp/ were committed by accident in 7decb35;

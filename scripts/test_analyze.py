@@ -49,6 +49,51 @@ class TestCollectDefinitions(unittest.TestCase):
         self.assertEqual(defn['name'], 'my_func')
         self.assertEqual(defn['line'], 1)
 
+    def test_end_line(self):
+        """N1: a def carries the line it ends on, so a module-level line after it is not inside it."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'tax.py', """
+                VAT_RATE = 0.19
+
+
+                def vat(net):
+                    return net * VAT_RATE
+
+
+                def vat_for_lines(lines):
+                    total = 0
+                    return total
+
+                print(vat(1))
+            """)
+            defs = analyze.collect_definitions(d)
+        ends = {v['name']: (v['line'], v['endLine']) for v in defs.values()}
+        self.assertEqual(ends, {'vat': (4, 5), 'vat_for_lines': (8, 10)})
+
+    def test_start_line_of_decorators(self):
+        """F3: a decorated def starts at its first decorator; line and id stay the def line."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 't.py', """
+                import pytest
+
+
+                @pytest.mark.parametrize("n", [
+                    1, 2,
+                ])
+                @pytest.mark.slow
+                def test_n(n):
+                    assert n
+
+
+                def plain():
+                    pass
+            """)
+            defs = analyze.collect_definitions(d)
+        by = {v['name']: v for v in defs.values()}
+        self.assertEqual((by['test_n']['line'], by['test_n']['startLine'], by['test_n']['endLine']), (8, 4, 9))
+        self.assertTrue(by['test_n']['id'].endswith('::test_n::8'))
+        self.assertNotIn('startLine', by['plain'])
+
     def test_async_function(self):
         """async def is collected alongside regular def."""
         with tempfile.TemporaryDirectory() as d:
@@ -149,6 +194,46 @@ class TestCollectCalls(unittest.TestCase):
         self.assertEqual(len(caller_ids), 1)
         self.assertEqual(len(callee_ids), 1)
         self.assertIn({'source': caller_ids[0], 'target': callee_ids[0]}, edges)
+
+    def test_parameter_or_local_call_is_not_resolved_by_name(self):
+        """N7: vat_for_lines(lines, price_of) calls its parameter, not catalog.price_of."""
+        with tempfile.TemporaryDirectory() as d:
+            write_py(d, 'catalog.py', """
+                def price_of(item):
+                    return 1
+
+                def rate_for(item):
+                    return 0.19
+            """)
+            write_py(d, 'tax.py', """
+                from catalog import rate_for
+
+                def vat_for_lines(lines, price_of):
+                    fmt = str
+                    for item, qty in lines.items():
+                        total = price_of(item) * qty * rate_for(item)
+                    return fmt(total)
+
+                def uses_local(items):
+                    rate_for = lambda x: 0
+                    return rate_for(items)
+
+                def nested_still_resolves():
+                    def helper():
+                        return 1
+                    return helper()
+
+                def outer_calls_module(items):
+                    def inner():
+                        rate_for = 0
+                        return rate_for
+                    return rate_for(items)
+            """)
+            defs = analyze.collect_definitions(d)
+            edges, _ = analyze.collect_calls(d, defs)
+        name = {qid: v['name'] for qid, v in defs.items()}
+        pairs = sorted((name[e['source']], name[e['target']]) for e in edges if e['source'] in name and e['target'] in name)
+        self.assertEqual(pairs, [('nested_still_resolves', 'helper'), ('outer_calls_module', 'rate_for'), ('vat_for_lines', 'rate_for')])
 
     def test_self_method_call_edge(self):
         """self.method() inside a class produces an edge to the method."""

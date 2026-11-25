@@ -1,7 +1,7 @@
 // tsJsAnalyzer.js — the analyzer core shared by analyze_ts.js and analyze_js.js.
 'use strict';
 
-const { createNarrower, withStats, resolveThisCall } = require('./narrowCalls.js');
+const { createNarrower, withStats, resolveThisCall, nearestConstructors } = require('./narrowCalls.js');
 // Bare specifier so esbuild can inline it into the packaged bundle (dev runs
 // resolve it from the repo's node_modules via normal module resolution).
 const ts   = require('typescript');
@@ -28,6 +28,14 @@ function collectFiles(root, options) {
 function getLine(sourceFile, node) {
   return ts.getLineAndCharacterOfPosition(sourceFile, node.getStart(sourceFile)).line + 1;
 }
+
+/** The 1-based line of a node's last character: where a function ends, not where the next one starts. */
+function getEndLine(sourceFile, node) {
+  return ts.getLineAndCharacterOfPosition(sourceFile, node.getEnd()).line + 1;
+}
+
+// Listed files this run could not use, over both passes: they are missing from the graph, and the run says so.
+const notParsed = new Set();
 
 /**
  * Parses `filepath`, or null when it is unreadable or a component this analyzer
@@ -64,8 +72,8 @@ function collectDefinitions(files, options) {
     let sourceFile;
     try {
       sourceFile = parse(filepath, options);
-    } catch { continue; }
-    if (!sourceFile) continue;
+    } catch { notParsed.add(filepath); continue; }
+    if (!sourceFile) { notParsed.add(filepath); continue; }
 
     function visit(node) {
       try {
@@ -73,17 +81,17 @@ function collectDefinitions(files, options) {
           const name = node.name.text;
           const line = getLine(sourceFile, node);
           const id = `${filepath}::${name}::${line}`;
-          definitions[id] = { id, name, file: filepath, line, language };
+          definitions[id] = { id, name, file: filepath, line, endLine: getEndLine(sourceFile, node), language };
         } else if (ts.isMethodDeclaration(node) && ts.isClassDeclaration(node.parent) && node.name) {
           const name = node.name.getText(sourceFile);
           const line = getLine(sourceFile, node);
           const id = `${filepath}::${name}::${line}`;
-          definitions[id] = { id, name, file: filepath, line, language,
+          definitions[id] = { id, name, file: filepath, line, endLine: getEndLine(sourceFile, node), language,
                               ...classInfo(node.parent, sourceFile) };
         } else if (ts.isConstructorDeclaration(node) && ts.isClassDeclaration(node.parent)) {
           const line = getLine(sourceFile, node);
           const id = `${filepath}::constructor::${line}`;
-          definitions[id] = { id, name: 'constructor', file: filepath, line, language,
+          definitions[id] = { id, name: 'constructor', file: filepath, line, endLine: getEndLine(sourceFile, node), language,
                               ...classInfo(node.parent, sourceFile) };
         } else if ((ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node))
                    && ts.isClassDeclaration(node.parent) && node.name) {
@@ -91,7 +99,7 @@ function collectDefinitions(files, options) {
           const name = prefix + node.name.getText(sourceFile);
           const line = getLine(sourceFile, node);
           const id = `${filepath}::${name}::${line}`;
-          definitions[id] = { id, name, file: filepath, line, language,
+          definitions[id] = { id, name, file: filepath, line, endLine: getEndLine(sourceFile, node), language,
                               ...classInfo(node.parent, sourceFile) };
         } else if (ts.isVariableStatement(node)) {
           for (const decl of node.declarationList.declarations) {
@@ -100,14 +108,15 @@ function collectDefinitions(files, options) {
               const name = decl.name.text;
               const line = getLine(sourceFile, decl);
               const id = `${filepath}::${name}::${line}`;
-              definitions[id] = { id, name, file: filepath, line, language };
+              // The statement, so `};` closes it: a one-line arrow ends on its own line.
+              definitions[id] = { id, name, file: filepath, line, endLine: getEndLine(sourceFile, node), language };
             }
           }
         }
       } catch { /* skip malformed nodes */ }
       ts.forEachChild(node, visit);
     }
-    try { visit(sourceFile); } catch { continue; }
+    try { visit(sourceFile); } catch { notParsed.add(filepath); continue; }
   }
   return definitions;
 }
@@ -179,6 +188,46 @@ function collectImportMap(sourceFile, options) {
   return importMap;
 }
 
+/**
+ * Names bound inside a function: its parameters and those of nested functions, and
+ * its variable declarations (binding patterns included). Scope-blind on purpose: it
+ * only ever removes a `new X()` edge, so a name bound anywhere in the caller wins.
+ */
+function boundNames(funcNode) {
+  const names = new Set();
+  const addBinding = (name) => {
+    if (ts.isIdentifier(name)) { names.add(name.text); return; }
+    for (const el of name.elements ?? []) { if (!ts.isOmittedExpression(el)) addBinding(el.name); }
+  };
+  (function walk(node) {
+    if (ts.isParameter(node) || ts.isVariableDeclaration(node)) addBinding(node.name);
+    ts.forEachChild(node, walk);
+  })(funcNode);
+  return names;
+}
+
+/**
+ * N7: names a function binds to a value, so a bare call of one calls that value, not a workspace
+ * function of the same name. Parameters (destructured too) and variables, except a variable that
+ * holds an arrow or function expression: that is a definition of its own and resolves by name.
+ */
+function localValues(funcNode) {
+  const names = new Set();
+  const addBinding = (name) => {
+    if (ts.isIdentifier(name)) { names.add(name.text); return; }
+    for (const el of name.elements ?? []) { if (!ts.isOmittedExpression(el)) addBinding(el.name); }
+  };
+  (function walk(node) {
+    if (ts.isParameter(node)) addBinding(node.name);
+    else if (ts.isVariableDeclaration(node)) {
+      const fn = node.initializer && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer));
+      if (!(fn && ts.isIdentifier(node.name))) addBinding(node.name);
+    }
+    ts.forEachChild(node, walk);
+  })(funcNode);
+  return names;
+}
+
 function collectCalls(files, definitions, root, options) {
   const language = options.language;
   // D6: a name with more than 8 definitions is narrowed (file → directory →
@@ -194,24 +243,63 @@ function collectCalls(files, definitions, root, options) {
   const seenEdges = new Set();
   const libraryNodes = new Map();
 
+  /**
+   * Constructor edges. `new X(…)` runs X's declared constructor; `super(…)` inside a
+   * constructor runs the base class's. A class without one runs its base's (implicit
+   * constructor), so both take the nearest declared constructor up the `extends` chain,
+   * narrowed like a bare call (D6). No edge for `new a.X()`, `new (f())()`, a base named
+   * by an expression (`extends mix(A)`) or a class outside the workspace.
+   */
+  function constructorTargets(node, callerId, callerFile, localNames) {
+    let className = null;
+    if (ts.isNewExpression(node)) {
+      // `new Ctor()` on a parameter or local variable (`function make(Class) { new Class() }`)
+      // is a value, not the workspace class of that name.
+      if (ts.isIdentifier(node.expression) && !localNames().has(node.expression.text)) {
+        className = node.expression.text;
+      }
+    } else if (node.expression.kind === ts.SyntaxKind.SuperKeyword) {
+      const base = definitions[callerId].classExtends;
+      if (base && /^[A-Za-z_$][\w$]*$/.test(base)) className = base;
+    }
+    if (!className) return [];
+    const ctors = nearestConstructors(className, nameToIds.constructor, definitions);
+    return ctors.length ? narrower.narrow(ctors, callerFile) : [];
+  }
+
   for (const filepath of files) {
     let sourceFile;
     try {
       sourceFile = parse(filepath, options);
-    } catch { continue; }
-    if (!sourceFile) continue;
+    } catch { notParsed.add(filepath); continue; }
+    if (!sourceFile) { notParsed.add(filepath); continue; }
 
     const importMap = collectImportMap(sourceFile, options);
 
     function visitFunc(funcNode, callerId) {
+      let locals = null;
+      const localNames = () => (locals ??= boundNames(funcNode));
+      let values = null;
+      const valueNames = () => (values ??= localValues(funcNode));
       ts.forEachChild(funcNode, function walkCalls(node) {
         try {
-          if (ts.isCallExpression(node)) {
+          if (ts.isNewExpression(node) ||
+              (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.SuperKeyword)) {
+            // Static edges, unlike dynamic dispatch such as `discount.apply()`.
+            for (const calleeId of constructorTargets(node, callerId, filepath, localNames)) {
+              const key = `${callerId}|${calleeId}`;
+              if (!seenEdges.has(key) && callerId !== calleeId) {
+                seenEdges.add(key);
+                edges.push({ source: callerId, target: calleeId });
+              }
+            }
+          } else if (ts.isCallExpression(node)) {
             const callee = node.expression;
             let calleeName = null;
             let viaThis = false;
             if (ts.isIdentifier(callee)) {
-              calleeName = callee.text;
+              // N7: `priceOf(i)` where priceOf is a parameter or a local value calls that value.
+              calleeName = valueNames().has(callee.text) ? null : callee.text;
             } else if (ts.isPropertyAccessExpression(callee) &&
                        callee.expression.kind === ts.SyntaxKind.ThisKeyword) {
               // `this` is a ThisKeyword token, never an Identifier.
@@ -295,7 +383,7 @@ function collectCalls(files, definitions, root, options) {
       } catch { /* skip */ }
       ts.forEachChild(node, visit);
     }
-    try { visit(sourceFile); } catch { continue; }
+    try { visit(sourceFile); } catch { notParsed.add(filepath); continue; }
   }
   return { edges, libraryNodes: Array.from(libraryNodes.values()), stats: narrower.stats };
 }
@@ -310,7 +398,7 @@ function main(options) {
   const definitions = collectDefinitions(files, options);
   const { edges, libraryNodes, stats } = collectCalls(files, definitions, root, options);
   const nodes = [...Object.values(definitions), ...libraryNodes];
-  require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
+  require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats, notParsed.size));
 }
 
 module.exports = { isAnalyzedFile, collectFiles, collectDefinitions, collectCalls, main };

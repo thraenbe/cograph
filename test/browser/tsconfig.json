@@ -1,0 +1,5 @@
+{
+  "extends": "../../uxtest/tsconfig.json",
+  "include": ["*.ts"],
+  "exclude": ["test-results"]
+}

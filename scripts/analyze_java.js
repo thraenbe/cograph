@@ -43,6 +43,9 @@ let cstCacheSourceBudget = Number(process.env.COGRAPH_JAVA_CST_BUDGET) || 6 * 10
 function _setCstCacheBudget(bytes) { cstCacheSourceBudget = bytes; }
 let cachedSourceBytes = 0;
 
+// Files this run could not use, over both passes: they are missing from the graph, and the run says so.
+const notParsed = new Set();
+
 // Diagnostic/test counters: `parses` = actual parse() invocations (N for a run
 // over N files that fit the budget, up to 2N beyond it); `uncached` = parses
 // whose CST was not retained.
@@ -57,7 +60,7 @@ function getCst(filepath) {
     bytes = source.length;
     cst = parse(source);
     if (cst) _stats.parses++;
-  } catch { cst = null; }
+  } catch { cst = null; notParsed.add(filepath); }
   if (cachedSourceBytes + bytes <= cstCacheSourceBudget) {
     cachedSourceBytes += bytes;
     cstCache.set(filepath, cst ?? null);
@@ -212,7 +215,7 @@ function collectDefinitions(files) {
       const collector = new DefinitionCollector(filepath);
       collector.visit(cst);
       Object.assign(definitions, collector.definitions);
-    } catch { /* skip files that crash the visitor */ }
+    } catch { notParsed.add(filepath); /* skip files that crash the visitor */ }
     addFile(table, filepath, cst);
   }
   typeTables.set(definitions, table);
@@ -249,7 +252,7 @@ function collectExportInfo(files, sites) {
     try {
       const f = fileFacts(filepath, fs.readFileSync(filepath, 'utf8'), cst);
       classes.push(...f.classes); methods.push(...f.methods); literals.push(...f.literals); texts.push(...f.sites);
-    } catch { /* skip files that crash the walk, as the other passes do */ }
+    } catch { notParsed.add(filepath); /* skip files that crash the walk, as the other passes do */ }
   }
   return { classes, methods, literals, sites: joinSites(sites, texts) };
 }
@@ -268,7 +271,7 @@ function main() {
     const definitions = collectDefinitions(files);
     const { edges, libraryNodes, stats, sites } = collectCalls(files, definitions, root);
     const nodes = [...Object.values(definitions), ...libraryNodes];
-    const graph = withStats({ nodes, edges, files }, stats);
+    const graph = withStats({ nodes, edges, files }, stats, notParsed.size);
     if (process.argv.includes('--export-info')) { graph.exportInfo = collectExportInfo(files, sites); }
     require('./graphOutput.js').writeGraph(graph);
   } finally {

@@ -16,16 +16,32 @@ import ast
 import json
 import os
 import sys
+import warnings
+
+
+# Files that would not parse, whatever stopped the parser: they stay out of the graph, the language stays in it.
+NOT_PARSED: set[str] = set()
+
+
+def _parse_file(filepath: str):
+    """The file's AST, or None. One file must not end the run: deep code makes ast.parse raise
+    RecursionError or MemoryError, and a listed file can be gone."""
+    if filepath in NOT_PARSED:
+        return None
+    try:
+        with open(filepath, encoding='utf-8', errors='ignore') as fh:
+            return ast.parse(fh.read(), filename=filepath)
+    except Exception:
+        NOT_PARSED.add(filepath)
+        return None
 
 
 def collect_definitions(root: str) -> dict[str, dict]:
     """Walk all .py files and collect function definitions keyed by qualified id."""
     definitions = {}
     for filepath in _walk_py_files(root):
-        try:
-            source = open(filepath, encoding='utf-8', errors='ignore').read()
-            tree = ast.parse(source, filename=filepath)
-        except SyntaxError:
+        tree = _parse_file(filepath)
+        if tree is None:
             continue
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -35,6 +51,10 @@ def collect_definitions(root: str) -> dict[str, dict]:
                     'name': node.name,
                     'file': filepath,
                     'line': node.lineno,
+                    # Where the def ends (N1): a module-level line after the last def is not inside it.
+                    **({'endLine': node.end_lineno} if getattr(node, 'end_lineno', None) else {}),
+                    # Where its decorators begin (F3): decorators are code of the function.
+                    **({'startLine': min(d.lineno for d in node.decorator_list)} if node.decorator_list else {}),
                     'language': 'python',
                 }
     return definitions
@@ -111,10 +131,8 @@ def collect_calls(root: str, definitions: dict) -> tuple[list[dict], list[dict]]
     library_nodes: dict[str, dict] = {}
 
     for filepath in _walk_py_files(root):
-        try:
-            source = open(filepath, encoding='utf-8', errors='ignore').read()
-            tree = ast.parse(source, filename=filepath)
-        except SyntaxError:
+        tree = _parse_file(filepath)
+        if tree is None:
             continue
 
         import_map = collect_import_map(tree)
@@ -125,10 +143,14 @@ def collect_calls(root: str, definitions: dict) -> tuple[list[dict], list[dict]]
             caller_id = f"{filepath}::{func_node.name}::{func_node.lineno}"
             if caller_id not in definitions:
                 continue
+            values = _local_values(func_node)
             for child in ast.walk(func_node):
                 if not isinstance(child, ast.Call):
                     continue
                 callee_name = _bare_name(child.func) or _method_name(child.func)
+                # N7: a call of a parameter or a local value calls that value, not a function of the same name.
+                if isinstance(child.func, ast.Name) and callee_name in values:
+                    continue
                 if callee_name and callee_name in name_to_ids:
                     for callee_id in _narrow_candidates(name_to_ids[callee_name], filepath, definitions, root):
                         key = (caller_id, callee_id)
@@ -160,6 +182,29 @@ def _emit_library_edge(caller_id: str, lib_name: str, func_name: str, library_no
     if key not in seen_edges:
         seen_edges.add(key)
         edges.append({'source': caller_id, 'target': lib_id, 'isLibraryEdge': True})
+
+
+def _local_values(func_node: ast.AST) -> set[str]:
+    """Names a function binds to a value: its parameters and the targets of its own assignments,
+    loops, with/except clauses and walrus. Nested def/class bodies are their own scopes, and a nested
+    def or an import binds a function, so neither counts; a global or nonlocal name is not local."""
+    a = func_node.args
+    names = {x.arg for x in a.posonlyargs + a.args + a.kwonlyargs}
+    names.update(x.arg for x in (a.vararg, a.kwarg) if x is not None)
+    shared: set[str] = set()
+    todo = list(ast.iter_child_nodes(func_node))
+    while todo:
+        node = todo.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            shared.update(node.names)
+        todo.extend(ast.iter_child_nodes(node))
+    return names - shared
 
 
 def _bare_name(node: ast.expr) -> str | None:
@@ -200,6 +245,11 @@ def _is_skipped_dir(name: str) -> bool:
 _EXPLICIT_FILES = None
 
 
+def _is_inside_root(filepath: str, root: str) -> bool:
+    base = os.path.join(os.path.normcase(os.path.abspath(root)), '')
+    return os.path.normcase(os.path.abspath(filepath)).startswith(base)
+
+
 def _walk_py_files(root: str):
     """Yield .py file paths, skipping hidden directories and common non-source dirs."""
     if _EXPLICIT_FILES is not None:
@@ -226,10 +276,8 @@ def collect_entry_points(root: str, definitions: dict) -> list[str]:
     found: set[str] = set()
 
     for filepath in _walk_py_files(root):
-        try:
-            source = open(filepath, encoding='utf-8', errors='ignore').read()
-            tree = ast.parse(source, filename=filepath)
-        except SyntaxError:
+        tree = _parse_file(filepath)
+        if tree is None:
             continue
 
         for node in tree.body:
@@ -239,7 +287,7 @@ def collect_entry_points(root: str, definitions: dict) -> list[str]:
             elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
                 _collect_calls_in_stmt(node, name_to_ids, found, filepath, definitions, root)
 
-    return list(found)
+    return sorted(found)  # a set's order changes per process, and two runs of one tree must match
 
 
 def _is_main_guard(node: ast.stmt) -> bool:
@@ -271,8 +319,24 @@ def _collect_calls_in_stmt(stmt: ast.stmt, name_to_ids: dict, found: set,
                     found.add(qid)
 
 
+def _limit_memory() -> None:
+    """A CI run caps this process, since a 24 MB file of one-line functions costs 4 GB. Past the
+    cap ast.parse raises MemoryError, which costs that one file (_parse_file)."""
+    megabytes = os.environ.get('COGRAPH_PYTHON_MEMORY_MB')
+    if not megabytes:
+        return
+    try:
+        import resource  # not on Windows
+        resource.setrlimit(resource.RLIMIT_AS, (int(megabytes) * 1024 * 1024, resource.getrlimit(resource.RLIMIT_AS)[1]))
+    except (ImportError, ValueError, OSError) as err:
+        print(f'No memory limit: {err}', file=sys.stderr)
+
+
 def main():
     global _EXPLICIT_FILES
+    _limit_memory()
+    # A SyntaxWarning prints its whole source line, once per string literal: 1.5 GB of stderr from a 50 KB line.
+    warnings.simplefilter('ignore')
     if len(sys.argv) < 2:
         print('Usage: analyze.py <workspace_root> [--files <listpath>]', file=sys.stderr)
         sys.exit(1)
@@ -289,6 +353,14 @@ def main():
                 _EXPLICIT_FILES = []
 
     root = sys.argv[1]
+    if _EXPLICIT_FILES is not None:
+        # The list is one path per line, and a repository picks its file names: a listed path
+        # outside the root is refused before anything reads it.
+        inside = [f for f in _EXPLICIT_FILES if _is_inside_root(f, root)]
+        if len(inside) < len(_EXPLICIT_FILES):
+            print(f'Refused {len(_EXPLICIT_FILES) - len(inside)} listed paths outside the root', file=sys.stderr)
+        _EXPLICIT_FILES = inside
+
     definitions = collect_definitions(root)
     edges, library_nodes = collect_calls(root, definitions)
     entry_point_ids = collect_entry_points(root, definitions)
@@ -302,10 +374,12 @@ def main():
     nodes.extend(library_nodes)
     all_files = list(_walk_py_files(root))
     graph = {'nodes': nodes, 'edges': edges, 'files': all_files}
-    # Counters only when something was narrowed/dropped: otherwise the output
-    # stays byte-identical to the pre-D6 format.
-    if NARROW_STATS['ambiguousNarrowed'] or NARROW_STATS['ambiguousDropped']:
+    # Counters only when something was narrowed/dropped or not parsed: otherwise
+    # the output stays byte-identical to the pre-D6 format.
+    if NARROW_STATS['ambiguousNarrowed'] or NARROW_STATS['ambiguousDropped'] or NOT_PARSED:
         graph['stats'] = dict(NARROW_STATS)
+        if NOT_PARSED:
+            graph['stats']['filesNotParsed'] = len(NOT_PARSED)
     print(json.dumps(graph))
 
 

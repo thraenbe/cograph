@@ -33,6 +33,7 @@ const VCS_CSS = `
   .vcs-num { color: var(--vscode-descriptionForeground, #888); font-variant-numeric: tabular-nums; flex: none; }
   .vcs-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vcs-check { flex: none; font-size: 11px; }
+  .vcs-tour { flex: none; font-size: 10px; padding: 0 6px; line-height: 16px; }
   .vcs-check.pass { color: #4caf50; } .vcs-check.fail { color: #e5534b; } .vcs-check.pending { color: #d29922; }
   .vcs-meta {
     margin-top: 2px; font-size: 11px; color: var(--vscode-descriptionForeground, #888);
@@ -202,6 +203,15 @@ function mountVcsPane(doc, mount, post, wire) {
     return n;
   }
 
+  /** The PR tour (src/tour): opens in the browser; hidden in builds without it. */
+  function tourButton(pr, cls, disabled) {
+    const b = button(cls, 'Tour', 'Take the guided tour of this pull request in your browser',
+      () => post({ type: 'vcs-tour', number: pr.number }));
+    b.disabled = !!disabled;
+    if (disabled) { b.title = 'Wait until the pull request has opened.'; }
+    return b;
+  }
+
   function detailBlock(pr) {
     const box = el('div', 'vcs-detail');
     box.addEventListener('click', (e) => e.stopPropagation());
@@ -214,6 +224,7 @@ function mountVcsPane(doc, mount, post, wire) {
     if (pr.url) {
       actions.appendChild(button('vcs-btn', 'Open on GitHub', pr.url, () => post({ type: 'vcs-browse', number: pr.number })));
     }
+    if (state.tourAvailable) { actions.appendChild(tourButton(pr, 'vcs-btn', state.opening !== null)); }
     box.appendChild(actions);
     if (detail && detail.diff && detail.diff.removed.length) {
       // Removed functions have no node in the head: this list is the only place they appear.
@@ -265,6 +276,7 @@ function mountVcsPane(doc, mount, post, wire) {
       check.title = VCS_CHECK_TITLE[pr.checks];
       top.appendChild(check);
     }
+    if (state.tourAvailable) { top.appendChild(tourButton(pr, 'vcs-btn primary vcs-tour', busy)); }
     card.appendChild(top);
 
     const meta = el('div', 'vcs-meta');

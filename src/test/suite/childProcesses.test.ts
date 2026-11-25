@@ -22,6 +22,20 @@ suite('child processes are ended on deactivate (childProcesses)', () => {
     assert.strictEqual(runningChildCount(), 0);
   });
 
+  test('a streaming defaultExec child (onStdout) is registered and killRunningChildren ends it', async () => {
+    const before = runningChildCount();
+    const chunks: Buffer[] = [];
+    const pending = defaultExec(process.execPath, ['-e', 'process.stdout.write("x"); setTimeout(() => {}, 60000)'], os.tmpdir(),
+      { env: NODE_ENV, timeoutMs: 60000, onStdout: (c) => { chunks.push(c); } });
+    assert.strictEqual(runningChildCount(), before + 1, 'the streaming path registers its child');
+    const t0 = Date.now();
+    assert.strictEqual(killRunningChildren(), before + 1);
+    const res = await pending;
+    assert.strictEqual(res.code, null, 'killed, not exited on its own');
+    assert.ok(Date.now() - t0 < 5000, `ended at once (took ${Date.now() - t0} ms)`);
+    assert.strictEqual(runningChildCount(), 0);
+  });
+
   test('a child that exited is forgotten and never signalled', async () => {
     const res = await defaultExec(process.execPath, ['-e', ''], os.tmpdir(), { env: NODE_ENV });
     assert.strictEqual(res.code, 0);

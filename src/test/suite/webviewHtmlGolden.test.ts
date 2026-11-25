@@ -11,6 +11,10 @@ import { getWebviewHtml, WebviewHtmlOptions } from '../../webviewHtmlBuilder';
 // template moved to stagePage.ts, so that move had to leave every one of them alone. Changing the page
 // on purpose changes a hash here too: the assertion prints the new value, and the diff that needs
 // reviewing is the template's, not this table.
+// Changed on purpose twice since: stageLabels.js before stageApi.js (tour pin), and main 1.4.4's page
+// merged in (legend, search bar, Settings without Filters, xfileGlyph.js, searchBar.js, pinnedCards.js).
+// Checked then: main's panel page is kept whole; the merge only adds the tour line's tour pill, Open in
+// browser, stageLabels.js and stageApi.js.
 
 const inject: WebviewHtmlOptions['inject'] = (nonce) => ({
   head: '<style>/* head */</style>',
@@ -36,13 +40,13 @@ interface Variant {
 }
 
 const VARIANTS: Variant[] = [
-  { name: 'panel, unbundled', options: {}, bundled: false, sha256: '52d08d12ff72be6dea9d57de4f5511c9cd69ae7abc81388d0a42713f90460b01' },
-  { name: 'panel, bundled', options: {}, bundled: true, sha256: 'ec1a8547a30d98bf0b2b89602261d853998520365ff5df43567e8374782a5d3c' },
-  { name: 'panel, every setting off its default', options: {}, bundled: true, settings: OTHER_SETTINGS, sha256: '1843e7070d6dca094f1199e0a6185302b664cc6c44aae126d3e2d01bc29ecebb' },
-  { name: 'timeline panel', options: { timelineMode: true }, bundled: true, sha256: '4039a115eff5eb8f6053dfdc022f66f609cc3c52518b3706951090125a630769' },
-  { name: 'browser tab, dark, injected tags', options: { transport: 'browser', theme: 'dark', inject }, bundled: true, sha256: '39b6edd3ec48d5ac9a82f34b42afaa9957667633cbcd4f72481190e7fbf5e971' },
-  { name: 'browser tab, light, unbundled', options: { transport: 'browser', theme: 'light', inject }, bundled: false, sha256: '6a6261a8fe1a76f7aa457bef38d30919e1e98c2f7462d5aaf86fcf9667f3e34f' },
-  { name: 'browser tab, no theme given', options: { transport: 'browser' }, bundled: true, sha256: '727154f8b5e6b27984c9e709530c1e0d4c676d30d1d6a95a66935a0c43f821dd' },
+  { name: 'panel, unbundled', options: {}, bundled: false, sha256: '297fd802941d899cb0e528f98fe902abe062d314dafe05d2c5163cea679a475a' },
+  { name: 'panel, bundled', options: {}, bundled: true, sha256: '73c48a93b0ab400a6d2c6e522402312a0d69470af4e51c4fe64b46f22283ffbc' },
+  { name: 'panel, every setting off its default', options: {}, bundled: true, settings: OTHER_SETTINGS, sha256: 'a2287a19591b35813fb2017b38039edb87643adc27e9634dd63ebfce5ee53e04' },
+  { name: 'timeline panel', options: { timelineMode: true }, bundled: true, sha256: '5cc1064265a645a9fac65428c4917fe80170828f1944f469a26a2ae0fcb9637e' },
+  { name: 'browser tab, dark, injected tags', options: { transport: 'browser', theme: 'dark', inject }, bundled: true, sha256: '1e1e9e9d120287b1653361814892e94e2f1b844f9a60bc763780f093d82e30ba' },
+  { name: 'browser tab, light, unbundled', options: { transport: 'browser', theme: 'light', inject }, bundled: false, sha256: '2083ed9da620a9c5c09a41dafb7c27ccf55b46850fd39acdb5d2a3c729156830' },
+  { name: 'browser tab, no theme given', options: { transport: 'browser' }, bundled: true, sha256: '6d83f926c3a17789ee9a342e5e10028cd079ea45277c20c9db95ed9ab3852f6d' },
 ];
 
 suite('webview HTML: byte-identical page', () => {

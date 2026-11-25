@@ -5,8 +5,10 @@ import * as path from 'path';
 
 // Constructor edges (tour review B2): `new X(…)` → X's declared constructor and
 // `super(…)` / a C++ base initializer → the base class's constructor, in the
-// TS, JS and C++ analyzers (Java stays as on feat/ci-tour-base). A class that declares no constructor runs its
-// nearest base's (implicit constructor).
+// TS, JS and C++ analyzers. A class that declares no constructor runs its nearest base's (implicit
+// constructor). Java's constructor edges come from its type resolver (javaResolve.js, main 1.4.4), which
+// picks the overload by argument types and links no implicit or anonymous-class constructor: the Java
+// suite below pins that on the same shape (analyzeJavaResolve.test.ts covers the resolver itself).
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const tsAnalyzer = require('../../../scripts/analyze_ts.js');
@@ -131,6 +133,43 @@ suite('constructor edges — JavaScript', () => {
     test('same code, same graph', () => {
       const first = edgesOf(jsAnalyzer, dir(), 'discounts.js', discounts);
       assert.deepStrictEqual(edgesOf(jsAnalyzer, dir(), 'discounts.js', discounts), first);
+    });
+  });
+});
+
+suite('constructor edges — Java (type resolver)', () => {
+  withTmp('cograph-ctor-java-', (dir) => {
+    test('new and super(…) link the declared constructor; implicit and anonymous ones get no edge', () => {
+      const edges = edgesOf(javaAnalyzer, dir(), 'Shop.java', [
+        'package shop;',
+        'class Discount { Discount(String l) {} double apply(double t) { return t; } }',
+        'class PercentOff extends Discount {',
+        '  PercentOff(int p) { super("x"); }',
+        '}',
+        'class Plain extends Discount { double apply(double t) { return t; } }',
+        'class Shop {',
+        '  Discount a() { return new PercentOff(10); }',
+        '  Discount b() { return new shop.Plain(); }',
+        '  Discount c() { return new Discount("y") { }; }',
+        '  Object d() { return new java.util.ArrayList<String>(); }',
+        '}',
+      ].join('\n'));
+      assert.deepStrictEqual(edges, [
+        'PercentOff.constructor@4 -> Discount.constructor@2',
+        'Shop.a@8 -> PercentOff.constructor@4',
+        'Shop.d@11 -> library::java.util.ArrayList::<init>',
+      ]);
+    });
+
+    test('arguments of new are still walked for calls', () => {
+      const edges = edgesOf(javaAnalyzer, dir(), 'Args.java', [
+        'class Box { Box(int n) {} }',
+        'class Use {',
+        '  int size() { return 1; }',
+        '  Box make() { return new Box(size()); }',
+        '}',
+      ].join('\n'));
+      assert.deepStrictEqual(edges, ['Use.make@4 -> Box.constructor@1', 'Use.make@4 -> Use.size@3']);
     });
   });
 });

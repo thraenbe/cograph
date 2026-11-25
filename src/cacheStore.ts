@@ -10,7 +10,13 @@ import type { StructureTree } from './structureScanner';
  * All operations are best-effort — a cache problem must never break the graph.
  */
 
-const SCHEMA_VERSION = 1;
+/**
+ * Bumped whenever the analyzers' output changes for unchanged files, so an upgrade re-analyses the
+ * workspace once instead of mixing old and new edges file by file. 2: constructor edges (TS/JS/C++),
+ * endLine / startLine and owned ranges, no by-name edge for a parameter or local value call, and
+ * main 1.4.4's Java type resolver (whose 1.4.4 caches still held the by-name Java edges).
+ */
+export const SCHEMA_VERSION = 2;
 const CACHE_DIR = '.cograph';
 const CACHE_FILE = 'graph-cache.json';
 

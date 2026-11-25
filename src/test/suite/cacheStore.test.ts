@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { scanStructure } from '../../structureScanner';
-import { loadCache, writeCache, writeCacheAsync, scheduleCacheWrite, flushCacheWrites } from '../../cacheStore';
+import { loadCache, SCHEMA_VERSION, writeCache, writeCacheAsync, scheduleCacheWrite, flushCacheWrites } from '../../cacheStore';
 
 const NODE = (file: string) => ({ id: 'n', name: 'n', file, line: 1 });
 function graphWith(file: string) {
@@ -87,6 +87,17 @@ suite('cacheStore', () => {
       path.join(tmp, '.cograph', 'graph-cache.json'),
       JSON.stringify({ schemaVersion: 999, savedAt: '', manifest: {}, graph: { nodes: [], edges: [] } }),
     );
+    assert.strictEqual(loadCache(tmp, structure), null);
+  });
+
+  test('a cache from the previous analyzers (schema 1) → null, so the workspace is analysed again', () => {
+    const structure = setupRepo();
+    fs.mkdirSync(path.join(tmp, '.cograph'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, '.cograph', 'graph-cache.json'),
+      JSON.stringify({ schemaVersion: 1, savedAt: '', manifest: {}, graph: { nodes: [{ id: 'x' }], edges: [] } }),
+    );
+    assert.ok(SCHEMA_VERSION >= 2);
     assert.strictEqual(loadCache(tmp, structure), null);
   });
 

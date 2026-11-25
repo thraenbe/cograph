@@ -53,6 +53,8 @@ function createTreeSitterSession(grammarWasm) {
   const treeCache = new Map(); // filepath -> Tree | null
   // Diagnostic/test counter: a run over N files should report N parses, not 2N.
   const stats = { parses: 0 };
+  // Files this run could not use, over both passes: missing from the graph, and the run says so.
+  const notParsed = new Set();
 
   async function init() {
     if (parser) { return parser; }
@@ -70,6 +72,7 @@ function createTreeSitterSession(grammarWasm) {
       tree = parser.parse(fs.readFileSync(filepath, 'utf8'));
       if (tree) { stats.parses++; }
     } catch { tree = null; }
+    if (!tree) { notParsed.add(filepath); }
     treeCache.set(filepath, tree ?? null);
     return tree ?? null;
   }
@@ -82,7 +85,7 @@ function createTreeSitterSession(grammarWasm) {
     treeCache.clear();
   }
 
-  return { init, getTree, clearTreeCache, stats };
+  return { init, getTree, clearTreeCache, stats, notParsed };
 }
 
 // ── Files ────────────────────────────────────────────────────────────────────

@@ -40,6 +40,8 @@ export interface VcsStateMessage {
   detail: VcsDetail | null;
   /** Why the last clicked pull request could not be opened. */
   openProblem: { number: number; problem: PrProblem } | null;
+  /** The PR tour is in this build: each row and the open card get a Tour button. */
+  tourAvailable: boolean;
 }
 
 export interface VcsSidebarDeps {
@@ -47,6 +49,9 @@ export interface VcsSidebarDeps {
   /** Open a terminal with `command` typed but not run. */
   openTerminal: (command: string) => void;
   now?: () => Date;
+  /** The PR tour (src/tour): absent or returning false in the public build, so no Tour button shows. */
+  tourAvailable?: () => boolean;
+  tour?: (pr: PullRequest) => void;
 }
 
 /** The "fix it" button of a problem row; kinds without an entry only offer Retry. */
@@ -75,6 +80,7 @@ export class VcsSidebar {
   private openProblem: { number: number; problem: PrProblem } | null = null;
   private activePr: PullRequest | null = null;
   private loadSeq = 0;
+  private readonly loadedListeners = new Set<() => void>();
 
   constructor(private readonly controller: PrController, private readonly deps: VcsSidebarDeps) {
     controller.onActiveChange((active) => {
@@ -83,6 +89,17 @@ export class VcsSidebar {
       if (active === null) { this.activePr = null; }
       this.push();
     });
+  }
+
+  /** The pull requests last loaded (the tour pill looks for HEAD's here: no extra network call). */
+  loadedPullRequests(): PullRequest[] {
+    return this.pullRequests;
+  }
+
+  /** Called after every successful load of the list. */
+  onLoaded(listener: () => void): { dispose(): void } {
+    this.loadedListeners.add(listener);
+    return { dispose: () => this.loadedListeners.delete(listener) };
   }
 
   /** Connect the pane's webview; `null` when the view is disposed. */
@@ -122,6 +139,13 @@ export class VcsSidebar {
         if (/^https:\/\//i.test(url)) { this.deps.openExternal(url); }
         break;
       }
+      case 'vcs-tour': {
+        // The record comes from the loaded list (or the open card), never from the webview.
+        const n = Number(msg.number);
+        const pr = this.find(n) ?? (this.activePr?.number === n ? this.activePr : undefined);
+        if (pr && this.deps.tourAvailable?.()) { this.deps.tour?.(pr); }
+        break;
+      }
       case 'vcs-fix':
         if (this.problem) { FIXES[this.problem.kind]?.run(this.deps, this.problem); }
         break;
@@ -155,6 +179,7 @@ export class VcsSidebar {
       this.pullRequests = result.pullRequests;
       this.truncated = result.truncated;
       this.fetchedAt = (this.deps.now?.() ?? new Date()).toISOString();
+      for (const l of [...this.loadedListeners]) { l(); }
     } else {
       this.problem = result.problem;
       this.pullRequests = [];
@@ -202,6 +227,7 @@ export class VcsSidebar {
       opening: this.opening,
       detail: this.detail,
       openProblem: this.openProblem,
+      tourAvailable: !!this.deps.tourAvailable?.(),
     };
   }
 

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { loadRepo } from '../lib/corpus';
-import { annotationsFixture, gitFixture, timelineEntries, v1Payload } from '../lib/fixtures';
+import { annotationsFixture, gitFixture, prFixture, timelineEntries, v1Payload } from '../lib/fixtures';
+import type { AnalyzedRepo } from '../lib/analyze';
 
 test('fixtures derive deterministic host data from a repo', async () => {
   const repo = await loadRepo('synthetic-1k');
@@ -21,4 +22,14 @@ test('fixtures derive deterministic host data from a repo', async () => {
   const git = gitFixture(repo);
   expect(git.gitAvailable).toBe(true);
   expect(Object.keys(git.fileGitStatus)).toHaveLength(4);
+});
+
+test('prFixture opens the folders under the keys the tree has: native separators on Windows', () => {
+  const files = ['C:\\r\\src\\a.ts', 'C:\\r\\src\\b.ts', 'C:\\r\\lib\\c.ts'];
+  const repo = {
+    root: 'C:\\r',
+    graph: { nodes: files.map((file, i) => ({ id: String(i), file, line: 1 })), edges: [] },
+    structure: { root: 'C:\\r', folders: { 'C:\\r': {}, 'C:\\r\\src': {}, 'C:\\r\\lib': {} }, files: [], totalFiles: 3 },
+  } as unknown as AnalyzedRepo;
+  expect(prFixture(repo).expand).toEqual(['C:\\r', 'C:\\r\\lib', 'C:\\r\\src']);
 });

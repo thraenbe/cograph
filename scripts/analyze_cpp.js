@@ -23,7 +23,7 @@
 'use strict';
 
 const path = require('path');
-const { createNarrower, withStats } = require('./narrowCalls.js');
+const { createNarrower, withStats, nearestConstructors } = require('./narrowCalls.js');
 const { collectSourceFiles, explicitFileList } = require('./sourceFiles.js');
 const {
   createTreeSitterSession, isCFamilyFile, splitCFamilyFiles,
@@ -37,7 +37,7 @@ const GRAMMAR_WASM = path.join(__dirname, 'tree-sitter-cpp.wasm');
 // collectDefinitions / collectCalls; `clearTreeCache()` frees the WASM trees
 // once an analysis run completes.
 const session = createTreeSitterSession(GRAMMAR_WASM);
-const { init, getTree, clearTreeCache } = session;
+const { init, getTree, clearTreeCache, notParsed } = session;
 const _stats = session.stats;
 
 /** The C++ files of a workspace: a standalone walk, minus the headers C owns. */
@@ -279,7 +279,7 @@ function collectDefinitions(files) {
     if (!tree) { continue; }
     try {
       collectDefinitionsFromTree(tree.rootNode, filepath, definitions);
-    } catch { /* skip files that crash the walker */ }
+    } catch { notParsed.add(filepath); /* skip files that crash the walker */ }
   }
   pruneRedundantDeclarations(definitions);
   return definitions;
@@ -420,6 +420,35 @@ function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, import
     }
   }
 
+  /** Declared constructors that run for class `className` (nearest base when it declares none). */
+  function addConstructorEdges(className) {
+    if (!className || !currentCaller()) return;
+    const ctors = nearestConstructors(className, nameToIds.constructor, definitions);
+    if (ctors.length) for (const id of narrow(ctors)) addEdge(id, false);
+  }
+
+  /** `new X(…)`, `new ns::X<T>{…}`: X's constructor. Stack objects and temporaries add no edge. */
+  function handleNew(newExpr) {
+    let type = newExpr.childForFieldName('type');
+    if (type && type.type === 'qualified_identifier') {
+      while (type && type.type === 'qualified_identifier') type = type.childForFieldName('name');
+    }
+    if (type && type.type === 'template_type') type = type.childForFieldName('name');
+    if (type && type.type === 'type_identifier') addConstructorEdges(type.text);
+  }
+
+  /** `D(int x) : B(x) {}`: a base-class initializer runs that base's constructor. */
+  function handleBaseInitializers(funcDef) {
+    const caller = definitions[currentCaller()];
+    if (!caller || caller.name !== 'constructor') return;
+    const bases = new Set([caller.classExtends, ...(caller.classImplements ?? [])].filter(Boolean));
+    const list = funcDef.namedChildren.find(c => c.type === 'field_initializer_list');
+    for (const init of (list ? list.namedChildren : [])) {
+      const field = init.namedChildren[0];
+      if (field && bases.has(field.text)) addConstructorEdges(field.text);
+    }
+  }
+
   function visit(node) {
     const t = node.type;
 
@@ -437,10 +466,15 @@ function collectCallsFromTree(rootNode, filepath, definitions, nameToIds, import
       const funcDecl = findFunctionDeclarator(node.childForFieldName('declarator'));
       const pushed = funcDecl ? pushCallerForFn(funcDecl) : false;
       try {
+        if (pushed) handleBaseInitializers(node);
         const body = node.childForFieldName('body');
         if (body) for (const c of body.namedChildren) visit(c);
       } finally { if (pushed) callerStack.pop(); }
       return;
+    }
+
+    if (t === 'new_expression') {
+      try { handleNew(node); } catch { /* skip malformed new */ }
     }
 
     if (t === 'call_expression') {
@@ -474,7 +508,7 @@ function collectCalls(files, definitions, root) {
       const importMap = parseImports(tree.rootNode);
       collectCallsFromTree(tree.rootNode, filepath, definitions, nameToIds, importMap,
                            edges, seenEdges, libraryNodes, narrower.narrow);
-    } catch { /* skip files that crash the walker */ }
+    } catch { notParsed.add(filepath); /* skip files that crash the walker */ }
   }
   return { edges, libraryNodes: Array.from(libraryNodes.values()), stats: narrower.stats };
 }
@@ -496,7 +530,7 @@ async function main() {
     const definitions = collectDefinitions(files);
     const { edges, libraryNodes, stats } = collectCalls(files, definitions, root);
     const nodes = [...Object.values(definitions), ...libraryNodes];
-    require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats));
+    require('./graphOutput.js').writeGraph(withStats({ nodes, edges, files }, stats, notParsed.size));
   } finally {
     clearTreeCache(); // free all cached WASM trees
   }

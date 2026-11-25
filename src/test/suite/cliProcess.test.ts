@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import { EventEmitter } from 'events';
-import { runCliStream, ensureCliBinary } from '../../graphIntelligence/cliProcess';
+import { runCliStream, ensureCliBinary, STDERR_TAIL_BYTES } from '../../graphIntelligence/cliProcess';
 import { ClaudeCodeProvider, buildJsonArgs, JSON_CALL_ENV } from '../../graphIntelligence/claudeCodeProvider';
 import { CodexCliProvider, buildCodexJsonArgs, buildCodexJsonPrompt } from '../../graphIntelligence/codexCliProvider';
 import { extractJsonObject } from '../../graphIntelligence/jsonRepair';
@@ -97,6 +97,46 @@ suite('cliProcess.runCliStream', () => {
     const p = runCliStream(baseOpts());
     proc.emit('close', 2);
     await assert.rejects(p, /Tool exited with code 2\./);
+  });
+
+  test('a non-zero exit carries the last 4 KB of stderr as err.stderr; the message is unchanged', async () => {
+    const p = runCliStream(baseOpts());
+    proc.stderr.emit('data', Buffer.from('x'.repeat(5000)));
+    proc.stderr.emit('data', Buffer.from('\nError: credit balance is too low'));
+    proc.emit('close', 1);
+    const err = await p.then(() => null, (e: Error & { stderr?: string }) => e);
+    assert.strictEqual(err?.message, 'Tool exited with code 1.');
+    assert.strictEqual(err?.stderr?.length, STDERR_TAIL_BYTES);
+    assert.ok(err?.stderr?.endsWith('\nError: credit balance is too low'), 'the end is what says why');
+    const quiet = makeFakeProc();
+    spawn.returns(quiet);
+    const q = runCliStream(baseOpts());
+    quiet.emit('close', 3);
+    assert.strictEqual(((await q.then(() => null, (e: Error & { stderr?: string }) => e)) as { stderr?: string }).stderr, '', 'nothing on stderr: an empty tail');
+  });
+
+  test('REGRESSION: a character split across two chunks survives, on stdout, on stderr and in err.stderr', async () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const p = runCliStream(baseOpts({ onStdout: t => out.push(t), onStderr: t => err.push(t) }));
+    const text = Buffer.from('prüfe€');
+    for (const stream of [proc.stdout, proc.stderr]) {
+      stream.emit('data', text.subarray(0, 8)); // inside the three bytes of the euro sign
+      stream.emit('data', text.subarray(8));
+    }
+    proc.emit('close', 1);
+    await assert.rejects(p, (e: Error & { stderr: string }) => e.stderr === 'prüfe€');
+    assert.strictEqual(out.join(''), 'prüfe€');
+    assert.strictEqual(err.join(''), 'prüfe€');
+  });
+
+  test('bytes still held at the end come out before onEnd, as the replacement character they are', async () => {
+    const order: string[] = [];
+    const p = runCliStream(baseOpts({ onStdout: t => order.push(`out:${t}`), onEnd: () => order.push('end') }));
+    proc.stdout.emit('data', Buffer.from('€').subarray(0, 2));
+    proc.emit('close', 0);
+    await p;
+    assert.deepStrictEqual(order.filter(x => x !== 'out:'), ['out:\ufffd', 'end']);
   });
 
   test('rejects when the process cannot start', async () => {

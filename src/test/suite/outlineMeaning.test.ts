@@ -250,9 +250,10 @@ suite('F1 outline meaning: CSS and wiring', () => {
     assert.ok(rd.includes("registerXfileCue('global', nodeG") && rd.includes("writeXfileCue('global')"));
     assert.ok(rd.includes('resetXfileCues(visibleSet)'));
     assert.ok(read('src/webview/main.js').includes('refreshXfileCues(visibleSet)'));
-    const html = read('src/webviewHtmlBuilder.ts');
-    assert.ok(html.includes("'xfileGlyph.js'") && html.includes('${xfileGlyphUri}'));
-    assert.ok(html.indexOf('${xfileGlyphUri}') < html.indexOf('${frameRenderUri}?v'), 'loaded before the renderers call it at run time');
+    // The stage's scripts are one list in load order (stagePage.ts), shared by the panel, the browser tab and the static page.
+    const page = read('src/stagePage.ts');
+    assert.ok(page.includes("'xfileGlyph.js'"));
+    assert.ok(page.indexOf("'xfileGlyph.js'") < page.indexOf("'frameRender.js'"), 'loaded before the renderers call it at run time');
   });
 });
 
@@ -301,7 +302,7 @@ suite('F1 outline meaning: legend', () => {
 
   test('the ↗ sample is the canvas geometry, and the legend is in the Folder panel with a toggle', () => {
     assert.ok(SHAPES_LEGEND_HTML.includes(xg.xfileArrowD(6, 16, 10)));
-    const html = read('src/webviewHtmlBuilder.ts');
+    const html = read('src/stageMarkup.ts');
     const folder = html.slice(html.indexOf('id="panel-folder"'), html.indexOf('id="panel-forces"'));
     assert.ok(folder.includes('${SHAPES_LEGEND_HTML}'));
     assert.ok(read('src/webview/controls.js').includes("wireLegendToggle('toggle-shapes-legend', 'shapes-legend-body')"));

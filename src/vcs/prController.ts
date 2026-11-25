@@ -4,23 +4,30 @@ import type { FileStatus, GitStatusOverride } from '../gitService';
 import type { StructureTree } from '../structureScanner';
 import type { ScopeSpec } from '../subgraphScope';
 import { statusesFromDiff } from './engine/diffStatuses';
-import { diffGraphs } from './engine/graphDiff';
 import type { StructuralDiff } from './engine/graphDiff';
-import { DEFAULT_BUDGET, HeadTreeError, branchRefs, evictTrees, fetchBranch, fetchPullRequestHead, githubRemote, lockTree, materializeCommit, mergeBase, pullRequestRefs, unlockTree } from './engine/headTree';
+import { DEFAULT_BUDGET, HeadTreeError, evictTrees, lockTree, unlockTree } from './engine/headTree';
 import type { TreeBudget } from './engine/headTree';
-import { analyzeTreeCached } from './engine/treeAnalysis';
 import { flushCacheWrites } from '../cacheStore';
-import type { AnalyzedTree, TreeAnalyzer } from './engine/treeAnalysis';
+import type { TreeAnalyzer } from './engine/treeAnalysis';
+import type { TourProgress, TourTarget, TourTrees } from '../tour/tourApi';
+import { analysePullRequest, materializeBaseWithGit, materializeHeadWithGit, prepareTourTrees } from './tourTrees';
+import type { MaterializeBase, MaterializeHead } from './tourTrees';
 import { defaultExec } from './ghCliSource';
 import type { Exec } from './ghCliSource';
 import { buildPrView, gitBlobSha, prViewName } from './prView';
 import type { PrViewCounts, PrViewFile, UnchangedFolders } from './prView';
 import type { PrFile, PrFileStatus, PrListOptions, PrListResult, PrProblem, PullRequest, PullRequestSource } from './types';
 
+export { materializeBaseWithGit, materializeHeadWithGit } from './tourTrees';
+export type { MaterializeBase, MaterializeHead } from './tourTrees';
+
 /** Which tree a pull-request view shows. The panel title and the banner always say. */
 export type PrTree =
   | { kind: 'checkout'; branch: string }
   | { kind: 'head'; sha: string; base?: string };
+
+/** A tour of the checked-out branch (src/tour): its last commit, copied like a PR head. */
+export interface BranchTree { kind: 'branch'; sha: string; branch: string }
 
 /** Host → graph webview: enter a pull-request view. Leaving is `{type:'pr-view', active:false}`. */
 export interface PrViewMessage {
@@ -31,9 +38,11 @@ export interface PrViewMessage {
   title: string;
   headRef: string;
   baseRef: string;
-  tree: PrTree;
+  tree: PrTree | BranchTree;
   /** Set by the panel that shows the view: its popups take no edits. */
   readOnly?: boolean;
+  /** The banner offers the PR tour (the tour package is in this build and Open in browser is on). */
+  tourAvailable?: boolean;
   /** Present when the colours come from the structural diff against the merge base. */
   diff?: StructuralDiff['summary'];
   /** Structure-tree folder paths to open; everything else is closed. */
@@ -91,6 +100,8 @@ export interface PrControllerDeps {
   showText?: (label: string, relPath: string, text: string) => Promise<void>;
   progress?: ProgressRunner;
   budget?: TreeBudget;
+  /** The PR tour can run (src/tour); the banner's Tour button shows only then. */
+  tourAvailable?: () => boolean;
   /** Fetch + copy a PR head (the engine by default; tests hand in a directory of their own). */
   materializeHead?: MaterializeHead;
   /** Fetch the base branch, find the merge base with the head, copy it (the engine by default). */
@@ -98,36 +109,6 @@ export interface PrControllerDeps {
   /** Analyses a directory; without it the head is coloured from the PR's file list, not a diff. */
   analyzer?: TreeAnalyzer;
 }
-
-export type MaterializeBase = (opts: {
-  repoRoot: string; storageDir: string; baseRef: string; headSha: string; exec: Exec; log: (line: string) => void;
-  report: (message: string) => void; signal: AbortSignal;
-}) => Promise<{ sha: string; dir: string }>;
-
-export const materializeBaseWithGit: MaterializeBase = async ({ repoRoot, storageDir, baseRef, headSha, exec, log, report, signal }) => {
-  const treeDeps = { repoRoot, storageDir, exec, log, signal };
-  report('fetching its base…');
-  const remote = await githubRemote(treeDeps);
-  const tip = await fetchBranch(treeDeps, baseRef, remote);
-  const sha = await mergeBase(treeDeps, headSha, tip);
-  const copied = await materializeCommit(treeDeps, sha, branchRefs(baseRef, tip));
-  return { sha, dir: copied.dir };
-};
-
-export type MaterializeHead = (opts: {
-  repoRoot: string; storageDir: string; prNumber: number; exec: Exec; log: (line: string) => void;
-  report: (message: string) => void; signal: AbortSignal;
-}) => Promise<{ sha: string; dir: string }>;
-
-/** The engine's way: fetch the ref, then copy the commit's analysable files. */
-export const materializeHeadWithGit: MaterializeHead = async ({ repoRoot, storageDir, prNumber, exec, log, report, signal }) => {
-  const treeDeps = { repoRoot, storageDir, exec, log, signal };
-  report('fetching the pull request…');
-  const sha = await fetchPullRequestHead(treeDeps, prNumber, await githubRemote(treeDeps));
-  report('copying its files…');
-  const copied = await materializeCommit(treeDeps, sha, pullRequestRefs(prNumber, sha));
-  return { sha, dir: copied.dir };
-};
 
 /** What the sidebar shows of the structural diff. */
 export interface PrDiffDetail {
@@ -148,6 +129,8 @@ export interface PrOpened {
   /** The source stopped before the PR's last file. */
   truncated: boolean;
   diff?: PrDiffDetail;
+  /** The whole structural diff against the merge base (the sidebar's `diff` is its summary). */
+  structuralDiff?: StructuralDiff;
 }
 
 export type PrOpenResult = { ok: true; opened: PrOpened } | { ok: false; problem: PrProblem };
@@ -288,13 +271,9 @@ export class PrController {
       materialised = await progress(`Pull request #${pr.number}`, async (report, signal) => {
         signal.addEventListener('abort', () => { cancelled = true; });
         const common = { repoRoot, storageDir, exec: this.exec, log: this.deps.log, report, signal };
-        const head = await (this.deps.materializeHead ?? materializeHeadWithGit)({ ...common, prNumber: pr.number });
-        copied = true;
-        if (!this.deps.analyzer) { return { ...head, diff: null }; }
-        report('analysing the pull request…');
-        const headTree = await analyzeTreeCached(head.dir, this.deps.analyzer, head.sha, signal);
-        const base = await this.baseTree(pr, head.sha, common);
-        return { ...head, diff: base ? diffGraphs(base, headTree) : null, baseSha: base?.sha };
+        const analysed = await analysePullRequest(pr, common, this.hooks(() => { copied = true; }));
+        this.pendingBaseDir = analysed.base?.root;
+        return { sha: analysed.sha, dir: analysed.dir, diff: analysed.diff, baseSha: analysed.base?.sha };
       });
     } catch (err) {
       // A cancel anywhere — fetch, copy, either analysis — ends the open with nothing shown; a
@@ -326,11 +305,7 @@ export class PrController {
     const headGraph = this.panelFor(pr, materialised, 'head', prViewName(pr, tree));
     // After the switch: a head panel that was just closed no longer protects its copy. Its debounced
     // cache write lands first, or it would recreate a marker-less directory under an evicted tree.
-    const protect = [materialised.dir, ...(this.head?.baseDir ? [this.head.baseDir] : [])];
-    try {
-      await flushCacheWrites();
-      await evictTrees(storageDir, this.deps.budget ?? DEFAULT_BUDGET, protect, this.exec, this.deps.log);
-    } catch (err) { this.deps.log(`[vcs] eviction failed: ${(err as Error).message}`); }
+    await this.evict(storageDir, [materialised.dir, ...(this.head?.baseDir ? [this.head.baseDir] : [])]);
     const shown = headGraph.showPullRequest(this.graphView(pr, tree, view, diff?.summary));
     if (!shown) { return { ok: false, problem: NO_WORKSPACE }; }
     this.logCounts(pr, `head ${materialised.sha.slice(0, 7)}${diff ? ` vs base ${baseSha?.slice(0, 7)}: +${diff.summary.added} ~${diff.summary.changed} -${diff.summary.removed} functions` : ''}`, view.counts);
@@ -340,6 +315,7 @@ export class PrController {
       ok: true,
       opened: {
         number: pr.number, tree, counts: view.counts, files: view.files, truncated: fetched.ok ? fetched.truncated : false,
+        ...(diff ? { structuralDiff: diff } : {}),
         ...(diff && baseSha ? { diff: {
           summary: diff.summary, base: baseSha,
           removed: removed.slice(0, MAX_REMOVED).map(i => ({ key: i.key, callers: i.callers })),
@@ -349,29 +325,45 @@ export class PrController {
     };
   }
 
-  /** The merge base, materialised and analysed; null (logged) when it cannot be had — the head is still shown. */
-  private async baseTree(pr: PullRequest, headSha: string, common: {
-    repoRoot: string; storageDir: string; exec: Exec; log: (line: string) => void; report: (m: string) => void; signal: AbortSignal;
-  }): Promise<AnalyzedTree | null> {
-    if (!pr.baseRef) { return null; }
+  /** Back within the budget, `protect` kept. Its failure costs disk space, never the view. */
+  private async evict(storageDir: string, protect: string[]): Promise<void> {
     try {
-      const base = await (this.deps.materializeBase ?? materializeBaseWithGit)({ ...common, baseRef: pr.baseRef, headSha });
-      common.report('analysing the base…');
-      const analysed = await analyzeTreeCached(base.dir, this.deps.analyzer as TreeAnalyzer, base.sha, common.signal);
-      this.pendingBaseDir = base.dir;
-      return analysed;
-    } catch (err) {
-      // A cancel is the user's, not the base's: it ends the whole open.
-      if (common.signal.aborted || (err instanceof HeadTreeError && err.kind === 'cancelled')) { throw err; }
-      this.deps.log(`[vcs] base of #${pr.number} unavailable, colouring from the PR's file list: ${(err as Error).message}`);
-      return null;
-    }
+      await flushCacheWrites();
+      await evictTrees(storageDir, this.deps.budget ?? DEFAULT_BUDGET, protect, this.exec, this.deps.log);
+    } catch (err) { this.deps.log(`[vcs] eviction failed: ${(err as Error).message}`); }
+  }
+
+  private hooks(onCopied?: () => void) {
+    return {
+      materializeHead: this.deps.materializeHead ?? materializeHeadWithGit,
+      materializeBase: this.deps.materializeBase ?? materializeBaseWithGit,
+      analyzer: this.deps.analyzer,
+      onCopied,
+    };
+  }
+
+  /**
+   * Head and base of a tour target, materialised, analysed and diffed (TourHostApi.prepareTrees).
+   * No panel opens and nothing is evicted here (openTourPanel does); `pr` skips the lookup when the
+   * caller has the record.
+   */
+  async prepareDiff(target: TourTarget, progress: TourProgress, signal: AbortSignal, pr?: PullRequest): Promise<TourTrees> {
+    const root = this.deps.workspaceRoot();
+    if (!root) { throw new HeadTreeError('error', NO_WORKSPACE.message); }
+    if (!this.deps.storageDir || !this.deps.analyzer) { throw new HeadTreeError('error', 'This window cannot copy commits (no extension storage), so there is nothing to tour.'); }
+    const repoRoot = await this.repoRoot(root);
+    const common = { repoRoot, storageDir: this.deps.storageDir, exec: this.exec, log: this.deps.log, report: progress, signal };
+    const trees = await prepareTourTrees(target, common, { ...this.hooks(), analyzer: this.deps.analyzer, workspaceRoot: root, source: this.source }, pr);
+    this.tourBase = trees.base ? { headDir: trees.head.dir, baseDir: trees.base.dir } : undefined;
+    return trees;
   }
 
   private pendingBaseDir: string | undefined;
+  /** The base copy of the tour prepared last: its panel holds it like a pull-request panel does. */
+  private tourBase: { headDir: string; baseDir: string } | undefined;
 
   /** One pull-request panel at a time: the same tree's panel is reused, any other is closed first. */
-  private panelFor(pr: PullRequest, m: { sha: string; dir: string }, kind: PrTree['kind'], editorLabel: string): PrHeadGraph {
+  private panelFor(pr: Pick<PullRequest, 'number'>, m: { sha: string; dir: string }, kind: PrTree['kind'], editorLabel: string, title?: string): PrHeadGraph {
     const baseDir = this.pendingBaseDir;
     this.pendingBaseDir = undefined;
     if (this.head && this.head.sha === m.sha && this.head.graph.isOpen()) {
@@ -380,8 +372,8 @@ export class PrController {
       return this.head.graph;
     }
     if (this.head) { this.head.sub.dispose(); this.head.graph.close(); }
-    const title = prViewName(pr, kind === 'head' ? { kind, sha: m.sha } : { kind: 'checkout' });
-    const graph = (this.deps.createHeadGraph as NonNullable<PrControllerDeps['createHeadGraph']>)(m.dir, title, kind, editorLabel);
+    const panelTitle = title ?? prViewName(pr, kind === 'head' ? { kind, sha: m.sha } : { kind: 'checkout' });
+    const graph = (this.deps.createHeadGraph as NonNullable<PrControllerDeps['createHeadGraph']>)(m.dir, panelTitle, kind, editorLabel);
     // While shown, the copy is held: another window's eviction or clear leaves it alone.
     if (kind === 'head') { lockTree(m.dir); if (baseDir) { lockTree(baseDir); } }
     const release = () => { if (kind === 'head') { unlockTree(m.dir); if (baseDir) { unlockTree(baseDir); } } };
@@ -401,6 +393,7 @@ export class PrController {
       message: {
         type: 'pr-view', active: true, number: pr.number, name, title: pr.title, headRef: pr.headRef, baseRef: pr.baseRef,
         tree, ...(diff ? { diff } : {}), expand: view.expand, fileGitStatus: Object.fromEntries(view.override.files), counts: view.counts,
+        tourAvailable: !!this.deps.tourAvailable?.(),
       },
     };
   }
@@ -422,6 +415,26 @@ export class PrController {
     } catch (err) {
       return this.unexpected(`file ${relPath} of #${pr.number}`, err);
     }
+  }
+
+  /**
+   * A tour's stage (Q11): the head copy the tour package prepared, in the pull-request panel
+   * exactly as a click opens one (one panel at a time, the copy held while shown). Null when
+   * this window cannot open panels of its own.
+   */
+  openTourPanel(view: PrGraphView, headDir: string, title: string): PrHeadGraph | null {
+    if (!this.deps.createHeadGraph) { return null; }
+    this.pendingBaseDir = this.tourBase?.headDir === headDir ? this.tourBase.baseDir : undefined;
+    const tree = view.message.tree;
+    const sha = tree.kind === 'checkout' ? 'checkout' : tree.sha;
+    const graph = this.panelFor({ number: view.number }, { sha, dir: headDir }, 'head', title, title);
+    view = { ...view, message: { ...view.message, tourAvailable: !!this.deps.tourAvailable?.() } };
+    if (!graph.showPullRequest(view)) { return null; }
+    this.deps.log(`[tour] stage panel on ${sha.slice(0, 7)}: ${view.name}`);
+    this.emit();
+    // A session of tours never opens a pull request, the other place the budget is kept.
+    if (this.deps.storageDir) { void this.evict(this.deps.storageDir, [headDir, ...(this.head?.baseDir ? [this.head.baseDir] : [])]); }
+    return graph;
   }
 
   /** Leave: close the pull-request panel when one is open, otherwise end a checkout view on the main panel. */

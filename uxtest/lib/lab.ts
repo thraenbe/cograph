@@ -32,6 +32,8 @@ export interface LabOpts {
   annotations?: AnnotationsFixture | ((repo: AnalyzedRepo) => AnnotationsFixture);
   /** round3 W4: open inside a subgraph scope (see FakeHostOpts.scope); function form derives it from the repo. */
   scope?: NonNullable<FakeHostOpts['scope']> | ((repo: AnalyzedRepo) => NonNullable<FakeHostOpts['scope']>);
+  /** A pull request on screen (see FakeHostOpts.pullRequest); function form derives it from the repo. */
+  pullRequest?: NonNullable<FakeHostOpts['pullRequest']> | ((repo: AnalyzedRepo) => NonNullable<FakeHostOpts['pullRequest']>);
   outDir?: string;                      // default uxtest/artifacts/<runId>/<repo>/<scenario>-<engine>-<motion>
   keepSnapshots?: boolean;              // default true
   workers?: WorkersMode;                // cograph.layout.workers; default UXTEST_WORKERS_MODE or 'auto'
@@ -136,7 +138,8 @@ export async function openLab(o: LabOpts): Promise<Lab> {
 
   const host = new FakeHost({ graph: repo.graph, structure: repo.structure, mode: o.hostMode ?? 'eager', ...(o.gitFixture ?? {}),
     annotations: typeof o.annotations === 'function' ? o.annotations(repo) : o.annotations,
-    scope: typeof o.scope === 'function' ? o.scope(repo) : o.scope });
+    scope: typeof o.scope === 'function' ? o.scope(repo) : o.scope,
+    pullRequest: typeof o.pullRequest === 'function' ? o.pullRequest(repo) : o.pullRequest });
   await wireNetwork(page, server.origin, blocked);
   if (o.seed !== undefined) { await page.addInitScript(seedMathRandom, o.seed); }
   await attachTheme(page, o.theme ?? 'dark');

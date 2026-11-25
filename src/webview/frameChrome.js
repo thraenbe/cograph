@@ -29,9 +29,14 @@ function tabChars(tw) {
   return Math.max(1, Math.floor((tw - 34) / TAB.CHAR_W));
 }
 
+/** Shortens from the middle, so a name keeps its start and its end (a file keeps its extension):
+ *  "checkout.py" in 7 becomes "che….py". Never empty: at least one character and the ellipsis. */
 function cutLabel(s, maxChars) {
   s = String(s ?? '');
-  return s.length > maxChars ? s.slice(0, Math.max(1, maxChars - 1)) + '…' : s;
+  if (s.length <= maxChars) { return s; }
+  const keep = Math.max(1, maxChars - 1);
+  const head = Math.ceil(keep / 2), tail = keep - head;
+  return s.slice(0, head) + '…' + (tail > 0 ? s.slice(s.length - tail) : '');
 }
 
 /** Manila-folder outline: the flap occupies the top-left, and the body's top
@@ -83,6 +88,48 @@ function slotLabelText(name, count, slotW, charW) {
   const suffix = count ? ` · ${count}` : '';
   const budget = Math.max(2, Math.floor((slotW - 12) / charW) - suffix.length);
   return cutLabel(name, budget) + suffix;
+}
+
+/** File-slot names on screen (tour review round 3, M3): drawn at FONT graph units (times the text size) while that
+ *  is small enough, never above MAX_PX (times the text size) on screen, and shrunk down to MIN_PX on screen before a
+ *  name is cut. PAD is the inset left of the name (the label starts there), EDGE how near a frame's edge a name may run. */
+const SLOT_NAME = { FONT: 9, MAX_PX: 13, MIN_PX: 11, PAD: 6, EDGE: 12 };
+
+/**
+ * The slot name as painted at zoom k: `{ text, size, tail }`, size in graph units. `room` is the slot's name room in
+ * graph units (slotLabelRoom); `emOf(text)` is the text's width in ems; `tail` is text drawn after the name (the ↗
+ * cue), and the result says whether it still has room. In order, the first that fits at a size in [MIN_PX, its
+ * usual size] wins, at the largest such size: name, count and cue; name and cue; the name alone (the count is the
+ * dots in the box, the cue is a hint). Only when none fits at MIN_PX is the name cut, at MIN_PX, with its count and
+ * cue, so a closer zoom always shows more of it.
+ */
+function slotLabelFit(name, count, room, k, emOf, textSize, tail) {
+  const z = k > 0 ? k : 1, ts = textSize > 0 ? textSize : 1;
+  const want = Math.min(SLOT_NAME.FONT * ts * z, SLOT_NAME.MAX_PX * ts);
+  const least = Math.min(want, SLOT_NAME.MIN_PX);
+  const avail = Math.max(0, room - SLOT_NAME.PAD) * z;
+  const suffix = count ? ` · ${count}` : '', after = tail || '';
+  const tries = suffix ? [[name + suffix, true], [name, true], [name, false]] : [[name, true], [name, false]];
+  for (const [text, keep] of tries) {
+    const px = Math.min(want, avail / Math.max(emOf(text + (keep ? after : '')), 1e-6));
+    if (px >= least) { return { text, size: px / z, tail: keep }; }
+  }
+  const perChar = emOf(name + suffix + after) / Math.max(1, (name + suffix + after).length);
+  const budget = Math.max(2, Math.floor(avail / (least * perChar)) - suffix.length - after.length);
+  return { text: cutLabel(name, budget) + suffix, size: least / z, tail: true };
+}
+
+/** The width a slot's name may use: its own width, or more when nothing stands to its right in its name
+ *  strip, up to the next slot of that strip or the frame's right edge (tour review round 2, M3).
+ *  `slots` are `{ x, y, w }` in one frame's coordinates; `stripH` is the name strip's height. */
+function slotLabelRoom(d, slots, rightEdge, stripH) {
+  let next = rightEdge;
+  for (const s of slots) {
+    if (s === d || s.x < d.x + d.w - 1) { continue; }
+    const strip = s.y < d.y + stripH && d.y < s.y + Math.max(stripH, s.h || 0);
+    if (strip) { next = Math.min(next, s.x); }
+  }
+  return Math.max(d.w, next - d.x - 4);
 }
 
 /** Counts for the free strip right of the tab: long form while it fits,
@@ -143,7 +190,7 @@ function closedFolderLabelPos(r) {
 
 if (typeof module !== 'undefined') {
   module.exports = {
-    TAB, DENSE, FOLDER_GLYPH, tabWidth, tabChars, cutLabel, slotLabelText, fitScale,
+    TAB, DENSE, FOLDER_GLYPH, tabWidth, tabChars, cutLabel, slotLabelText, slotLabelRoom, slotLabelFit, SLOT_NAME, fitScale,
     tabBodyPath, tabOnlyPath, rectPath, countsText, memberCounts, closedFolderPath, closedFolderDims,
     closedFolderLabelPos,
   };

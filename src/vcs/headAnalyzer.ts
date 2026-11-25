@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { AnalyzerRunner } from '../analyzerRunner';
+import { analysisFailed } from '../analyzerSpawn';
 import type { TreeAnalyzer } from './engine/treeAnalysis';
 
 /**
@@ -19,13 +20,8 @@ export function createTreeAnalyzer(context: vscode.ExtensionContext, log: (line:
       (graph, _root, meta) => {
         if (settled) { return; }
         settled = true;
-        // Nothing found AND an analyzer did not run cleanly: that is a failure, not a tree without
-        // functions. Diffing an empty tree would paint every function as added or removed.
-        const failed = meta.statuses.filter(s => s.status !== 'ok' && s.status !== 'empty');
-        if (graph.nodes.length === 0 && failed.length) {
-          reject(new Error(`Analysis failed: ${failed.map(s => `${s.lang} ${s.status}${s.detail ? ` (${s.detail})` : ''}`).join('; ')}`));
-          return;
-        }
+        const failed = analysisFailed(graph, meta.statuses);
+        if (failed) { reject(new Error(failed)); return; }
         resolve(graph);
       },
     );

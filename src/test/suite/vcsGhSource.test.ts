@@ -244,4 +244,17 @@ suite('vcs — GhCliSource', () => {
     const res = await new GhCliSource(exec).files('/ws', 7);
     assert.strictEqual(!res.ok && res.problem.kind, 'no-access');
   });
+
+  test('view: one pull request by number, as an argument array; failures and bad numbers are problems', async () => {
+    const { exec, calls } = fakeExec({ 'gh pr': ok(JSON.stringify({ number: 9, title: 't', headRefName: 'feat/x', baseRefName: 'main', state: 'MERGED' })) });
+    const res = await new GhCliSource(exec).view('/ws', 9);
+    assert.ok(res.ok);
+    assert.deepStrictEqual([res.pullRequest.number, res.pullRequest.state, res.pullRequest.headRef], [9, 'merged', 'feat/x']);
+    assert.deepStrictEqual(calls[0].args.slice(0, 4), ['pr', 'view', '9', '--json']);
+    assert.strictEqual((await new GhCliSource(exec).view('/ws', -1)).ok, false);
+    const failed = await new GhCliSource(fakeExec({ 'gh pr': fail('gh: Not Found (HTTP 404)') }).exec).view('/ws', 9);
+    assert.strictEqual(!failed.ok && failed.problem.kind, 'no-access');
+    const garbage = await new GhCliSource(fakeExec({ 'gh pr': ok('not json') }).exec).view('/ws', 9);
+    assert.strictEqual(!garbage.ok && garbage.problem.kind, 'error');
+  });
 });

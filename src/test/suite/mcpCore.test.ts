@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import { readCacheFile } from '../../cacheStore';
 import { loadAnnotations } from '../../graphIntelligence/annotationStore';
-import { buildIndex, IndexHolder, resolveSymbol, fileChangedSinceAnalysis, type GraphIndex } from '../../mcp/graphIndex';
+import { buildIndex, buildIndexFromGraph, IndexHolder, resolveSymbol, fileChangedSinceAnalysis, type GraphIndex } from '../../mcp/graphIndex';
 import { splitLine } from '../../mcp/ids';
 import { overviewOf } from '../../mcp/overview';
 import { ToolError } from '../../mcp/paths';
@@ -18,6 +18,21 @@ suite('MCP graph index and ids', () => {
   let index: GraphIndex;
   setup(() => { fx = makeFixture({ annotate: true }); index = indexOf(fx); });
   teardown(() => fx.cleanup());
+
+  test('an index built from the graph in memory equals the one built from the cache file, and impact agrees', () => {
+    const cache = readCacheFile(fx.root)!;
+    const fromGraph = buildIndexFromGraph(fx.root, JSON.parse(JSON.stringify(cache.graph)), loadAnnotations(fx.root), { savedAt: cache.savedAt, manifest: cache.manifest });
+    assert.deepStrictEqual(fromGraph, index);
+    const bare = buildIndexFromGraph(fx.root, cache.graph);
+    assert.deepStrictEqual(bare.symbols, index.symbols);
+    assert.deepStrictEqual([bare.savedAt, bare.manifest, Object.keys(bare.annotations.files)], ['', {}, []], 'no cache file, no annotations');
+    const seed = (i: GraphIndex) => [resolveSymbol(i, 'src/a.ts::helper')];
+    const strip = (r: ReturnType<typeof impactOf>) => ({
+      affected: r.affected.map((a) => [a.sym.id, a.depth]), files: r.files, entry: r.entryPoints.map((s) => s.id), tests: r.tests.map((s) => s.id),
+    });
+    assert.deepStrictEqual(strip(impactOf(bare, seed(bare))), strip(impactOf(index, seed(index))));
+    assert.ok(impactOf(bare, seed(bare)).tests.some((s) => s.id === 'tests/test_a.ts::testMain'));
+  });
 
   test('agent ids are workspace-relative, class-qualified, and line-suffixed only when ambiguous', () => {
     const ids = index.symbols.map((s) => s.id).sort();

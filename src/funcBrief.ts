@@ -122,7 +122,7 @@ function cleanDoc(raw: string[]): string {
   const out = raw.map(l => l
     .replace(/^\s*\/\*\*?/, '').replace(/\*\/\s*$/, '')
     .replace(/^\s*\*(?!\/)\s?/, '').replace(/^\s*\/\/\/?\s?/, '').replace(/^\s*#\s?/, '')
-    .replace(/\s+$/, ''));
+    .trimEnd());
   // PEP 257 (inspect.cleandoc): the first line follows the opening marker, so the
   // common indent is measured on the remaining lines only.
   if (out.length) { out[0] = out[0].trim(); }
@@ -143,12 +143,12 @@ function pythonHeader(lines: string[], startIdx: number, endIdx: number): { sign
   let depth = 0;
   let sigEnd = defIdx;
   for (let k = defIdx; k <= endIdx; k++) {
-    const code = lines[k].replace(/#.*$/, '');
+    const code = lines[k].split('#', 1)[0];
     for (const c of code) { if ('([{'.includes(c)) { depth++; } else if (')]}'.includes(c)) { depth--; } }
     sigEnd = k;
-    if (depth <= 0 && /:\s*(\S.*)?$/.test(code)) { break; }
+    if (depth <= 0 && code.includes(':')) { break; }
   }
-  const signature = oneLine(lines.slice(defIdx, sigEnd + 1).map(l => l.replace(/#.*$/, '')), SIGNATURE_MAX_CHARS).replace(/:\s*$/, '');
+  const signature = oneLine(lines.slice(defIdx, sigEnd + 1).map(l => l.split('#', 1)[0]), SIGNATURE_MAX_CHARS).replace(/:\s*$/, '');
   // One-liner `def f(): return 1` has no body block and no docstring.
   let j = sigEnd + 1;
   while (j <= endIdx && !lines[j].trim()) { j++; }
@@ -178,7 +178,7 @@ function braceHeader(lines: string[], startIdx: number, endIdx: number): { signa
   const sig: string[] = [];
   let paren = 0, bodyIdx = endIdx + 1;
   for (let k = s; k <= endIdx && sig.length < 12; k++) {
-    const code = lines[k].replace(/\/\/.*$/, '');
+    const code = lines[k].split('//', 1)[0];
     let cut = -1;
     for (let c = 0; c < code.length; c++) {
       const ch = code[c];

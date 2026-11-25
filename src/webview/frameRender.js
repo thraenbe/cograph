@@ -978,8 +978,54 @@ function applyFrameCulling() {
   // fb14 D5: hovering while zooming — which partner is on screen, and the stub's
   // on-screen length, both follow the zoom. O(degree), once per culling pass.
   if (crossFocusActive(state) && typeof linkG !== 'undefined') { updateCrossHover(); }
+  refitSlotNames(t.k, freshDom || shown.length > 0);
   if (shown.length && __fr.sched) { __fr.sched.wake(); }
   if (__perfT0) { perfEnd('cull', __perfT0); }
+}
+
+// ── File-slot names follow the zoom (tour review round 3, M3) ─────────────────
+const __slotNames = { k: 0, font: null, widths: new Map(), canvas: null };
+
+/** Width of `text` in ems, in the slot names' own font (measured once per text; estimated without a canvas). */
+function slotNameEm(text) {
+  const hit = __slotNames.widths.get(text);
+  if (hit !== undefined) { return hit; }
+  const ctx = __slotNames.canvas && __slotNames.canvas.getContext && __slotNames.canvas.getContext('2d');
+  if (!ctx || !__slotNames.font) { return String(text).length * 0.56; }
+  ctx.font = `600 100px ${__slotNames.font}`;
+  const em = ctx.measureText(String(text)).width / 100;
+  __slotNames.widths.set(text, em);
+  return em;
+}
+
+/** Writes a slot's name for zoom k: its size and its text; the ↗ cue (a tspan) stays after it. */
+function paintSlotName(el, d, k) {
+  // Only where SVG text is laid out (a browser; not a DOM-less test): measure in the slot names' own font.
+  if (!__slotNames.canvas && typeof el.getComputedTextLength === 'function' && typeof getComputedStyle === 'function' && el.isConnected) {
+    __slotNames.canvas = document.createElement('canvas');
+    __slotNames.font = getComputedStyle(el).fontFamily || 'sans-serif';
+  }
+  // The ↗ cue takes room only where it shows (styles.css: in the same-file mode).
+  const cue = el.querySelector('tspan.slot-xout');
+  const cueShown = !!cue && !!el.closest && !!el.closest('g.same-file-only');
+  const room = d._nameRoom || d.w;
+  const fit = typeof slotLabelFit === 'function'
+    ? slotLabelFit(slotBasename(d.file), d.count, room, k, slotNameEm, settings.textSize, cueShown ? cue.textContent : '')
+    : { text: slotLabelText(slotBasename(d.file), d.count, room, 5 * settings.textSize), size: 9 * settings.textSize, tail: true };
+  el.setAttribute('font-size', `${fit.size}px`);
+  if (cue) { cue.classList.toggle('slot-xout-cut', !fit.tail); }
+  const first = el.firstChild;
+  if (first && first.nodeType === 3) { first.data = fit.text; } else { el.insertBefore(el.ownerDocument.createTextNode(fit.text), first); }
+}
+
+/** After a zoom: the names of the slots on screen again, once the zoom moved by more than 2 %. */
+function refitSlotNames(k, force) {
+  if (!force && __slotNames.k > 0 && Math.abs(k / __slotNames.k - 1) < 0.02) { return; }
+  __slotNames.k = k;
+  for (const [path, sel] of __fr.frameSel) {
+    if (__cull.culler && !__cull.culler.isVisible(path)) { continue; }
+    for (const el of sel.node().querySelectorAll('text.file-slot-label')) { if (el.__data__) { paintSlotName(el, el.__data__, k); } }
+  }
 }
 
 /**
@@ -1404,6 +1450,8 @@ function renderFrameSlots(f, sub) {
       update => update,
       exit => exit.remove(),
     );
+  // A name may run past its slot into free space on its right, up to the frame's inner edge.
+  const labelEdge = (f.abs && f.abs.w ? f.abs.w : Infinity) - (f.kind === 'root' ? 0 : (typeof SLOT_NAME !== 'undefined' ? SLOT_NAME.EDGE : FRAME.PAD));
   sel.each(function (d) {
     const grp = d3.select(this);
     let color = slotColor(d.file);
@@ -1423,15 +1471,16 @@ function renderFrameSlots(f, sub) {
       .attr('stroke-dasharray', d.count ? null : '4 3');
     grp.select('.file-slot-handle')
       .attr('x', d.x).attr('y', d.y).attr('width', d.w).attr('height', SLOT.LABEL_H);
+    d._nameRoom = typeof slotLabelRoom === 'function' ? slotLabelRoom(d, data, labelEdge, SLOT.LABEL_H) : d.w;
     grp.select('.file-slot-label')
       .attr('x', d.x + 6).attr('y', d.y + 11)
-      .attr('font-size', `${9 * settings.textSize}px`)
       .attr('fill', color).attr('fill-opacity', 0.9)
-      .text(slotLabelText(slotBasename(d.file), d.count, d.w, 5 * settings.textSize))
+      .text('')
       .each(function () {
         // X3: calls leaving this file, shown only while the same-file rule hides them (CSS)
         const out = state.xfileCue && state.xfileCue.outByFile.get(d.file);
         if (out) { d3.select(this).append('tspan').attr('class', 'slot-xout').text(' ↗' + out); }
+        paintSlotName(this, d, state.currentZoom || 1);
       });
   });
   // Every frame's slots are draggable, INCLUDING the root frame's: a handle
@@ -1499,6 +1548,7 @@ if (typeof module !== 'undefined') {
     resolveDropOverlaps, translateFrameSubtree, onFrameMoveSettled,
     applyFrameDisplaySettings, createFrameResizeDrag,
     slotSignature, slotColor, slotBasename, renderFrameSlots, sameSlotGeometry, applyRootFrameChrome,
+    paintSlotName, refitSlotNames,
     __frState: __fr,   // test hook
   };
 }

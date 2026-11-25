@@ -133,6 +133,7 @@ interface BraceState {
 
 /** Scan one line. Returns 'semi' when a body-less declaration ended on it. */
 function braceScanLine(s: string, st: BraceState, lang: FuncLang): 'semi' | null {
+  let regexOpen = false; // a regex literal ran to the end of this line: looking again from each `/` would be quadratic on `/[/[/[`
   for (let j = 0; j < s.length; j++) {
     const c = s[j], n = s[j + 1];
     if (st.inBlock) { if (c === '*' && n === '/') { st.inBlock = false; j++; } continue; }
@@ -149,9 +150,10 @@ function braceScanLine(s: string, st: BraceState, lang: FuncLang): 'semi' | null
       if (open >= 0) { st.quote = ')' + s.slice(j + 2, open) + '"'; st.raw = true; j = open; continue; }
     }
     if (c === '"' || c === "'" || (c === '`' && lang === 'js')) { st.quote = c; st.raw = false; continue; }
-    if (c === '/' && lang === 'js' && regexAllowed(st.prev, st.prevWord)) {
+    if (c === '/' && lang === 'js' && !regexOpen && regexAllowed(st.prev, st.prevWord)) {
       const e = regexEnd(s, j);
       if (e > 0) { j = e; st.prev = 'a'; st.prevWord = ''; continue; }
+      regexOpen = true;
     }
     if (c === '=' && n === '>' && !st.body && st.paren === 0 && lang === 'js') {
       const rest = s.slice(j + 2).trim();
@@ -183,7 +185,7 @@ export function scanBraceFuncEnd(lines: string[], startIdx: number, lang: FuncLa
     // `const f = (x) => x + 1` without a semicolon: the expression ends with the line
     // unless the line obviously continues.
     if (st.arrowExpr && !st.body && st.paren === 0 && !st.quote && !st.inBlock
-      && !/[,([{=+\-*/&|?:.]\s*$/.test(s.replace(/\/\/.*$/, ''))) {
+      && !/[,([{=+\-*/&|?:.]\s*$/.test(s.split('//', 1)[0])) {
       return { end: i, closed: true };
     }
   }

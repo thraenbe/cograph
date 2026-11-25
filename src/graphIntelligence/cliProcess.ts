@@ -1,4 +1,5 @@
 import * as cp from 'child_process';
+import { StringDecoder } from 'string_decoder';
 import { MAX_OUTPUT_BYTES } from '../analyzerRunner';
 
 export interface CliStreamOptions {
@@ -20,6 +21,11 @@ export interface CliStreamOptions {
 }
 
 const KILL_GRACE_MS = 1000;
+/** How much of the CLI's stderr a failed call carries (err.stderr), from the end. */
+export const STDERR_TAIL_BYTES = 4096;
+
+/** The rejection of a CLI that exited non-zero: the message as before, plus why, in the CLI's words. */
+export interface CliExitError extends Error { stderr: string }
 
 /**
  * Spawn a provider CLI and stream its stdout, with the guards every Graph
@@ -37,6 +43,14 @@ export function runCliStream(opts: CliStreamOptions): Promise<void> {
 
     let totalBytes = 0;
     let killed = false;
+    let stderrTail = '';
+    // A pipe cuts anywhere, also inside a UTF-8 character: each stream keeps the unfinished bytes for its next chunk.
+    const stdoutText = new StringDecoder('utf8');
+    const stderrText = new StringDecoder('utf8');
+    const onStderrText = (text: string) => {
+      stderrTail = (stderrTail + text).slice(-STDERR_TAIL_BYTES);
+      opts.onStderr?.(text);
+    };
 
     const cleanup = () => {
       clearTimeout(timer);
@@ -69,12 +83,10 @@ export function runCliStream(opts: CliStreamOptions): Promise<void> {
         reject(new Error(`${opts.label} response exceeded maximum output size.`));
         return;
       }
-      opts.onStdout(chunk.toString());
+      opts.onStdout(stdoutText.write(chunk));
     });
 
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      opts.onStderr?.(chunk.toString());
-    });
+    proc.stderr?.on('data', (chunk: Buffer) => { onStderrText(stderrText.write(chunk)); });
 
     proc.on('error', (err) => {
       cleanup();
@@ -84,9 +96,13 @@ export function runCliStream(opts: CliStreamOptions): Promise<void> {
     proc.on('close', (code) => {
       cleanup();
       if (killed) { return; }
+      const lastOut = stdoutText.end();
+      if (lastOut) { opts.onStdout(lastOut); }
+      const lastErr = stderrText.end();
+      if (lastErr) { onStderrText(lastErr); }
       opts.onEnd?.();
       if (code !== 0 && code !== null) {
-        reject(new Error(`${opts.label} exited with code ${code}.`));
+        reject(Object.assign(new Error(`${opts.label} exited with code ${code}.`), { stderr: stderrTail }) as CliExitError);
         return;
       }
       resolve();

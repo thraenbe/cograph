@@ -3,7 +3,7 @@ import { trackChild } from '../childProcesses';
 import { parsePatchHunks } from './prPatch';
 import type {
   PrChecks, PrFile, PrFileStatus, PrFilesResult, PrListOptions, PrListResult, PrProblem, PrState, PrTextResult,
-  PullRequest, PullRequestSource,
+  PrViewResult, PullRequest, PullRequestSource,
 } from './types';
 
 export interface ExecResult {
@@ -18,11 +18,15 @@ export interface ExecResult {
 export interface ExecOptions {
   /** Extra environment on top of the extension host's. */
   env?: Record<string, string>;
+  /** What `env` goes on top of, instead of the extension host's. */
+  baseEnv?: NodeJS.ProcessEnv;
   /** Written to the child's stdin, which is then closed. */
   stdin?: string;
   timeoutMs?: number;
   /** Kills the child when aborted; the result then has a null code. */
   signal?: AbortSignal;
+  /** Takes stdout raw, as it arrives, instead of `stdout`. A throw kills the child and comes back as its error. */
+  onStdout?: (chunk: Buffer) => void;
 }
 
 export type Exec = (command: string, args: string[], cwd: string, opts?: ExecOptions) => Promise<ExecResult>;
@@ -37,6 +41,39 @@ const LIST_FIELDS = [
   'changedFiles', 'additions', 'deletions', 'updatedAt', 'url',
 ];
 
+function childEnv(opts: ExecOptions): NodeJS.ProcessEnv {
+  const base = opts.baseEnv ?? process.env;
+  return opts.env ? { ...base, ...opts.env } : base;
+}
+
+/** `defaultExec` for output that is not text or does not fit in memory: the same contract, with stdout going to `onStdout`. */
+function execStreaming(command: string, args: string[], cwd: string, opts: ExecOptions, onStdout: (chunk: Buffer) => void): Promise<ExecResult> {
+  return new Promise((resolve) => {
+    const child = trackChild(cp.spawn(command, args, {
+      cwd, timeout: opts.timeoutMs ?? TIMEOUT_MS, windowsHide: true,
+      env: childEnv(opts),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    }));
+    let stderr = '';
+    let failure: Error | null = null;
+    let notFound = false;
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (failure) { return; }
+      try { onStdout(chunk); } catch (err) { failure = err as Error; child.kill(); }
+    });
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.stdin.on('error', () => undefined); // a child that exits early closes its stdin: its exit says why
+    child.on('error', (err: NodeJS.ErrnoException) => { failure ??= err; notFound = err.code === 'ENOENT'; });
+    child.on('close', (code, killedBy) => resolve({
+      code: failure ? null : code,
+      stdout: '',
+      stderr: failure?.message ?? (stderr || (killedBy ? `killed by ${killedBy}` : '')),
+      notFound,
+    }));
+    if (opts.stdin !== undefined) { child.stdin.end(opts.stdin); }
+  });
+}
+
 /**
  * Run a CLI without ever rejecting: a missing binary, a non-zero exit and a
  * timeout all come back as data. Arguments are passed as an array and NEVER
@@ -44,11 +81,11 @@ const LIST_FIELDS = [
  * cmd.exe would mangle `^{commit}` and split a `--prefix=C:/Users/John Doe/...`
  * at the space.
  */
-export const defaultExec: Exec = (command, args, cwd, opts = {}) => new Promise((resolve) => {
+export const defaultExec: Exec = (command, args, cwd, opts = {}) => opts.onStdout ? execStreaming(command, args, cwd, opts, opts.onStdout) : new Promise((resolve) => {
   // Tracked so deactivate() can end a `gh` or `git` that is still running when VS Code closes.
   const child = trackChild(cp.execFile(command, args, {
     cwd, timeout: opts.timeoutMs ?? TIMEOUT_MS, encoding: 'utf8', maxBuffer: MAX_BUFFER,
-    env: opts.env ? { ...process.env, ...opts.env } : process.env,
+    env: childEnv(opts),
     ...(opts.signal ? { signal: opts.signal } : {}),
   }, (err, stdout, stderr) => {
     const e = err as (NodeJS.ErrnoException & { code?: number | string }) | null;
@@ -285,6 +322,17 @@ export class GhCliSource implements PullRequestSource {
     } catch (err) {
       return { ok: false, problem: { kind: 'error', message: 'GitHub did not return that file.', detail: (err as Error).message } };
     }
+  }
+
+  async view(root: string, prNumber: number): Promise<PrViewResult> {
+    if (!Number.isInteger(prNumber) || prNumber <= 0) {
+      return { ok: false, problem: { kind: 'error', message: 'That is not a pull request number.' } };
+    }
+    const res = await this.exec('gh', ['pr', 'view', String(prNumber), '--json', LIST_FIELDS.join(',')], root);
+    if (res.code !== 0) { return { ok: false, problem: classifyGhFailure(res, null) }; }
+    let pr: PullRequest | null = null;
+    try { pr = toPullRequest(JSON.parse(res.stdout)); } catch { pr = null; }
+    return pr ? { ok: true, pullRequest: pr } : { ok: false, problem: { kind: 'error', message: `Pull request #${prNumber} could not be read.` } };
   }
 
   async files(root: string, prNumber: number): Promise<PrFilesResult> {

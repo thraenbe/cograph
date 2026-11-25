@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Open in browser.** A button in the graph panel (and **CoGraph: Open in Browser**) opens the
+  graph in your default browser, served by the extension on `127.0.0.1` with a random token. The
+  tab mirrors the panel: same graph, scope and colours, live, with expand, hover card, navigate,
+  edit and Save Layout working through VS Code. A line under the button counts the open tabs;
+  closing the panel disconnects the tab, which says so. The setting `cograph.browserView.enabled`
+  (on by default) switches the loopback server off.
+- **The doorway of the PR tour.** The loopback server also serves tour pages, and the graph panel
+  gets the blue **Take the PR tour** button for a branch or pull request with something to tour
+  (hidden in pull-request panels, dismissible for the session). The tour itself is a separate
+  component.
+- **PR tour entry points.** **CoGraph: Tour This Pull Request…** (open pull requests plus your
+  branch against its base), **CoGraph: Tour Your Branch**, and a **Tour** button on every pull
+  request in the Version Control pane and in a pull-request panel's banner, next to Leave (a
+  branch tour's panel tours the branch). The blue button appears for a branch ahead of its base or
+  with an open pull request, computed from local git and the pane's list, no extra network call.
+  A tour opens the pull request's panel in VS Code and the tour page in the browser. In a build
+  without the tour component the buttons stay hidden and the commands say so in one sentence.
+  Settings `cograph.tour.*`; the AI mode is `cograph.tour.ai.mode`.
+- **Licence wording for the PR Tour.** Marketplace and Open VSX builds bundle the PR Tour, a
+  commercial component with private source (`COMMERCIAL-COMPONENT.md`); the extension and this
+  repository stay MIT.
+- **Hooks for a guided view of the graph** (`window.stageApi`): camera fits that leave room for
+  overlays, a spotlight, a pulse, ghost nodes for removed functions, overlay edges, folder
+  expansion and hiding the controls. Documented in `docs/tour-protocol.md`.
+- **Constructor calls are edges in TypeScript, JavaScript and C++.** `new X(…)` links the caller to
+  X's declared constructor, and `super(…)` (C++: a base-class initializer) links a constructor to
+  its base class's. A class without its own constructor links to the nearest base constructor up
+  `extends`. `new X()` on a parameter or local named like a class adds no edge. Nodes are
+  unchanged; graphs gain edges (nest +8.7 %, zod +6.5 %, fmt +0.6 %). Java has had constructor
+  edges since 1.4.4.
+- **Names on a guided view** (`stageApi.labels`): a step names its functions and files whole,
+  placed so they do not collide, and overlay edges end in an arrowhead.
+
+### Changed
+- The analyzer subprocesses can be run without VS Code (`src/analyzerSpawn.ts`); the extension's
+  analysis is unchanged.
+- **File names in the folder view follow the zoom.** A name grows to 13 px on screen, shrinks to
+  11 px before anything is cut, and is then cut from the middle, so it keeps its start and its end.
+  The function count and the ↗ cue give way to the whole name.
+- The graph cache records the analyzer generation: after this upgrade, the first open re-analyses
+  the workspace once instead of showing edges from the previous analyzers.
+
+### Fixed
+- **One broken Python file no longer takes Python out of the graph.** The Python analyzer caught
+  only syntax errors, so deep code that exhausts the parser, such as a very long sum, or a listed
+  file that had gone, ended the whole run with no output. It now skips that file and goes on.
+  Every analyzer counts what it skipped and the log says how many.
+- **A function's range ends at its closing brace** (TypeScript, JavaScript, Vue/Svelte script
+  blocks, Python), no longer at the next definition or the end of the file. A line added after the
+  last function of a file, or a class header after the last method of the class before it, no
+  longer marks that function modified in the git colours, and the Version Control view no longer
+  lists it as changed. Lines of a function after a nested function still count for the enclosing
+  function, and Python decorators count for the function they decorate. Java, C and C++ keep the
+  previous rule for now.
+- **A call of a parameter or a local value is no longer linked by name** (Python, JavaScript,
+  TypeScript). `f(…)` where `f` is a parameter or a local variable of the caller linked it to every
+  function named `f` in the workspace. It now adds no edge; only such false edges go.
+
 ## [1.4.4] - 2026-11-12
 
 A release for reading the graph and taking it elsewhere: a click pins a function's card
@@ -92,12 +151,43 @@ fixed the C keyword highlight ([#139](https://github.com/thraenbe/cograph/issues
 - Child processes (git, gh, the analyzers) end when the extension deactivates. A pull request listing could keep running after VS Code was closed.
 
 ### Security
+- **A long line no longer stalls the graph.** Removing trailing spaces and cutting comments
+  backtracked over a line: a hover, a source slice or a pull request's diff on a 200 KB line took
+  about 20 seconds on the extension host. It needed one such line in a file you open, a line of
+  spaces ending in a word, for example. These steps now take linear time.
+- **A Python file can no longer flood the extension host.** A Python warning prints its whole
+  source line, once per string literal, so a one-line file of 50 KB wrote 1.5 GB to stderr, and
+  CoGraph kept all of it in one string. Past 512 MiB that throws where nothing catches it. The
+  analyzer now writes no warnings, and CoGraph keeps the first 64 KB of what an analyzer writes.
 - **Pull request copies hold regular files only.** The copy CoGraph makes of a pull request's
   head and base wrote a committed symlink to disk as a symlink, and a pull request picks the
   link's target, so it could point at a file outside the copy. Symlinks and submodule entries
   are no longer copied. This is hardening: there is no known exploit in shipped code. The file
   list handed to the analyzers already left links out, and the only reader that followed one
   was the Python analyzer's fallback walk, which runs when that list cannot be written.
+- **Pull request copies run no filters.** The copy was made with `git checkout-index`, which
+  applies the commit's own `.gitattributes`. Where git-lfs is set up (`filter.lfs.*` in git
+  config, which `git lfs install` and some packages do), a pull request from anyone, forks
+  included, could mark a source file as LFS content and name a server in `.lfsconfig`. Opening
+  that pull request in CoGraph then made git-lfs call the server and wrote its bytes into the
+  copy, so the graph and the structural diff showed code that is in no commit. No credentials
+  were sent, but the request showed the machine's address, could reach hosts only that machine
+  can reach, and could fail the copy. Any other filter in your git config could be selected the
+  same way. The copy now reads each blob from git's object store and writes it itself, so
+  attributes, filters and line-ending rules do not apply. Line numbers match a checkout, but a
+  source file kept in LFS now appears as its pointer text, and files are no longer executable
+  in the copy. Copies made by earlier versions are made again.
+- **A file name cannot make an analyzer read outside the project.** A name holding a line break
+  became two lines of the analyzers' file list, and the second line could be any path. This
+  needs a commit with such a name and an attacker who knows the target's path, and it reads
+  source files only: their function, import and call names and their absolute path entered the
+  graph, not their bodies. It was reachable from pull request copies and from a local checkout
+  of such a branch; whether Git hosts accept such a name on push is not known. Such names now
+  stay out of the list and out of the copy, and every analyzer refuses a listed path outside
+  its root. A file of another workspace folder is therefore no longer added to this graph on save.
+- **A remote's name is no longer read as an option.** A remote named like `--upload-pack=...`
+  ran that command on `git fetch` when a pull request was opened. Only your own `.git/config`
+  can define one, so this is hardening.
 
 ## [1.4.2] - 2026-10-27
 

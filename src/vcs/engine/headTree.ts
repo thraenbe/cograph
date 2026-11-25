@@ -3,7 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DECLARED_TRACKED } from '../../projectScope';
 import { isAnalyzablePath } from '../../structureScanner';
-import type { Exec, ExecResult } from '../ghCliSource';
+import type { Exec, ExecOptions, ExecResult } from '../ghCliSource';
+import { BlobWriter } from './blobWriter';
+import type { TreeFile } from './blobWriter';
 
 /**
  * Materialise a commit of the user's repository into a directory of its own, so
@@ -12,9 +14,10 @@ import type { Exec, ExecResult } from '../ghCliSource';
  * Only the files the graph can show are copied (the caller says which, usually
  * `isAnalyzablePath`): every analyzer parses files one by one and reads no
  * manifest, so a source-only copy analyses exactly like the full tree. The copy
- * is made with git alone (`read-tree` into a temporary index, then
- * `checkout-index --prefix`): no tar, no `git worktree` entry, and the real
- * index is never written.
+ * is written from git's object store (`git cat-file --batch`), never checked out:
+ * a checkout runs whatever the commit's own `.gitattributes` select, git-lfs
+ * included, so a pull request would choose what lands here. No tar, no
+ * `git worktree` entry, and the real index is never written.
  *
  * No vscode import. The VS Code caller supplies the storage directory, the
  * exec, progress and cancellation.
@@ -43,7 +46,7 @@ export const DEFAULT_BUDGET: TreeBudget = { maxTrees: 6, maxBytes: 400 * 1024 * 
 export const MAX_TREE_FILES = 50_000;
 const MARKER = '.cograph-tree.json';
 /** Bumped when a copy's contents change meaning: a marker of any other format is not reused. */
-const TREE_FORMAT = 2;
+const TREE_FORMAT = 3;
 
 export interface HeadTreeDeps {
   /** Top level of the user's repository. */
@@ -142,7 +145,7 @@ function throwFor(res: ExecResult, what: string): never {
 }
 
 /** Run git under the cancellation signal: never starts after a cancel, the child is killed on one, and a cancel is never mistaken for a git failure. */
-async function git(deps: HeadTreeDeps, args: string[], opts?: { env?: Record<string, string>; stdin?: string; timeoutMs?: number }): Promise<ExecResult> {
+async function git(deps: HeadTreeDeps, args: string[], opts?: Omit<ExecOptions, 'signal'>): Promise<ExecResult> {
   if (deps.signal?.aborted) { throw new HeadTreeError('cancelled', 'Cancelled.'); }
   const res = await deps.exec('git', args, deps.repoRoot, { ...opts, ...(deps.signal ? { signal: deps.signal } : {}) });
   if (deps.signal?.aborted) { throw new HeadTreeError('cancelled', 'Cancelled.'); }
@@ -161,7 +164,8 @@ export function branchRefs(branch: string, tip: string): TreeRef[] {
 
 /** `git fetch <remote> +<refspec>`, then the sha it resolved to. */
 async function fetchInto(deps: HeadTreeDeps, remote: string, src: string, dst: string, what: string): Promise<string> {
-  const fetched = await git(deps, ['fetch', '--no-tags', '--quiet', remote, `+${src}:${dst}`], { timeoutMs: 120_000 });
+  // `--`: a remote's name is data, and one spelled `--upload-pack=...` would otherwise run as an option.
+  const fetched = await git(deps, ['fetch', '--no-tags', '--quiet', '--', remote, `+${src}:${dst}`], { timeoutMs: 120_000 });
   if (fetched.code !== 0) { throwFor(fetched, what); }
   const sha = await git(deps, ['rev-parse', '--verify', `${dst}^{commit}`]);
   if (sha.code !== 0) { throwFor(sha, what); }
@@ -174,9 +178,14 @@ export async function fetchPullRequestHead(deps: HeadTreeDeps, prNumber: number,
   return fetchInto(deps, remote, `refs/pull/${prNumber}/head`, pullRequestRef(prNumber), `Pull request #${prNumber}`);
 }
 
+/** A branch name this engine passes to git: a name is data, and one spelled `--upload-pack=...` must never read as an option. */
+export function isBranchName(branch: string): boolean {
+  return /^[\w./-]+$/.test(branch) && !branch.startsWith('-');
+}
+
 /** Fetch a branch tip from the remote; returns its sha. */
 export async function fetchBranch(deps: HeadTreeDeps, branch: string, remote = 'origin'): Promise<string> {
-  if (!/^[\w./-]+$/.test(branch) || branch.startsWith('-')) { throw new HeadTreeError('error', `"${branch}" is not a branch name.`); }
+  if (!isBranchName(branch)) { throw new HeadTreeError('error', `"${branch}" is not a branch name.`); }
   return fetchInto(deps, remote, `refs/heads/${branch}`, branchRef(branch), `Branch ${branch}`);
 }
 
@@ -280,21 +289,49 @@ function writeMarker(dir: string, marker: TreeMarker): void {
 }
 
 /**
- * Repository-relative POSIX paths of the commit the caller wants copied: regular files only
- * (modes 100644, 100755). A symlink (120000) stays out because the commit picks its target, and
- * in the copy it would read a file of this machine; a gitlink (160000) has nothing to copy.
+ * A path with a control character stays out of a copy: a newline would make it two lines of the
+ * analyzers' file list, and the second line is a path the commit picks. A tab splits no list, and
+ * a checkout analyses such a file.
  */
-async function listFiles(deps: HeadTreeDeps, sha: string): Promise<string[]> {
+export function copyRefusesPath(file: string): boolean {
+  return /(?!\t)\p{Cc}/u.test(file);
+}
+
+/**
+ * The files of the commit the caller wants copied: regular files only (modes 100644, 100755). A
+ * symlink (120000) stays out because the commit picks its target, and in the copy it would read a
+ * file of this machine; a gitlink (160000) has nothing to copy. A name `copyRefusesPath` refuses
+ * stays out too.
+ */
+async function listFiles(deps: HeadTreeDeps, sha: string): Promise<TreeFile[]> {
   const res = await git(deps, ['ls-tree', '-r', '-z', sha]);
   if (res.code !== 0) { throwFor(res, `Commit ${sha.slice(0, 7)}`); }
   const keep = deps.keep ?? analyzerKeepsPath;
-  const files: string[] = [];
+  const files: TreeFile[] = [];
+  let refused = 0;
   for (const entry of res.stdout.split('\0')) {
     // `<mode> <type> <object>\t<path>`: the first tab ends the metadata, a path may hold more.
-    const file = entry.slice(entry.indexOf('\t') + 1);
-    if (entry.startsWith('100') && keep(file)) { files.push(file); }
+    const tab = entry.indexOf('\t');
+    const file = entry.slice(tab + 1);
+    if (!entry.startsWith('100') || !keep(file)) { continue; }
+    if (copyRefusesPath(file)) { refused++; continue; }
+    files.push({ oid: entry.slice(entry.lastIndexOf(' ', tab) + 1, tab), file });
   }
+  if (refused) { deps.log?.(`[vcs] commit ${sha.slice(0, 7)}: ${refused} paths with control characters left out of the copy`); }
   return files;
+}
+
+/** Write each file's blob under `dir`, from the object store: nothing a commit's attributes select runs. */
+async function copyBlobs(deps: HeadTreeDeps, sha: string, dir: string, files: TreeFile[]): Promise<void> {
+  const commit = `Commit ${sha.slice(0, 7)}`;
+  const writer = new BlobWriter(dir, files);
+  try {
+    const out = await git(deps, ['cat-file', '--batch', '--buffer'], {
+      stdin: files.map(f => `${f.oid}\n`).join(''), timeoutMs: 300_000, onStdout: (chunk) => writer.push(chunk),
+    });
+    if (out.code !== 0) { throwFor(out, commit); }
+    if (!writer.complete) { throw new HeadTreeError('fetch-failed', `${commit} could not be fetched.`, 'git stopped before the last file'); }
+  } finally { writer.close(); }
 }
 
 function dirBytes(dir: string): number {
@@ -337,23 +374,17 @@ export async function materializeCommit(deps: HeadTreeDeps, sha: string, refs: T
   fs.mkdirSync(dir, { recursive: true });
   const indexFile = path.join(path.dirname(dir), `.index-${sha.slice(0, 12)}-${process.pid}`);
   try {
-    const env = { GIT_INDEX_FILE: indexFile };
-    const read = await git(deps, ['read-tree', sha], { env });
+    // Nothing is checked out of this index: read-tree is git's own check of a commit's paths.
+    // `ls-tree` lists `../x`, `/x` and `.git/x` without complaint; here git refuses them, by its platform's rules.
+    const read = await git(deps, ['read-tree', sha], { env: { GIT_INDEX_FILE: indexFile } });
     if (read.code !== 0) { throwFor(read, `Commit ${sha.slice(0, 7)}`); }
-    if (files.length) {
-      // --prefix must end in a slash; git wants forward slashes in it on every platform.
-      const prefix = dir.replace(/\\/g, '/').replace(/\/+$/, '') + '/';
-      const out = await git(deps, ['checkout-index', '--force', '--quiet', `--prefix=${prefix}`, '--stdin', '-z'], {
-        env, stdin: files.join('\0') + '\0', timeoutMs: 300_000,
-      });
-      if (out.code !== 0) { throwFor(out, `Commit ${sha.slice(0, 7)}`); }
-    }
+    if (files.length) { await copyBlobs(deps, sha, dir, files); }
     if (deps.signal?.aborted) { throw new HeadTreeError('cancelled', 'Cancelled.'); }
     // The copy has no .git: it declares what the commit tracks, so the scanner's git-aware rule
     // (build output only where tracked) sees the commit exactly as a checkout of it would.
     // Written whole: tmp + rename, so a reader never sees a partial list.
     const declaration = path.join(dir, DECLARED_TRACKED);
-    fs.writeFileSync(`${declaration}.tmp`, files.join('\0'), 'utf8');
+    fs.writeFileSync(`${declaration}.tmp`, files.map(f => f.file).join('\0'), 'utf8');
     fs.renameSync(`${declaration}.tmp`, declaration);
   } catch (err) {
     fs.rmSync(dir, { recursive: true, force: true });

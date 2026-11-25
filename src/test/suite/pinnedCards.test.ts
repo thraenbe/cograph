@@ -456,9 +456,10 @@ suite('pinned cards: wiring', () => {
   });
 
   test('loaded after its dependencies; the legend explains the ring and the trail in one line', () => {
-    const html = fs.readFileSync(path.resolve(SRC, '../webviewHtmlBuilder.ts'), 'utf8');
-    const at = (name: string) => html.indexOf(`src="\${${name}}?v=`);
-    assert.ok(at('pinnedCardsUri') > at('hoverCardUri') && at('pinnedCardsUri') > at('funcCardUri') && at('pinnedCardsUri') > at('fnNamesUri'));
+    // stagePage.ts lists the stage's scripts in load order for every page.
+    const html = fs.readFileSync(path.resolve(SRC, '../stagePage.ts'), 'utf8');
+    const at = (name: string) => html.indexOf(`'${name}'`);
+    assert.ok(at('pinnedCards.js') > at('hoverCard.js') && at('pinnedCards.js') > at('funcCard.js') && at('pinnedCards.js') > at('fnNames.js'));
     const legend = fs.readFileSync(path.resolve(SRC, '../webviewLegend.ts'), 'utf8');
     assert.ok(legend.includes("label: 'Pinned function (its card stays open, older pins fade)'"));
   });

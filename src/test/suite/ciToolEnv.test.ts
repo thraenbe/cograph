@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { gitExec, resolveGit, toolEnv } from '../../ci/toolEnv';
+import { envValue, gitExec, resolveGit, toolEnv } from '../../ci/toolEnv';
 import { defaultExec } from '../../vcs/ghCliSource';
 import { tempDir } from '../ciRepo';
 
@@ -23,6 +23,18 @@ suite('ci tool environment', () => {
     assert.deepStrictEqual(toolEnv(job), {
       GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0', COGRAPH_PYTHON_MEMORY_MB: '2800', PATH: '/bin', HOME: '/home/runner', LANG: 'C.UTF-8',
     });
+  });
+
+  test('REGRESSION (Windows): a copy of the environment names PATH as Path, and git is still found', () => {
+    assert.strictEqual(envValue({ Path: 'C:\\Git\\cmd' }, 'PATH', 'win32'), 'C:\\Git\\cmd');
+    assert.strictEqual(envValue({ SystemRoot: 'C:\\Windows' }, 'SYSTEMROOT', 'win32'), 'C:\\Windows');
+    assert.strictEqual(envValue({ Path: '/bin' }, 'PATH', 'linux'), undefined, 'case counts on other platforms');
+    assert.strictEqual(envValue({ PATH: '/bin', Path: '/x' }, 'PATH', 'win32'), '/bin', 'the exact name wins');
+    if (process.platform === 'win32') {
+      const copy = { ...process.env };
+      assert.ok(resolveGit(copy), 'fetchExec passes such a copy');
+      assert.ok(toolEnv(copy).PATH);
+    }
   });
 
   test('the job cannot switch the lazy fetch back on', () => {

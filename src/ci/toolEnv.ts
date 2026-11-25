@@ -14,6 +14,17 @@ import type { Exec } from '../vcs/ghCliSource';
 
 const KEPT = ['PATH', 'HOME', 'USERPROFILE', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'TEMP', 'TMP', 'SYSTEMROOT', 'WINDIR', 'PATHEXT'];
 
+/**
+ * `env[key]`, by any case of the name on Windows. process.env finds `Path` as `PATH` there, but a copy
+ * of it (`{ ...process.env }`) is a plain object that keeps the variable's own case, and the
+ * GitHub Windows runner names it `Path`.
+ */
+export function envValue(env: NodeJS.ProcessEnv, key: string, platform: NodeJS.Platform = process.platform): string | undefined {
+  if (env[key] !== undefined || platform !== 'win32') { return env[key]; }
+  const name = Object.keys(env).find(k => k.toUpperCase() === key.toUpperCase());
+  return name === undefined ? undefined : env[name];
+}
+
 export function toolEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     GIT_NO_LAZY_FETCH: '1',   // `build` makes no network call: what `fetch` did not bring fails the copy (git 2.45 and up)
@@ -21,7 +32,8 @@ export function toolEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
     COGRAPH_PYTHON_MEMORY_MB: '2800', // a bound the parent's output cap cannot give: the memory is in the analyzer, not the pipe
   };
   for (const key of KEPT) {
-    if (from[key] !== undefined) { env[key] = from[key]; }
+    const value = envValue(from, key);
+    if (value !== undefined) { env[key] = value; }
   }
   return env;
 }
@@ -32,7 +44,7 @@ export function toolEnv(from: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEn
  */
 export function resolveGit(env: NodeJS.ProcessEnv = process.env): string | null {
   const name = process.platform === 'win32' ? 'git.exe' : 'git';
-  for (const dir of (env.PATH ?? '').split(path.delimiter)) {
+  for (const dir of (envValue(env, 'PATH') ?? '').split(path.delimiter)) {
     if (!path.isAbsolute(dir)) { continue; }
     const candidate = path.join(dir, name);
     try {

@@ -119,6 +119,8 @@ suite('tour — registerTour', () => {
 
   test('REGRESSION: with the package and a folder but no storage, the same', async () => {
     (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: extRoot } }];
+    // The pill's git calls would run in that folder and hold it open on Windows (EBUSY in teardown); not this test's subject.
+    sandbox.stub(TourAvailability.prototype, 'refresh').resolves();
     sandbox.stub(vscode.workspace, 'createFileSystemWatcher').returns({ onDidChange: () => ({ dispose: () => undefined }), onDidCreate: () => ({ dispose: () => undefined }), onDidDelete: () => ({ dispose: () => undefined }), dispose: () => undefined } as any);
     const info = sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined as any);
     wire({ bundled: true });

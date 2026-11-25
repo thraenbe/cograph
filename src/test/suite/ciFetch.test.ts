@@ -116,6 +116,30 @@ suite('ci fetch: ensureCommits on real remotes', function () {
     assert.strictEqual(fetchesOf(rec.calls).filter(a => a.some(x => x.startsWith('--deepen='))).length, 0);
   });
 
+  test('a shallow boundary whose parents are all here is the end of the history: no deepening (git 2.56.1)', async () => {
+    sh(origin.work, ['switch', '--quiet', '--orphan', 'island']);
+    const lone = commit(origin.work, { 'lone.py': 'def l():\n    pass\n' }, 'island');
+    sh(origin.work, ['switch', '--quiet', 'main']);
+    push(origin, 'island');
+    const merge = sh(origin.work, ['commit-tree', `${lone}^{tree}`, '-p', tip, '-p', lone, '-m', 'merge']);
+    push(origin, `${merge}:refs/pull/1/merge`);
+    const repo = clone(root, origin, '--no-single-branch');
+    sh(repo, ['fetch', '--quiet', '--no-tags', 'origin', 'refs/pull/1/merge']);
+    // What git 2.56.1 can leave: the whole history, and the checkout's merge commit still listed as shallow.
+    fs.writeFileSync(path.join(repo, '.git', 'shallow'), `${merge}\n`);
+    assert.ok(isShallow(repo));
+    const { done, rec } = run(repo, { head: lone, headRef: 'island' });
+    assert.deepStrictEqual(await done, { head: lone, mergeBase: null, targetTip: tip });
+    assert.strictEqual(fetchesOf(rec.calls).filter(a => a.some(x => x.startsWith('--deepen='))).length, 0);
+  });
+
+  test('a boundary commit with a parent that is not here: deepening goes on', async () => {
+    const repo = mergeCheckout(root, origin, head, tip);
+    const { done, rec } = run(repo);
+    await done;
+    assert.ok(fetchesOf(rec.calls).some(a => a.some(x => x.startsWith('--deepen='))), 'the default checkout still deepens to the fork point');
+  });
+
   test('out of budget: no deepening starts, and the tour goes on head-only', async () => {
     const repo = mergeCheckout(root, origin, head, tip);
     const { done, rec } = run(repo, { budgetMs: 0 });

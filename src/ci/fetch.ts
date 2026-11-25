@@ -96,24 +96,29 @@ async function isShallow(ctx: Ctx): Promise<boolean> {
 }
 
 /**
- * Nothing more can come by deepening: the repository is not shallow, or every commit on its shallow
- * boundary is a root (its own object names no parent). Git 2.56.1, on the GitHub runners, keeps a
- * root that came at depth 1 in .git/shallow after the rest of the history came, so a shallow flag
- * alone would deepen to the last round.
+ * Nothing more can come by deepening: the repository is not shallow, or every parent of every commit
+ * on its shallow boundary is already here (a root has none). Git 2.56.1, on the GitHub runners, keeps
+ * boundary commits in .git/shallow after the history behind them came, so a shallow flag alone would
+ * deepen to the last round.
  */
 async function historyEnded(ctx: Ctx): Promise<boolean> {
   if (!await isShallow(ctx)) { return true; }
   const file = (await ctx.run(['rev-parse', '--git-path', 'shallow'])).stdout.trim();
-  let ids: string[];
+  let boundary: string[];
   try {
-    ids = fs.readFileSync(path.resolve(ctx.root, file), 'utf8').split('\n').map(l => l.trim()).filter(l => FULL_ID.test(l));
+    boundary = fs.readFileSync(path.resolve(ctx.root, file), 'utf8').split('\n').map(l => l.trim()).filter(l => FULL_ID.test(l));
   } catch {
     return false;
   }
-  if (ids.length === 0) { return false; }
-  const raw = await ctx.run(['cat-file', '--batch'], { stdin: `${ids.join('\n')}\n` });
+  if (boundary.length === 0) { return false; }
+  // The commits' own objects name their parents, which the shallow graft hides from rev-list.
+  const raw = await ctx.run(['cat-file', '--batch'], { stdin: `${boundary.join('\n')}\n` });
+  if (raw.code !== 0) { return false; }
+  const parents = [...new Set([...raw.stdout.matchAll(/^parent ([0-9a-f]{40,64})$/gm)].map(m => m[1]))];
+  if (parents.length === 0) { return true; }
   // A message line that happens to read `parent <id>` only costs one more round.
-  return raw.code === 0 && !/^parent [0-9a-f]{40,64}$/m.test(raw.stdout);
+  const have = await ctx.run(['cat-file', '--batch'], { stdin: `${parents.join('\n')}\n` });
+  return have.code === 0 && !/ missing$/m.test(have.stdout);
 }
 
 /** `--depth=1`, unless this is a complete clone. A repository with no commit yet (`git init`, then fetch) is not one. */

@@ -32,16 +32,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hooks for a guided view of the graph** (`window.stageApi`): camera fits that leave room for
   overlays, a spotlight, a pulse, ghost nodes for removed functions, overlay edges, folder
   expansion and hiding the controls. Documented in `docs/tour-protocol.md`.
+- **Constructor calls are edges in TypeScript, JavaScript and C++.** `new X(…)` links the caller to
+  X's declared constructor, and `super(…)` (C++: a base-class initializer) links a constructor to
+  its base class's. A class without its own constructor links to the nearest base constructor up
+  `extends`. `new X()` on a parameter or local named like a class adds no edge. Nodes are
+  unchanged; graphs gain edges (nest +8.7 %, zod +6.5 %, fmt +0.6 %). Java has had constructor
+  edges since 1.4.4.
+- **Names on a guided view** (`stageApi.labels`): a step names its functions and files whole,
+  placed so they do not collide, and overlay edges end in an arrowhead.
 
 ### Changed
 - The analyzer subprocesses can be run without VS Code (`src/analyzerSpawn.ts`); the extension's
   analysis is unchanged.
+- **File names in the folder view follow the zoom.** A name grows to 13 px on screen, shrinks to
+  11 px before anything is cut, and is then cut from the middle, so it keeps its start and its end.
+  The function count and the ↗ cue give way to the whole name.
+- The graph cache records the analyzer generation: after this upgrade, the first open re-analyses
+  the workspace once instead of showing edges from the previous analyzers.
 
 ### Fixed
 - **One broken Python file no longer takes Python out of the graph.** The Python analyzer caught
   only syntax errors, so deep code that exhausts the parser, such as a very long sum, or a listed
   file that had gone, ended the whole run with no output. It now skips that file and goes on.
   Every analyzer counts what it skipped and the log says how many.
+- **A function's range ends at its closing brace** (TypeScript, JavaScript, Vue/Svelte script
+  blocks, Python), no longer at the next definition or the end of the file. A line added after the
+  last function of a file, or a class header after the last method of the class before it, no
+  longer marks that function modified in the git colours, and the Version Control view no longer
+  lists it as changed. Lines of a function after a nested function still count for the enclosing
+  function, and Python decorators count for the function they decorate. Java, C and C++ keep the
+  previous rule for now.
+- **A call of a parameter or a local value is no longer linked by name** (Python, JavaScript,
+  TypeScript). `f(…)` where `f` is a parameter or a local variable of the caller linked it to every
+  function named `f` in the workspace. It now adds no edge; only such false edges go.
 
 ## [1.4.4] - 2026-11-12
 

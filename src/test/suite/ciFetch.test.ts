@@ -95,9 +95,25 @@ suite('ci fetch: ensureCommits on real remotes', function () {
     const logged: string[] = [];
     const { done, rec } = run(repo, { head: lone, headRef: 'island', log: l => logged.push(l) });
     assert.deepStrictEqual(await done, { head: lone, mergeBase: null, targetTip: tip });
-    assert.ok(!isShallow(repo), 'the history ended');
+    // The whole history is here. Git 2.56.1 may still call the repository shallow: it keeps the root `lone` in .git/shallow.
+    assert.strictEqual(count(repo, tip), 103, 'all of main came');
+    assert.strictEqual(count(repo, lone), 1);
     assert.ok(fetchesOf(rec.calls).filter(a => a.some(x => x.startsWith('--deepen='))).length <= 2, 'it stops when the history does, not after eight rounds');
     assert.ok(logged.some(l => l.includes('no merge base')), logged.join('|'));
+  });
+
+  test('a shallow boundary of roots only is the end of the history: no deepening (git 2.56.1)', async () => {
+    sh(origin.work, ['switch', '--quiet', '--orphan', 'island']);
+    const lone = commit(origin.work, { 'lone.py': 'def l():\n    pass\n' }, 'island');
+    sh(origin.work, ['switch', '--quiet', 'main']);
+    push(origin, 'island');
+    const repo = clone(root, origin, '--no-single-branch');
+    // What git 2.56.1 leaves behind: the whole history, and a root still listed as shallow.
+    fs.writeFileSync(path.join(repo, '.git', 'shallow'), `${lone}\n`);
+    assert.ok(isShallow(repo));
+    const { done, rec } = run(repo, { head: lone, headRef: 'island' });
+    assert.deepStrictEqual(await done, { head: lone, mergeBase: null, targetTip: tip });
+    assert.strictEqual(fetchesOf(rec.calls).filter(a => a.some(x => x.startsWith('--deepen='))).length, 0);
   });
 
   test('out of budget: no deepening starts, and the tour goes on head-only', async () => {
@@ -261,7 +277,7 @@ suite('ci fetch: ensureCommits on real remotes', function () {
       const repo = mergeCheckout(root, origin, head, tip);
       const { done, rec } = run(repo);
       await done;
-      assert.ok(!rec.calls.some(a => a[0] === 'cat-file'));
+      assert.ok(!rec.calls.some(a => a[0] === 'cat-file' && a.includes('--batch-check')), 'no blob is looked up');
       assert.ok(!fetchesOf(rec.calls).some(a => a.includes('--stdin')));
     });
 

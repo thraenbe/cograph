@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { HeadTreeError, isBranchName } from '../vcs/engine/headTree';
 import type { Exec, ExecOptions, ExecResult } from '../vcs/ghCliSource';
 import { fetchMissingBlobs } from './partialClone';
@@ -54,6 +56,7 @@ export function fetchExec(): Exec {
 
 interface Ctx {
   run: (args: string[], opts?: Omit<ExecOptions, 'signal'>) => Promise<ExecResult>;
+  root: string;
   remote: string;
   log: (line: string) => void;
   deadline: number;
@@ -69,6 +72,7 @@ function context(opts: EnsureCommitsOptions): Ctx {
   const exec = opts.exec ?? fetchExec();
   return {
     remote: opts.remote ?? 'origin',
+    root: opts.repoRoot,
     log: opts.log ?? (() => undefined),
     deadline: Date.now() + (opts.budgetMs ?? BUDGET_MS),
     run: async (args, runOpts) => {
@@ -89,6 +93,27 @@ async function commitOf(ctx: Ctx, rev: string): Promise<string | null> {
 
 async function isShallow(ctx: Ctx): Promise<boolean> {
   return (await ctx.run(['rev-parse', '--is-shallow-repository'])).stdout.trim() === 'true';
+}
+
+/**
+ * Nothing more can come by deepening: the repository is not shallow, or every commit on its shallow
+ * boundary is a root (its own object names no parent). Git 2.56.1, on the GitHub runners, keeps a
+ * root that came at depth 1 in .git/shallow after the rest of the history came, so a shallow flag
+ * alone would deepen to the last round.
+ */
+async function historyEnded(ctx: Ctx): Promise<boolean> {
+  if (!await isShallow(ctx)) { return true; }
+  const file = (await ctx.run(['rev-parse', '--git-path', 'shallow'])).stdout.trim();
+  let ids: string[];
+  try {
+    ids = fs.readFileSync(path.resolve(ctx.root, file), 'utf8').split('\n').map(l => l.trim()).filter(l => FULL_ID.test(l));
+  } catch {
+    return false;
+  }
+  if (ids.length === 0) { return false; }
+  const raw = await ctx.run(['cat-file', '--batch'], { stdin: `${ids.join('\n')}\n` });
+  // A message line that happens to read `parent <id>` only costs one more round.
+  return raw.code === 0 && !/^parent [0-9a-f]{40,64}$/m.test(raw.stdout);
 }
 
 /** `--depth=1`, unless this is a complete clone. A repository with no commit yet (`git init`, then fetch) is not one. */
@@ -153,7 +178,7 @@ async function findMergeBase(ctx: Ctx, head: string, base: string, branches: Arr
   let step = FIRST_DEEPEN;
   let found = await mergeBaseOf(ctx, head, base);
   for (let round = 0; !found && round < DEEPEN_ROUNDS; round++) {
-    if (Date.now() >= ctx.deadline || !await isShallow(ctx) || !await deepen(ctx, step, [head, base], branches)) { break; }
+    if (Date.now() >= ctx.deadline || await historyEnded(ctx) || !await deepen(ctx, step, [head, base], branches)) { break; }
     found = await mergeBaseOf(ctx, head, base);
     step *= 4;
   }

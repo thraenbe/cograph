@@ -37,7 +37,8 @@ const STAGE_CSS = `
   .file-slot.stage-label-covered .file-slot-label { visibility: hidden; }
   .stage-overlay .stage-label { fill: var(--vscode-foreground, #ddd); stroke: var(--vscode-editor-background, #1e1e1e); paint-order: stroke; stroke-linejoin: round; font-family: var(--vscode-font-family, system-ui, sans-serif); font-weight: 600; }
   body.stage-chrome-off #top-left-controls, body.stage-chrome-off #pr-view-banner,
-  body.stage-chrome-off #settings-btn, body.stage-chrome-off #settings-panel, body.stage-chrome-off #tour-pill { display: none !important; }
+  body.stage-chrome-off #settings-btn, body.stage-chrome-off #settings-panel, body.stage-chrome-off #tour-pill,
+  body.stage-chrome-off #search-bar { display: none !important; }
 `;
 
 const STAGE_SVG_NS = 'http://www.w3.org/2000/svg';

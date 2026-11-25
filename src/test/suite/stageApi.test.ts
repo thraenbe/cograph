@@ -308,7 +308,7 @@ suite('stageApi — the tour\'s hooks into the graph view', () => {
     assert.strictEqual(s.doc.body.classList.contains('stage-chrome-off'), true, 'works before ready too');
     s.api.chrome(true);
     assert.strictEqual(s.doc.body.classList.contains('stage-chrome-off'), false);
-    for (const id of ['#top-left-controls', '#pr-view-banner', '#settings-btn']) { assert.ok(sa.STAGE_CSS.includes(`body.stage-chrome-off ${id}`), id); }
+    for (const id of ['#top-left-controls', '#pr-view-banner', '#settings-btn', '#search-bar']) { assert.ok(sa.STAGE_CSS.includes(`body.stage-chrome-off ${id}`), id); }
   });
 
   test('resolve maps repo-relative or absolute files, names and nearest lines to ids; theme and nodes', () => {

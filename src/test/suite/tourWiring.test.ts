@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
+import { killRunningChildren } from '../../childProcesses';
 import { TourAvailability } from '../../tour/tourAvailability';
 import { NO_FOLDER_SENTENCE, NO_STORAGE_SENTENCE, TourRunner } from '../../tour/tourCommand';
 import { registerTour } from '../../tour/tourWiring';
@@ -82,7 +83,9 @@ suite('tour — registerTour', () => {
   });
   teardown(() => {
     sandbox.restore();
-    fs.rmSync(extRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); // Windows: a handle closes late
+    // Windows: a git the commands started may still hold the folder as its cwd. End it, then retry the removal.
+    killRunningChildren('SIGKILL');
+    fs.rmSync(extRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
   });
 
   const branchPill = { type: 'tour-availability', state: 'branch', branch: 'feat', baseRef: 'master', label: 'feat vs master · 3 commits · 1 file', counts: { commits: 3, files: 1 } } as const;

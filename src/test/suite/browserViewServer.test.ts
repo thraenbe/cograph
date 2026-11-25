@@ -218,6 +218,8 @@ suite('browserView: BrowserServer', () => {
     await new Promise<void>(r => host.listen(0, '127.0.0.1', () => r()));
     try {
       await assert.rejects(request((host.address() as { port: number }).port, { path: '/' }));
+      // pipeline() calls back after it destroyed the response, so the client can see the reset first (Windows).
+      for (let i = 0; i < 100 && errors.length === 0; i++) { await new Promise(r => setTimeout(r, 20)); }
       assert.deepStrictEqual(errors, ['ENOENT']);
     } finally {
       host.close();

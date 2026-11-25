@@ -19,6 +19,17 @@ export function sh(cwd: string, args: string[], input?: string | Buffer, env?: R
   return cp.execFileSync('git', args, { cwd, input, encoding: 'utf8', env: { ...process.env, ...GIT_ENV, ...env }, maxBuffer: 1 << 28, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 }
 
+/**
+ * No automatic gc or maintenance in these repositories: git 2.56 starts one in the background after a
+ * large fetch or a pile of commits, and it is still writing under .git/objects when the suite removes
+ * the temp dir (ENOTEMPTY on the GitHub runner).
+ */
+const QUIET_GIT = [['gc.auto', '0'], ['maintenance.auto', 'false']];
+
+function quiet(repo: string): void {
+  for (const [key, value] of QUIET_GIT) { sh(repo, ['config', key, value]); }
+}
+
 export function tempDir(prefix: string): string {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
@@ -37,7 +48,9 @@ export function makeOrigin(root: string): Origin {
   fs.mkdirSync(work);
   sh(root, ['init', '--quiet', '--bare', '-b', 'main', bare]);
   for (const [key, value] of [['uploadpack.allowAnySHA1InWant', 'true'], ['uploadpack.allowFilter', 'true']]) { sh(bare, ['config', key, value]); }
+  quiet(bare);
   sh(work, ['init', '--quiet', '-b', 'main']);
+  quiet(work);
   sh(work, ['remote', 'add', 'origin', bare]);
   return { bare, url: `file://${bare}`, work };
 }
@@ -83,6 +96,7 @@ export function mergeCheckout(root: string, origin: Origin, head: string, base: 
 export function emptyCheckout(root: string, origin: Origin, fetch: string[], checkout?: string): string {
   const dir = fs.mkdtempSync(path.join(root, 'checkout-'));
   sh(dir, ['init', '--quiet']);
+  quiet(dir);
   sh(dir, ['remote', 'add', 'origin', origin.url]);
   sh(dir, ['fetch', '--quiet', '--no-tags', ...fetch]);
   if (checkout) { sh(dir, ['checkout', '--quiet', '--detach', checkout]); }
@@ -92,6 +106,6 @@ export function emptyCheckout(root: string, origin: Origin, fetch: string[], che
 /** `git clone` with these flags. */
 export function clone(root: string, origin: Origin, ...flags: string[]): string {
   const dir = fs.mkdtempSync(path.join(root, 'clone-'));
-  sh(root, ['clone', '--quiet', ...flags, origin.url, dir]);
+  sh(root, ['clone', '--quiet', ...QUIET_GIT.flatMap(([k, v]) => ['--config', `${k}=${v}`]), ...flags, origin.url, dir]);
   return dir;
 }
